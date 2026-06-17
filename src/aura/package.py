@@ -203,10 +203,29 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
         )
         if outside:
             raise ValueError(f"chunk {chunk.id} bounds do not contain elements: {', '.join(outside)}")
+    semantic_element_owners: dict[str, str] = {}
     for node in package.scene.semantic_graph.nodes:
-        missing = sorted(set(node.element_ids).difference(element_ids))
+        node_element_ids = tuple(str(element_id) for element_id in node.element_ids)
+        unique_node_element_ids = set(node_element_ids)
+        if len(unique_node_element_ids) != len(node_element_ids):
+            duplicates = sorted(_duplicate_values(node_element_ids))
+            raise ValueError(f"semantic node {node.id} contains duplicate elements: {', '.join(duplicates)}")
+        missing = sorted(unique_node_element_ids.difference(element_ids))
         if missing:
             raise ValueError(f"semantic node {node.id} references unknown elements: {', '.join(missing)}")
+        duplicate_owners = sorted(
+            element_id
+            for element_id in unique_node_element_ids
+            if element_id in semantic_element_owners
+        )
+        if duplicate_owners:
+            details = ", ".join(
+                f"{element_id} ({semantic_element_owners[element_id]}, {node.id})"
+                for element_id in duplicate_owners
+            )
+            raise ValueError(f"semantic graph assigns elements to multiple nodes: {details}")
+        for element_id in unique_node_element_ids:
+            semantic_element_owners[element_id] = node.id
     if manifest is not None and "chunks" in manifest:
         manifest_chunks = sorted(str(item) for item in manifest["chunks"])
         scene_chunks = package.scene.chunk_ids()
@@ -267,6 +286,16 @@ def _bounds_contain(outer: Bounds, inner: Bounds) -> bool:
         outer.min_corner[index] <= inner.min_corner[index] and inner.max_corner[index] <= outer.max_corner[index]
         for index in range(3)
     )
+
+
+def _duplicate_values(values: tuple[str, ...]) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates
 
 
 def _validate_element_payload(element_id: str, carrier_id: str, payload: dict) -> None:

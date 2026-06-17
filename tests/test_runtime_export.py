@@ -24,6 +24,8 @@ def test_runtime_export_report_separates_native_contract_from_fallbacks(tmp_path
     assert report["engineWorkflow"]["nativeRuntimeReady"] is True
     assert report["engineWorkflow"]["gltfPreviewReady"] is True
     assert report["engineWorkflow"]["chunkedStreamingReady"] is True
+    assert report["engineWorkflow"]["objectQueriesReady"] is True
+    assert report["engineWorkflow"]["objectEditGroupsReady"] is True
     assert report["engineWorkflow"]["requiresNativeAuraForQueries"] is True
     assert report["rayQueryContract"]["fields"] == [
         "firstHit",
@@ -45,6 +47,18 @@ def test_runtime_export_report_separates_native_contract_from_fallbacks(tmp_path
     assert report["accelerationContract"]["supportsCachedBvh"] is True
     assert report["accelerationContract"]["supportsOrderedFrontToBackCandidates"] is True
     assert report["accelerationContract"]["productionGpuTraversalReady"] is False
+    assert report["semanticObjectContract"]["objectCount"] == 2
+    assert report["semanticObjectContract"]["ownedElementCount"] == 2
+    assert report["semanticObjectContract"]["unownedElementCount"] == 5
+    assert report["semanticObjectContract"]["supportsUniqueElementOwnership"] is True
+    assert report["semanticObjectContract"]["supportsObjectRayQuery"] is True
+    assert report["semanticObjectContract"]["supportsObjectEditGroups"] is True
+    assert report["semanticObjectContract"]["supportsObjectExportMetadata"] is True
+    by_object = {item["nodeId"]: item for item in report["semanticObjectContract"]["objects"]}
+    assert by_object["object:wall"]["carrierIds"] == ["surface"]
+    assert by_object["object:wall"]["editableElementIds"] == ["surface_wall"]
+    assert by_object["object:fixture_object"]["carrierIds"] == ["semantic"]
+    assert by_object["object:fixture_object"]["editableElementIds"] == ["semantic_object"]
     by_carrier = {item["carrierId"]: item for item in report["carrierExport"]}
     assert by_carrier["gabor"]["gltfFallback"] == "texture_metadata_only_without_native_runtime"
     assert by_carrier["semantic"]["usdBridge"] == "typed_metadata_no_native_ray_query"

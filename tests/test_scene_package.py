@@ -17,6 +17,8 @@ from aura import (
     AuraScene,
     Bounds,
     Ray,
+    SemanticGraph,
+    SemanticNode,
     load_package,
     package_scene,
     validate_package,
@@ -456,6 +458,45 @@ def test_package_loader_rejects_unknown_semantic_graph_element(tmp_path):
 
     with pytest.raises(ValueError, match="semantic node"):
         load_package(tmp_path)
+
+
+def test_package_validation_rejects_duplicate_semantic_node_elements():
+    scene = AuraScene(
+        name="bad_semantic",
+        elements=(
+            AuraElement(id="surface", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),
+        ),
+        semantic_graph=SemanticGraph(
+            nodes=(
+                SemanticNode(
+                    id="object:wall",
+                    label="wall",
+                    element_ids=("surface", "surface"),
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate elements: surface"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_rejects_multi_node_semantic_ownership():
+    scene = AuraScene(
+        name="bad_semantic",
+        elements=(
+            AuraElement(id="surface", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),
+        ),
+        semantic_graph=SemanticGraph(
+            nodes=(
+                SemanticNode(id="object:wall", label="wall", element_ids=("surface",)),
+                SemanticNode(id="object:paint", label="paint", element_ids=("surface",)),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="assigns elements to multiple nodes: surface"):
+        validate_package(package_scene(scene))
 
 
 def test_package_loader_rejects_manifest_exchange_mismatch(tmp_path):

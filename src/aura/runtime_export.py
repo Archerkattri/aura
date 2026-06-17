@@ -17,6 +17,7 @@ class RuntimeExportReport:
     chunk_export: tuple[dict[str, Any], ...]
     ray_query_contract: dict[str, Any]
     acceleration_contract: dict[str, Any]
+    semantic_object_contract: dict[str, Any]
     engine_workflow: dict[str, bool]
 
     def to_dict(self) -> dict:
@@ -29,6 +30,7 @@ class RuntimeExportReport:
             "chunkExport": list(self.chunk_export),
             "rayQueryContract": self.ray_query_contract,
             "accelerationContract": self.acceleration_contract,
+            "semanticObjectContract": self.semantic_object_contract,
             "engineWorkflow": self.engine_workflow,
         }
 
@@ -52,6 +54,7 @@ def runtime_export_report(package: AuraPackage) -> RuntimeExportReport:
     }
     carrier_export = tuple(_carrier_export_entry(carrier_id) for carrier_id in carriers)
     chunk_export = _chunk_export_entries(scene)
+    semantic_object_contract = _semantic_object_contract(scene)
     return RuntimeExportReport(
         asset=package.asset.name,
         native_contract=native_contract,
@@ -60,11 +63,14 @@ def runtime_export_report(package: AuraPackage) -> RuntimeExportReport:
         chunk_export=chunk_export,
         ray_query_contract=_ray_query_contract(),
         acceleration_contract=_acceleration_contract(scene),
+        semantic_object_contract=semantic_object_contract,
         engine_workflow={
             "nativeRuntimeReady": native_contract["typedCarriers"] and native_contract["rayQuery"],
             "gltfPreviewReady": bool(package.asset.fallbacks.get("mesh") or package.asset.fallbacks.get("splat")),
             "usdMetadataReady": bool(exchange.get("usdBridge", {}).get("supports_typed_carriers")),
             "chunkedStreamingReady": bool(chunk_export),
+            "objectQueriesReady": semantic_object_contract["supportsObjectRayQuery"],
+            "objectEditGroupsReady": semantic_object_contract["supportsObjectEditGroups"],
             "requiresNativeAuraForQueries": True,
         },
     )
@@ -175,4 +181,37 @@ def _acceleration_contract(scene: Any) -> dict[str, Any]:
         "supportsOrderedFrontToBackCandidates": True,
         "supportsUnchunkedElementFallback": True,
         "productionGpuTraversalReady": False,
+    }
+
+
+def _semantic_object_contract(scene: Any) -> dict[str, Any]:
+    element_by_id = {element.id: element for element in scene.elements}
+    node_entries = []
+    owned_element_ids: set[str] = set()
+    for node in scene.semantic_graph.nodes:
+        element_ids = tuple(str(element_id) for element_id in node.element_ids)
+        owned_element_ids.update(element_ids)
+        node_elements = tuple(element_by_id[element_id] for element_id in element_ids if element_id in element_by_id)
+        editable_elements = [element.id for element in node_elements if element.edit]
+        node_entries.append(
+            {
+                "nodeId": node.id,
+                "label": node.label,
+                "elementIds": list(element_ids),
+                "elementCount": len(element_ids),
+                "carrierIds": sorted({element.carrier_id for element in node_elements}),
+                "editableElementIds": editable_elements,
+                "confidence": node.confidence,
+            }
+        )
+    return {
+        "objectCount": len(scene.semantic_graph.nodes),
+        "edgeCount": len(scene.semantic_graph.edges),
+        "ownedElementCount": len(owned_element_ids),
+        "unownedElementCount": max(0, len(scene.elements) - len(owned_element_ids)),
+        "supportsUniqueElementOwnership": True,
+        "supportsObjectRayQuery": bool(scene.semantic_graph.nodes),
+        "supportsObjectEditGroups": any(entry["editableElementIds"] for entry in node_entries),
+        "supportsObjectExportMetadata": bool(scene.semantic_graph.nodes),
+        "objects": node_entries,
     }

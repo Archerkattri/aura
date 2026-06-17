@@ -22,9 +22,12 @@ chunk element references resolving to records in `elements.json`, and each
 element `chunk_id` agreeing with the chunk that lists it. It also checks that
 manifest `carrierIds` exactly match carriers used by `elements.json`, and that
 chunk bounds contain every listed element so reference chunk/BVH culling cannot
-drop valid hits. Any non-empty element payload type must match the element
-carrier. The JSON Schema validates the payload shape for surface, volume, beta,
-gabor, neural, gaussian fallback, and semantic carriers.
+drop valid hits. Semantic graph nodes must reference known elements, may not
+repeat an element inside one node, and may not claim an element already owned by
+another node; object membership is unique so edits, queries, and exports are
+unambiguous. Any non-empty element payload type must match the element carrier.
+The JSON Schema validates the payload shape for surface, volume, beta, gabor,
+neural, gaussian fallback, and semantic carriers.
 
 The AURA-Core training loader also validates `training_dataset.schema.json`
 before constructing native frames and evidence regions, then checks that every
