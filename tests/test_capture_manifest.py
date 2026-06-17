@@ -5,6 +5,7 @@ import sys
 import zlib
 
 from aura import (
+    decompose_evidence,
     load_capture_assets,
     load_capture_manifest,
     validate_capture_manifest_document,
@@ -98,9 +99,15 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert assets[0].height == 1
     assert assets[0].average_color == (0.5, 0.25, 0.25)
     assert assets[0].average_depth == 0.75
+    assert assets[0].min_depth == 0.5
+    assert assets[0].max_depth == 1.0
+    assert assets[0].depth_coverage == 1.0
     assert assets[0].mask_coverage == 0.5
     assert dataset.frames[0].target_color == (0.5, 0.25, 0.25)
     assert dataset.frames[0].target_depth == 0.75
+    assert dataset.regions[-1].id == "frame_000001_depth_prior"
+    assert dataset.regions[-1].fallback_source == "capture-depth-prior"
+    assert dataset.regions[-1].evidence.geometry_confidence == 0.9500000000000001
 
 
 def test_capture_manifest_loads_png_asset_summaries(tmp_path):
@@ -115,9 +122,26 @@ def test_capture_manifest_loads_png_asset_summaries(tmp_path):
     assert assets[0].height == 1
     assert assets[0].average_color == (0.5, 128 / 510, 128 / 510)
     assert assets[0].average_depth == 383 / 510
+    assert assets[0].min_depth == 128 / 255
+    assert assets[0].max_depth == 1.0
+    assert assets[0].depth_coverage == 1.0
     assert assets[0].mask_coverage == 0.5
     assert dataset.frames[0].target_color == (0.5, 128 / 510, 128 / 510)
     assert dataset.frames[0].target_depth == 383 / 510
+
+
+def test_capture_manifest_depth_asset_regions_become_native_surface_evidence(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    dataset = manifest.to_training_dataset(load_assets=True)
+    frame_by_id = {frame.id: frame for frame in dataset.frames}
+    samples = tuple(region.to_evidence_sample(frame_by_id[region.frame_id]) for region in dataset.regions)
+
+    scene = decompose_evidence(samples)
+    by_id = {element.id: element for element in scene.elements}
+
+    assert by_id["frame_000001_depth_prior"].carrier_id == "surface"
+    assert by_id["frame_000001_depth_prior"].metadata["frame_id"] == "frame_000001"
+    assert by_id["frame_000001_depth_prior"].payload["type"] == "surface_cell"
 
 
 def test_capture_manifest_loads_colmap_depth_map_summary(tmp_path):

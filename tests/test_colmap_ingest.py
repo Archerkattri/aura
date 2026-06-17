@@ -147,7 +147,13 @@ def test_colmap_manifest_depth_maps_can_materialize_training_depth(tmp_path):
     dataset = manifest.to_training_dataset(load_assets=True)
 
     assert assets[0].average_depth == 2.0
+    assert assets[0].min_depth == 1.0
+    assert assets[0].max_depth == 3.0
+    assert assets[0].depth_coverage == 1.0
     assert dataset.frames[0].target_depth == 2.0
+    assert dataset.regions[-1].id == "colmap_image_1_depth_prior"
+    assert dataset.regions[-1].fallback_source == "capture-depth-prior"
+    assert dataset.regions[-1].evidence.geometry_confidence > 0.9
     assert dataset.frames[1].target_depth > 2.0
 
 

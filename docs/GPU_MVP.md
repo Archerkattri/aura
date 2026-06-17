@@ -18,6 +18,7 @@ This package now contains the GPU-ready skeleton for AURA:
   sparse point priors into `EvidenceSample` contracts;
 - COLMAP binary/text sparse-model conversion into native capture manifests;
 - standard COLMAP dense depth-map links and deterministic summary loading;
+- loaded depth assets seed native surface-prior training regions;
 - dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed
   native training fixtures;
 - chunk and LOD metadata;

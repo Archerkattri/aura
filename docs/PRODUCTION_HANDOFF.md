@@ -84,8 +84,8 @@ AURA_CAPTURE_MANIFEST
 2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth summary loader
    with real EXR/video tensor loading for manifest `image_path`, `depth_path`,
    and `mask_path`.
-3. Harden COLMAP import beyond binary/text sparse models and standard dense
-   depth-map links, including richer region generation from sparse/depth
+3. Harden COLMAP import beyond binary/text sparse models and single depth-prior
+   regions, including richer multi-region generation from sparse/depth
    statistics.
 4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,
    neural residual, semantic, and Gaussian fallback carriers.

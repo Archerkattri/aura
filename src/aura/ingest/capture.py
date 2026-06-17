@@ -30,7 +30,8 @@ class CaptureManifest:
             return TrainingDataset(frames=self.frames, regions=self.regions)
         assets = {item.frame_id: item for item in load_capture_assets(self)}
         frames = tuple(_frame_with_asset_summaries(frame, assets.get(frame.id)) for frame in self.frames)
-        return TrainingDataset(frames=frames, regions=self.regions)
+        regions = (*self.regions, *_depth_regions_from_assets(frames, assets))
+        return TrainingDataset(frames=frames, regions=regions)
 
     def to_dict(self) -> dict:
         return {
@@ -64,6 +65,9 @@ class CaptureFrameAssets:
     average_color: Vec3
     depth_path: str | None = None
     average_depth: float | None = None
+    min_depth: float | None = None
+    max_depth: float | None = None
+    depth_coverage: float | None = None
     mask_path: str | None = None
     mask_coverage: float | None = None
 
@@ -76,6 +80,9 @@ class CaptureFrameAssets:
             "averageColor": list(self.average_color),
             "depthPath": self.depth_path,
             "averageDepth": self.average_depth,
+            "minDepth": self.min_depth,
+            "maxDepth": self.max_depth,
+            "depthCoverage": self.depth_coverage,
             "maskPath": self.mask_path,
             "maskCoverage": self.mask_coverage,
         }
@@ -120,6 +127,7 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
         depth = _read_capture_raster(depth_path) if depth_path is not None else None
         if depth is not None and depth.channels != 1:
             raise ValueError(f"capture frame {frame.id} depth_path must reference a single-channel image")
+        depth_summary = _depth_summary(depth)
         mask_path = _resolve_capture_path(root, frame.mask_path) if frame.mask_path is not None else None
         mask = _read_capture_raster(mask_path) if mask_path is not None else None
         if mask is not None and mask.channels != 1:
@@ -132,7 +140,10 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
                 height=image.height,
                 average_color=_average_rgb(image),
                 depth_path=str(depth_path) if depth_path is not None else None,
-                average_depth=_average_scalar(depth) if depth is not None else None,
+                average_depth=depth_summary.average if depth_summary is not None else None,
+                min_depth=depth_summary.minimum if depth_summary is not None else None,
+                max_depth=depth_summary.maximum if depth_summary is not None else None,
+                depth_coverage=depth_summary.coverage if depth_summary is not None else None,
                 mask_path=str(mask_path) if mask_path is not None else None,
                 mask_coverage=_average_scalar(mask) if mask is not None else None,
             )
@@ -272,6 +283,14 @@ class _RasterImage:
             raise ValueError(f"{self.format} payload does not match dimensions")
 
 
+@dataclass(frozen=True)
+class _ScalarSummary:
+    average: float
+    minimum: float
+    maximum: float
+    coverage: float
+
+
 def _frame_with_asset_summaries(frame: TrainingFrame, assets: CaptureFrameAssets | None) -> TrainingFrame:
     if assets is None:
         return frame
@@ -280,6 +299,58 @@ def _frame_with_asset_summaries(frame: TrainingFrame, assets: CaptureFrameAssets
         target_color=assets.average_color,
         target_depth=assets.average_depth if assets.average_depth is not None else frame.target_depth,
     )
+
+
+def _depth_regions_from_assets(
+    frames: tuple[TrainingFrame, ...],
+    assets: dict[str, CaptureFrameAssets],
+) -> tuple[TrainingRegion, ...]:
+    regions = []
+    for frame in frames:
+        asset = assets.get(frame.id)
+        if asset is None or asset.average_depth is None:
+            continue
+        min_depth = asset.min_depth if asset.min_depth is not None else asset.average_depth
+        max_depth = asset.max_depth if asset.max_depth is not None else asset.average_depth
+        half_width = _depth_region_half_extent(frame, asset.average_depth)
+        thickness = max(max_depth - min_depth, asset.average_depth * 0.01, 1e-3)
+        center_depth = asset.average_depth
+        regions.append(
+            TrainingRegion(
+                id=f"{frame.id}_depth_prior",
+                frame_id=frame.id,
+                bounds=Bounds(
+                    min_corner=(-half_width, -half_width, max(center_depth - thickness / 2.0, 1e-6)),
+                    max_corner=(half_width, half_width, center_depth + thickness / 2.0),
+                ),
+                evidence=RegionEvidence(
+                    geometry_confidence=min(1.0, 0.55 + 0.4 * (asset.depth_coverage or 0.0)),
+                    ray_need=0.75,
+                    edit_need=0.45,
+                    fuzzy_confidence=0.1 * (1.0 - (asset.depth_coverage or 0.0)),
+                ),
+                color=frame.target_color,
+                opacity=min(0.95, max(0.35, asset.depth_coverage or 0.5)),
+                confidence=min(1.0, 0.55 + 0.4 * (asset.depth_coverage or 0.0)),
+                normal=(0.0, 0.0, -1.0),
+                material_id="mat_depth_prior",
+                semantic_label=frame.semantic_label,
+                fallback_source="capture-depth-prior",
+            )
+        )
+    return tuple(regions)
+
+
+def _depth_region_half_extent(frame: TrainingFrame, depth: float) -> float:
+    if frame.intrinsics is None:
+        return max(0.05, depth * 0.05)
+    width = frame.intrinsics.get("width", 1.0)
+    height = frame.intrinsics.get("height", 1.0)
+    fx = max(frame.intrinsics.get("fx", 1.0), 1e-6)
+    fy = max(frame.intrinsics.get("fy", 1.0), 1e-6)
+    half_x = depth * width / (2.0 * fx)
+    half_y = depth * height / (2.0 * fy)
+    return max(0.05, min(half_x, half_y))
 
 
 def _resolve_capture_path(root: Path, value: str | Path) -> Path:
@@ -306,6 +377,22 @@ def _average_scalar(image: _RasterImage | None) -> float | None:
     if image.channels != 1:
         raise ValueError("average scalar requires a 1-channel image")
     return sum(image.values) / len(image.values)
+
+
+def _depth_summary(image: _RasterImage | None) -> _ScalarSummary | None:
+    if image is None:
+        return None
+    if image.channels != 1:
+        raise ValueError("depth summary requires a 1-channel image")
+    valid = tuple(value for value in image.values if value > 0.0)
+    if not valid:
+        raise ValueError("depth asset contains no positive samples")
+    return _ScalarSummary(
+        average=sum(valid) / len(valid),
+        minimum=min(valid),
+        maximum=max(valid),
+        coverage=len(valid) / len(image.values),
+    )
 
 
 def _read_capture_raster(path: Path) -> _RasterImage:

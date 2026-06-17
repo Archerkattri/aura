@@ -37,6 +37,8 @@ native representation contract pieces:
 - COLMAP binary/text sparse-model pose/intrinsics import to `AURA_CAPTURE_MANIFEST`;
 - COLMAP dense depth-map links and deterministic depth summaries for capture
   manifests;
+- depth asset statistics that seed native surface-prior `TrainingRegion`
+  evidence during manifest-to-training conversion;
 - `.aura` package writer;
 - `.aura` package loader/validator;
 - explicit `.aura` format/version compatibility checks;
