@@ -11,6 +11,7 @@ from aura.benchmark import (
     run_core_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
+    run_visual_quality_benchmark,
     default_benchmark_suite,
 )
 from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_demo_scene, write_synthetic_training_frames
@@ -179,6 +180,14 @@ def main(argv: list[str] | None = None) -> int:
     reference_benchmark.add_argument("--width", type=int, default=16)
     reference_benchmark.add_argument("--height", type=int, default=16)
     reference_benchmark.add_argument("--include-ablations", action="store_true")
+
+    visual_benchmark = sub.add_parser("benchmark-visual", help="Compare a rendered .aura package preview against a teacher/reference PPM")
+    visual_benchmark.add_argument("package_dir", type=Path)
+    visual_benchmark.add_argument("reference", type=Path)
+    visual_benchmark.add_argument("--baseline-label", default="teacher")
+    visual_benchmark.add_argument("--width", type=int, default=None)
+    visual_benchmark.add_argument("--height", type=int, default=None)
+    visual_benchmark.add_argument("--min-psnr", type=float, default=None)
 
     ray_benchmark = sub.add_parser("benchmark-ray-query", help="Score ray-query correctness for a .aura package")
     ray_benchmark.add_argument("package_dir", type=Path)
@@ -359,6 +368,18 @@ def main(argv: list[str] | None = None) -> int:
             payload = run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
+    if args.command == "benchmark-visual":
+        package = load_package(args.package_dir)
+        payload = run_visual_quality_benchmark(
+            package,
+            read_ppm(args.reference),
+            baseline_label=args.baseline_label,
+            render_width=args.width,
+            render_height=args.height,
+            min_psnr=args.min_psnr,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["passed"] else 1
     if args.command == "benchmark-ray-query":
         package = load_package(args.package_dir)
         if not args.native_demo_expectations:

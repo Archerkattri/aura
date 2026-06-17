@@ -146,6 +146,8 @@ aura inspect-rays outputs/native-demo.aura --native-demo-probes
 # prints material-aware occlusion, shadow, reflection, and collision ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
 # runs CPU reference package/query/render timing, confidence-quality, and interaction-quality metrics
+aura benchmark-visual outputs/native-demo.aura outputs/native-reference.ppm --baseline-label native_self --min-psnr 40
+# compares a package render against a teacher/reference PPM using MSE/PSNR/SSIM/LPIPS-proxy/FPS JSON metrics
 aura benchmark-reference outputs/native-demo.aura --include-ablations
 # runs carrier assignment ablation metrics
 aura benchmark-ray-query outputs/native-demo.aura --native-demo-expectations

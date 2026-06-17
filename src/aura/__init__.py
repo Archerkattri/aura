@@ -14,6 +14,7 @@ from aura.benchmark import (
     run_core_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
+    run_visual_quality_benchmark,
 )
 from aura.carriers import CarrierKind, CarrierSpec, default_registry
 from aura.carrier_payloads import (
@@ -259,6 +260,7 @@ __all__ = [
     "run_core_reconstruction_benchmark",
     "run_ray_query_correctness_benchmark",
     "run_reference_benchmark",
+    "run_visual_quality_benchmark",
     "score_capture_proposals",
     "inspect_ray",
     "inspect_scene_rays",

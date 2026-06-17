@@ -8,10 +8,12 @@ from aura import (
     load_package,
     native_demo_ray_query_expectations,
     package_scene,
+    render_orthographic,
     run_ablation_benchmarks,
     run_core_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
+    run_visual_quality_benchmark,
 )
 from aura.cli import native_demo_scene
 
@@ -91,6 +93,24 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["previewRender"]["referenceVisualQuality"]["psnrInfinite"] is True
     assert payload["previewRender"]["referenceVisualQuality"]["ssim"] == 1.0
     assert payload["previewRender"]["referenceVisualQuality"]["lpipsProxy"] == 0.0
+
+
+def test_visual_quality_benchmark_compares_package_render_to_reference():
+    package = package_scene(native_demo_scene())
+    reference = render_orthographic(package.scene, width=4, height=4)
+
+    payload = run_visual_quality_benchmark(package, reference, baseline_label="native_self", min_psnr=80.0)
+
+    assert payload["format"] == "AURA_VISUAL_QUALITY_BENCHMARK"
+    assert payload["asset"] == "native_demo"
+    assert payload["baseline"] == "native_self"
+    assert payload["render"]["pixelCount"] == 16
+    assert payload["render"]["framesPerSecond"] >= 0.0
+    assert payload["metrics"]["psnrInfinite"] is True
+    assert payload["metrics"]["ssim"] == 1.0
+    assert payload["metrics"]["lpipsProxy"] == 0.0
+    assert payload["passed"] is True
+    assert "learned LPIPS" in payload["metricNotes"]["lpipsProxy"]
 
 
 def test_apply_ablation_disables_requested_carriers(tmp_path):
@@ -219,6 +239,38 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
     assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["previewRender"]["width"] == 8
     assert payload["previewRender"]["renderSeconds"] >= 0.0
+
+
+def test_visual_benchmark_cli_prints_result_json(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+    reference = tmp_path / "reference.ppm"
+    render_orthographic(native_demo_scene(), width=4, height=4).write_ppm(reference)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "benchmark-visual",
+            str(tmp_path),
+            str(reference),
+            "--baseline-label",
+            "native_self",
+            "--min-psnr",
+            "40",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_VISUAL_QUALITY_BENCHMARK"
+    assert payload["baseline"] == "native_self"
+    assert payload["metrics"]["psnr"] >= 40.0
+    assert payload["metrics"]["ssim"] > 0.99
+    assert payload["passed"] is True
 
 
 def test_reference_benchmark_cli_can_include_ablation_results(tmp_path):

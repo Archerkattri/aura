@@ -11,7 +11,7 @@ from aura.core import ReconstructionConfig, ReconstructionReport, reconstruct_de
 from aura.inspection import RayInspection, inspect_ray
 from aura.package import AuraPackage
 from aura.ray import Ray
-from aura.render import compare_images, render_orthographic
+from aura.render import RenderImage, compare_images, render_orthographic
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
 
@@ -255,6 +255,42 @@ def run_reference_benchmark(
             "framesPerSecond": 0.0 if render_seconds <= 0.0 else 1.0 / render_seconds,
             "pixelsPerSecond": 0.0 if render_seconds <= 0.0 else len(image.pixels) / render_seconds,
             "referenceVisualQuality": reference_visual_quality,
+        },
+    }
+
+
+def run_visual_quality_benchmark(
+    package: AuraPackage,
+    reference_image: RenderImage,
+    *,
+    baseline_label: str = "teacher",
+    render_width: int | None = None,
+    render_height: int | None = None,
+    min_psnr: float | None = None,
+) -> dict:
+    width = render_width or reference_image.width
+    height = render_height or reference_image.height
+    render_start = perf_counter()
+    rendered = render_orthographic(package.scene, width=width, height=height)
+    render_seconds = perf_counter() - render_start
+    metrics = compare_images(reference_image, rendered, min_psnr=min_psnr)
+    return {
+        "format": "AURA_VISUAL_QUALITY_BENCHMARK",
+        "asset": package.asset.name,
+        "baseline": baseline_label,
+        "render": {
+            "width": rendered.width,
+            "height": rendered.height,
+            "pixelCount": len(rendered.pixels),
+            "renderSeconds": render_seconds,
+            "framesPerSecond": 0.0 if render_seconds <= 0.0 else 1.0 / render_seconds,
+            "pixelsPerSecond": 0.0 if render_seconds <= 0.0 else len(rendered.pixels) / render_seconds,
+        },
+        "metrics": metrics,
+        "passed": bool(metrics["passed"]),
+        "metricNotes": {
+            "lpipsProxy": "Deterministic mean absolute RGB distance; replace with learned LPIPS backend for paper claims.",
+            "ssim": "Global RGB SSIM reference metric for deterministic smoke benchmarks.",
         },
     }
 
