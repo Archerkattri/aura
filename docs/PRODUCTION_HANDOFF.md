@@ -78,17 +78,18 @@ AURA_CAPTURE_MANIFEST
 
 ## Production Tasks
 
-1. Replace the CPU differentiable reference renderer in `src/aura/optimize.py`
-   with a real PyTorch/CUDA renderer over the same `TrainingFrame` and
-   `TrainingRegion` contracts.
+1. Replace the optional PyTorch AABB first-hit prototype and CPU differentiable
+   reference renderer with a carrier-complete PyTorch/CUDA renderer over the
+   same `TrainingFrame` and `TrainingRegion` contracts.
 2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth summary loader
    with real EXR/video tensor loading for manifest `image_path`, `depth_path`,
    and `mask_path`.
 3. Harden COLMAP import beyond deterministic sparse/depth two-bin regions,
    including image-space masks, normal-aware regions, and learned region
    proposal generation.
-4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,
-   neural residual, semantic, and Gaussian fallback carriers.
+4. Extend the PyTorch/CUDA path from AABB first-hit/depth/color tensors to real
+   surface, volume, beta, gabor, neural residual, semantic, and Gaussian
+   fallback carrier behavior.
 5. Replace the current reference chunk traversal with a production BVH/GPU
    traversal path for secondary rays.
 6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,

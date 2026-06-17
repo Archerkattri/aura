@@ -32,6 +32,7 @@ from aura.package import load_package, package_scene
 from aura.ray import Ray
 from aura.render import compare_images, read_ppm, render_orthographic
 from aura.scene import AuraScene
+from aura.torch_renderer import torch_renderer_status
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -166,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ingest = sub.add_parser("ingest-adapters", help="Print AURA-Ingest adapters and their EvidenceSample contracts as JSON")
 
+    torch_status = sub.add_parser("torch-renderer-status", help="Print optional PyTorch/CUDA renderer availability as JSON")
+
     inspect_rays = sub.add_parser("inspect-rays", help="Inspect reference ray-query outputs for a .aura package")
     inspect_rays.add_argument("package_dir", type=Path)
     inspect_rays.add_argument("--native-demo-probes", action="store_true")
@@ -268,6 +271,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if metrics["passed"] else 1
     if args.command == "benchmark-plan":
         print(json.dumps(default_benchmark_suite().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "torch-renderer-status":
+        print(json.dumps(torch_renderer_status().to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "benchmark-core":
         print(json.dumps(run_core_reconstruction_benchmark(iterations=args.iterations), indent=2, sort_keys=True))

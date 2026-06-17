@@ -97,6 +97,7 @@ from aura.render import RenderImage, compare_images, image_mse, image_psnr, read
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
+from aura.torch_renderer import TorchRenderBatch, TorchRendererStatus, require_torch, torch_render_targets, torch_renderer_status
 
 __all__ = [
     "AuraChunk",
@@ -153,6 +154,8 @@ __all__ = [
     "TrainingFrame",
     "TrainingDataset",
     "TrainingRegion",
+    "TorchRenderBatch",
+    "TorchRendererStatus",
     "VolumeCellPayload",
     "apply_ablation",
     "capture_manifest_template",
@@ -202,6 +205,9 @@ __all__ = [
     "synthetic_training_frames",
     "synthetic_training_dataset",
     "synthetic_training_regions",
+    "torch_render_targets",
+    "torch_renderer_status",
+    "require_torch",
     "write_synthetic_training_frames",
     "native_demo_interaction_probes",
     "validate_package",

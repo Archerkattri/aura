@@ -29,6 +29,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
+- optional PyTorch renderer contract for batched native first-hit/depth/color
+  tensors over `AuraScene` and `RenderTarget`;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - package-backed glTF/USD exchange-plan metadata;

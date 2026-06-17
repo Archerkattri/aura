@@ -53,6 +53,8 @@ native representation contract pieces:
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with color/depth gradients for
   native AURA-Core fixture optimization;
+- optional PyTorch renderer contract with batched native first-hit/depth/color
+  tensors when installed with `aura-core[gpu]`;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - ray-query correctness scoring for first-hit, carrier, depth, transmittance,
   semantic, material, normal, and residual contract checks;
@@ -61,7 +63,7 @@ native representation contract pieces:
 - fixture CLI commands and tests.
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
-production EXR/video tensor loading, learned or GPU differentiable carrier
+production EXR/video tensor loading, carrier-complete GPU differentiable
 optimization, CUDA kernels, BVH, or end-to-end benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
@@ -76,6 +78,8 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+# GPU development machine:
+python -m pip install -e ".[dev,gpu]"
 ```
 
 ## GPU Runtime
@@ -84,10 +88,11 @@ Expose the primary CUDA device for GPU development:
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
+aura torch-renderer-status
 ```
 
-The current fixture commands do not train or render yet, but new model,
-rendering, and ray-query adapters should target CUDA by default.
+The PyTorch renderer is currently a native AABB first-hit/depth/color prototype.
+It is not yet carrier-complete CUDA rendering.
 
 ## Quick Smoke Commands
 
