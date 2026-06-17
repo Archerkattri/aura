@@ -89,6 +89,11 @@ Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
 N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
 sampled per-pixel capture tensor targets before moving the same target batches
 to CUDA.
+Use `aura torch-optimize-capture-manifest <manifest> --device cuda
+--pixel-stride N --max-targets-per-frame M` to run the current torch reference
+optimization scaffold from the same native capture tensor batches. It writes a
+`.aura` package plus `torch_training_report.json`; it is still a scaffold until
+the reference carrier semantics are replaced by autograd/CUDA kernels.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

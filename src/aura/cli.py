@@ -33,7 +33,8 @@ from aura.package import load_package, package_scene
 from aura.ray import Ray
 from aura.render import compare_images, read_ppm, render_orthographic
 from aura.scene import AuraScene
-from aura.torch_renderer import torch_renderer_status
+from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batch
+from aura.torch_renderer import torch_capture_asset_batch, torch_capture_training_batch, torch_renderer_status
 from aura.training_targets import capture_tensors_to_render_targets
 
 
@@ -96,6 +97,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     reconstruct_capture.add_argument("--pixel-stride", type=int, default=1)
     reconstruct_capture.add_argument("--max-targets-per-frame", type=int, default=256)
+
+    torch_optimize_capture = sub.add_parser(
+        "torch-optimize-capture-manifest",
+        help="Run the native torch AURA-Core optimization scaffold from capture tensors",
+    )
+    torch_optimize_capture.add_argument("manifest", type=Path)
+    torch_optimize_capture.add_argument("--output-dir", type=Path, default=Path("outputs/torch-optimize-capture.aura"))
+    torch_optimize_capture.add_argument("--iterations", type=int, default=4)
+    torch_optimize_capture.add_argument("--pixel-stride", type=int, default=1)
+    torch_optimize_capture.add_argument("--max-targets-per-frame", type=int, default=256)
+    torch_optimize_capture.add_argument("--device", default=None, help="Torch device such as cpu or cuda")
+    torch_optimize_capture.add_argument("--color-learning-rate", type=float, default=0.25)
 
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
@@ -243,6 +256,42 @@ def main(argv: list[str] | None = None) -> int:
         report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(package_dir)
         return 0
+    if args.command == "torch-optimize-capture-manifest":
+        manifest = load_capture_manifest(args.manifest)
+        dataset = manifest.to_training_dataset(load_assets=True)
+        tensors = load_capture_asset_tensors(manifest)
+        scene = _scene_from_training_dataset(dataset, name="torch_optimize_capture")
+        assets = torch_capture_asset_batch(tensors, device=args.device)
+        batch = torch_capture_training_batch(
+            dataset.frames,
+            assets,
+            pixel_stride=args.pixel_stride,
+            max_targets_per_frame=args.max_targets_per_frame,
+        )
+        result = torch_optimize_capture_batch(
+            scene,
+            batch,
+            TorchOptimizationConfig(iterations=args.iterations, color_learning_rate=args.color_learning_rate),
+        )
+        package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/torch-optimize-capture-preview.glb"}).write(args.output_dir)
+        report = {
+            "format": "AURA_CORE_TORCH_OPTIMIZATION_REPORT",
+            "name": result.scene.name,
+            "stages": [
+                "capture_manifest_assets",
+                "native_evidence_initialization",
+                "torch_capture_tensor_batch",
+                "torch_reference_optimization",
+                "aura_package_export_ready",
+            ],
+            "sources": ["capture_tensor_pixels", "training_regions", "depth_targets", "normal_targets"],
+            "torch": torch_renderer_status().to_dict(),
+            **result.to_dict(),
+        }
+        report_path = package_dir / "torch_training_report.json"
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(package_dir)
+        return 0
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
         print(json.dumps([item.to_dict() for item in load_capture_assets(manifest)], indent=2, sort_keys=True))
@@ -348,6 +397,19 @@ def demo_scene() -> AuraScene:
     )
     chunk = AuraChunk(id="root", bounds=bounds, element_ids=("wall_patch",), lod=0)
     return AuraScene(name="demo", elements=(element,), chunks=(chunk,))
+
+
+def _scene_from_training_dataset(dataset, *, name: str) -> AuraScene:
+    by_frame = {frame.id: frame for frame in dataset.frames}
+    evidence = []
+    for region in dataset.regions:
+        frame = by_frame.get(region.frame_id)
+        if frame is None:
+            raise ValueError(f"training region {region.id} references unknown frame {region.frame_id}")
+        evidence.append(region.to_evidence_sample(frame))
+    if not evidence:
+        raise ValueError("torch capture optimization requires at least one training region")
+    return decompose_evidence(tuple(evidence), name=name)
 
 
 def native_demo_scene() -> AuraScene:

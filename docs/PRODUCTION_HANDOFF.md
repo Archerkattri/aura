@@ -35,6 +35,7 @@ aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/reconstruct-capture-assets.aura --iterations 6
+aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/torch-optimize-capture.aura --iterations 6
 ```
 
 For COLMAP sparse models, generate the capture manifest with:

@@ -1,8 +1,11 @@
+import importlib.util
 import json
 import struct
 import subprocess
 import sys
 import zlib
+
+import pytest
 
 from aura import (
     CaptureTensor,
@@ -13,6 +16,7 @@ from aura import (
     load_capture_asset_tensors,
     load_capture_assets,
     load_capture_manifest,
+    load_package,
     validate_capture_manifest_document,
     write_capture_manifest_template,
 )
@@ -387,6 +391,72 @@ def test_reconstruct_capture_manifest_cli_uses_per_pixel_asset_targets(tmp_path)
     assert len(report["iterations"][0]["predictions"]) == 1
     assert report["iterations"][0]["predictions"][0]["target_color"] == [1.0, 0.0, 0.0]
     assert report["iterations"][0]["predictions"][0]["target_depth"] == 0.5
+
+
+def test_torch_optimize_capture_manifest_cli_reports_install_hint_when_unavailable(tmp_path):
+    if importlib.util.find_spec("torch") is not None:
+        pytest.skip("torch is installed in this environment")
+    manifest_path = _write_asset_manifest(tmp_path)
+    package_dir = tmp_path / "torch-optimize-capture.aura"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "torch-optimize-capture-manifest",
+            str(manifest_path),
+            "--output-dir",
+            str(package_dir),
+            "--iterations",
+            "1",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "torch" in result.stderr.lower()
+
+
+def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path):
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch is optional")
+    manifest_path = _write_asset_manifest(tmp_path)
+    package_dir = tmp_path / "torch-optimize-capture.aura"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "torch-optimize-capture-manifest",
+            str(manifest_path),
+            "--output-dir",
+            str(package_dir),
+            "--iterations",
+            "2",
+            "--max-targets-per-frame",
+            "2",
+            "--device",
+            "cpu",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    package = load_package(package_dir)
+    report = json.loads((package_dir / "torch_training_report.json").read_text(encoding="utf-8"))
+
+    assert package.asset.name == "torch_optimize_capture"
+    assert report["format"] == "AURA_CORE_TORCH_OPTIMIZATION_REPORT"
+    assert "torch_reference_optimization" in report["stages"]
+    assert report["steps"][0]["sample_count"] == 2
+    assert report["steps"][0]["normal_loss"] == 0.0
+    assert report["finalLoss"] == report["steps"][-1]["total_loss"]
 
 
 def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
