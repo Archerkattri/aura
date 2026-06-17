@@ -48,7 +48,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="surface_cell",
             carrier_id="surface",
             differentiable_fields=("color", "opacity", "confidence"),
-            description="Opaque bounded radiance surface cell reference kernel.",
+            description="Opaque bounded radiance surface cell torch autograd kernel; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_surface_kernel",
+            autograd_kernel=True,
         ),
         TorchCarrierKernelSpec(
             payload_type="volume_cell",
@@ -96,6 +98,8 @@ def torch_carrier_kernel_report() -> dict:
         "productionReady": all(spec.production_ready for spec in specs),
         "carrierCount": len(specs),
         "referenceOnlyCarrierCount": sum(1 for spec in specs if not spec.production_ready),
+        "autogradCarrierCount": sum(1 for spec in specs if spec.autograd_kernel),
+        "cudaCarrierCount": sum(1 for spec in specs if spec.cuda_kernel),
         "kernelSpecs": [spec.to_dict() for spec in specs],
         "requiredNextStep": "replace reference torch payload kernels with carrier-complete autograd/CUDA kernels",
     }
