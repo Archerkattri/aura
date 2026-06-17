@@ -17,9 +17,10 @@ Current schema version: `0.1`
   evidence-region inputs used by reconstruction fixtures.
 
 The Python loader validates these schemas at runtime, then performs cross-file
-checks such as manifest chunk IDs matching `chunks.json` and chunk element
-references resolving to records in `elements.json`. It also checks that any
-non-empty element payload type matches the element carrier. The JSON Schema
+checks such as manifest chunk IDs matching `chunks.json`, unique chunk IDs,
+chunk element references resolving to records in `elements.json`, and each
+element `chunk_id` agreeing with the chunk that lists it. It also checks that
+any non-empty element payload type matches the element carrier. The JSON Schema
 validates the payload shape for surface, volume, beta, gabor, neural, gaussian
 fallback, and semantic carriers.
 

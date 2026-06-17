@@ -142,14 +142,31 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
     element_ids = {element.id for element in package.scene.elements}
     if len(element_ids) != len(package.scene.elements):
         raise ValueError("package contains duplicate element ids")
+    chunk_ids = {chunk.id for chunk in package.scene.chunks}
+    if len(chunk_ids) != len(package.scene.chunks):
+        raise ValueError("package contains duplicate chunk ids")
+    elements_by_id = {element.id: element for element in package.scene.elements}
     for element in package.scene.elements:
         if element.carrier_id not in carrier_ids:
             raise ValueError(f"element {element.id} uses carrier not declared in manifest: {element.carrier_id}")
+        if chunk_ids and element.chunk_id not in chunk_ids:
+            raise ValueError(f"element {element.id} references unknown chunk: {element.chunk_id}")
         _validate_element_payload(element.id, element.carrier_id, element.payload)
     for chunk in package.scene.chunks:
         missing = sorted(set(chunk.element_ids).difference(element_ids))
         if missing:
             raise ValueError(f"chunk {chunk.id} references unknown elements: {', '.join(missing)}")
+        mismatched = sorted(
+            element_id
+            for element_id in chunk.element_ids
+            if elements_by_id[element_id].chunk_id != chunk.id
+        )
+        if mismatched:
+            raise ValueError(f"chunk {chunk.id} contains elements assigned to other chunks: {', '.join(mismatched)}")
+        assigned = sorted(element.id for element in package.scene.elements if element.chunk_id == chunk.id)
+        omitted = sorted(set(assigned).difference(chunk.element_ids))
+        if omitted:
+            raise ValueError(f"chunk {chunk.id} omits assigned elements: {', '.join(omitted)}")
     for node in package.scene.semantic_graph.nodes:
         missing = sorted(set(node.element_ids).difference(element_ids))
         if missing:

@@ -105,6 +105,84 @@ def test_package_validation_rejects_unknown_chunk_element():
         validate_package(bad_package)
 
 
+def test_package_validation_rejects_duplicate_chunk_ids():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                chunk_id="root",
+            ),
+        ),
+        chunks=(
+            AuraChunk(id="root", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("surface",)),
+            AuraChunk(id="root", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("surface",)),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate chunk ids"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_rejects_element_chunk_id_without_chunk():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                chunk_id="missing",
+            ),
+        ),
+        chunks=(AuraChunk(id="root", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=()),),
+    )
+
+    with pytest.raises(ValueError, match="references unknown chunk"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_rejects_chunk_membership_mismatch():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                chunk_id="right",
+            ),
+        ),
+        chunks=(
+            AuraChunk(id="left", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("surface",)),
+            AuraChunk(id="right", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=()),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="assigned to other chunks"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_rejects_chunk_omitting_assigned_element():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                chunk_id="root",
+            ),
+        ),
+        chunks=(AuraChunk(id="root", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=()),),
+    )
+
+    with pytest.raises(ValueError, match="omits assigned elements"):
+        validate_package(package_scene(scene))
+
+
 def test_package_validation_rejects_payload_carrier_mismatch():
     scene = AuraScene(
         name="bad",
