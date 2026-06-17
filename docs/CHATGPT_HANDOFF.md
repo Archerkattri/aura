@@ -31,7 +31,7 @@ First useful tasks:
 4. for fixture captures with existing PNG or PPM/PGM assets, run `aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json`
    and `aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets`;
 5. run `aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6`;
-6. run `aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json` for COLMAP text models;
+6. run `aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json` for COLMAP binary/text sparse models;
 7. run `aura build-native-demo --output-dir outputs/native-demo.aura`;
 8. read `docs/AURA_CORE_RESEARCH.md` and `docs/PRODUCTION_HANDOFF.md`;
 9. use `aura write-training-frames-demo` and `aura reconstruct-demo --frames`

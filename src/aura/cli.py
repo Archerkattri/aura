@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
 
     colmap_to_manifest = sub.add_parser(
         "colmap-to-capture-manifest",
-        help="Convert a COLMAP text model directory to an AURA capture manifest",
+        help="Convert a COLMAP binary or text model directory to an AURA capture manifest",
     )
     colmap_to_manifest.add_argument("colmap_dir", type=Path)
     colmap_to_manifest.add_argument("--output", type=Path, default=Path("outputs/capture-from-colmap.json"))

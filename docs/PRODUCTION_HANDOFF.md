@@ -34,7 +34,7 @@ aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 ```
 
-For COLMAP text models, generate the capture manifest with:
+For COLMAP sparse models, generate the capture manifest with:
 
 ```bash
 aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json
@@ -84,8 +84,8 @@ AURA_CAPTURE_MANIFEST
 2. Replace the current dependency-free PNG/PPM/PGM summary loader with real
    EXR/video tensor loading for manifest `image_path`, `depth_path`, and
    `mask_path`.
-3. Harden COLMAP import beyond text `cameras.txt`/`images.txt`/`points3D.txt`,
-   including binary model support and richer sparse/depth region generation.
+3. Harden COLMAP import beyond binary/text `cameras`/`images`/`points3D`
+   sparse models, including richer sparse/depth region generation.
 4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,
    neural residual, semantic, and Gaussian fallback carriers.
 5. Replace the current reference chunk traversal with a production BVH/GPU
