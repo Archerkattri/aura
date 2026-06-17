@@ -29,8 +29,9 @@ class CaptureManifest:
     def to_training_dataset(self, *, load_assets: bool = False) -> TrainingDataset:
         if not load_assets:
             return TrainingDataset(frames=self.frames, regions=self.regions)
-        assets = {item.frame_id: item for item in load_capture_assets(self)}
-        tensors = {item.frame_id: item for item in load_capture_asset_tensors(self)}
+        loaded_tensors = load_capture_asset_tensors(self)
+        tensors = {item.frame_id: item for item in loaded_tensors}
+        assets = {item.frame_id: item for item in _capture_assets_from_tensors(loaded_tensors)}
         frames = tuple(_frame_with_asset_summaries(frame, assets.get(frame.id)) for frame in self.frames)
         regions = (
             *self.regions,
@@ -188,8 +189,12 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
     manifests can be validated in CI before the GPU tensor backend is installed.
     """
 
+    return _capture_assets_from_tensors(load_capture_asset_tensors(manifest))
+
+
+def _capture_assets_from_tensors(tensor_frames: Sequence[CaptureFrameTensors]) -> tuple[CaptureFrameAssets, ...]:
     assets = []
-    for tensors in load_capture_asset_tensors(manifest):
+    for tensors in tensor_frames:
         image = _tensor_to_raster(tensors.image)
         depth = _tensor_to_raster(tensors.depth) if tensors.depth is not None else None
         depth_summary = _depth_summary(depth)

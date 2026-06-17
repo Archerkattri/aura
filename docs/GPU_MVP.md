@@ -104,7 +104,9 @@ without relying on summary-only statistics.
 Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
 N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
 sampled per-pixel capture tensor targets before moving the same target batches
-to CUDA.
+to CUDA. Manifest-to-training conversion derives summaries, feature proposals,
+depth priors, and mask priors from one loaded tensor batch to avoid duplicate
+asset decode work in the reference path.
 Use `aura torch-optimize-capture-manifest <manifest> --device cuda
 --pixel-stride N --max-targets-per-frame M` to run the current torch reference
 optimization scaffold from the same native capture tensor batches. It writes a

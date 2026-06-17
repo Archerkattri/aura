@@ -143,6 +143,26 @@ def test_capture_manifest_asset_tensors_seed_feature_proposal_regions(tmp_path):
     assert by_id["frame_000001_depth_edge_proposal"].semantic_label is None
 
 
+def test_capture_manifest_to_training_dataset_loads_asset_tensors_once(tmp_path, monkeypatch):
+    import aura.ingest.capture as capture_module
+
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    original_loader = capture_module.load_capture_asset_tensors
+    calls = []
+
+    def counted_loader(candidate):
+        calls.append(candidate)
+        return original_loader(candidate)
+
+    monkeypatch.setattr(capture_module, "load_capture_asset_tensors", counted_loader)
+
+    dataset = manifest.to_training_dataset(load_assets=True)
+
+    assert calls == [manifest]
+    assert dataset.frames[0].target_color == (0.5, 0.25, 0.25)
+    assert "frame_000001_image_detail_proposal" in {region.id for region in dataset.regions}
+
+
 def test_capture_manifest_feature_proposals_decompose_to_native_detail_carriers(tmp_path):
     manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
     dataset = manifest.to_training_dataset(load_assets=True)
