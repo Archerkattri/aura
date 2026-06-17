@@ -186,6 +186,13 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
         omitted = sorted(set(assigned).difference(chunk.element_ids))
         if omitted:
             raise ValueError(f"chunk {chunk.id} omits assigned elements: {', '.join(omitted)}")
+        outside = sorted(
+            element_id
+            for element_id in chunk.element_ids
+            if not _bounds_contain(chunk.bounds, elements_by_id[element_id].bounds)
+        )
+        if outside:
+            raise ValueError(f"chunk {chunk.id} bounds do not contain elements: {', '.join(outside)}")
     for node in package.scene.semantic_graph.nodes:
         missing = sorted(set(node.element_ids).difference(element_ids))
         if missing:
@@ -243,6 +250,13 @@ def _validate_schema_version(version: str) -> None:
     if major not in AURA_SUPPORTED_MAJOR_VERSIONS:
         supported = ", ".join(str(item) for item in sorted(AURA_SUPPORTED_MAJOR_VERSIONS))
         raise ValueError(f"unsupported AURA major version {major}; supported major versions: {supported}")
+
+
+def _bounds_contain(outer: Bounds, inner: Bounds) -> bool:
+    return all(
+        outer.min_corner[index] <= inner.min_corner[index] and inner.max_corner[index] <= outer.max_corner[index]
+        for index in range(3)
+    )
 
 
 def _validate_element_payload(element_id: str, carrier_id: str, payload: dict) -> None:

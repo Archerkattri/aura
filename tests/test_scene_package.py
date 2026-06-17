@@ -228,6 +228,24 @@ def test_package_validation_rejects_chunk_omitting_assigned_element():
         validate_package(package_scene(scene))
 
 
+def test_package_validation_rejects_chunk_bounds_that_do_not_contain_elements():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (2.0, 1.0, 1.0)),
+                chunk_id="root",
+            ),
+        ),
+        chunks=(AuraChunk(id="root", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("surface",)),),
+    )
+
+    with pytest.raises(ValueError, match="bounds do not contain elements"):
+        validate_package(package_scene(scene))
+
+
 def test_package_validation_rejects_payload_carrier_mismatch():
     scene = AuraScene(
         name="bad",

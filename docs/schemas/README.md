@@ -20,9 +20,10 @@ The Python loader validates these schemas at runtime, then performs cross-file
 checks such as manifest chunk IDs matching `chunks.json`, unique chunk IDs,
 chunk element references resolving to records in `elements.json`, and each
 element `chunk_id` agreeing with the chunk that lists it. It also checks that
-any non-empty element payload type matches the element carrier. The JSON Schema
-validates the payload shape for surface, volume, beta, gabor, neural, gaussian
-fallback, and semantic carriers.
+chunk bounds contain every listed element so reference chunk/BVH culling cannot
+drop valid hits. Any non-empty element payload type must match the element
+carrier. The JSON Schema validates the payload shape for surface, volume, beta,
+gabor, neural, gaussian fallback, and semantic carriers.
 
 The AURA-Core training loader also validates `training_dataset.schema.json`
 before constructing native frames and evidence regions, then checks that every
