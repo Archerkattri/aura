@@ -24,7 +24,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
 - strict-JSON render comparison metrics for regression checks;
-- reproducible benchmark plans plus CPU reference package/query/render metrics;
+- reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - package-backed glTF/USD exchange-plan metadata;
 - native-first CLI fixtures.
 
@@ -48,8 +48,8 @@ kept as AURA-Ingest bootstrap paths after the native package path.
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow, reflection, and collision-readiness query inspection. Use
 `aura benchmark-reference <package>` for CPU reference package/query/render
-metrics, and add `--include-ablations` for carrier assignment ablation metrics;
-these are contract checks, not quality claims.
+timing metrics, and add `--include-ablations` for carrier assignment ablation
+metrics; these are contract checks, not quality or production-speed claims.
 Use `aura migration-plan <package>` to report schema migration status.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports

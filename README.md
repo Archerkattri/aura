@@ -36,7 +36,7 @@ This repo contains the GPU-ready MVP contract layer:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
-- reproducible benchmark plans plus CPU reference package/query/render metrics;
+- reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - strict-JSON render comparison metrics for regression checks;
 - package-backed glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
@@ -81,7 +81,7 @@ aura query-demo --x -0.5 --y -0.5
 aura inspect-rays outputs/native-demo.aura --native-demo-probes
 # prints material-aware occlusion/shadow/reflection-ready ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
-# runs CPU reference package/query/render metrics
+# runs CPU reference package/query/render timing metrics
 aura benchmark-reference outputs/native-demo.aura --include-ablations
 # runs carrier assignment ablation metrics
 aura migration-plan outputs/native-demo.aura

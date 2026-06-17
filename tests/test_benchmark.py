@@ -50,8 +50,13 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["nonGaussianFraction"] > 0.5
     assert payload["packageBytes"] > 0
     assert payload["rayQuery"]["probeCount"] > 0
+    assert payload["rayQuery"]["querySeconds"] >= 0.0
+    assert payload["rayQuery"]["raysPerSecond"] >= 0.0
+    assert payload["rayQuery"]["queryP50Ms"] >= 0.0
+    assert payload["rayQuery"]["queryP95Ms"] >= payload["rayQuery"]["queryP50Ms"]
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
+    assert payload["previewRender"]["renderSeconds"] >= 0.0
 
 
 def test_apply_ablation_disables_requested_carriers(tmp_path):
@@ -92,7 +97,9 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
 
     assert payload["asset"] == "native_demo"
     assert payload["rayQuery"]["shadowReadyCount"] > 0
+    assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["previewRender"]["width"] == 8
+    assert payload["previewRender"]["renderSeconds"] >= 0.0
 
 
 def test_reference_benchmark_cli_can_include_ablation_results(tmp_path):

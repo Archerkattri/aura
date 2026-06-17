@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from math import log2
 from pathlib import Path
+from time import perf_counter
 from typing import Sequence
 
 from aura.asset import AuraAsset
-from aura.inspection import inspect_scene_rays
+from aura.inspection import RayInspection, inspect_ray
 from aura.package import AuraPackage
+from aura.ray import Ray
 from aura.render import render_orthographic
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
@@ -69,9 +71,12 @@ def run_reference_benchmark(
         carrier_counts[element.carrier_id] = carrier_counts.get(element.carrier_id, 0) + 1
     element_count = len(scene.elements)
     non_gaussian = sum(count for carrier, count in carrier_counts.items() if carrier != "gaussian")
-    inspections = inspect_scene_rays(scene)
+    inspections, query_timings = _timed_scene_ray_inspections(scene)
     hits = [inspection for inspection in inspections if inspection.first_hit]
+    render_start = perf_counter()
     image = render_orthographic(scene, width=render_width, height=render_height)
+    render_seconds = perf_counter() - render_start
+    query_seconds = sum(query_timings)
     return {
         "format": "AURA_REFERENCE_BENCHMARK",
         "asset": package.asset.name,
@@ -89,12 +94,17 @@ def run_reference_benchmark(
             "shadowReadyCount": sum(1 for inspection in inspections if inspection.shadow_ready),
             "reflectionReadyCount": sum(1 for inspection in inspections if inspection.reflection_ready),
             "collisionProxyReadyCount": sum(1 for inspection in inspections if inspection.collision_proxy_ready),
+            "querySeconds": query_seconds,
+            "raysPerSecond": 0.0 if query_seconds <= 0.0 else len(inspections) / query_seconds,
+            "queryP50Ms": _percentile_ms(query_timings, 0.5),
+            "queryP95Ms": _percentile_ms(query_timings, 0.95),
             "probes": [inspection.to_dict() for inspection in inspections],
         },
         "previewRender": {
             "width": image.width,
             "height": image.height,
             "pixelCount": len(image.pixels),
+            "renderSeconds": render_seconds,
         },
     }
 
@@ -239,3 +249,26 @@ def _carrier_entropy(carrier_counts: dict[str, int]) -> float:
         probability = count / total
         entropy -= probability * log2(probability)
     return entropy
+
+
+def _timed_scene_ray_inspections(scene: AuraScene) -> tuple[tuple[RayInspection, ...], tuple[float, ...]]:
+    if not scene.elements:
+        return tuple(), tuple()
+    camera_z = min(element.bounds.min_corner[2] for element in scene.elements) - 2.0
+    inspections = []
+    timings = []
+    for element in scene.elements[:8]:
+        center = tuple((lo + hi) / 2.0 for lo, hi in zip(element.bounds.min_corner, element.bounds.max_corner))
+        ray = Ray(origin=(center[0], center[1], camera_z), direction=(0.0, 0.0, 1.0))
+        start = perf_counter()
+        inspections.append(inspect_ray(scene, ray, label=element.id))
+        timings.append(perf_counter() - start)
+    return tuple(inspections), tuple(timings)
+
+
+def _percentile_ms(values: Sequence[float], fraction: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * fraction)))
+    return ordered[index] * 1000.0
