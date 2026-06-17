@@ -11,6 +11,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - semantic/object graph package artifact;
 - bounded local elements;
 - carrier-aware reference ray queries;
+- CPU reference interaction probes for hit points, shadow transmittance,
+  reflection directions, and collision proxy distances;
 - front-to-back compositing;
 - tiny JSON/ASCII/binary little-endian PLY 3DGS export fixture reading;
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
@@ -60,7 +62,8 @@ mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
 kept as AURA-Ingest bootstrap paths after the native package path.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
-occlusion, shadow, reflection, and collision-readiness query inspection. Use
+occlusion, shadow-transmittance, reflection-direction, and collision-distance
+query inspection. Use
 `aura benchmark-reference <package>` for CPU reference package/query/render
 timing metrics, and add `--include-ablations` for carrier assignment ablation
 metrics; these are contract checks, not quality or production-speed claims.

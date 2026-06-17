@@ -29,6 +29,8 @@ native representation contract pieces:
 - semantic/object graph package artifact;
 - bounded AURA elements and chunks;
 - carrier-aware reference ray-query response with chunk traversal metrics;
+- CPU reference interaction probes for hit points, shadow transmittance,
+  reflection directions, and collision proxy distances;
 - simple front-to-back scene query;
 - tiny JSON/ASCII/binary little-endian PLY 3DGS export reader for means/opacities/covariances;
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
@@ -113,7 +115,7 @@ aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --
 aura query-demo --x -0.5 --y -0.5
 # queries the native mixed-carrier fixture
 aura inspect-rays outputs/native-demo.aura --native-demo-probes
-# prints material-aware occlusion/shadow/reflection-ready ray-query inspections
+# prints material-aware occlusion, shadow, reflection, and collision ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
 # runs CPU reference package/query/render timing metrics
 aura benchmark-reference outputs/native-demo.aura --include-ablations
