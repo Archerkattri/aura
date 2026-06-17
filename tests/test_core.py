@@ -19,7 +19,15 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
 
     assert result.scene.name == "reconstruct_demo"
     assert result.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
-    assert all(element.metadata["source"] == "aura-core-synthetic" for element in result.scene.elements)
+    by_id = {element.id: element for element in result.scene.elements}
+    assert by_id["surface_wall"].metadata["source"] == "aura-core-synthetic"
+    assert by_id["soft_volume_beta_detail"].metadata["source"] == "aura-core-adaptive-evolution"
+    assert by_id["soft_volume_beta_detail"].carrier_id == "beta"
+    assert by_id["soft_volume_beta_detail"].payload["type"] == "beta_kernel"
+    assert by_id["semantic_object_neural_residual"].metadata["source"] == "aura-core-adaptive-evolution"
+    assert by_id["semantic_object_neural_residual"].carrier_id == "neural"
+    assert by_id["semantic_object_neural_residual"].payload["type"] == "neural_residual"
+    assert set(result.scene.chunks[0].element_ids) == set(by_id)
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["sources"] == ["synthetic_posed_images", "synthetic_depth", "semantic_masks"]
     assert "native_evidence_initialization" in report["stages"]
@@ -31,7 +39,15 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert report["iterations"][-1]["total_loss"] < report["iterations"][0]["total_loss"]
     assert len(report["iterations"][0]["predictions"]) == len(report["frames"])
     assert {item["carrier_id"] for item in report["iterations"][0]["predictions"]} >= {"surface", "volume", "gabor", "semantic"}
-    assert {item["action"] for item in report["iterations"][0]["carrier_evolution"]} >= {"refine_radiance"}
+    assert {item["action"] for item in report["iterations"][0]["carrier_evolution"]} >= {
+        "refine_radiance",
+        "split_beta_detail",
+        "promote_neural_residual",
+    }
+    assert {item["created_element_id"] for item in report["iterations"][0]["carrier_evolution"]} >= {
+        "soft_volume_beta_detail",
+        "semantic_object_neural_residual",
+    }
     assert all("ray_direction" in item for item in report["iterations"][0]["predictions"])
 
 
@@ -59,6 +75,7 @@ def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
     assert str(tmp_path) in result.stdout
     assert package.asset.name == "reconstruct_demo"
     assert package.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
+    assert {element.id for element in package.scene.elements} >= {"soft_volume_beta_detail", "semantic_object_neural_residual"}
     assert report["name"] == "reconstruct_demo"
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["iterations"][0]["predictions"]

@@ -5,6 +5,7 @@ from math import sqrt
 from typing import Sequence
 
 from aura.assignment import RegionEvidence
+from aura.carrier_payloads import BetaKernelPayload, NeuralResidualPayload
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraElement, Bounds
 from aura.ray import Ray, Vec3
@@ -38,6 +39,7 @@ class ReconstructionConfig:
     render_width: int = 8
     render_height: int = 8
     color_learning_rate: float = 0.35
+    enable_adaptive_evolution: bool = True
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -71,6 +73,7 @@ class CarrierEvolutionDecision:
     carrier_id: str
     action: str
     reason: str
+    created_element_id: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -184,7 +187,7 @@ def reconstruct_demo_scene(config: ReconstructionConfig | None = None) -> Recons
             "posed_synthetic_input",
             "native_evidence_initialization",
             "cpu_reference_render_loss",
-            "adaptive_carrier_evolution_report",
+            "adaptive_carrier_split_promote",
             "aura_package_export_ready",
         ),
         iterations=iterations,
@@ -332,8 +335,15 @@ def _carrier_evolution_decisions(predictions: Sequence[FramePrediction]) -> tupl
             continue
         seen.add(key)
         if prediction.image_loss > 0.03 and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
-            action = "refine_radiance"
-            reason = "photometric residual above native carrier threshold"
+            if prediction.carrier_id == "volume":
+                action = "split_beta_detail"
+                reason = "volume residual benefits from compact bounded support"
+            elif prediction.carrier_id == "semantic":
+                action = "promote_neural_residual"
+                reason = "semantic object retains view-dependent photometric residual"
+            else:
+                action = "refine_radiance"
+                reason = "photometric residual above native carrier threshold"
         elif prediction.depth_loss > 0.10 and prediction.carrier_id in {"surface", "volume", "semantic"}:
             action = "anchor_carrier_depth"
             reason = "depth residual exceeds reference tolerance"
@@ -352,6 +362,7 @@ def _carrier_evolution_decisions(predictions: Sequence[FramePrediction]) -> tupl
                 carrier_id=prediction.carrier_id,
                 action=action,
                 reason=reason,
+                created_element_id=_created_element_id(prediction.element_id, action),
             )
         )
     return tuple(decisions)
@@ -366,6 +377,9 @@ def _refine_scene_from_predictions(
     if not targets_by_element:
         return scene
     elements = []
+    existing_ids = {element.id for element in scene.elements}
+    decisions = _carrier_evolution_decisions(predictions) if config.enable_adaptive_evolution else tuple()
+    decision_by_element = {decision.element_id: decision for decision in decisions}
     for element in scene.elements:
         target = targets_by_element.get(element.id)
         if target is None:
@@ -390,7 +404,64 @@ def _refine_scene_from_predictions(
                 metadata={**element.metadata, "optimized_by": "aura-core-reference-loop"},
             )
         )
-    return AuraScene(name=scene.name, elements=tuple(elements), chunks=scene.chunks, semantic_graph=scene.semantic_graph)
+        decision = decision_by_element.get(element.id)
+        if decision is not None:
+            evolved = _evolved_element_for(element, decision, prediction)
+            if evolved is not None and evolved.id not in existing_ids:
+                elements.append(evolved)
+                existing_ids.add(evolved.id)
+    element_ids = tuple(element.id for element in elements)
+    chunks = tuple(replace(chunk, element_ids=element_ids) for chunk in scene.chunks)
+    return AuraScene(name=scene.name, elements=tuple(elements), chunks=chunks, semantic_graph=scene.semantic_graph)
+
+
+def _evolved_element_for(
+    element: AuraElement,
+    decision: CarrierEvolutionDecision,
+    prediction: FramePrediction,
+) -> AuraElement | None:
+    if decision.action == "split_beta_detail":
+        bounds = _shrink_bounds(element.bounds, scale=0.45)
+        return AuraElement(
+            id=decision.created_element_id or f"{element.id}_beta_detail",
+            carrier_id="beta",
+            bounds=bounds,
+            color=prediction.target_color,
+            opacity=min(1.0, max(0.35, element.opacity * 0.85)),
+            confidence=min(1.0, element.confidence + 0.08),
+            material_id=element.material_id,
+            lod=element.lod + 1,
+            metadata={
+                "source": "aura-core-adaptive-evolution",
+                "parent": element.id,
+                "evolution": decision.action,
+            },
+            confidence_map={"residual": prediction.image_loss, "depth": prediction.depth_loss},
+            edit={"source": "adaptive-carrier-evolution", "parent": element.id},
+            payload=BetaKernelPayload(alpha=3.0, beta=3.0, support_radius=_half_extent(bounds)).to_dict(),
+        )
+    if decision.action == "promote_neural_residual":
+        bounds = _shrink_bounds(element.bounds, scale=0.65)
+        return AuraElement(
+            id=decision.created_element_id or f"{element.id}_neural_residual",
+            carrier_id="neural",
+            bounds=bounds,
+            color=prediction.target_color,
+            opacity=min(1.0, max(0.25, element.opacity * 0.75)),
+            confidence=max(0.1, element.confidence * 0.9),
+            semantic_id=element.semantic_id,
+            residual=True,
+            lod=element.lod + 1,
+            metadata={
+                "source": "aura-core-adaptive-evolution",
+                "parent": element.id,
+                "evolution": decision.action,
+            },
+            confidence_map={"residual": prediction.image_loss, "depth": prediction.depth_loss},
+            edit={"source": "adaptive-carrier-evolution", "parent": element.id},
+            payload=NeuralResidualPayload(latent_dim=16, residual_scale=min(1.0, prediction.image_loss * 4.0)).to_dict(),
+        )
+    return None
 
 
 def _normalized_direction(origin: Vec3, target: Vec3) -> Vec3:
@@ -426,6 +497,27 @@ def _shift_bounds_along_ray(bounds: Bounds, direction: Vec3, distance: float) ->
         min_corner=tuple(value + delta for value, delta in zip(bounds.min_corner, offset)),  # type: ignore[arg-type]
         max_corner=tuple(value + delta for value, delta in zip(bounds.max_corner, offset)),  # type: ignore[arg-type]
     )
+
+
+def _created_element_id(element_id: str, action: str) -> str | None:
+    if action == "split_beta_detail":
+        return f"{element_id}_beta_detail"
+    if action == "promote_neural_residual":
+        return f"{element_id}_neural_residual"
+    return None
+
+
+def _shrink_bounds(bounds: Bounds, *, scale: float) -> Bounds:
+    center = tuple((lo + hi) / 2.0 for lo, hi in zip(bounds.min_corner, bounds.max_corner))
+    half = tuple((hi - lo) * scale / 2.0 for lo, hi in zip(bounds.min_corner, bounds.max_corner))
+    return Bounds(
+        min_corner=tuple(value - radius for value, radius in zip(center, half)),  # type: ignore[arg-type]
+        max_corner=tuple(value + radius for value, radius in zip(center, half)),  # type: ignore[arg-type]
+    )
+
+
+def _half_extent(bounds: Bounds) -> Vec3:
+    return tuple(max((hi - lo) / 2.0, 1e-4) for lo, hi in zip(bounds.min_corner, bounds.max_corner))  # type: ignore[return-value]
 
 
 def _carrier_counts(scene: AuraScene) -> dict[str, int]:

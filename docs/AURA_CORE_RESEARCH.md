@@ -89,8 +89,9 @@ The repo should move toward these milestones, in this order:
 2. CPU reference loop: cast posed training rays, compute per-frame image/depth
    losses, update carrier color/depth parameters, and emit a training report
    with carrier evolution decisions.
-3. Adaptive evolution: promote regions between gaussian, surface, volume, beta,
-   gabor, neural, and semantic carriers based on measured residuals.
+3. Adaptive evolution: split high-residual volume regions into beta detail
+   carriers and promote semantic residuals into neural residual carriers, then
+   extend the same mechanism to merge and demote carriers.
 4. Ray-query correctness: first hit, depth, normal, transmittance, material,
    confidence, provenance, shadow/reflection/collision readiness.
 5. GPU kernels: implement the same contract for real throughput only after the
