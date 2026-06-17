@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from aura.assignment import RegionEvidence
-from aura.benchmark import default_benchmark_suite, run_reference_benchmark
+from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_reference_benchmark
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     reference_benchmark.add_argument("package_dir", type=Path)
     reference_benchmark.add_argument("--width", type=int, default=16)
     reference_benchmark.add_argument("--height", type=int, default=16)
+    reference_benchmark.add_argument("--include-ablations", action="store_true")
 
     ingest = sub.add_parser("ingest-adapters", help="Print AURA-Ingest adapters and their EvidenceSample contracts as JSON")
 
@@ -137,7 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "benchmark-reference":
         package = load_package(args.package_dir)
-        print(json.dumps(run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height), indent=2, sort_keys=True))
+        if args.include_ablations:
+            payload = run_ablation_benchmarks(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
+        else:
+            payload = run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     if args.command == "ingest-adapters":
         print(json.dumps([adapter.to_dict() for adapter in supported_ingest_adapters()], indent=2, sort_keys=True))

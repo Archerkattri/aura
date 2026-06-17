@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from math import log2
 from pathlib import Path
 from typing import Sequence
 
+from aura.asset import AuraAsset
 from aura.inspection import inspect_scene_rays
 from aura.package import AuraPackage
 from aura.render import render_orthographic
+from aura.scene import AuraScene
+from aura.semantic import SemanticGraph
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,7 @@ def run_reference_benchmark(
         "chunkCount": len(scene.chunks),
         "semanticObjectCount": len(scene.semantic_graph.nodes),
         "carrierCounts": carrier_counts,
+        "carrierEntropy": _carrier_entropy(carrier_counts),
         "nonGaussianFraction": 0.0 if element_count == 0 else non_gaussian / element_count,
         "packageBytes": _package_size(package_dir) if package_dir is not None else None,
         "rayQuery": {
@@ -92,6 +97,82 @@ def run_reference_benchmark(
             "pixelCount": len(image.pixels),
         },
     }
+
+
+def run_ablation_benchmarks(
+    package: AuraPackage,
+    *,
+    package_dir: Path | str | None = None,
+    suite: BenchmarkSuite | None = None,
+    render_width: int = 16,
+    render_height: int = 16,
+) -> dict:
+    suite = suite or default_benchmark_suite()
+    baseline = run_reference_benchmark(package, package_dir=package_dir, render_width=render_width, render_height=render_height)
+    results = []
+    for ablation in suite.ablations:
+        ablated = apply_ablation(package, ablation)
+        metrics = run_reference_benchmark(ablated, package_dir=None, render_width=render_width, render_height=render_height)
+        results.append(
+            {
+                "id": ablation.id,
+                "disabledCarriers": list(ablation.disabled_carriers),
+                "notes": ablation.notes,
+                "metrics": metrics,
+                "delta": {
+                    "elementCount": metrics["elementCount"] - baseline["elementCount"],
+                    "nonGaussianFraction": metrics["nonGaussianFraction"] - baseline["nonGaussianFraction"],
+                    "firstHitRate": metrics["rayQuery"]["firstHitRate"] - baseline["rayQuery"]["firstHitRate"],
+                    "semanticObjectCount": metrics["semanticObjectCount"] - baseline["semanticObjectCount"],
+                },
+            }
+        )
+    return {
+        "format": "AURA_ABLATION_BENCHMARK",
+        "asset": package.asset.name,
+        "baseline": baseline,
+        "ablations": results,
+    }
+
+
+def apply_ablation(package: AuraPackage, ablation: AblationConfig) -> AuraPackage:
+    disabled = set(ablation.disabled_carriers)
+    elements = tuple(element for element in package.scene.elements if element.carrier_id not in disabled)
+    element_ids = {element.id for element in elements}
+    chunks = tuple(
+        type(chunk)(
+            id=chunk.id,
+            bounds=chunk.bounds,
+            element_ids=tuple(element_id for element_id in chunk.element_ids if element_id in element_ids),
+            lod=chunk.lod,
+        )
+        for chunk in package.scene.chunks
+    )
+    nodes = tuple(
+        node
+        for node in package.scene.semantic_graph.nodes
+        if set(node.element_ids).issubset(element_ids)
+    )
+    edges = tuple(
+        edge
+        for edge in package.scene.semantic_graph.edges
+        if {edge.source, edge.target}.issubset({node.id for node in nodes})
+    )
+    scene = AuraScene(
+        name=f"{package.scene.name}_{ablation.id}",
+        elements=elements,
+        chunks=chunks,
+        semantic_graph=SemanticGraph(nodes=nodes, edges=edges),
+    )
+    asset = AuraAsset(
+        name=f"{package.asset.name}_{ablation.id}",
+        carrier_ids=scene.carrier_ids() or ("gaussian",),
+        version=package.asset.version,
+        units=package.asset.units,
+        coordinate_system=package.asset.coordinate_system,
+        fallbacks=dict(package.asset.fallbacks),
+    )
+    return AuraPackage(asset=asset, scene=scene, exchange=dict(package.exchange))
 
 
 def default_benchmark_suite() -> BenchmarkSuite:
@@ -145,3 +226,16 @@ def _package_size(package_dir: Path | str | None) -> int | None:
     if not root.exists():
         return None
     return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+
+
+def _carrier_entropy(carrier_counts: dict[str, int]) -> float:
+    total = sum(carrier_counts.values())
+    if total == 0:
+        return 0.0
+    entropy = 0.0
+    for count in carrier_counts.values():
+        if count == 0:
+            continue
+        probability = count / total
+        entropy -= probability * log2(probability)
+    return entropy

@@ -29,7 +29,7 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 2. Run `python -m pytest`.
 3. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
 4. Run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`.
-5. Run `aura benchmark-reference outputs/native-demo.aura`.
+5. Run `aura benchmark-reference outputs/native-demo.aura --include-ablations`.
 6. Run `aura migration-plan outputs/native-demo.aura`.
 7. Run `aura ingest-adapters`.
 8. Extend mixed-carrier decomposition fixtures and query tests.

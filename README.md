@@ -82,6 +82,8 @@ aura inspect-rays outputs/native-demo.aura --native-demo-probes
 # prints material-aware occlusion/shadow/reflection-ready ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
 # runs CPU reference package/query/render metrics
+aura benchmark-reference outputs/native-demo.aura --include-ablations
+# runs carrier assignment ablation metrics
 aura migration-plan outputs/native-demo.aura
 # prints package schema migration status
 

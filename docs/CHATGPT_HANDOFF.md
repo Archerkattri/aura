@@ -27,7 +27,7 @@ First useful tasks:
 2. run `aura build-native-demo --output-dir outputs/native-demo.aura`;
 3. expand mixed-carrier decomposition fixtures, semantic graph checks, and query tests;
 4. run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`;
-5. run `aura benchmark-reference outputs/native-demo.aura`;
+5. run `aura benchmark-reference outputs/native-demo.aura --include-ablations`;
 6. run `aura benchmark-plan` and fill result-producing harnesses without overclaiming metrics;
 7. run `aura ingest-adapters` and keep future source adapters evidence-based;
 8. extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures if needed;

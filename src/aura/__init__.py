@@ -2,7 +2,15 @@
 
 from aura.asset import AuraAsset
 from aura.assignment import RegionEvidence, choose_carrier
-from aura.benchmark import AblationConfig, BenchmarkCase, BenchmarkSuite, default_benchmark_suite, run_reference_benchmark
+from aura.benchmark import (
+    AblationConfig,
+    BenchmarkCase,
+    BenchmarkSuite,
+    apply_ablation,
+    default_benchmark_suite,
+    run_ablation_benchmarks,
+    run_reference_benchmark,
+)
 from aura.carriers import CarrierKind, CarrierSpec, default_registry
 from aura.carrier_payloads import (
     BetaKernelPayload,
@@ -80,6 +88,7 @@ __all__ = [
     "SparsePointPrior",
     "SurfaceCellPayload",
     "VolumeCellPayload",
+    "apply_ablation",
     "choose_carrier",
     "compare_images",
     "depth_points_to_evidence",
@@ -98,6 +107,7 @@ __all__ = [
     "package_3dgs_export",
     "read_ppm",
     "render_orthographic",
+    "run_ablation_benchmarks",
     "run_reference_benchmark",
     "inspect_ray",
     "inspect_scene_rays",

@@ -48,7 +48,8 @@ kept as AURA-Ingest bootstrap paths after the native package path.
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow, reflection, and collision-readiness query inspection. Use
 `aura benchmark-reference <package>` for CPU reference package/query/render
-metrics; these are contract checks, not quality claims.
+metrics, and add `--include-ablations` for carrier assignment ablation metrics;
+these are contract checks, not quality claims.
 Use `aura migration-plan <package>` to report schema migration status.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports
