@@ -14,6 +14,15 @@ from aura import (
     package_scene,
     validate_package,
 )
+from aura.cli import native_demo_scene
+
+
+def test_native_demo_scene_is_mixed_aura_first_fixture():
+    scene = native_demo_scene()
+
+    assert scene.name == "native_demo"
+    assert scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
+    assert all(element.payload for element in scene.elements)
 
 
 def test_decompose_evidence_produces_mixed_native_carriers(tmp_path):
@@ -111,6 +120,40 @@ def test_inspect_package_reports_mixed_native_scene(tmp_path):
     assert payload["name"] == "inspect_mixed"
     assert payload["carriers"] == ["surface", "volume"]
     assert payload["elementCount"] == 2
+
+
+def test_write_native_demo_cli_writes_mixed_aura_package(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "write-native-demo-package",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    package = load_package(tmp_path)
+
+    assert str(tmp_path) in result.stdout
+    assert package.asset.name == "native_demo"
+    assert package.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
+
+
+def test_query_demo_cli_uses_native_scene():
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "query-demo", "--x", "-0.5", "--y", "-0.5"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert "surface_wall" in result.stdout
 
 
 def test_surface_payload_supplies_reference_query_normal():

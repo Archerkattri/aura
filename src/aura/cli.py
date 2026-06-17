@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+from aura.assignment import RegionEvidence
+from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export
 from aura.carrier_payloads import SurfaceCellPayload
@@ -17,7 +19,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aura")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    demo = sub.add_parser("write-demo-package", help="Write a tiny GPU-ready .aura package scaffold")
+    native_demo = sub.add_parser(
+        "write-native-demo-package",
+        help="Write a mixed-carrier native AURA package from evidence decomposition",
+    )
+    native_demo.add_argument("--output-dir", type=Path, default=Path("outputs/native-demo.aura"))
+
+    demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
 
     splat_demo = sub.add_parser(
@@ -34,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     import_3dgs.add_argument("--name", default=None)
     import_3dgs.add_argument("--radius-sigma", type=float, default=2.0)
 
-    query = sub.add_parser("query-demo", help="Run a reference ray query against the fixture scene")
+    query = sub.add_parser("query-demo", help="Run a reference ray query against the native mixed-carrier demo")
     query.add_argument("--x", type=float, default=0.0)
     query.add_argument("--y", type=float, default=0.0)
 
@@ -56,9 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--min-psnr", type=float, default=None)
 
     args = parser.parse_args(argv)
-    scene = demo_scene()
+    native_scene = native_demo_scene()
+    if args.command == "write-native-demo-package":
+        print(package_scene(native_scene, fallbacks={"mesh": "fallback/native-preview.glb"}).write(args.output_dir))
+        return 0
     if args.command == "write-demo-package":
-        print(package_scene(scene, fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))
+        print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))
         return 0
     if args.command == "write-splat-demo-package":
         splat_scene = load_3dgs_scene(args.input, radius_sigma=args.radius_sigma)
@@ -69,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         print(package.write(args.output_dir))
         return 0
     if args.command == "query-demo":
-        result = scene.ray_query(Ray(origin=(args.x, args.y, -2.0), direction=(0.0, 0.0, 1.0)))
+        result = native_scene.ray_query(Ray(origin=(args.x, args.y, -2.0), direction=(0.0, 0.0, 1.0)))
         print(result)
         return 0
     if args.command == "validate-package":
@@ -115,6 +126,71 @@ def demo_scene() -> AuraScene:
     )
     chunk = AuraChunk(id="root", bounds=bounds, element_ids=("wall_patch",), lod=0)
     return AuraScene(name="demo", elements=(element,), chunks=(chunk,))
+
+
+def native_demo_scene() -> AuraScene:
+    return decompose_evidence(
+        (
+            EvidenceSample(
+                id="surface_wall",
+                bounds=Bounds((-0.75, -0.75, 0.0), (-0.25, -0.25, 0.1)),
+                evidence=RegionEvidence(geometry_confidence=0.9, material_confidence=0.75, edit_need=0.7),
+                color=(0.8, 0.72, 0.62),
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+                semantic_label="wall",
+                confidence_map={"geometry": 0.9, "material": 0.75},
+                edit={"editable": True, "group": "wall"},
+            ),
+            EvidenceSample(
+                id="soft_volume",
+                bounds=Bounds((-0.15, -0.7, 0.0), (0.35, -0.2, 0.8)),
+                evidence=RegionEvidence(fuzzy_confidence=0.85, geometry_confidence=0.25),
+                color=(0.55, 0.68, 0.9),
+                opacity=0.35,
+                confidence=0.72,
+            ),
+            EvidenceSample(
+                id="woven_frequency",
+                bounds=Bounds((0.45, -0.7, 0.0), (0.95, -0.2, 0.15)),
+                evidence=RegionEvidence(high_frequency=0.92, geometry_confidence=0.65),
+                color=(0.95, 0.85, 0.35),
+                opacity=0.75,
+            ),
+            EvidenceSample(
+                id="view_residual",
+                bounds=Bounds((-0.75, 0.05, 0.0), (-0.25, 0.55, 0.2)),
+                evidence=RegionEvidence(view_dependent=0.88, material_confidence=0.25, image_error=0.55),
+                color=(0.4, 0.75, 0.7),
+                opacity=0.6,
+            ),
+            EvidenceSample(
+                id="semantic_object",
+                bounds=Bounds((-0.1, 0.05, 0.0), (0.35, 0.5, 0.2)),
+                evidence=RegionEvidence(semantic_confidence=0.95),
+                color=(0.75, 0.55, 0.95),
+                opacity=0.45,
+                semantic_label="fixture_object",
+                edit={"selectable": True},
+            ),
+            EvidenceSample(
+                id="compact_detail",
+                bounds=Bounds((0.5, 0.05, 0.0), (0.8, 0.35, 0.15)),
+                evidence=RegionEvidence(compact_detail=0.9, image_error=0.2),
+                color=(0.95, 0.45, 0.35),
+                opacity=0.85,
+            ),
+            EvidenceSample(
+                id="gaussian_fallback",
+                bounds=Bounds((0.85, 0.3, 0.0), (1.05, 0.5, 0.2)),
+                evidence=RegionEvidence(image_error=0.05, geometry_confidence=0.3, edit_need=0.1),
+                color=(0.65, 0.65, 0.65),
+                opacity=0.5,
+                confidence=0.6,
+            ),
+        ),
+        name="native_demo",
+    )
 
 
 if __name__ == "__main__":

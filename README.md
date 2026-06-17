@@ -66,23 +66,27 @@ rendering, and ray-query adapters should target CUDA by default.
 ## Quick Smoke Commands
 
 ```bash
-aura write-demo-package --output-dir outputs/demo.aura
+aura write-native-demo-package --output-dir outputs/native-demo.aura
+aura validate-package outputs/native-demo.aura
+# validates mixed native carriers, typed payloads, confidence maps, edit metadata, and chunks
+aura inspect-package outputs/native-demo.aura
+# prints the native package summary as stable JSON
+aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --width 128 --height 128
+# writes a deterministic PPM preview for package validation
+aura query-demo --x -0.5 --y -0.5
+# queries the native mixed-carrier fixture
+
+# AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
 aura import-3dgs third_party/gaussian-splatting/output/<scene> --output-dir outputs/<scene>.aura
 # imports direct PLY/JSON exports or point_cloud/iteration_*/point_cloud.ply layouts
-aura validate-package outputs/splat-demo.aura
-# validates JSON Schemas, cross-file references, schema version, and package counts
-aura inspect-package outputs/splat-demo.aura
-# prints the same package summary as stable JSON
-aura render-package outputs/splat-demo.aura --output outputs/splat-demo.ppm --width 128 --height 128
-# writes a deterministic PPM preview for package validation
 aura compare-renders outputs/baseline.ppm outputs/splat-demo.ppm --min-psnr 35
 # prints strict JSON MSE/PSNR metrics and exits nonzero if the threshold fails
-aura query-demo --x 0.0 --y 0.0
 python -m pytest
 ```
 
-The demo package is a schema/contract fixture, not a renderable research result.
+The native demo package is a schema/contract fixture, not a renderable research
+result.
 
 ## What AURA Is
 

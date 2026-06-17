@@ -23,7 +23,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - deterministic orthographic package preview rendering and image metrics;
 - strict-JSON render comparison metrics for regression checks;
 - glTF/USD exchange-plan metadata;
-- CLI fixtures.
+- native-first CLI fixtures.
 
 It is not yet a renderer, trainer, CUDA kernel, or benchmark result. The first
 3DGS bridge is a fixture-sized parser that converts exported Gaussian
@@ -37,6 +37,10 @@ fixture.
 The current renderer is a deterministic validation preview, not the final CUDA
 renderer. A future GPU renderer should match this package/query contract while
 replacing the reference implementation for real throughput.
+
+The first CLI smoke path is `aura write-native-demo-package`, which builds a
+mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
+kept as AURA-Ingest bootstrap paths after the native package path.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports
 into AURA elements with Gaussian fallback payloads. Core AURA code should remain
