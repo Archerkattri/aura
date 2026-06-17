@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from math import log2
 from pathlib import Path
 from time import perf_counter
-from typing import Sequence
+from typing import Any, Sequence
 
 from aura.asset import AuraAsset
 from aura.core import ReconstructionConfig, ReconstructionReport, reconstruct_demo_scene
@@ -13,8 +13,9 @@ from aura.package import AuraPackage
 from aura.ray import Ray
 from aura.render import RenderImage, compare_images, render_orthographic
 from aura.runtime_export import runtime_export_report
-from aura.scene import AuraScene
+from aura.scene import BVH_CHUNK_THRESHOLD, AuraScene
 from aura.semantic import SemanticGraph
+from aura.torch_kernels import torch_carrier_kernel_specs
 
 
 @dataclass(frozen=True)
@@ -215,6 +216,7 @@ def run_reference_benchmark(
     render_seconds = perf_counter() - render_start
     reference_visual_quality = compare_images(image, image)
     query_seconds = sum(query_timings)
+    runtime_export = runtime_export_report(package).to_dict()
     return {
         "format": "AURA_REFERENCE_BENCHMARK",
         "asset": package.asset.name,
@@ -250,7 +252,8 @@ def run_reference_benchmark(
             "probes": [inspection.to_dict() for inspection in inspections],
         },
         "interactionQuality": _interaction_quality(inspections),
-        "runtimeExport": runtime_export_report(package).to_dict(),
+        "runtimeExport": runtime_export,
+        "backendReadiness": evaluate_backend_readiness(scene, runtime_export, traversals),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
             _scene_center_expectations(scene),
@@ -479,6 +482,18 @@ def default_benchmark_suite() -> BenchmarkSuite:
                 purpose="Check native AURA runtime export metadata for carrier chunks, ray-query contract fields, and fallback losses.",
                 metrics=("chunk_export_count", "ray_query_field_count", "fallback_loss_count", "native_runtime_ready"),
             ),
+            BenchmarkCase(
+                id="backend_readiness_contract",
+                purpose="Evaluate CPU-verifiable torch/reference backend readiness without claiming production CUDA.",
+                metrics=(
+                    "scene_carrier_autograd_coverage_rate",
+                    "scene_carrier_cuda_coverage_rate",
+                    "ray_query_field_coverage_rate",
+                    "chunked_element_coverage_rate",
+                    "chunk_culling_observed_rate",
+                    "production_cuda_ready",
+                ),
+            ),
         ),
         ablations=(
             AblationConfig(id="gaussian_only", disabled_carriers=("surface", "volume", "beta", "gabor", "neural", "semantic"), notes="Fallback-only baseline."),
@@ -487,6 +502,73 @@ def default_benchmark_suite() -> BenchmarkSuite:
             AblationConfig(id="no_semantic_graph", disabled_carriers=("semantic",), notes="Tests object graph/editability value."),
         ),
     )
+
+
+def evaluate_backend_readiness(
+    scene: AuraScene,
+    runtime_export: dict[str, Any] | None = None,
+    traversals: Sequence[Any] = (),
+) -> dict:
+    runtime_export = runtime_export or _scene_runtime_contract_view(scene)
+    carrier_ids = tuple(scene.carrier_ids())
+    kernel_specs = torch_carrier_kernel_specs()
+    specs_by_carrier = {spec.carrier_id: spec for spec in kernel_specs}
+    carrier_kernel_rows = []
+    for carrier_id in carrier_ids:
+        spec = specs_by_carrier.get(carrier_id)
+        carrier_kernel_rows.append(
+            {
+                "carrierId": carrier_id,
+                "autogradKernel": bool(spec and spec.autograd_kernel),
+                "cudaKernel": bool(spec and spec.cuda_kernel),
+                "productionReady": bool(spec and spec.production_ready),
+                "implementationStage": spec.implementation_stage if spec else "missing_kernel_spec",
+                "differentiableFields": list(spec.differentiable_fields) if spec else [],
+            }
+        )
+    query_contract = _backend_query_contract(runtime_export)
+    chunk_lod_contract = _backend_chunk_lod_contract(scene, runtime_export, traversals)
+    autograd_coverage = _rate(row["autogradKernel"] for row in carrier_kernel_rows)
+    cuda_coverage = _rate(row["cudaKernel"] for row in carrier_kernel_rows)
+    production_ready = bool(carrier_kernel_rows) and all(row["productionReady"] for row in carrier_kernel_rows)
+    blockers = []
+    if not production_ready:
+        blockers.append("carrier_cuda_kernels_not_production_ready")
+    if query_contract["missingFields"]:
+        blockers.append("ray_query_contract_fields_missing")
+    if scene.elements and chunk_lod_contract["chunkedElementCoverageRate"] < 1.0:
+        blockers.append("elements_missing_chunk_assignment")
+    if scene.chunks and chunk_lod_contract["chunkCullingObservedRate"] <= 0.0:
+        blockers.append("chunk_traversal_not_observed")
+    return {
+        "format": "AURA_BACKEND_READINESS_EVALUATION",
+        "scene": scene.name,
+        "requiresTorchImport": False,
+        "evaluatedBackend": "cpu_reference_contract_for_torch_cuda_readiness",
+        "productionCudaReady": production_ready,
+        "mvpContractReady": (
+            autograd_coverage == 1.0
+            and query_contract["fieldCoverageRate"] == 1.0
+            and (not scene.elements or chunk_lod_contract["chunkedElementCoverageRate"] == 1.0)
+        ),
+        "sceneCarrierAutogradCoverageRate": autograd_coverage,
+        "sceneCarrierCudaCoverageRate": cuda_coverage,
+        "sceneCarrierProductionReadyRate": _rate(row["productionReady"] for row in carrier_kernel_rows),
+        "carrierKernelContract": {
+            "sceneCarrierCount": len(carrier_kernel_rows),
+            "knownKernelSpecCount": len(kernel_specs),
+            "missingAutogradCarrierIds": [row["carrierId"] for row in carrier_kernel_rows if not row["autogradKernel"]],
+            "missingCudaCarrierIds": [row["carrierId"] for row in carrier_kernel_rows if not row["cudaKernel"]],
+            "carriers": carrier_kernel_rows,
+        },
+        "queryContract": query_contract,
+        "chunkLodContract": chunk_lod_contract,
+        "productionBlockers": blockers,
+        "notes": (
+            "This is a deterministic CPU contract evaluation for backend readiness. "
+            "It does not execute torch, require CUDA, or certify production CUDA throughput."
+        ),
+    }
 
 
 def _package_size(package_dir: Path | str | None) -> int | None:
@@ -583,6 +665,112 @@ def _scene_carrier_counts(scene: AuraScene) -> dict[str, int]:
     for element in scene.elements:
         counts[element.carrier_id] += 1
     return counts
+
+
+def _scene_runtime_contract_view(scene: AuraScene) -> dict:
+    chunk_count = len(scene.chunks)
+    active_mode = "bvh" if chunk_count >= BVH_CHUNK_THRESHOLD else "chunk_linear" if chunk_count else "element_linear"
+    return {
+        "rayQueryContract": {
+            "fields": [
+                "firstHit",
+                "depth",
+                "normal",
+                "transmittance",
+                "opacity",
+                "semanticId",
+                "materialId",
+                "confidence",
+                "residual",
+                "provenance",
+                "orderedHits",
+            ],
+            "supportsFirstHit": True,
+            "supportsOrderedHitTrace": True,
+            "supportsCompositing": True,
+            "requiresNativeAuraRuntime": True,
+        },
+        "chunkExport": [
+            {
+                "chunkId": chunk.id,
+                "lod": chunk.lod,
+                "elementIds": list(chunk.element_ids),
+                "carrierIds": sorted(
+                    {
+                        element.carrier_id
+                        for element in scene.elements
+                        if element.id in chunk.element_ids
+                    }
+                ),
+            }
+            for chunk in scene.chunks
+        ],
+        "accelerationContract": {
+            "activeTraversalMode": active_mode,
+            "supportedTraversalModes": ["element_linear", "chunk_linear", "bvh"],
+            "supportsChunkCulling": chunk_count > 0,
+            "supportsCachedBvh": chunk_count >= BVH_CHUNK_THRESHOLD,
+            "productionGpuTraversalReady": False,
+        },
+    }
+
+
+def _backend_query_contract(runtime_export: dict[str, Any]) -> dict:
+    required_fields = (
+        "firstHit",
+        "depth",
+        "normal",
+        "transmittance",
+        "opacity",
+        "semanticId",
+        "materialId",
+        "confidence",
+        "residual",
+        "provenance",
+        "orderedHits",
+    )
+    contract = runtime_export.get("rayQueryContract", {})
+    present_fields = tuple(str(field) for field in contract.get("fields", ()))
+    missing_fields = [field for field in required_fields if field not in present_fields]
+    return {
+        "requiredFields": list(required_fields),
+        "presentFields": list(present_fields),
+        "missingFields": missing_fields,
+        "fieldCoverageRate": 1.0 - (len(missing_fields) / len(required_fields)),
+        "supportsFirstHit": bool(contract.get("supportsFirstHit")),
+        "supportsOrderedHitTrace": bool(contract.get("supportsOrderedHitTrace")),
+        "supportsCompositing": bool(contract.get("supportsCompositing")),
+        "requiresNativeAuraRuntime": bool(contract.get("requiresNativeAuraRuntime")),
+    }
+
+
+def _backend_chunk_lod_contract(
+    scene: AuraScene,
+    runtime_export: dict[str, Any],
+    traversals: Sequence[Any],
+) -> dict:
+    element_ids = {element.id for element in scene.elements}
+    chunked_element_ids = {element_id for chunk in scene.chunks for element_id in chunk.element_ids}
+    chunk_export = tuple(runtime_export.get("chunkExport", ()))
+    acceleration = runtime_export.get("accelerationContract", {})
+    return {
+        "chunkCount": len(scene.chunks),
+        "exportedChunkCount": len(chunk_export),
+        "lodLevels": sorted({chunk.lod for chunk in scene.chunks}),
+        "elementCount": len(element_ids),
+        "chunkedElementCount": len(element_ids & chunked_element_ids),
+        "orphanElementIds": sorted(element_ids - chunked_element_ids),
+        "chunkedElementCoverageRate": _rate(element_id in chunked_element_ids for element_id in element_ids),
+        "chunkCarrierCoverageRate": _rate(bool(entry.get("carrierIds")) for entry in chunk_export),
+        "activeTraversalMode": acceleration.get("activeTraversalMode", "unknown"),
+        "supportedTraversalModes": list(acceleration.get("supportedTraversalModes", ())),
+        "supportsChunkCulling": bool(acceleration.get("supportsChunkCulling")),
+        "supportsCachedBvh": bool(acceleration.get("supportsCachedBvh")),
+        "productionGpuTraversalReady": bool(acceleration.get("productionGpuTraversalReady")),
+        "traversalProbeCount": len(traversals),
+        "chunkCullingObservedRate": _rate(bool(getattr(traversal, "tested_chunk_ids", ())) for traversal in traversals),
+        "skippedElementObservedRate": _rate(getattr(traversal, "skipped_element_count", 0) > 0 for traversal in traversals),
+    }
 
 
 def _timed_scene_ray_inspections(scene: AuraScene) -> tuple[tuple[RayInspection, ...], tuple[float, ...]]:

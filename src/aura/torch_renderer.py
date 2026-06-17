@@ -112,8 +112,12 @@ class TorchSceneTensors:
     device: str
     element_ids: tuple[str, ...]
     carrier_ids: tuple[str, ...]
+    chunk_ids: tuple[str, ...]
     mins: Any
     maxs: Any
+    chunk_mins: Any | None
+    chunk_maxs: Any | None
+    element_chunk_indices: Any | None
     colors: Any
     opacities: Any
     confidences: Any
@@ -124,8 +128,13 @@ class TorchSceneTensors:
             "device": self.device,
             "elementIds": list(self.element_ids),
             "carrierIds": list(self.carrier_ids),
+            "chunkIds": list(self.chunk_ids),
             "mins": _torch_tensor_metadata(self.mins),
             "maxs": _torch_tensor_metadata(self.maxs),
+            "chunkMins": _torch_tensor_metadata(self.chunk_mins),
+            "chunkMaxs": _torch_tensor_metadata(self.chunk_maxs),
+            "elementChunkIndices": _torch_tensor_metadata(self.element_chunk_indices),
+            "supportsChunkCulling": self.element_chunk_indices is not None and self.chunk_mins is not None and self.chunk_maxs is not None,
             "colors": _torch_tensor_metadata(self.colors),
             "opacities": _torch_tensor_metadata(self.opacities),
             "confidences": _torch_tensor_metadata(self.confidences),
@@ -227,12 +236,24 @@ def torch_scene_tensors(
     resolved_device = device or status.default_device or "cpu"
     torch = require_torch()
     elements = tuple(scene.elements)
+    chunk_ids = tuple(chunk.id for chunk in scene.chunks)
+    chunk_index_by_id = {chunk_id: index for index, chunk_id in enumerate(chunk_ids)}
+    element_chunk_indices = tuple(chunk_index_by_id.get(element.chunk_id, -1) for element in elements)
+    supports_chunk_culling = bool(chunk_ids) and all(index >= 0 for index in element_chunk_indices)
     return TorchSceneTensors(
         device=str(resolved_device),
         element_ids=tuple(element.id for element in elements),
         carrier_ids=tuple(element.carrier_id for element in elements),
+        chunk_ids=chunk_ids,
         mins=torch.tensor([element.bounds.min_corner for element in elements], dtype=torch.float32, device=resolved_device),
         maxs=torch.tensor([element.bounds.max_corner for element in elements], dtype=torch.float32, device=resolved_device),
+        chunk_mins=torch.tensor([chunk.bounds.min_corner for chunk in scene.chunks], dtype=torch.float32, device=resolved_device)
+        if supports_chunk_culling
+        else None,
+        chunk_maxs=torch.tensor([chunk.bounds.max_corner for chunk in scene.chunks], dtype=torch.float32, device=resolved_device)
+        if supports_chunk_culling
+        else None,
+        element_chunk_indices=torch.tensor(element_chunk_indices, dtype=torch.long, device=resolved_device) if supports_chunk_culling else None,
         colors=torch.tensor([element.color for element in elements], dtype=torch.float32, device=resolved_device),
         opacities=torch.tensor([element.opacity for element in elements], dtype=torch.float32, device=resolved_device),
         confidences=torch.tensor([element.confidence for element in elements], dtype=torch.float32, device=resolved_device),
@@ -561,6 +582,9 @@ def _torch_render_tensor_targets(
         colors,
         opacities,
         confidences,
+        scene_tensors.chunk_mins,
+        scene_tensors.chunk_maxs,
+        scene_tensors.element_chunk_indices,
         device=device,
         carrier_parameters=carrier_parameters,
     )
@@ -662,6 +686,9 @@ def _torch_render_objective_tensor_targets(
         colors,
         opacities,
         confidences,
+        scene_tensors.chunk_mins,
+        scene_tensors.chunk_maxs,
+        scene_tensors.element_chunk_indices,
         device=device,
         carrier_parameters=carrier_parameters,
     )
@@ -718,21 +745,18 @@ def _torch_composite_carrier_hits(
     colors: Any,
     opacities: Any,
     confidences: Any,
+    chunk_mins: Any | None,
+    chunk_maxs: Any | None,
+    element_chunk_indices: Any | None,
     *,
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None,
 ) -> dict[str, Any]:
-    safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
-    t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
-    t1 = (maxs[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
-    lower = torch.minimum(t0, t1)
-    upper = torch.maximum(t0, t1)
-    parallel_outside = (directions.abs()[:, None, :] < 1e-8) & (
-        (origins[:, None, :] < mins[None, :, :]) | (origins[:, None, :] > maxs[None, :, :])
-    )
-    entry = torch.clamp(torch.max(lower, dim=2).values, min=0.0)
-    exit_depth = torch.min(upper, dim=2).values
-    hits = (exit_depth >= entry) & (~torch.any(parallel_outside, dim=2))
+    entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
+    chunk_culling_active = chunk_mins is not None and chunk_maxs is not None and element_chunk_indices is not None
+    if chunk_culling_active:
+        _chunk_entry, _chunk_exit, chunk_hits = _torch_aabb_hits(torch, origins, directions, chunk_mins, chunk_maxs)
+        hits = hits & chunk_hits[:, element_chunk_indices]
     hit_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
     first_depth, first_index = torch.min(hit_depths, dim=1)
     has_hit = torch.isfinite(first_depth)
@@ -810,7 +834,23 @@ def _torch_composite_carrier_hits(
             device,
             carrier_parameters,
         ),
+        "chunk_culling": bool(chunk_culling_active),
     }
+
+
+def _torch_aabb_hits(torch: Any, origins: Any, directions: Any, mins: Any, maxs: Any) -> tuple[Any, Any, Any]:
+    safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
+    t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
+    t1 = (maxs[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
+    lower = torch.minimum(t0, t1)
+    upper = torch.maximum(t0, t1)
+    parallel_outside = (directions.abs()[:, None, :] < 1e-8) & (
+        (origins[:, None, :] < mins[None, :, :]) | (origins[:, None, :] > maxs[None, :, :])
+    )
+    entry = torch.clamp(torch.max(lower, dim=2).values, min=0.0)
+    exit_depth = torch.min(upper, dim=2).values
+    hits = (exit_depth >= entry) & (~torch.any(parallel_outside, dim=2))
+    return entry, exit_depth, hits
 
 
 def _torch_hit_transmittance_traces(

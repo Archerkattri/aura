@@ -25,6 +25,7 @@ aura capture-manifest-to-training outputs/capture-manifest.json --output outputs
 aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
 aura validate-package outputs/reconstruct-capture.aura
 aura inspect-package outputs/reconstruct-capture.aura
+aura readiness-report
 aura torch-kernel-report
 aura cuda-kernel-build-report --build
 ```
@@ -92,6 +93,11 @@ AURA_CAPTURE_MANIFEST
 `EvidenceSample` records before decomposition.
 
 ## Production Tasks
+
+Run `aura readiness-report` before claiming production status. The report is a
+native AURA audit of implemented scaffolds versus missing production pillars,
+including native carriers, package validation, PyTorch reference support, CUDA
+kernel status, renderer/trainer gaps, and benchmark claim boundaries.
 
 1. Replace the optional payload-aware PyTorch ordered-compositing reference path
    and CPU differentiable reference renderer with a carrier-complete

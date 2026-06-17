@@ -115,6 +115,7 @@ from aura.proposals import (
     score_capture_proposals,
 )
 from aura.ray import Ray, RayQueryResult
+from aura.readiness import ProductionReadinessReport, ReadinessPillar, production_readiness_report
 from aura.render import (
     RenderImage,
     compare_images,
@@ -216,7 +217,9 @@ __all__ = [
     "RayQueryExpectation",
     "RayQueryResult",
     "RayTraversal",
+    "ReadinessPillar",
     "RegionEvidence",
+    "ProductionReadinessReport",
     "ReconstructionConfig",
     "ReconstructionReport",
     "ReconstructionResult",
@@ -288,6 +291,7 @@ __all__ = [
     "native_demo_ray_query_expectations",
     "package_scene",
     "precondition_color_gradient",
+    "production_readiness_report",
     "package_3dgs_export",
     "propose_training_regions_from_tensors",
     "read_ppm",

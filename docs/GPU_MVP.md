@@ -52,8 +52,9 @@ This package now contains the GPU-ready skeleton for AURA:
   stacks manifest image/depth/mask/normal tensors and presence masks on the
   selected device;
 - reusable native scene tensor caching through `torch_scene_tensors`, which
-  keeps element bounds, carrier IDs, colors, opacities, confidence, and carrier
-  parameter tensors on the selected device across reconstruction iterations;
+  keeps element/chunk bounds, carrier IDs, colors, opacities, confidence,
+  element-to-chunk culling indices, and carrier parameter tensors on the
+  selected device across reconstruction iterations;
 - per-pixel capture training target generation through
   `capture_tensors_to_render_targets` and `torch_capture_training_batch`;
 - torch reference rendering directly from capture training batches through

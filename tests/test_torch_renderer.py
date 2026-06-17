@@ -3,6 +3,7 @@ import importlib.util
 import pytest
 
 from aura import (
+    AuraChunk,
     AuraElement,
     AuraScene,
     Bounds,
@@ -335,6 +336,13 @@ def test_torch_scene_tensors_cache_native_scene_on_device():
                 payload={"type": "surface_cell"},
             ),
         ),
+        chunks=(
+            AuraChunk(
+                id="root",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                element_ids=("surface",),
+            ),
+        ),
     )
 
     scene_tensors = torch_scene_tensors(scene, device="cpu")
@@ -342,8 +350,12 @@ def test_torch_scene_tensors_cache_native_scene_on_device():
 
     assert scene_tensors.element_ids == ("surface",)
     assert scene_tensors.carrier_ids == ("surface",)
+    assert scene_tensors.chunk_ids == ("root",)
     assert payload["device"] == "cpu"
     assert payload["mins"]["shape"] == [1, 3]
+    assert payload["chunkMins"]["shape"] == [1, 3]
+    assert payload["elementChunkIndices"]["shape"] == [1]
+    assert payload["supportsChunkCulling"] is True
     assert payload["colors"]["device"] == "cpu"
     assert payload["carrierParameterIds"] == ["surface"]
 
@@ -385,6 +397,49 @@ def test_torch_render_targets_reuses_scene_tensor_cache():
 
     assert batch.predicted_color[0] == pytest.approx((0.4, 0.2, 0.1))
     assert batch.opacity == pytest.approx((0.5,))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_applies_chunk_culling_from_scene_tensor_cache():
+    scene = AuraScene(
+        name="chunk_cull_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                payload={"type": "surface_cell"},
+                chunk_id="misplaced_chunk",
+            ),
+        ),
+        chunks=(
+            AuraChunk(
+                id="misplaced_chunk",
+                bounds=Bounds((10.0, 10.0, 0.0), (11.0, 11.0, 0.1)),
+                element_ids=("surface",),
+            ),
+        ),
+    )
+    scene_tensors = torch_scene_tensors(scene, device="cpu")
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.0,
+            ),
+        ),
+        scene_tensors=scene_tensors,
+    )
+
+    assert batch.element_ids == (None,)
+    assert batch.provenance == ("miss",)
+    assert batch.predicted_depth == (None,)
+    assert batch.transmittance == (1.0,)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

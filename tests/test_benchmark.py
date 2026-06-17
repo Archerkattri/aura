@@ -20,6 +20,7 @@ from aura import (
     run_reference_benchmark,
     run_visual_quality_benchmark,
 )
+from aura.benchmark import evaluate_backend_readiness
 from aura.cli import native_demo_scene
 
 
@@ -39,6 +40,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "confidence_calibration",
         "aura_core_reconstruction",
         "runtime_export_contract",
+        "backend_readiness_contract",
     }.issubset(case_ids)
     visual_case = next(case for case in suite.cases if case.id == "visual_quality_vs_3dgs")
     speed_case = next(case for case in suite.cases if case.id == "render_query_speed")
@@ -96,6 +98,15 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["runtimeExport"]["engineWorkflow"]["chunkedStreamingReady"] is True
     assert len(payload["runtimeExport"]["chunkExport"]) == payload["chunkCount"]
     assert "transmittance" in payload["runtimeExport"]["rayQueryContract"]["fields"]
+    assert payload["backendReadiness"]["format"] == "AURA_BACKEND_READINESS_EVALUATION"
+    assert payload["backendReadiness"]["requiresTorchImport"] is False
+    assert payload["backendReadiness"]["mvpContractReady"] is True
+    assert payload["backendReadiness"]["productionCudaReady"] is False
+    assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0
+    assert payload["backendReadiness"]["sceneCarrierCudaCoverageRate"] == 0.0
+    assert payload["backendReadiness"]["queryContract"]["fieldCoverageRate"] == 1.0
+    assert payload["backendReadiness"]["chunkLodContract"]["chunkedElementCoverageRate"] == 1.0
+    assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
     assert payload["previewRender"]["renderSeconds"] >= 0.0
@@ -237,6 +248,28 @@ def test_ray_query_correctness_benchmark_scores_ordered_hit_trace():
     assert probe["actual"]["orderedElementIds"] == ["front_surface", "rear_volume"]
     assert probe["actual"]["orderedCarrierIds"] == ["surface", "volume"]
     assert probe["actual"]["orderedHits"][1]["carrierId"] == "volume"
+
+
+def test_backend_readiness_evaluation_is_cpu_contract_not_cuda_claim():
+    scene = native_demo_scene()
+
+    payload = evaluate_backend_readiness(scene)
+
+    assert payload["format"] == "AURA_BACKEND_READINESS_EVALUATION"
+    assert payload["scene"] == "native_demo"
+    assert payload["requiresTorchImport"] is False
+    assert payload["mvpContractReady"] is True
+    assert payload["productionCudaReady"] is False
+    assert payload["sceneCarrierAutogradCoverageRate"] == 1.0
+    assert payload["sceneCarrierCudaCoverageRate"] == 0.0
+    assert payload["carrierKernelContract"]["missingAutogradCarrierIds"] == []
+    assert set(payload["carrierKernelContract"]["missingCudaCarrierIds"]) == set(scene.carrier_ids())
+    assert payload["queryContract"]["missingFields"] == []
+    assert payload["queryContract"]["supportsOrderedHitTrace"] is True
+    assert payload["chunkLodContract"]["exportedChunkCount"] == len(scene.chunks)
+    assert payload["chunkLodContract"]["chunkedElementCoverageRate"] == 1.0
+    assert payload["chunkLodContract"]["productionGpuTraversalReady"] is False
+    assert "does not execute torch" in payload["notes"]
 
 
 def test_core_benchmark_cli_prints_reconstruction_metrics():

@@ -139,11 +139,89 @@ def test_cuda_kernel_sources_cover_every_native_carrier_symbol():
     assert report["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
     assert report["sourceCount"] == 7
     assert report["availableSourceCount"] == 7
+    assert report["contractCompleteSourceCount"] == 7
+    assert report["contractOutputs"] == ["out_color", "out_transmittance", "out_confidence", "out_residual"]
     for source in report["sources"]:
         assert source["path"] == "cuda/aura_carriers.cu"
         assert source["available"] is True
         assert source["required"] is True
+        assert source["sourceSymbolAvailable"] is True
+        assert source["contractComplete"] is True
+        assert source["missingSourceFragments"] == []
+        assert source["contractOutputs"] == report["contractOutputs"]
         assert source["symbol"] in source_text
+
+
+def test_cuda_kernel_source_metadata_declares_carrier_complete_argument_schema():
+    report = cuda_kernel_source_report()
+
+    by_carrier = {source["carrierId"]: source for source in report["sources"]}
+
+    assert by_carrier["surface"]["payloadType"] == "surface_cell"
+    assert by_carrier["volume"]["payloadType"] == "volume_cell"
+    assert by_carrier["beta"]["payloadType"] == "beta_kernel"
+    assert by_carrier["gabor"]["payloadType"] == "gabor_frequency"
+    assert by_carrier["neural"]["payloadType"] == "neural_residual"
+    assert by_carrier["semantic"]["payloadType"] == "semantic_feature"
+    assert by_carrier["gaussian"]["payloadType"] == "gaussian_fallback"
+
+    for source in by_carrier.values():
+        arguments = {argument["name"]: argument for argument in source["arguments"]}
+        for output in ("out_color", "out_transmittance", "out_confidence", "out_residual"):
+            assert arguments[output]["role"] == "output"
+        assert arguments["out_color"]["shape"] == "count x 3"
+        assert arguments["out_transmittance"]["shape"] == "count"
+        assert arguments["out_confidence"]["shape"] == "count"
+        assert arguments["out_residual"]["dtype"] == "unsigned char*"
+        assert arguments["count"]["role"] == "size"
+
+    assert {argument["name"] for argument in by_carrier["surface"]["arguments"]} == {
+        "color",
+        "opacity",
+        "confidence",
+        "out_color",
+        "out_transmittance",
+        "out_confidence",
+        "out_residual",
+        "count",
+    }
+    assert {argument["name"] for argument in by_carrier["volume"]["arguments"]} == {
+        "color",
+        "density",
+        "path_length",
+        "confidence",
+        "out_color",
+        "out_transmittance",
+        "out_confidence",
+        "out_residual",
+        "count",
+    }
+    assert {argument["name"] for argument in by_carrier["gabor"]["arguments"]} == {
+        "color",
+        "opacity",
+        "confidence",
+        "frequency",
+        "phase",
+        "bandwidth",
+        "hit_point",
+        "out_color",
+        "out_transmittance",
+        "out_confidence",
+        "out_residual",
+        "count",
+    }
+
+
+def test_cuda_source_static_contract_writes_aura_outputs_for_every_carrier():
+    source_text = files("aura").joinpath("cuda/aura_carriers.cu").read_text(encoding="utf-8")
+
+    for source in cuda_kernel_sources():
+        kernel_text = _cuda_kernel_text(source_text, source.symbol)
+        signature_text = kernel_text.split(") {", maxsplit=1)[0]
+        for argument in source.to_dict()["arguments"]:
+            assert argument["name"] in signature_text
+        for output in source.contract_outputs:
+            assert f"{output}[i" in kernel_text
 
 
 def test_torch_kernel_report_links_cuda_source_but_keeps_production_gate_closed():
@@ -195,6 +273,14 @@ def test_cuda_kernel_build_report_cli_is_non_destructive_without_build():
     assert payload["compiled"] is False
     assert payload["loadable"] is False
     assert payload["reason"] == "build_not_attempted"
+
+
+def _cuda_kernel_text(source_text, symbol):
+    start = source_text.index(f'extern "C" __global__ void {symbol}')
+    next_kernel = source_text.find('\nextern "C" __global__ void ', start + 1)
+    if next_kernel == -1:
+        return source_text[start:]
+    return source_text[start:next_kernel]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

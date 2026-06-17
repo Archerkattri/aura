@@ -34,6 +34,7 @@ from aura.migration import migration_report
 from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
+from aura.readiness import production_readiness_report
 from aura.render import compare_images, read_ppm, render_orthographic
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
@@ -178,6 +179,8 @@ def main(argv: list[str] | None = None) -> int:
 
     export_report = sub.add_parser("export-report", help="Print native/glTF/USD runtime export readiness as JSON")
     export_report.add_argument("package_dir", type=Path)
+
+    sub.add_parser("readiness-report", help="Print AURA production-readiness audit as JSON")
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
     render.add_argument("package_dir", type=Path)
@@ -407,6 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export-report":
         package = load_package(args.package_dir)
         print(json.dumps(runtime_export_report(package).to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "readiness-report":
+        print(json.dumps(production_readiness_report().to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "render-package":
         package = load_package(args.package_dir)
