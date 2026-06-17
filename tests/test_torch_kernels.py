@@ -48,6 +48,10 @@ def test_torch_carrier_kernel_specs_cover_native_payloads_without_torch():
     assert by_payload["gabor_frequency"].autograd_kernel is True
     assert by_payload["gabor_frequency"].production_ready is False
     assert by_payload["gabor_frequency"].blockers == ("missing_cuda_kernel",)
+    assert by_payload["neural_residual"].to_dict()["implementationStage"] == "torch_autograd_neural_residual_kernel"
+    assert by_payload["neural_residual"].autograd_kernel is True
+    assert by_payload["neural_residual"].production_ready is False
+    assert by_payload["neural_residual"].blockers == ("missing_cuda_kernel",)
 
 
 def test_torch_carrier_kernel_report_is_a_production_readiness_gate():
@@ -57,8 +61,8 @@ def test_torch_carrier_kernel_report_is_a_production_readiness_gate():
     assert report["productionReady"] is False
     assert report["carrierCount"] == 7
     assert report["nonProductionCarrierCount"] == 7
-    assert report["referenceOnlyCarrierCount"] == 3
-    assert report["autogradCarrierCount"] == 4
+    assert report["referenceOnlyCarrierCount"] == 2
+    assert report["autogradCarrierCount"] == 5
     assert report["cudaCarrierCount"] == 0
     by_carrier = {item["carrierId"]: item for item in report["kernelSpecs"]}
     assert set(by_carrier) == {"surface", "volume", "beta", "gabor", "neural", "semantic", "gaussian"}
@@ -74,6 +78,9 @@ def test_torch_carrier_kernel_report_is_a_production_readiness_gate():
     assert by_carrier["gabor"]["autogradKernel"] is True
     assert by_carrier["gabor"]["productionReady"] is False
     assert by_carrier["gabor"]["blockers"] == ["missing_cuda_kernel"]
+    assert by_carrier["neural"]["autogradKernel"] is True
+    assert by_carrier["neural"]["productionReady"] is False
+    assert by_carrier["neural"]["blockers"] == ["missing_cuda_kernel"]
     assert by_carrier["gaussian"]["productionReady"] is False
     assert by_carrier["gaussian"]["blockers"] == ["missing_autograd_kernel", "missing_cuda_kernel"]
     assert "remaining carrier autograd" in report["requiredNextStep"]
@@ -94,8 +101,8 @@ def test_torch_kernel_report_cli_prints_readiness_json():
     assert payload["productionReady"] is False
     assert payload["carrierCount"] == 7
     assert payload["nonProductionCarrierCount"] == 7
-    assert payload["referenceOnlyCarrierCount"] == 3
-    assert payload["autogradCarrierCount"] == 4
+    assert payload["referenceOnlyCarrierCount"] == 2
+    assert payload["autogradCarrierCount"] == 5
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -305,6 +312,57 @@ def test_gabor_kernel_keeps_frequency_phase_bandwidth_differentiable():
     assert opacities.grad is not None
     assert confidences.grad is not None
     assert residual.tolist() == [False]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_neural_kernel_keeps_residual_scale_differentiable():
+    import torch
+
+    elements = (
+        AuraElement(
+            id="neural",
+            carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            opacity=0.5,
+            confidence=0.75,
+            payload={"type": "neural_residual", "latent_dim": 8, "residual_scale": 0.4},
+        ),
+    )
+    carrier_parameters = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0]])
+    hit_points = torch.tensor([[0.4, 0.5, 0.6]])
+    colors = torch.tensor([[0.2, 0.4, 0.6]], requires_grad=True)
+    opacities = torch.tensor([0.5], requires_grad=True)
+    confidences = torch.tensor([0.75], requires_grad=True)
+    mins = torch.tensor([element.bounds.min_corner for element in elements])
+    maxs = torch.tensor([element.bounds.max_corner for element in elements])
+
+    carrier_colors, transmittance, confidence, residual = torch_carrier_response_tensors(
+        torch,
+        elements,
+        best_index,
+        best_depth,
+        exit_depth,
+        hit_points,
+        colors,
+        opacities,
+        confidences,
+        mins,
+        maxs,
+        "cpu",
+        carrier_parameters=carrier_parameters,
+    )
+    loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
+    loss.backward()
+
+    assert carrier_parameters["neural"]["residual_scale"].grad is not None
+    assert carrier_parameters["neural"]["residual_scale"].grad.item() == pytest.approx(-0.25 * 0.75)
+    assert colors.grad is not None
+    assert opacities.grad is not None
+    assert confidences.grad is not None
+    assert residual.tolist() == [True]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

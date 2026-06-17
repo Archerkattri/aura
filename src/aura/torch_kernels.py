@@ -80,7 +80,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="neural_residual",
             carrier_id="neural",
             differentiable_fields=("color", "residual_scale"),
-            description="Residual primitive confidence/residual-flag reference kernel.",
+            description="Residual primitive torch autograd kernel for residual confidence scaling; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_neural_residual_kernel",
+            autograd_kernel=True,
         ),
         TorchCarrierKernelSpec(
             payload_type="semantic_feature",
@@ -166,7 +168,14 @@ def torch_carrier_response_tensors(
             carrier_colors[mask] = torch.clamp(carrier_colors[mask] * modulation.unsqueeze(1), min=0.0, max=1.0)
             confidence[mask] = torch.clamp(confidence[mask] * bandwidth, min=0.0, max=1.0)
         elif payload_type == "neural_residual":
-            residual_scale = float(element.payload.get("residual_scale", 0.0))
+            residual_scale = _carrier_parameter(
+                torch,
+                element,
+                "residual_scale",
+                carrier_parameters,
+                device,
+                default=element.payload.get("residual_scale", 0.0),
+            )
             confidence[mask] = torch.clamp(confidence[mask] * (1.0 - residual_scale * 0.25), min=0.0, max=1.0)
             residual[mask] = True
         elif payload_type == "semantic_feature":
@@ -229,6 +238,15 @@ def torch_carrier_parameter_tensors(
                     device=device,
                     requires_grad=requires_grad,
                 ),
+            }
+        elif payload_type == "neural_residual":
+            parameters[element.id] = {
+                "residual_scale": torch.tensor(
+                    float(element.payload.get("residual_scale", 0.0)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                )
             }
     return parameters
 

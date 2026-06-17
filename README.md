@@ -141,7 +141,7 @@ aura inspect-package outputs/native-demo.aura
 aura export-report outputs/native-demo.aura
 # reports native AURA preservation versus glTF/USD fallback losses for runtime engine workflows
 aura torch-kernel-report
-# reports native carrier autograd/CUDA readiness; surface, volume, beta, and gabor have autograd, CUDA is still required
+# reports native carrier autograd/CUDA readiness; surface, volume, beta, gabor, and neural have autograd, CUDA is still required
 aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --width 128 --height 128
 # writes a deterministic PPM preview for package validation
 aura query-demo --x -0.5 --y -0.5

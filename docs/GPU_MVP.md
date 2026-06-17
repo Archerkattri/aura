@@ -104,8 +104,9 @@ reference/autograd status, and the missing CUDA blockers. The surface carrier
 has a tested torch autograd path, and the volume carrier has a differentiable
 density parameter path. The beta carrier has differentiable bounded-shape
 parameters, and the gabor carrier has differentiable frequency/phase/bandwidth
-parameters; production readiness still requires CUDA kernels and the remaining
-carrier autograd paths.
+parameters. The neural residual carrier has a differentiable residual-scale
+path; production readiness still requires CUDA kernels and the remaining
+semantic/Gaussian autograd paths.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
