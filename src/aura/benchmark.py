@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Sequence
+
+from aura.inspection import inspect_scene_rays
+from aura.package import AuraPackage
+from aura.render import render_orthographic
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,48 @@ class BenchmarkSuite:
         }
 
 
+def run_reference_benchmark(
+    package: AuraPackage,
+    *,
+    package_dir: Path | str | None = None,
+    render_width: int = 16,
+    render_height: int = 16,
+) -> dict:
+    scene = package.scene
+    carrier_counts = {carrier_id: 0 for carrier_id in scene.carrier_ids()}
+    for element in scene.elements:
+        carrier_counts[element.carrier_id] = carrier_counts.get(element.carrier_id, 0) + 1
+    element_count = len(scene.elements)
+    non_gaussian = sum(count for carrier, count in carrier_counts.items() if carrier != "gaussian")
+    inspections = inspect_scene_rays(scene)
+    hits = [inspection for inspection in inspections if inspection.first_hit]
+    image = render_orthographic(scene, width=render_width, height=render_height)
+    return {
+        "format": "AURA_REFERENCE_BENCHMARK",
+        "asset": package.asset.name,
+        "elementCount": element_count,
+        "chunkCount": len(scene.chunks),
+        "semanticObjectCount": len(scene.semantic_graph.nodes),
+        "carrierCounts": carrier_counts,
+        "nonGaussianFraction": 0.0 if element_count == 0 else non_gaussian / element_count,
+        "packageBytes": _package_size(package_dir) if package_dir is not None else None,
+        "rayQuery": {
+            "probeCount": len(inspections),
+            "hitCount": len(hits),
+            "firstHitRate": 0.0 if not inspections else len(hits) / len(inspections),
+            "shadowReadyCount": sum(1 for inspection in inspections if inspection.shadow_ready),
+            "reflectionReadyCount": sum(1 for inspection in inspections if inspection.reflection_ready),
+            "collisionProxyReadyCount": sum(1 for inspection in inspections if inspection.collision_proxy_ready),
+            "probes": [inspection.to_dict() for inspection in inspections],
+        },
+        "previewRender": {
+            "width": image.width,
+            "height": image.height,
+            "pixelCount": len(image.pixels),
+        },
+    }
+
+
 def default_benchmark_suite() -> BenchmarkSuite:
     return BenchmarkSuite(
         cases=(
@@ -89,3 +136,12 @@ def default_benchmark_suite() -> BenchmarkSuite:
             AblationConfig(id="no_semantic_graph", disabled_carriers=("semantic",), notes="Tests object graph/editability value."),
         ),
     )
+
+
+def _package_size(package_dir: Path | str | None) -> int | None:
+    if package_dir is None:
+        return None
+    root = Path(package_dir)
+    if not root.exists():
+        return None
+    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())

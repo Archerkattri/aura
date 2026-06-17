@@ -2,6 +2,8 @@ import json
 import subprocess
 import sys
 
+from aura import load_package, package_scene, run_reference_benchmark
+from aura.cli import native_demo_scene
 from aura import default_benchmark_suite
 
 
@@ -34,3 +36,36 @@ def test_benchmark_plan_cli_prints_reproducible_json():
     assert "cases" in payload
     assert "ablations" in payload
     assert payload["cases"][0]["id"] == "visual_quality_vs_3dgs"
+
+
+def test_reference_benchmark_reports_native_package_metrics(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+    package = load_package(tmp_path)
+
+    payload = run_reference_benchmark(package, package_dir=tmp_path, render_width=8, render_height=8)
+
+    assert payload["format"] == "AURA_REFERENCE_BENCHMARK"
+    assert payload["asset"] == "native_demo"
+    assert payload["elementCount"] == 7
+    assert payload["semanticObjectCount"] == 2
+    assert payload["nonGaussianFraction"] > 0.5
+    assert payload["packageBytes"] > 0
+    assert payload["rayQuery"]["probeCount"] > 0
+    assert payload["previewRender"]["pixelCount"] == 64
+
+
+def test_reference_benchmark_cli_prints_result_json(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "benchmark-reference", str(tmp_path), "--width", "8", "--height", "8"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["asset"] == "native_demo"
+    assert payload["rayQuery"]["shadowReadyCount"] > 0
+    assert payload["previewRender"]["width"] == 8

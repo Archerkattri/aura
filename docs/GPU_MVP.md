@@ -24,11 +24,11 @@ This package now contains the GPU-ready skeleton for AURA:
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
 - strict-JSON render comparison metrics for regression checks;
-- reproducible benchmark and carrier ablation plan skeletons;
+- reproducible benchmark plans plus CPU reference package/query/render metrics;
 - glTF/USD exchange-plan metadata;
 - native-first CLI fixtures.
 
-It is not yet a renderer, trainer, CUDA kernel, or benchmark result. The first
+It is not yet a renderer, trainer, CUDA kernel, or research benchmark result. The first
 3DGS bridge is a fixture-sized parser that converts exported Gaussian
 means/opacities/covariances from JSON or ASCII/binary little-endian PLY into
 AURA Gaussian fallback elements. PLY `scale_*` fields are interpreted as 3DGS
@@ -44,6 +44,11 @@ replacing the reference implementation for real throughput.
 The first CLI smoke path is `aura build-native-demo`, which builds a
 mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
 kept as AURA-Ingest bootstrap paths after the native package path.
+
+Use `aura inspect-rays <package> --native-demo-probes` for occlusion, shadow,
+reflection, and collision-readiness query inspection. Use
+`aura benchmark-reference <package>` for CPU reference package/query/render
+metrics; these are contract checks, not quality claims.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports
 into `EvidenceSample` records first, then the adaptive decomposition path emits

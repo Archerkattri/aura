@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 
 from aura.assignment import RegionEvidence
-from aura.benchmark import default_benchmark_suite
+from aura.benchmark import default_benchmark_suite, run_reference_benchmark
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
+from aura.inspection import inspect_scene_rays, native_demo_interaction_probes
 from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
@@ -72,7 +73,16 @@ def main(argv: list[str] | None = None) -> int:
 
     benchmark = sub.add_parser("benchmark-plan", help="Print the reproducible AURA benchmark and ablation plan as JSON")
 
+    reference_benchmark = sub.add_parser("benchmark-reference", help="Run the CPU reference benchmark for a .aura package")
+    reference_benchmark.add_argument("package_dir", type=Path)
+    reference_benchmark.add_argument("--width", type=int, default=16)
+    reference_benchmark.add_argument("--height", type=int, default=16)
+
     ingest = sub.add_parser("ingest-adapters", help="Print AURA-Ingest adapters and their EvidenceSample contracts as JSON")
+
+    inspect_rays = sub.add_parser("inspect-rays", help="Inspect reference ray-query outputs for a .aura package")
+    inspect_rays.add_argument("package_dir", type=Path)
+    inspect_rays.add_argument("--native-demo-probes", action="store_true")
 
     args = parser.parse_args(argv)
     native_scene = native_demo_scene()
@@ -121,8 +131,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "benchmark-plan":
         print(json.dumps(default_benchmark_suite().to_dict(), indent=2, sort_keys=True))
         return 0
+    if args.command == "benchmark-reference":
+        package = load_package(args.package_dir)
+        print(json.dumps(run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height), indent=2, sort_keys=True))
+        return 0
     if args.command == "ingest-adapters":
         print(json.dumps([adapter.to_dict() for adapter in supported_ingest_adapters()], indent=2, sort_keys=True))
+        return 0
+    if args.command == "inspect-rays":
+        package = load_package(args.package_dir)
+        inspections = native_demo_interaction_probes(package.scene) if args.native_demo_probes else inspect_scene_rays(package.scene)
+        print(json.dumps([inspection.to_dict() for inspection in inspections], indent=2, sort_keys=True))
         return 0
     raise ValueError(args.command)
 

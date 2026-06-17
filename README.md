@@ -36,13 +36,13 @@ This repo contains the GPU-ready MVP contract layer:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
-- reproducible benchmark and carrier ablation plan skeletons;
+- reproducible benchmark plans plus CPU reference package/query/render metrics;
 - strict-JSON render comparison metrics for regression checks;
 - glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
 
 It does **not** contain a real renderer, trainer, CUDA kernel, BVH, 3DGS
-bootstrap, radiance-cell optimizer, or benchmark result yet.
+bootstrap, radiance-cell optimizer, or research benchmark result yet.
 
 ## Install
 
@@ -78,6 +78,10 @@ aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --
 # writes a deterministic PPM preview for package validation
 aura query-demo --x -0.5 --y -0.5
 # queries the native mixed-carrier fixture
+aura inspect-rays outputs/native-demo.aura --native-demo-probes
+# prints occlusion/shadow/reflection-ready ray-query inspections
+aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
+# runs CPU reference package/query/render metrics
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
