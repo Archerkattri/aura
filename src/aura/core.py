@@ -280,7 +280,7 @@ def _reference_iterations(
         predictions = _predict_training_frames(scene, frames)
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
-        evolution = _carrier_evolution_decisions(predictions, scene)
+        evolution = _carrier_evolution_decisions(predictions, scene) if config.enable_adaptive_evolution else tuple()
         steps.append(
             ReconstructionStep(
                 iteration=index,

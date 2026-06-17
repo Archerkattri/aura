@@ -2,7 +2,15 @@ import json
 import subprocess
 import sys
 
-from aura import apply_ablation, default_benchmark_suite, load_package, package_scene, run_ablation_benchmarks, run_reference_benchmark
+from aura import (
+    apply_ablation,
+    default_benchmark_suite,
+    load_package,
+    package_scene,
+    run_ablation_benchmarks,
+    run_core_reconstruction_benchmark,
+    run_reference_benchmark,
+)
 from aura.cli import native_demo_scene
 
 
@@ -18,6 +26,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "package_size",
         "render_query_speed",
         "mixed_carrier_behavior",
+        "aura_core_reconstruction",
     }.issubset(case_ids)
     assert {"gaussian_only", "no_neural_residual", "no_frequency_carrier", "no_semantic_graph"}.issubset(ablation_ids)
 
@@ -81,6 +90,38 @@ def test_ablation_benchmark_reports_deltas(tmp_path):
     assert by_id["gaussian_only"]["metrics"]["carrierCounts"] == {"gaussian": 1}
     assert by_id["gaussian_only"]["delta"]["elementCount"] == -6
     assert by_id["no_semantic_graph"]["delta"]["semanticObjectCount"] == -1
+
+
+def test_core_reconstruction_benchmark_compares_adaptive_and_static_runs():
+    payload = run_core_reconstruction_benchmark(iterations=6)
+
+    assert payload["format"] == "AURA_CORE_RECONSTRUCTION_BENCHMARK"
+    assert payload["scene"] == "reconstruct_demo"
+    assert payload["adaptive"]["finalLoss"] > 0.0
+    assert payload["adaptive"]["lossReduction"] > 0.0
+    assert payload["static"]["lossReduction"] > 0.0
+    assert payload["adaptive"]["evolutionActionCounts"]["split_beta_detail"] > 0
+    assert payload["adaptive"]["evolutionActionCounts"]["promote_neural_residual"] > 0
+    assert payload["adaptive"]["evolutionActionCounts"]["merge_beta_detail"] > 0
+    assert payload["adaptive"]["evolutionActionCounts"]["demote_neural_residual"] > 0
+    assert payload["static"]["evolvedElementCount"] == 0
+    assert payload["static"]["evolutionActionCounts"] == {}
+    assert payload["delta"]["adaptiveEvolutionActions"] == payload["adaptive"]["evolutionActionCounts"]
+
+
+def test_core_benchmark_cli_prints_reconstruction_metrics():
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "benchmark-core", "--iterations", "6"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_CORE_RECONSTRUCTION_BENCHMARK"
+    assert payload["adaptive"]["nativeCarrierFraction"] > 0.8
+    assert payload["static"]["nativeCarrierFraction"] > 0.8
 
 
 def test_reference_benchmark_cli_prints_result_json(tmp_path):

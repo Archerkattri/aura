@@ -9,6 +9,7 @@ from aura.benchmark import (
     apply_ablation,
     default_benchmark_suite,
     run_ablation_benchmarks,
+    run_core_reconstruction_benchmark,
     run_reference_benchmark,
 )
 from aura.carriers import CarrierKind, CarrierSpec, default_registry
@@ -127,6 +128,7 @@ __all__ = [
     "render_orthographic",
     "reconstruct_demo_scene",
     "run_ablation_benchmarks",
+    "run_core_reconstruction_benchmark",
     "run_reference_benchmark",
     "inspect_ray",
     "inspect_scene_rays",

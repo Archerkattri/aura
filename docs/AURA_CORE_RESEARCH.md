@@ -94,9 +94,12 @@ The repo should move toward these milestones, in this order:
    merge/demote those children when measured residuals converge.
 4. Ray-query correctness: first hit, depth, normal, transmittance, material,
    confidence, provenance, shadow/reflection/collision readiness.
-5. GPU kernels: implement the same contract for real throughput only after the
+5. Reconstruction benchmarks: compare adaptive carrier evolution against static
+   carriers with measured image/depth loss, action counts, and final package
+   carrier counts.
+6. GPU kernels: implement the same contract for real throughput only after the
    reference reconstruction path is correct.
-6. Baselines: compare end-to-end against COLMAP outputs, NeRF-style volume
+7. Baselines: compare end-to-end against COLMAP outputs, NeRF-style volume
    rendering, and 3DGS on standard scenes.
 
 ## Research Sources

@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Sequence
 
 from aura.asset import AuraAsset
+from aura.core import ReconstructionConfig, ReconstructionReport, reconstruct_demo_scene
 from aura.inspection import RayInspection, inspect_ray
 from aura.package import AuraPackage
 from aura.ray import Ray
@@ -145,6 +146,41 @@ def run_ablation_benchmarks(
     }
 
 
+def run_core_reconstruction_benchmark(*, iterations: int = 6) -> dict:
+    adaptive = reconstruct_demo_scene(
+        ReconstructionConfig(iterations=iterations, enable_adaptive_evolution=True)
+    )
+    static = reconstruct_demo_scene(
+        ReconstructionConfig(iterations=iterations, enable_adaptive_evolution=False)
+    )
+    adaptive_metrics = _core_report_metrics(adaptive.report)
+    static_metrics = _core_report_metrics(static.report)
+    return {
+        "format": "AURA_CORE_RECONSTRUCTION_BENCHMARK",
+        "scene": adaptive.scene.name,
+        "iterations": iterations,
+        "adaptive": {
+            **adaptive_metrics,
+            "elementCount": len(adaptive.scene.elements),
+            "carrierCounts": _scene_carrier_counts(adaptive.scene),
+            "evolvedElementCount": sum(1 for element in adaptive.scene.elements if element.metadata.get("source") == "aura-core-adaptive-evolution"),
+        },
+        "static": {
+            **static_metrics,
+            "elementCount": len(static.scene.elements),
+            "carrierCounts": _scene_carrier_counts(static.scene),
+            "evolvedElementCount": sum(1 for element in static.scene.elements if element.metadata.get("source") == "aura-core-adaptive-evolution"),
+        },
+        "delta": {
+            "finalLoss": adaptive_metrics["finalLoss"] - static_metrics["finalLoss"],
+            "imageLoss": adaptive_metrics["finalImageLoss"] - static_metrics["finalImageLoss"],
+            "depthLoss": adaptive_metrics["finalDepthLoss"] - static_metrics["finalDepthLoss"],
+            "elementCount": len(adaptive.scene.elements) - len(static.scene.elements),
+            "adaptiveEvolutionActions": adaptive_metrics["evolutionActionCounts"],
+        },
+    }
+
+
 def apply_ablation(package: AuraPackage, ablation: AblationConfig) -> AuraPackage:
     disabled = set(ablation.disabled_carriers)
     elements = tuple(element for element in package.scene.elements if element.carrier_id not in disabled)
@@ -219,6 +255,12 @@ def default_benchmark_suite() -> BenchmarkSuite:
                 purpose="Verify non-Gaussian carriers dominate when evidence supports them.",
                 metrics=("carrier_entropy", "non_gaussian_fraction", "assignment_rule_coverage"),
             ),
+            BenchmarkCase(
+                id="aura_core_reconstruction",
+                purpose="Measure native AURA-Core reconstruction loss and adaptive carrier evolution.",
+                metrics=("final_loss", "image_loss_delta", "depth_loss_delta", "split_promote_merge_demote_counts"),
+                baseline="static_carriers",
+            ),
         ),
         ablations=(
             AblationConfig(id="gaussian_only", disabled_carriers=("surface", "volume", "beta", "gabor", "neural", "semantic"), notes="Fallback-only baseline."),
@@ -249,6 +291,33 @@ def _carrier_entropy(carrier_counts: dict[str, int]) -> float:
         probability = count / total
         entropy -= probability * log2(probability)
     return entropy
+
+
+def _core_report_metrics(report: ReconstructionReport) -> dict:
+    payload = report.to_dict()
+    first = payload["iterations"][0]
+    final = payload["iterations"][-1]
+    actions = {}
+    for step in payload["iterations"]:
+        for decision in step["carrier_evolution"]:
+            action = decision["action"]
+            actions[action] = actions.get(action, 0) + 1
+    return {
+        "finalLoss": payload["finalLoss"],
+        "initialLoss": first["total_loss"],
+        "finalImageLoss": final["image_loss"],
+        "finalDepthLoss": final["depth_loss"],
+        "lossReduction": first["total_loss"] - payload["finalLoss"],
+        "nativeCarrierFraction": payload["nativeCarrierFraction"],
+        "evolutionActionCounts": actions,
+    }
+
+
+def _scene_carrier_counts(scene: AuraScene) -> dict[str, int]:
+    counts = {carrier_id: 0 for carrier_id in scene.carrier_ids()}
+    for element in scene.elements:
+        counts[element.carrier_id] += 1
+    return counts
 
 
 def _timed_scene_ray_inspections(scene: AuraScene) -> tuple[tuple[RayInspection, ...], tuple[float, ...]]:

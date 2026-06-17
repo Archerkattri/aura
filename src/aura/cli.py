@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from aura.assignment import RegionEvidence
-from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_reference_benchmark
+from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_core_reconstruction_benchmark, run_reference_benchmark
 from aura.core import ReconstructionConfig, reconstruct_demo_scene
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
@@ -82,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
 
     benchmark = sub.add_parser("benchmark-plan", help="Print the reproducible AURA benchmark and ablation plan as JSON")
 
+    core_benchmark = sub.add_parser("benchmark-core", help="Run the native AURA-Core reconstruction benchmark")
+    core_benchmark.add_argument("--iterations", type=int, default=6)
+
     reference_benchmark = sub.add_parser("benchmark-reference", help="Run the CPU reference benchmark for a .aura package")
     reference_benchmark.add_argument("package_dir", type=Path)
     reference_benchmark.add_argument("--width", type=int, default=16)
@@ -150,6 +153,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if metrics["passed"] else 1
     if args.command == "benchmark-plan":
         print(json.dumps(default_benchmark_suite().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "benchmark-core":
+        print(json.dumps(run_core_reconstruction_benchmark(iterations=args.iterations), indent=2, sort_keys=True))
         return 0
     if args.command == "benchmark-reference":
         package = load_package(args.package_dir)
