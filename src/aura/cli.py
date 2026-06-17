@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     reconstruct_capture.add_argument("--pixel-stride", type=int, default=1)
     reconstruct_capture.add_argument("--max-targets-per-frame", type=int, default=256)
+    reconstruct_capture.add_argument("--tile-size", type=int, default=256)
     _add_reconstruction_config_args(reconstruct_capture)
 
     torch_optimize_capture = sub.add_parser(
@@ -114,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     torch_optimize_capture.add_argument("--iterations", type=int, default=4)
     torch_optimize_capture.add_argument("--pixel-stride", type=int, default=1)
     torch_optimize_capture.add_argument("--max-targets-per-frame", type=int, default=256)
+    torch_optimize_capture.add_argument("--tile-size", type=int, default=256)
     torch_optimize_capture.add_argument("--device", default=None, help="Torch device such as cpu or cuda")
     torch_optimize_capture.add_argument("--color-learning-rate", type=float, default=0.25)
 
@@ -273,7 +275,15 @@ def main(argv: list[str] | None = None) -> int:
             else manifest.to_training_dataset(load_assets=False)
         )
         render_targets = None
+        sampling_plan = None
         if tensors is not None:
+            sampling_plan = plan_capture_tensor_sampling(
+                dataset.frames,
+                tensors,
+                pixel_stride=args.pixel_stride,
+                max_targets_per_frame=args.max_targets_per_frame,
+                tile_size=args.tile_size,
+            )
             pixel_targets = capture_tensors_to_render_targets(
                 dataset.frames,
                 tensors,
@@ -290,13 +300,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/reconstruct-capture-preview.glb"}).write(args.output_dir)
         report_path = package_dir / "training_report.json"
-        report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        report = result.report.to_dict()
+        if sampling_plan is not None:
+            report["captureSamplingPlan"] = sampling_plan.to_dict()
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(package_dir)
         return 0
     if args.command == "torch-optimize-capture-manifest":
         manifest = load_capture_manifest(args.manifest)
         tensors = load_capture_asset_tensors(manifest)
         dataset = capture_tensors_to_training_dataset(manifest, tensors)
+        sampling_plan = plan_capture_tensor_sampling(
+            dataset.frames,
+            tensors,
+            pixel_stride=args.pixel_stride,
+            max_targets_per_frame=args.max_targets_per_frame,
+            tile_size=args.tile_size,
+        )
         scene = _scene_from_training_dataset(dataset, name="torch_optimize_capture")
         assets = torch_capture_asset_batch(tensors, device=args.device)
         batch = torch_capture_training_batch(
@@ -322,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
                 "aura_package_export_ready",
             ],
             "sources": ["capture_tensor_pixels", "training_regions", "depth_targets", "normal_targets"],
+            "captureSamplingPlan": sampling_plan.to_dict(),
             "torch": torch_renderer_status().to_dict(),
             **result.to_dict(),
         }

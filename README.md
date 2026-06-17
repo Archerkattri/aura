@@ -209,9 +209,9 @@ aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json --
 # prints deterministic tiled pixel sampling counts for CPU reference or future GPU loaders
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 # replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
-aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --pixel-stride 8 --max-targets-per-frame 1024
+aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
 # feeds sampled per-pixel capture tensor targets into the CPU reference reconstruction loop
-aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --pixel-stride 8 --max-targets-per-frame 1024 --iterations 6
+aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024 --iterations 6
 # runs the torch reference optimization scaffold from native capture tensor batches
 
 # COLMAP pose/intrinsics ingest:

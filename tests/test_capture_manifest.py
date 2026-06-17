@@ -449,6 +449,8 @@ def test_reconstruct_capture_manifest_cli_uses_per_pixel_asset_targets(tmp_path)
             "--load-assets",
             "--max-targets-per-frame",
             "2",
+            "--tile-size",
+            "1",
         ],
         check=True,
         stdout=subprocess.PIPE,
@@ -462,6 +464,10 @@ def test_reconstruct_capture_manifest_cli_uses_per_pixel_asset_targets(tmp_path)
     assert len(report["iterations"][0]["predictions"]) == 1
     assert report["iterations"][0]["predictions"][0]["target_color"] == [1.0, 0.0, 0.0]
     assert report["iterations"][0]["predictions"][0]["target_depth"] == 0.5
+    assert report["captureSamplingPlan"]["tileSize"] == 1
+    assert report["captureSamplingPlan"]["tileCount"] == 2
+    assert report["captureSamplingPlan"]["totalSampledPixelCount"] == 1
+    assert report["captureSamplingPlan"]["totalMaskedPixelCount"] == 1
 
 
 def test_torch_optimize_capture_manifest_cli_reports_install_hint_when_unavailable(tmp_path):
@@ -510,6 +516,8 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
             "2",
             "--max-targets-per-frame",
             "2",
+            "--tile-size",
+            "1",
             "--device",
             "cpu",
         ],
@@ -528,6 +536,8 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
     assert report["steps"][0]["sample_count"] == 2
     assert report["steps"][0]["normal_loss"] == 0.0
     assert report["finalLoss"] == report["steps"][-1]["total_loss"]
+    assert report["captureSamplingPlan"]["tileSize"] == 1
+    assert report["captureSamplingPlan"]["tileCount"] == 2
 
 
 def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
