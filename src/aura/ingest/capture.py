@@ -68,6 +68,7 @@ class CaptureFrameAssets:
     min_depth: float | None = None
     max_depth: float | None = None
     depth_coverage: float | None = None
+    depth_bins: tuple[dict[str, float], ...] = ()
     mask_path: str | None = None
     mask_coverage: float | None = None
 
@@ -83,6 +84,7 @@ class CaptureFrameAssets:
             "minDepth": self.min_depth,
             "maxDepth": self.max_depth,
             "depthCoverage": self.depth_coverage,
+            "depthBins": [dict(item) for item in self.depth_bins],
             "maskPath": self.mask_path,
             "maskCoverage": self.mask_coverage,
         }
@@ -144,6 +146,7 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
                 min_depth=depth_summary.minimum if depth_summary is not None else None,
                 max_depth=depth_summary.maximum if depth_summary is not None else None,
                 depth_coverage=depth_summary.coverage if depth_summary is not None else None,
+                depth_bins=depth_summary.bins if depth_summary is not None else (),
                 mask_path=str(mask_path) if mask_path is not None else None,
                 mask_coverage=_average_scalar(mask) if mask is not None else None,
             )
@@ -289,6 +292,7 @@ class _ScalarSummary:
     minimum: float
     maximum: float
     coverage: float
+    bins: tuple[dict[str, float], ...] = ()
 
 
 def _frame_with_asset_summaries(frame: TrainingFrame, assets: CaptureFrameAssets | None) -> TrainingFrame:
@@ -310,35 +314,57 @@ def _depth_regions_from_assets(
         asset = assets.get(frame.id)
         if asset is None or asset.average_depth is None:
             continue
-        min_depth = asset.min_depth if asset.min_depth is not None else asset.average_depth
-        max_depth = asset.max_depth if asset.max_depth is not None else asset.average_depth
-        half_width = _depth_region_half_extent(frame, asset.average_depth)
-        thickness = max(max_depth - min_depth, asset.average_depth * 0.01, 1e-3)
-        center_depth = asset.average_depth
-        regions.append(
-            TrainingRegion(
-                id=f"{frame.id}_depth_prior",
-                frame_id=frame.id,
-                bounds=Bounds(
-                    min_corner=(-half_width, -half_width, max(center_depth - thickness / 2.0, 1e-6)),
-                    max_corner=(half_width, half_width, center_depth + thickness / 2.0),
-                ),
-                evidence=RegionEvidence(
-                    geometry_confidence=min(1.0, 0.55 + 0.4 * (asset.depth_coverage or 0.0)),
-                    ray_need=0.75,
-                    edit_need=0.45,
-                    fuzzy_confidence=0.1 * (1.0 - (asset.depth_coverage or 0.0)),
-                ),
-                color=frame.target_color,
-                opacity=min(0.95, max(0.35, asset.depth_coverage or 0.5)),
-                confidence=min(1.0, 0.55 + 0.4 * (asset.depth_coverage or 0.0)),
-                normal=(0.0, 0.0, -1.0),
-                material_id="mat_depth_prior",
-                semantic_label=frame.semantic_label,
-                fallback_source="capture-depth-prior",
-            )
+        bins = asset.depth_bins or (
+            {
+                "id": 0.0,
+                "average": asset.average_depth,
+                "minimum": asset.min_depth if asset.min_depth is not None else asset.average_depth,
+                "maximum": asset.max_depth if asset.max_depth is not None else asset.average_depth,
+                "coverage": asset.depth_coverage or 1.0,
+            },
         )
+        for bin_index, depth_bin in enumerate(bins):
+            suffix = "depth_prior" if len(bins) == 1 else f"depth_prior_{int(depth_bin['id'])}"
+            regions.append(_depth_region_for_bin(frame, asset, depth_bin, suffix, bin_index))
     return tuple(regions)
+
+
+def _depth_region_for_bin(
+    frame: TrainingFrame,
+    asset: CaptureFrameAssets,
+    depth_bin: dict[str, float],
+    suffix: str,
+    bin_index: int,
+) -> TrainingRegion:
+    center_depth = depth_bin["average"]
+    min_depth = depth_bin["minimum"]
+    max_depth = depth_bin["maximum"]
+    coverage = depth_bin["coverage"]
+    half_width = _depth_region_half_extent(frame, center_depth) * max(0.35, min(1.0, coverage * 2.0))
+    thickness = max(max_depth - min_depth, center_depth * 0.01, 1e-3)
+    geometry_confidence = min(1.0, 0.55 + 0.4 * coverage)
+    return TrainingRegion(
+        id=f"{frame.id}_{suffix}",
+        frame_id=frame.id,
+        bounds=Bounds(
+            min_corner=(-half_width, -half_width, max(center_depth - thickness / 2.0, 1e-6)),
+            max_corner=(half_width, half_width, center_depth + thickness / 2.0),
+        ),
+        evidence=RegionEvidence(
+            geometry_confidence=geometry_confidence,
+            ray_need=0.75,
+            edit_need=0.45,
+            compact_detail=0.8 if coverage < 0.35 else 0.0,
+            fuzzy_confidence=0.1 * (1.0 - coverage),
+        ),
+        color=frame.target_color,
+        opacity=min(0.95, max(0.35, coverage)),
+        confidence=geometry_confidence,
+        normal=(0.0, 0.0, -1.0),
+        material_id=f"mat_depth_prior_{bin_index}",
+        semantic_label=frame.semantic_label,
+        fallback_source="capture-depth-prior",
+    )
 
 
 def _depth_region_half_extent(frame: TrainingFrame, depth: float) -> float:
@@ -392,7 +418,40 @@ def _depth_summary(image: _RasterImage | None) -> _ScalarSummary | None:
         minimum=min(valid),
         maximum=max(valid),
         coverage=len(valid) / len(image.values),
+        bins=_depth_bins(valid, len(image.values)),
     )
+
+
+def _depth_bins(valid: tuple[float, ...], total_count: int) -> tuple[dict[str, float], ...]:
+    if not valid:
+        return tuple()
+    minimum = min(valid)
+    maximum = max(valid)
+    if len(valid) < 2 or maximum - minimum <= max(maximum * 0.05, 1e-4):
+        return (
+            {
+                "id": 0.0,
+                "average": sum(valid) / len(valid),
+                "minimum": minimum,
+                "maximum": maximum,
+                "coverage": len(valid) / total_count,
+            },
+        )
+    midpoint = (minimum + maximum) / 2.0
+    bins = []
+    for bin_id, values in ((0.0, tuple(value for value in valid if value <= midpoint)), (1.0, tuple(value for value in valid if value > midpoint))):
+        if not values:
+            continue
+        bins.append(
+            {
+                "id": bin_id,
+                "average": sum(values) / len(values),
+                "minimum": min(values),
+                "maximum": max(values),
+                "coverage": len(values) / total_count,
+            }
+        )
+    return tuple(bins)
 
 
 def _read_capture_raster(path: Path) -> _RasterImage:

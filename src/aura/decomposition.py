@@ -133,7 +133,8 @@ def _union_bounds(bounds: Sequence[Bounds]) -> Bounds:
 
 
 def _semantic_graph_for(samples: Sequence[EvidenceSample], elements: Sequence[AuraElement]) -> SemanticGraph:
-    nodes = []
+    grouped: dict[str, list[str]] = {}
+    confidences: dict[str, list[float]] = {}
     element_by_id = {element.id: element for element in elements}
     for sample in samples:
         label = sample.semantic_label
@@ -142,13 +143,16 @@ def _semantic_graph_for(samples: Sequence[EvidenceSample], elements: Sequence[Au
             label = sample.id
         if label is None:
             continue
-        nodes.append(
-            SemanticNode(
-                id=f"object:{label}",
-                label=label,
-                element_ids=(sample.id,),
-                confidence=sample.evidence.semantic_confidence or sample.confidence,
-                attributes={"source": "evidence"},
-            )
+        grouped.setdefault(label, []).append(sample.id)
+        confidences.setdefault(label, []).append(sample.evidence.semantic_confidence or sample.confidence)
+    nodes = tuple(
+        SemanticNode(
+            id=f"object:{label}",
+            label=label,
+            element_ids=tuple(element_ids),
+            confidence=sum(confidences[label]) / len(confidences[label]),
+            attributes={"source": "evidence"},
         )
-    return SemanticGraph(nodes=tuple(nodes))
+        for label, element_ids in grouped.items()
+    )
+    return SemanticGraph(nodes=nodes)

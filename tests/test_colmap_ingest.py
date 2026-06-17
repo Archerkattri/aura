@@ -150,10 +150,11 @@ def test_colmap_manifest_depth_maps_can_materialize_training_depth(tmp_path):
     assert assets[0].min_depth == 1.0
     assert assets[0].max_depth == 3.0
     assert assets[0].depth_coverage == 1.0
+    assert [item["average"] for item in assets[0].depth_bins] == [1.0, 3.0]
     assert dataset.frames[0].target_depth == 2.0
-    assert dataset.regions[-1].id == "colmap_image_1_depth_prior"
-    assert dataset.regions[-1].fallback_source == "capture-depth-prior"
-    assert dataset.regions[-1].evidence.geometry_confidence > 0.9
+    assert [region.id for region in dataset.regions[-2:]] == ["colmap_image_1_depth_prior_0", "colmap_image_1_depth_prior_1"]
+    assert all(region.fallback_source == "capture-depth-prior" for region in dataset.regions[-2:])
+    assert all(region.evidence.geometry_confidence == 0.75 for region in dataset.regions[-2:])
     assert dataset.frames[1].target_depth > 2.0
 
 

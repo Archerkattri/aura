@@ -102,12 +102,13 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert assets[0].min_depth == 0.5
     assert assets[0].max_depth == 1.0
     assert assets[0].depth_coverage == 1.0
+    assert [item["average"] for item in assets[0].depth_bins] == [0.5, 1.0]
     assert assets[0].mask_coverage == 0.5
     assert dataset.frames[0].target_color == (0.5, 0.25, 0.25)
     assert dataset.frames[0].target_depth == 0.75
-    assert dataset.regions[-1].id == "frame_000001_depth_prior"
-    assert dataset.regions[-1].fallback_source == "capture-depth-prior"
-    assert dataset.regions[-1].evidence.geometry_confidence == 0.9500000000000001
+    assert [region.id for region in dataset.regions[-2:]] == ["frame_000001_depth_prior_0", "frame_000001_depth_prior_1"]
+    assert all(region.fallback_source == "capture-depth-prior" for region in dataset.regions[-2:])
+    assert all(region.evidence.geometry_confidence == 0.75 for region in dataset.regions[-2:])
 
 
 def test_capture_manifest_loads_png_asset_summaries(tmp_path):
@@ -125,6 +126,7 @@ def test_capture_manifest_loads_png_asset_summaries(tmp_path):
     assert assets[0].min_depth == 128 / 255
     assert assets[0].max_depth == 1.0
     assert assets[0].depth_coverage == 1.0
+    assert len(assets[0].depth_bins) == 2
     assert assets[0].mask_coverage == 0.5
     assert dataset.frames[0].target_color == (0.5, 128 / 510, 128 / 510)
     assert dataset.frames[0].target_depth == 383 / 510
@@ -139,9 +141,14 @@ def test_capture_manifest_depth_asset_regions_become_native_surface_evidence(tmp
     scene = decompose_evidence(samples)
     by_id = {element.id: element for element in scene.elements}
 
-    assert by_id["frame_000001_depth_prior"].carrier_id == "surface"
-    assert by_id["frame_000001_depth_prior"].metadata["frame_id"] == "frame_000001"
-    assert by_id["frame_000001_depth_prior"].payload["type"] == "surface_cell"
+    assert by_id["frame_000001_depth_prior_0"].carrier_id == "surface"
+    assert by_id["frame_000001_depth_prior_1"].carrier_id == "surface"
+    assert by_id["frame_000001_depth_prior_0"].metadata["frame_id"] == "frame_000001"
+    assert by_id["frame_000001_depth_prior_0"].payload["type"] == "surface_cell"
+    assert scene.semantic_graph.nodes[0].element_ids == (
+        "frame_000001_depth_prior_0",
+        "frame_000001_depth_prior_1",
+    )
 
 
 def test_capture_manifest_loads_colmap_depth_map_summary(tmp_path):
