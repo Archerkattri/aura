@@ -28,12 +28,22 @@ class TrainingFrame:
     target_color: Vec3
     target_depth: float
     semantic_label: str | None = None
+    image_path: str | None = None
+    depth_path: str | None = None
+    mask_path: str | None = None
+    camera_model: str | None = None
+    intrinsics: dict[str, float] | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("training frame id is required")
         if self.target_depth <= 0.0:
             raise ValueError("target_depth must be positive")
+        if self.intrinsics is not None:
+            required = {"fx", "fy", "cx", "cy", "width", "height"}
+            missing = sorted(required.difference(self.intrinsics))
+            if missing:
+                raise ValueError(f"training frame intrinsics missing keys: {', '.join(missing)}")
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +53,11 @@ class TrainingFrame:
             "target_color": list(self.target_color),
             "target_depth": self.target_depth,
             "semantic_label": self.semantic_label,
+            "image_path": self.image_path,
+            "depth_path": self.depth_path,
+            "mask_path": self.mask_path,
+            "camera_model": self.camera_model,
+            "intrinsics": dict(self.intrinsics) if self.intrinsics is not None else None,
         }
 
     @classmethod
@@ -56,6 +71,13 @@ class TrainingFrame:
             target_color=_vec3_from_payload(payload["target_color"], "target_color"),
             target_depth=float(payload["target_depth"]),
             semantic_label=str(payload["semantic_label"]) if payload.get("semantic_label") is not None else None,
+            image_path=str(payload["image_path"]) if payload.get("image_path") is not None else None,
+            depth_path=str(payload["depth_path"]) if payload.get("depth_path") is not None else None,
+            mask_path=str(payload["mask_path"]) if payload.get("mask_path") is not None else None,
+            camera_model=str(payload["camera_model"]) if payload.get("camera_model") is not None else None,
+            intrinsics={key: float(value) for key, value in payload["intrinsics"].items()}
+            if payload.get("intrinsics") is not None
+            else None,
         )
 
 

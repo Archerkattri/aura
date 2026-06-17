@@ -109,6 +109,14 @@ aura write-training-frames-demo --output outputs/training-frames.json
 aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6
 # runs posed-ray losses and adaptive split/promote/merge/demote carriers, without 3DGS
 
+# Real-capture manifest path:
+aura write-capture-manifest-template --output outputs/capture-manifest.json
+# writes the schema-backed image/depth/mask/camera/evidence manifest template
+aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json
+# validates the manifest and converts it to the AURA-Core training dataset contract
+aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
+# runs the current CPU reference reconstruction path from a real-capture manifest
+
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
 aura import-3dgs third_party/gaussian-splatting/output/<scene> --output-dir outputs/<scene>.aura
@@ -176,16 +184,18 @@ Recommended benchmark/baseline sources:
 ## Expected AURA-Core Milestone
 
 Do not add more 3DGS convenience before the native engine exists. The next
-milestone is a small end-to-end AURA-Core reconstruction fixture:
+milestone is a small end-to-end AURA-Core reconstruction path:
 
-1. load or synthesize posed training-frame JSON with color, depth, semantic
-   targets, and native evidence region specs;
-2. initialize native AURA evidence cells from those region specs without 3DGS;
-3. render a CPU reference prediction and compute image/depth/ray-query losses;
-4. adaptively split/promote/merge/demote carriers based on residuals and confidence;
-5. optimize native carrier parameters for a few deterministic fixture steps;
-6. export a native `.aura` package and training report;
-7. compare the result against COLMAP/NeRF/3DGS-style baselines.
+1. write or import an `AURA_CAPTURE_MANIFEST` with image/depth/mask paths,
+   camera intrinsics, posed frame summaries, and native seed regions;
+2. convert that manifest into the `AURA_TRAINING_FRAMES` contract;
+3. initialize native AURA evidence cells from those region specs without 3DGS;
+4. replace the current CPU reference prediction with differentiable rendering;
+5. compute image/depth/ray-query losses from real frames;
+6. adaptively split/promote/merge/demote carriers based on residuals and confidence;
+7. optimize native carrier parameters on GPU;
+8. export a native `.aura` package and training report;
+9. compare the result against COLMAP/NeRF/3DGS-style baselines.
 
 ## Repository Map
 
@@ -209,9 +219,10 @@ src/aura/
   scene.py       reference scene query
   ingest/
     baselines.py  3DGS export discovery and import adapter
+    capture.py    image/depth/mask/camera manifest to AURA-Core training dataset
     splats.py     JSON/PLY 3DGS evidence reader and AURA conversion
 tests/           contract tests
-docs/            GPU handoff and dataset docs
+docs/            GPU handoff, production handoff, and dataset docs
 docs/schemas/    JSON Schemas for native .aura package files
 ```
 

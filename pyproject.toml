@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aura-contract"
+name = "aura-core"
 version = "0.1.0"
 description = "AURA-Core native adaptive radiance reconstruction scaffold"
 requires-python = ">=3.11"

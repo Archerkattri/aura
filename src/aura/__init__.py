@@ -48,21 +48,26 @@ from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
     BaselineExport,
+    CaptureManifest,
     DepthEvidencePoint,
     GaussianSplatSample,
     IngestAdapterSpec,
     SemanticMaskRegion,
     SparsePointPrior,
+    capture_manifest_template,
     depth_points_to_evidence,
     discover_3dgs_export,
     load_3dgs_export,
     load_3dgs_ply,
     load_3dgs_scene,
+    load_capture_manifest,
     package_3dgs_export,
     semantic_masks_to_evidence,
     splats_to_scene,
     sparse_points_to_evidence,
     supported_ingest_adapters,
+    validate_capture_manifest_document,
+    write_capture_manifest_template,
 )
 from aura.inspection import RayInspection, inspect_ray, inspect_scene_rays, native_demo_interaction_probes
 from aura.migration import MigrationReport, migration_report
@@ -88,6 +93,7 @@ __all__ = [
     "BenchmarkSuite",
     "BetaKernelPayload",
     "Bounds",
+    "CaptureManifest",
     "CarrierKind",
     "CarrierSpec",
     "CarrierEvolutionDecision",
@@ -122,6 +128,7 @@ __all__ = [
     "TrainingRegion",
     "VolumeCellPayload",
     "apply_ablation",
+    "capture_manifest_template",
     "choose_carrier",
     "compare_images",
     "depth_points_to_evidence",
@@ -134,6 +141,7 @@ __all__ = [
     "load_3dgs_export",
     "load_3dgs_ply",
     "load_3dgs_scene",
+    "load_capture_manifest",
     "load_package",
     "load_training_dataset",
     "load_training_frames",
@@ -161,5 +169,7 @@ __all__ = [
     "native_demo_interaction_probes",
     "validate_package",
     "validate_package_documents",
+    "validate_capture_manifest_document",
     "validate_training_dataset_document",
+    "write_capture_manifest_template",
 ]

@@ -16,7 +16,13 @@ from aura.benchmark import (
 from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_demo_scene, write_synthetic_training_frames
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
-from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
+from aura.ingest import (
+    load_3dgs_scene,
+    load_capture_manifest,
+    package_3dgs_export,
+    supported_ingest_adapters,
+    write_capture_manifest_template,
+)
 from aura.inspection import inspect_scene_rays, native_demo_interaction_probes
 from aura.migration import migration_report
 from aura.carrier_payloads import SurfaceCellPayload
@@ -52,6 +58,27 @@ def main(argv: list[str] | None = None) -> int:
 
     frames_demo = sub.add_parser("write-training-frames-demo", help="Write a JSON posed-frame fixture for AURA-Core")
     frames_demo.add_argument("--output", type=Path, default=Path("outputs/training-frames.json"))
+
+    capture_template = sub.add_parser(
+        "write-capture-manifest-template",
+        help="Write a real-capture manifest template for AURA-Core ingest",
+    )
+    capture_template.add_argument("--output", type=Path, default=Path("outputs/capture-manifest.json"))
+
+    capture_to_training = sub.add_parser(
+        "capture-manifest-to-training",
+        help="Validate an AURA capture manifest and write the equivalent training dataset JSON",
+    )
+    capture_to_training.add_argument("manifest", type=Path)
+    capture_to_training.add_argument("--output", type=Path, default=Path("outputs/training-from-capture.json"))
+
+    reconstruct_capture = sub.add_parser(
+        "reconstruct-capture-manifest",
+        help="Run the current AURA-Core reference reconstruction path from a capture manifest",
+    )
+    reconstruct_capture.add_argument("manifest", type=Path)
+    reconstruct_capture.add_argument("--output-dir", type=Path, default=Path("outputs/reconstruct-capture.aura"))
+    reconstruct_capture.add_argument("--iterations", type=int, default=4)
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -138,6 +165,30 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "write-training-frames-demo":
         print(write_synthetic_training_frames(args.output))
+        return 0
+    if args.command == "write-capture-manifest-template":
+        print(write_capture_manifest_template(args.output))
+        return 0
+    if args.command == "capture-manifest-to-training":
+        manifest = load_capture_manifest(args.manifest)
+        out = args.output
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(manifest.to_training_dataset().to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(out)
+        return 0
+    if args.command == "reconstruct-capture-manifest":
+        manifest = load_capture_manifest(args.manifest)
+        dataset = manifest.to_training_dataset()
+        result = reconstruct_demo_scene(
+            ReconstructionConfig(iterations=args.iterations),
+            frames=dataset.frames,
+            regions=dataset.regions,
+            name="reconstruct_capture",
+        )
+        package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/reconstruct-capture-preview.glb"}).write(args.output_dir)
+        report_path = package_dir / "training_report.json"
+        report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(package_dir)
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))

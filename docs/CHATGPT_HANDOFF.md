@@ -5,8 +5,9 @@ Use this prompt when opening the private repo on another machine:
 ```text
 You are helping me develop AURA, Adaptive Unified Radiance Asset.
 
-Read README.md, AGENTS.md, docs/GPU_MVP.md, docs/DATASETS.md, src/aura/cli.py,
-and the tests before changing code.
+Read README.md, AGENTS.md, docs/AURA_CORE_RESEARCH.md,
+docs/PRODUCTION_HANDOFF.md, docs/GPU_MVP.md, docs/DATASETS.md,
+src/aura/cli.py, and the tests before changing code.
 
 Goal: turn this early scaffold into AURA-Core, the next reconstruction step
 after 3D Gaussian Splatting:
@@ -25,25 +26,28 @@ Rules:
 
 First useful tasks:
 1. run tests;
-2. run `aura build-native-demo --output-dir outputs/native-demo.aura`;
-3. read `docs/AURA_CORE_RESEARCH.md`;
-4. use `aura write-training-frames-demo` and `aura reconstruct-demo --frames`
+2. run `aura write-capture-manifest-template --output outputs/capture-manifest.json`;
+3. run `aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json`;
+4. run `aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6`;
+5. run `aura build-native-demo --output-dir outputs/native-demo.aura`;
+6. read `docs/AURA_CORE_RESEARCH.md` and `docs/PRODUCTION_HANDOFF.md`;
+7. use `aura write-training-frames-demo` and `aura reconstruct-demo --frames`
    around posed color/depth/semantic frames plus native evidence regions, not 3DGS;
-5. add a CPU reference optimization loop with image/depth losses and a training report;
-6. add adaptive carrier promote/split/merge tests;
-7. expand mixed-carrier decomposition fixtures, semantic graph checks, and query tests;
-8. run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`;
-9. run `aura benchmark-reference outputs/native-demo.aura --include-ablations`;
-10. run `aura benchmark-plan` and fill result-producing harnesses without overclaiming metrics;
-11. run `aura ingest-adapters` and keep future source adapters evidence-based;
-12. extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures if needed;
-13. harden the splat-to-AURA scaffold reader toward real baseline exports,
+8. replace the CPU fixture loop with a differentiable image/depth renderer;
+9. add adaptive carrier promote/split/merge tests;
+10. expand mixed-carrier decomposition fixtures, semantic graph checks, and query tests;
+11. run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`;
+12. run `aura benchmark-reference outputs/native-demo.aura --include-ablations`;
+13. run `aura benchmark-plan` and fill result-producing harnesses without overclaiming metrics;
+14. run `aura ingest-adapters` and keep future source adapters evidence-based;
+15. extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures if needed;
+16. harden the splat-to-AURA scaffold reader toward real baseline exports,
    preserving 3DGS log-scale and quaternion semantics;
-14. add more first-hit/depth/transmittance query tests;
-15. expand `.aura` package validation around migration fixtures and malformed
+17. add more first-hit/depth/transmittance query tests;
+18. expand `.aura` package validation around migration fixtures and malformed
    cross-file references;
-16. use the deterministic preview renderer and `compare-renders` as regression
+19. use the deterministic preview renderer and `compare-renders` as regression
    targets;
-17. run `aura import-3dgs` against a real CUDA-trained 3DGS baseline scene only
+20. run `aura import-3dgs` against a real CUDA-trained 3DGS baseline scene only
     after the native reconstruction path is first-class.
 ```

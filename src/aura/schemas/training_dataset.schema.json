@@ -53,6 +53,24 @@
     "nullable_string": {
       "type": ["string", "null"]
     },
+    "nullable_intrinsics": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fx", "fy", "cx", "cy", "width", "height"],
+          "properties": {
+            "fx": { "type": "number", "exclusiveMinimum": 0 },
+            "fy": { "type": "number", "exclusiveMinimum": 0 },
+            "cx": { "type": "number" },
+            "cy": { "type": "number" },
+            "width": { "type": "number", "exclusiveMinimum": 0 },
+            "height": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
     "nullable_vec3": {
       "anyOf": [
         { "$ref": "#/$defs/vec3" },
@@ -85,7 +103,12 @@
         "look_at": { "$ref": "#/$defs/vec3" },
         "target_color": { "$ref": "#/$defs/vec3" },
         "target_depth": { "type": "number", "exclusiveMinimum": 0 },
-        "semantic_label": { "$ref": "#/$defs/nullable_string" }
+        "semantic_label": { "$ref": "#/$defs/nullable_string" },
+        "image_path": { "$ref": "#/$defs/nullable_string" },
+        "depth_path": { "$ref": "#/$defs/nullable_string" },
+        "mask_path": { "$ref": "#/$defs/nullable_string" },
+        "camera_model": { "$ref": "#/$defs/nullable_string" },
+        "intrinsics": { "$ref": "#/$defs/nullable_intrinsics" }
       }
     },
     "region": {

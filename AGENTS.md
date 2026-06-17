@@ -5,10 +5,12 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 ## Read First
 
 1. `README.md`
-2. `docs/GPU_MVP.md`
-3. `docs/DATASETS.md`
-4. `src/aura/cli.py`
-5. `tests/`
+2. `docs/AURA_CORE_RESEARCH.md`
+3. `docs/PRODUCTION_HANDOFF.md`
+4. `docs/GPU_MVP.md`
+5. `docs/DATASETS.md`
+6. `src/aura/cli.py`
+7. `tests/`
 
 ## Guardrails
 
@@ -25,22 +27,24 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 
 ## First Tasks On A GPU Machine
 
-1. Install with `python -m pip install -e .`.
-2. Run `python -m pytest`.
-3. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
-4. Run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`.
-5. Run `aura benchmark-reference outputs/native-demo.aura --include-ablations`.
-6. Run `aura migration-plan outputs/native-demo.aura`.
-7. Run `aura ingest-adapters`.
-8. Read `docs/AURA_CORE_RESEARCH.md`.
-9. Build `aura reconstruct-demo` before adding more 3DGS convenience.
-10. Add a CPU reference optimization loop with image/depth losses and a training report.
-11. Add adaptive carrier promote/split/merge tests.
-12. Extend mixed-carrier decomposition fixtures and query tests.
-13. Add more ray-query paths for first-hit/depth/transmittance.
-14. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
-15. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
-16. Use `aura import-3dgs` on real baseline output directories only after the native reconstruction path is first-class.
+1. Install with `python -m pip install -e ".[dev]"`.
+2. Run `python -m pytest -q`.
+3. Run `aura write-capture-manifest-template --output outputs/capture-manifest.json`.
+4. Run `aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json`.
+5. Run `aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6`.
+6. Run `aura validate-package outputs/reconstruct-capture.aura`.
+7. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
+8. Run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`.
+9. Run `aura benchmark-reference outputs/native-demo.aura --include-ablations`.
+10. Run `aura migration-plan outputs/native-demo.aura`.
+11. Run `aura ingest-adapters`.
+12. Replace the fixture reconstruction loop with real image/depth loading and differentiable rendering.
+13. Add adaptive carrier promote/split/merge tests and real-data benchmarks.
+14. Extend mixed-carrier decomposition fixtures and query tests.
+15. Add more ray-query paths for first-hit/depth/transmittance.
+16. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
+17. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
+18. Use `aura import-3dgs` on real baseline output directories only after the native reconstruction path is first-class.
 
 ## Research Positioning
 

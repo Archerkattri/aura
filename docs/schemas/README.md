@@ -11,6 +11,8 @@ Current schema version: `0.1`
 - `semantic_graph.schema.json`: semantic/object nodes, element bindings, and
   relationships.
 - `exchange.schema.json`: native AURA, glTF fallback, and USD bridge metadata.
+- `capture_manifest.schema.json`: real capture manifest used to point AURA-Core
+  at image/depth/mask files, camera intrinsics, frame poses, and seed regions.
 - `training_dataset.schema.json`: AURA-Core posed frame, target, and native
   evidence-region inputs used by reconstruction fixtures.
 
@@ -23,4 +25,8 @@ fallback, and semantic carriers.
 
 The AURA-Core training loader also validates `training_dataset.schema.json`
 before constructing native frames and evidence regions, then checks that every
-region references a known frame.
+region references a known frame. The capture-manifest loader validates
+`capture_manifest.schema.json` and converts it to the same training dataset
+contract without reading image pixels; GPU-side loaders should replace the
+summary color/depth targets with real sampled image/depth losses while keeping
+the manifest identifiers stable.
