@@ -20,6 +20,7 @@ from aura import (
     torch_render_target_objective,
     torch_render_targets,
     torch_renderer_status,
+    torch_scene_tensors,
 )
 
 
@@ -317,6 +318,100 @@ def test_torch_render_targets_uses_carrier_parameter_tensors():
     assert batch.predicted_color[0] == pytest.approx((0.1, 0.2, 0.3))
     assert batch.opacity == pytest.approx((0.5,))
     assert batch.confidence == pytest.approx((0.75,))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_scene_tensors_cache_native_scene_on_device():
+    scene = AuraScene(
+        name="tensor_cache_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.1, 0.2, 0.3),
+                opacity=0.4,
+                confidence=0.8,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    scene_tensors = torch_scene_tensors(scene, device="cpu")
+    payload = scene_tensors.to_dict()
+
+    assert scene_tensors.element_ids == ("surface",)
+    assert scene_tensors.carrier_ids == ("surface",)
+    assert payload["device"] == "cpu"
+    assert payload["mins"]["shape"] == [1, 3]
+    assert payload["colors"]["device"] == "cpu"
+    assert payload["carrierParameterIds"] == ["surface"]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_reuses_scene_tensor_cache():
+    import torch
+
+    scene = AuraScene(
+        name="cached_render_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=0.2,
+                confidence=0.3,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    scene_tensors = torch_scene_tensors(scene, device="cpu")
+    scene_tensors.carrier_parameters["surface"]["color"] = torch.tensor([0.8, 0.4, 0.2], dtype=torch.float32, requires_grad=True)
+    scene_tensors.carrier_parameters["surface"]["opacity"] = torch.tensor(0.5, dtype=torch.float32, requires_grad=True)
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.4, 0.2, 0.1),
+                target_depth=2.0,
+            ),
+        ),
+        scene_tensors=scene_tensors,
+    )
+
+    assert batch.predicted_color[0] == pytest.approx((0.4, 0.2, 0.1))
+    assert batch.opacity == pytest.approx((0.5,))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_rejects_mismatched_scene_tensor_cache():
+    scene = AuraScene(
+        name="cached_render_scene",
+        elements=(AuraElement(id="surface", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    other_scene = AuraScene(
+        name="other_scene",
+        elements=(AuraElement(id="other", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    scene_tensors = torch_scene_tensors(other_scene, device="cpu")
+
+    with pytest.raises(ValueError, match="does not match scene element ids"):
+        torch_render_targets(
+            scene,
+            (
+                RenderTarget(
+                    frame_id="frame",
+                    ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                    target_color=(1.0, 1.0, 1.0),
+                    target_depth=2.0,
+                ),
+            ),
+            scene_tensors=scene_tensors,
+        )
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

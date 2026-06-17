@@ -108,6 +108,32 @@ class TorchRenderObjective:
 
 
 @dataclass(frozen=True)
+class TorchSceneTensors:
+    device: str
+    element_ids: tuple[str, ...]
+    carrier_ids: tuple[str, ...]
+    mins: Any
+    maxs: Any
+    colors: Any
+    opacities: Any
+    confidences: Any
+    carrier_parameters: dict[str, dict[str, Any]]
+
+    def to_dict(self) -> dict:
+        return {
+            "device": self.device,
+            "elementIds": list(self.element_ids),
+            "carrierIds": list(self.carrier_ids),
+            "mins": _torch_tensor_metadata(self.mins),
+            "maxs": _torch_tensor_metadata(self.maxs),
+            "colors": _torch_tensor_metadata(self.colors),
+            "opacities": _torch_tensor_metadata(self.opacities),
+            "confidences": _torch_tensor_metadata(self.confidences),
+            "carrierParameterIds": sorted(self.carrier_parameters),
+        }
+
+
+@dataclass(frozen=True)
 class TorchCaptureAssetBatch:
     device: str
     frame_ids: tuple[str, ...]
@@ -185,6 +211,33 @@ def require_torch() -> Any:
     if not status.available:
         raise RuntimeError(status.reason or "PyTorch renderer is unavailable")
     return _import_torch()
+
+
+def torch_scene_tensors(
+    scene: AuraScene,
+    *,
+    device: str | None = None,
+    requires_grad: bool = True,
+) -> TorchSceneTensors:
+    """Materialize reusable native AURA scene tensors on the selected torch device."""
+
+    if not scene.elements:
+        raise ValueError("torch scene tensor cache requires at least one scene element")
+    status = torch_renderer_status()
+    resolved_device = device or status.default_device or "cpu"
+    torch = require_torch()
+    elements = tuple(scene.elements)
+    return TorchSceneTensors(
+        device=str(resolved_device),
+        element_ids=tuple(element.id for element in elements),
+        carrier_ids=tuple(element.carrier_id for element in elements),
+        mins=torch.tensor([element.bounds.min_corner for element in elements], dtype=torch.float32, device=resolved_device),
+        maxs=torch.tensor([element.bounds.max_corner for element in elements], dtype=torch.float32, device=resolved_device),
+        colors=torch.tensor([element.color for element in elements], dtype=torch.float32, device=resolved_device),
+        opacities=torch.tensor([element.opacity for element in elements], dtype=torch.float32, device=resolved_device),
+        confidences=torch.tensor([element.confidence for element in elements], dtype=torch.float32, device=resolved_device),
+        carrier_parameters=torch_carrier_parameter_tensors(torch, elements, device=str(resolved_device), requires_grad=requires_grad),
+    )
 
 
 def torch_capture_asset_batch(
@@ -313,6 +366,7 @@ def torch_render_capture_training_batch(
     batch: TorchCaptureTrainingBatch,
     *,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderBatch:
     """Render sampled capture tensor targets through the torch AURA contract."""
 
@@ -334,6 +388,7 @@ def torch_render_capture_training_batch(
         target_material_ids=(None,) * len(sample_frame_ids),
         device=str(batch.ray_origins.device),
         carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
     )
 
 
@@ -342,6 +397,7 @@ def torch_render_capture_training_objective(
     batch: TorchCaptureTrainingBatch,
     *,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderObjective:
     """Return a live torch loss for sampled capture tensor targets."""
 
@@ -362,6 +418,7 @@ def torch_render_capture_training_objective(
         target_normal_present=batch.target_normal_present,
         device=str(batch.ray_origins.device),
         carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
     )
 
 
@@ -371,6 +428,7 @@ def torch_render_targets(
     *,
     device: str | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderBatch:
     """Vectorized PyTorch reference renderer over native AURA bounds.
 
@@ -385,7 +443,7 @@ def torch_render_targets(
         raise ValueError("torch renderer requires at least one scene element")
 
     status = torch_renderer_status()
-    resolved_device = device or status.default_device or "cpu"
+    resolved_device = device or (scene_tensors.device if scene_tensors is not None else None) or status.default_device or "cpu"
     torch = require_torch()
     origins = torch.tensor([target.ray.origin for target in targets], dtype=torch.float32, device=resolved_device)
     directions = torch.tensor([target.ray.direction for target in targets], dtype=torch.float32, device=resolved_device)
@@ -410,6 +468,7 @@ def torch_render_targets(
         target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
         carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
     )
 
 
@@ -419,6 +478,7 @@ def torch_render_target_objective(
     *,
     device: str | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderObjective:
     """Return a live torch loss over native AURA carrier parameters."""
 
@@ -428,7 +488,7 @@ def torch_render_target_objective(
         raise ValueError("torch renderer requires at least one scene element")
 
     status = torch_renderer_status()
-    resolved_device = device or status.default_device or "cpu"
+    resolved_device = device or (scene_tensors.device if scene_tensors is not None else None) or status.default_device or "cpu"
     torch = require_torch()
     return _torch_render_objective_tensor_targets(
         scene,
@@ -445,6 +505,7 @@ def torch_render_target_objective(
         target_normal_present=torch.tensor([target.target_normal is not None for target in targets], dtype=torch.bool, device=resolved_device),
         device=str(resolved_device),
         carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
     )
 
 
@@ -462,6 +523,7 @@ def _torch_render_tensor_targets(
     target_material_ids: Sequence[str | None],
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderBatch:
     torch = require_torch()
     if not scene.elements:
@@ -481,12 +543,13 @@ def _torch_render_tensor_targets(
     if target_normal_present is None:
         target_normal_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
-    mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=device)
-    maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=device)
-    colors = torch.tensor([element.color for element in scene.elements], dtype=torch.float32, device=device)
-    opacities = torch.tensor([element.opacity for element in scene.elements], dtype=torch.float32, device=device)
-    confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
-    carrier_parameters = carrier_parameters or torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=device)
+    scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
+    mins = scene_tensors.mins
+    maxs = scene_tensors.maxs
+    colors = scene_tensors.colors
+    opacities = scene_tensors.opacities
+    confidences = scene_tensors.confidences
+    carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
 
     composited = _torch_composite_carrier_hits(
         torch,
@@ -575,17 +638,19 @@ def _torch_render_objective_tensor_targets(
     target_normals: Any | None = None,
     target_normal_present: Any | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderObjective:
     torch = require_torch()
     if int(origins.shape[0]) != len(frame_ids):
         raise ValueError("torch tensor target count must match frame ids")
 
-    mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=device)
-    maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=device)
-    colors = torch.tensor([element.color for element in scene.elements], dtype=torch.float32, device=device)
-    opacities = torch.tensor([element.opacity for element in scene.elements], dtype=torch.float32, device=device)
-    confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
-    carrier_parameters = carrier_parameters or torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=device)
+    scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
+    mins = scene_tensors.mins
+    maxs = scene_tensors.maxs
+    colors = scene_tensors.colors
+    opacities = scene_tensors.opacities
+    confidences = scene_tensors.confidences
+    carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
 
     composited = _torch_composite_carrier_hits(
         torch,
@@ -625,6 +690,22 @@ def _torch_render_objective_tensor_targets(
         normal_loss=normal_loss,
         mask_loss=mask_loss,
     )
+
+
+def _resolve_scene_tensors(
+    scene: AuraScene,
+    *,
+    scene_tensors: TorchSceneTensors | None,
+    device: str,
+) -> TorchSceneTensors:
+    if scene_tensors is None:
+        return torch_scene_tensors(scene, device=device)
+    scene_element_ids = tuple(element.id for element in scene.elements)
+    if scene_tensors.element_ids != scene_element_ids:
+        raise ValueError("torch scene tensor cache does not match scene element ids")
+    if str(scene_tensors.device) != str(device):
+        raise ValueError(f"torch scene tensor cache device {scene_tensors.device!r} does not match render device {device!r}")
+    return scene_tensors
 
 
 def _torch_composite_carrier_hits(

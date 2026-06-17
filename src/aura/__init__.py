@@ -142,6 +142,7 @@ from aura.torch_renderer import (
     TorchRenderBatch,
     TorchRenderObjective,
     TorchRendererStatus,
+    TorchSceneTensors,
     require_torch,
     torch_capture_asset_batch,
     torch_capture_training_batch,
@@ -150,6 +151,7 @@ from aura.torch_renderer import (
     torch_render_target_objective,
     torch_render_targets,
     torch_renderer_status,
+    torch_scene_tensors,
 )
 from aura.torch_kernels import (
     TorchCarrierKernelSpec,
@@ -241,6 +243,7 @@ __all__ = [
     "TorchOptimizationStep",
     "TorchRendererStatus",
     "TorchRenderObjective",
+    "TorchSceneTensors",
     "VolumeCellPayload",
     "apply_ablation",
     "capture_manifest_template",
@@ -318,6 +321,7 @@ __all__ = [
     "torch_render_target_objective",
     "torch_render_targets",
     "torch_renderer_status",
+    "torch_scene_tensors",
     "require_torch",
     "write_synthetic_training_frames",
     "native_demo_interaction_probes",

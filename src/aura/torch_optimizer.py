@@ -5,11 +5,11 @@ from typing import Any, Sequence
 
 from aura.elements import AuraElement
 from aura.scene import AuraScene
-from aura.torch_kernels import torch_carrier_parameter_tensors
 from aura.torch_renderer import (
     TorchCaptureTrainingBatch,
     TorchRenderBatch,
     require_torch,
+    torch_scene_tensors,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
 )
@@ -73,13 +73,24 @@ def torch_optimize_capture_batch(
     if not scene.elements:
         raise ValueError("torch optimization requires at least one scene element")
     config = config or TorchOptimizationConfig()
-    torch = require_torch()
-    carrier_parameters = torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=str(batch.ray_origins.device))
+    require_torch()
+    scene_tensors = torch_scene_tensors(scene, device=str(batch.ray_origins.device))
+    carrier_parameters = scene_tensors.carrier_parameters
     steps = []
     for iteration in range(config.iterations):
         _zero_carrier_parameter_grads(carrier_parameters)
-        objective = torch_render_capture_training_objective(scene, batch, carrier_parameters=carrier_parameters)
-        rendered = torch_render_capture_training_batch(scene, batch, carrier_parameters=carrier_parameters)
+        objective = torch_render_capture_training_objective(
+            scene,
+            batch,
+            carrier_parameters=carrier_parameters,
+            scene_tensors=scene_tensors,
+        )
+        rendered = torch_render_capture_training_batch(
+            scene,
+            batch,
+            carrier_parameters=carrier_parameters,
+            scene_tensors=scene_tensors,
+        )
         step = _optimization_step_from_rendered(iteration, rendered, scene.elements)
         steps.append(step)
         objective.total_loss.backward()
