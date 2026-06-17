@@ -6,6 +6,7 @@ import zlib
 
 from aura import (
     decompose_evidence,
+    load_capture_asset_tensors,
     load_capture_assets,
     load_capture_manifest,
     validate_capture_manifest_document,
@@ -121,6 +122,24 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert dataset.regions[-1].evidence.semantic_confidence == 0.825
 
 
+def test_capture_manifest_loads_per_pixel_asset_tensors(tmp_path):
+    manifest_path = _write_asset_manifest(tmp_path)
+    manifest = load_capture_manifest(manifest_path)
+
+    tensors = load_capture_asset_tensors(manifest)
+
+    assert len(tensors) == 1
+    assert tensors[0].frame_id == "frame_000001"
+    assert tensors[0].image.shape == (1, 2, 3)
+    assert tensors[0].image.backend == "stdlib"
+    assert tensors[0].image.sample_values() == (1.0, 0.0, 0.0, 0.0, 0.5, 0.5)
+    assert tensors[0].depth.shape == (1, 2, 1)
+    assert tensors[0].depth.values == (0.5, 1.0)
+    assert tensors[0].mask.values == (1.0, 0.0)
+    assert tensors[0].normal.shape == (1, 2, 3)
+    assert tensors[0].normal.values == (0.0, 0.0, -1.0, 0.0, 0.0, -1.0)
+
+
 def test_capture_manifest_loads_png_asset_summaries(tmp_path):
     manifest_path = _write_png_asset_manifest(tmp_path)
     manifest = load_capture_manifest(manifest_path)
@@ -201,7 +220,7 @@ def test_capture_manifest_asset_loader_marks_exr_as_future_tensor_backend(tmp_pa
     try:
         load_capture_assets(manifest)
     except ValueError as exc:
-        assert "future GPU tensor asset backend" in str(exc)
+        assert "optional tensor asset backend" in str(exc)
     else:
         raise AssertionError("EXR assets should require the tensor backend")
 
@@ -264,6 +283,24 @@ def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
     assert payload[0]["averageColor"] == [0.5, 0.25, 0.25]
     assert payload[0]["averageDepth"] == 0.75
     assert payload[0]["maskCoverage"] == 0.5
+
+
+def test_inspect_capture_tensors_cli_reports_tensor_shapes(tmp_path):
+    manifest_path = _write_asset_manifest(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "inspect-capture-tensors", str(manifest_path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload[0]["frameId"] == "frame_000001"
+    assert payload[0]["image"]["shape"] == [1, 2, 3]
+    assert payload[0]["image"]["valueCount"] == 6
+    assert payload[0]["depth"]["sampleValues"] == [0.5, 1.0]
 
 
 def _write_asset_manifest(tmp_path):

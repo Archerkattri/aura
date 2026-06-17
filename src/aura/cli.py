@@ -18,6 +18,7 @@ from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
     load_3dgs_scene,
+    load_capture_asset_tensors,
     load_capture_assets,
     load_capture_manifest,
     package_3dgs_export,
@@ -98,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Load capture-manifest PNG, PPM/PGM, or COLMAP depth/normal-map assets and print deterministic summaries as JSON",
     )
     inspect_capture_assets.add_argument("manifest", type=Path)
+
+    inspect_capture_tensors = sub.add_parser(
+        "inspect-capture-tensors",
+        help="Load capture-manifest image/depth/mask/normal assets and print tensor shape/sample metadata as JSON",
+    )
+    inspect_capture_tensors.add_argument("manifest", type=Path)
 
     colmap_to_manifest = sub.add_parser(
         "colmap-to-capture-manifest",
@@ -226,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
         print(json.dumps([item.to_dict() for item in load_capture_assets(manifest)], indent=2, sort_keys=True))
+        return 0
+    if args.command == "inspect-capture-tensors":
+        manifest = load_capture_manifest(args.manifest)
+        print(json.dumps([item.to_dict() for item in load_capture_asset_tensors(manifest)], indent=2, sort_keys=True))
         return 0
     if args.command == "colmap-to-capture-manifest":
         print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir))

@@ -12,6 +12,7 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,gpu,assets]"
 export CUDA_VISIBLE_DEVICES=0
 ```
 
@@ -31,6 +32,7 @@ files exist as PNG, PPM/PGM, or COLMAP dense-map assets, also run:
 
 ```bash
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
+aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 ```
 
@@ -81,9 +83,9 @@ AURA_CAPTURE_MANIFEST
 1. Replace the optional payload-aware PyTorch AABB reference path and CPU
    differentiable reference renderer with a carrier-complete PyTorch/CUDA
    renderer over the same `TrainingFrame` and `TrainingRegion` contracts.
-2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth/normal summary
-   loader with real EXR/video tensor loading for manifest image/depth/mask/
-   normal assets.
+2. Extend the new `CaptureFrameTensors` path from PNG/PPM/PGM/COLMAP dense
+   maps and optional `imageio` EXR/HDR/video loading into direct torch/CUDA
+   batches for manifest image/depth/mask/normal assets.
 3. Harden COLMAP import beyond deterministic sparse/depth/mask/normal prior
    regions, including learned region proposal generation.
 4. Replace the reference Torch payload semantics with real differentiable

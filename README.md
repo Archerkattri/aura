@@ -54,8 +54,10 @@ native representation contract pieces:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
-- dependency-free PNG, PPM/PGM, COLMAP depth-map, and COLMAP normal-map capture
-  asset summaries for manifest-backed native training fixtures;
+- per-pixel capture asset tensors for PNG, PPM/PGM, COLMAP depth maps, COLMAP
+  normal maps, and optional `imageio` EXR/HDR/video backends;
+- deterministic capture asset summaries built from the same tensor path for
+  manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with image/depth/query losses,
   color/depth gradients, and ray-query contract outputs for native AURA-Core
@@ -91,6 +93,8 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 # GPU development machine:
 python -m pip install -e ".[dev,gpu]"
+# Real capture tensor loading extras:
+python -m pip install -e ".[dev,gpu,assets]"
 ```
 
 ## GPU Runtime
@@ -148,6 +152,8 @@ aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir out
 # Asset-backed fixture captures:
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 # loads existing PNG, PPM/PGM, or COLMAP depth-map assets and prints deterministic summaries
+aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
+# prints per-frame image/depth/mask/normal tensor shape, backend, and sample metadata
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 # replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
 

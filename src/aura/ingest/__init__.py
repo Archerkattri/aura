@@ -2,9 +2,12 @@
 
 from aura.ingest.baselines import BaselineExport, discover_3dgs_export, package_3dgs_export
 from aura.ingest.capture import (
-    CaptureManifest,
     CaptureFrameAssets,
+    CaptureFrameTensors,
+    CaptureManifest,
+    CaptureTensor,
     capture_manifest_template,
+    load_capture_asset_tensors,
     load_capture_assets,
     load_capture_manifest,
     validate_capture_manifest_document,
@@ -38,7 +41,9 @@ from aura.ingest.splats import GaussianSplatSample, load_3dgs_export, load_3dgs_
 __all__ = [
     "BaselineExport",
     "CaptureFrameAssets",
+    "CaptureFrameTensors",
     "CaptureManifest",
+    "CaptureTensor",
     "ColmapCamera",
     "ColmapImage",
     "ColmapPoint3D",
@@ -56,6 +61,7 @@ __all__ = [
     "load_3dgs_export",
     "load_3dgs_ply",
     "load_3dgs_scene",
+    "load_capture_asset_tensors",
     "load_capture_assets",
     "load_capture_manifest",
     "load_colmap_binary_model",

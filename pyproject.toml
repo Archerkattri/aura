@@ -12,6 +12,7 @@ dependencies = ["jsonschema>=4"]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 gpu = ["torch>=2.3"]
+assets = ["imageio>=2.34"]
 
 [project.scripts]
 aura = "aura.cli:main"

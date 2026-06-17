@@ -6,7 +6,7 @@ import zlib
 from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
@@ -94,6 +94,67 @@ class CaptureFrameAssets:
         }
 
 
+@dataclass(frozen=True)
+class CaptureTensor:
+    """Per-pixel capture asset values ready for CPU reference or GPU upload."""
+
+    path: str
+    format: str
+    backend: str
+    width: int
+    height: int
+    channels: int
+    values: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError(f"{self.path} tensor dimensions must be positive")
+        if self.channels <= 0:
+            raise ValueError(f"{self.path} tensor channels must be positive")
+        if len(self.values) != self.width * self.height * self.channels:
+            raise ValueError(f"{self.path} tensor payload does not match dimensions")
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return (self.height, self.width, self.channels)
+
+    def sample_values(self, limit: int = 12) -> tuple[float, ...]:
+        return self.values[: max(0, limit)]
+
+    def to_dict(self) -> dict:
+        return {
+            "path": self.path,
+            "format": self.format,
+            "backend": self.backend,
+            "width": self.width,
+            "height": self.height,
+            "channels": self.channels,
+            "shape": list(self.shape),
+            "valueCount": len(self.values),
+            "sampleValues": list(self.sample_values()),
+        }
+
+
+@dataclass(frozen=True)
+class CaptureFrameTensors:
+    """Loaded tensor assets for one capture-manifest frame."""
+
+    frame_id: str
+    image: CaptureTensor
+    depth: CaptureTensor | None = None
+    mask: CaptureTensor | None = None
+    normal: CaptureTensor | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "frameId": self.frame_id,
+            "image": self.image.to_dict(),
+            "depth": self.depth.to_dict() if self.depth is not None else None,
+            "mask": self.mask.to_dict() if self.mask is not None else None,
+            "normal": self.normal.to_dict() if self.normal is not None else None,
+        }
+
+
 def load_capture_manifest(path: Path | str) -> CaptureManifest:
     """Load an AURA capture manifest and convert it to training contracts.
 
@@ -120,48 +181,61 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
     manifests can be validated in CI before the GPU tensor backend is installed.
     """
 
-    root = Path(manifest.root)
     assets = []
-    for frame in manifest.frames:
-        if frame.image_path is None:
-            raise ValueError(f"capture frame {frame.id} is missing image_path")
-        image_path = _resolve_capture_path(root, frame.image_path)
-        image = _read_capture_raster(image_path)
-        if image.channels < 3:
-            raise ValueError(f"capture frame {frame.id} image_path must reference an RGB/RGBA image")
-        depth_path = _resolve_capture_path(root, frame.depth_path) if frame.depth_path is not None else None
-        depth = _read_capture_raster(depth_path) if depth_path is not None else None
-        if depth is not None and depth.channels != 1:
-            raise ValueError(f"capture frame {frame.id} depth_path must reference a single-channel image")
+    for tensors in load_capture_asset_tensors(manifest):
+        image = _tensor_to_raster(tensors.image)
+        depth = _tensor_to_raster(tensors.depth) if tensors.depth is not None else None
         depth_summary = _depth_summary(depth)
-        mask_path = _resolve_capture_path(root, frame.mask_path) if frame.mask_path is not None else None
-        mask = _read_capture_raster(mask_path) if mask_path is not None else None
-        if mask is not None and mask.channels != 1:
-            raise ValueError(f"capture frame {frame.id} mask_path must reference a single-channel image")
-        normal_path = _resolve_capture_path(root, frame.normal_path) if frame.normal_path is not None else None
-        normal = _read_capture_raster(normal_path) if normal_path is not None else None
-        if normal is not None and normal.channels != 3:
-            raise ValueError(f"capture frame {frame.id} normal_path must reference a 3-channel normal map")
+        mask = _tensor_to_raster(tensors.mask) if tensors.mask is not None else None
+        normal = _tensor_to_raster(tensors.normal) if tensors.normal is not None else None
         assets.append(
             CaptureFrameAssets(
-                frame_id=frame.id,
-                image_path=str(image_path),
+                frame_id=tensors.frame_id,
+                image_path=tensors.image.path,
                 width=image.width,
                 height=image.height,
                 average_color=_average_rgb(image),
-                depth_path=str(depth_path) if depth_path is not None else None,
+                depth_path=tensors.depth.path if tensors.depth is not None else None,
                 average_depth=depth_summary.average if depth_summary is not None else None,
                 min_depth=depth_summary.minimum if depth_summary is not None else None,
                 max_depth=depth_summary.maximum if depth_summary is not None else None,
                 depth_coverage=depth_summary.coverage if depth_summary is not None else None,
                 depth_bins=depth_summary.bins if depth_summary is not None else (),
-                mask_path=str(mask_path) if mask_path is not None else None,
+                mask_path=tensors.mask.path if tensors.mask is not None else None,
                 mask_coverage=_average_scalar(mask) if mask is not None else None,
-                normal_path=str(normal_path) if normal_path is not None else None,
+                normal_path=tensors.normal.path if tensors.normal is not None else None,
                 average_normal=_average_normal(normal),
             )
         )
     return tuple(assets)
+
+
+def load_capture_asset_tensors(manifest: CaptureManifest) -> tuple[CaptureFrameTensors, ...]:
+    """Load manifest image/depth/mask/normal assets as per-pixel tensors."""
+
+    root = Path(manifest.root)
+    frames = []
+    for frame in manifest.frames:
+        if frame.image_path is None:
+            raise ValueError(f"capture frame {frame.id} is missing image_path")
+        image_path = _resolve_capture_path(root, frame.image_path)
+        image = _read_capture_tensor(image_path)
+        if image.channels < 3:
+            raise ValueError(f"capture frame {frame.id} image_path must reference an RGB/RGBA image")
+        depth_path = _resolve_capture_path(root, frame.depth_path) if frame.depth_path is not None else None
+        depth = _read_capture_tensor(depth_path) if depth_path is not None else None
+        if depth is not None and depth.channels != 1:
+            raise ValueError(f"capture frame {frame.id} depth_path must reference a single-channel image")
+        mask_path = _resolve_capture_path(root, frame.mask_path) if frame.mask_path is not None else None
+        mask = _read_capture_tensor(mask_path) if mask_path is not None else None
+        if mask is not None and mask.channels != 1:
+            raise ValueError(f"capture frame {frame.id} mask_path must reference a single-channel image")
+        normal_path = _resolve_capture_path(root, frame.normal_path) if frame.normal_path is not None else None
+        normal = _read_capture_tensor(normal_path) if normal_path is not None else None
+        if normal is not None and normal.channels != 3:
+            raise ValueError(f"capture frame {frame.id} normal_path must reference a 3-channel normal map")
+        frames.append(CaptureFrameTensors(frame_id=frame.id, image=image, depth=depth, mask=mask, normal=normal))
+    return tuple(frames)
 
 
 def write_capture_manifest_template(path: Path | str) -> Path:
@@ -537,6 +611,84 @@ def _read_capture_raster(path: Path) -> _RasterImage:
             f"{path} requires the future GPU tensor asset backend; current stdlib loader supports PNG, PPM/PGM, and COLMAP depth maps"
         )
     raise ValueError(f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, PGM, or COLMAP depth .bin")
+
+
+def _read_capture_tensor(path: Path) -> CaptureTensor:
+    suffix = path.suffix.lower()
+    if suffix in {".ppm", ".pgm", ".pnm", ".png", ".bin"}:
+        return _raster_to_tensor(path, _read_capture_raster(path), backend="stdlib")
+    if suffix in {".exr", ".hdr", ".mp4", ".mov", ".mkv", ".avi"}:
+        return _read_imageio_tensor(path)
+    raise ValueError(
+        f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, PGM, COLMAP depth .bin, EXR/HDR, or video"
+    )
+
+
+def _raster_to_tensor(path: Path, raster: _RasterImage, *, backend: str) -> CaptureTensor:
+    return CaptureTensor(
+        path=str(path),
+        format=raster.format,
+        backend=backend,
+        width=raster.width,
+        height=raster.height,
+        channels=raster.channels,
+        values=raster.values,
+    )
+
+
+def _tensor_to_raster(tensor: CaptureTensor) -> _RasterImage:
+    return _RasterImage(
+        format=tensor.format,
+        width=tensor.width,
+        height=tensor.height,
+        channels=tensor.channels,
+        values=tensor.values,
+    )
+
+
+def _read_imageio_tensor(path: Path) -> CaptureTensor:
+    if not path.exists():
+        raise FileNotFoundError(path)
+    try:
+        import imageio.v3 as imageio  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ValueError(
+            f"{path} requires the optional tensor asset backend; install aura-core[assets] to load EXR/HDR/video assets"
+        ) from exc
+    array = imageio.imread(path)
+    shape = tuple(int(item) for item in getattr(array, "shape", ()))
+    if len(shape) == 2:
+        height, width = shape
+        channels = 1
+        flat = array.reshape(-1).tolist()
+    elif len(shape) == 3:
+        height, width, channels = shape
+        flat = array.reshape(-1).tolist()
+    elif len(shape) == 4:
+        _frames, height, width, channels = shape
+        first_frame = array[0]
+        flat = first_frame.reshape(-1).tolist()
+    else:
+        raise ValueError(f"{path} tensor backend returned unsupported shape {shape!r}")
+    values = _normalize_tensor_values(flat, dtype=str(getattr(array, "dtype", "")))
+    return CaptureTensor(
+        path=str(path),
+        format=path.suffix.lower().lstrip(".").upper(),
+        backend="imageio",
+        width=width,
+        height=height,
+        channels=channels,
+        values=values,
+    )
+
+
+def _normalize_tensor_values(values: Sequence[object], *, dtype: str) -> tuple[float, ...]:
+    floats = tuple(float(value) for value in values)
+    if dtype.startswith("uint8"):
+        return tuple(value / 255.0 for value in floats)
+    if dtype.startswith("uint16"):
+        return tuple(value / 65535.0 for value in floats)
+    return floats
 
 
 def _read_netpbm(path: Path) -> _RasterImage:

@@ -37,6 +37,8 @@ This package now contains the GPU-ready skeleton for AURA:
   losses and ray-query contract outputs in reconstruction reports;
 - residual-driven confidence updates and confidence maps on optimized native
   carriers;
+- per-pixel capture asset tensors for PNG, PPM/PGM, COLMAP dense maps, and
+  optional `imageio` EXR/HDR/video assets;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors over `AuraScene`
   and `RenderTarget`;
@@ -63,6 +65,11 @@ replacing the reference implementation for real throughput.
 The first CLI smoke path is `aura build-native-demo`, which builds a
 mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
 kept as AURA-Ingest bootstrap paths after the native package path.
+
+Use `aura inspect-capture-tensors <manifest>` on real capture manifests before
+GPU training. It reports per-frame image/depth/mask/normal tensor shapes,
+loader backend, and sample values so the CUDA path can consume manifest assets
+without relying on summary-only statistics.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
