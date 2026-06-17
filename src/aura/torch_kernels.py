@@ -72,7 +72,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="gabor_frequency",
             carrier_id="gabor",
             differentiable_fields=("color", "frequency", "phase", "bandwidth"),
-            description="Frequency-modulated radiance kernel.",
+            description="Frequency-modulated radiance torch autograd kernel; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_gabor_kernel",
+            autograd_kernel=True,
         ),
         TorchCarrierKernelSpec(
             payload_type="neural_residual",
@@ -145,9 +147,20 @@ def torch_carrier_response_tensors(
             weight = _torch_beta_weight(torch, hit_points[mask], mins[element_index], maxs[element_index], alpha=alpha, beta=beta_value)
             transmittance[mask] = torch.clamp(1.0 - opacities[element_index] * weight, min=0.0, max=1.0)
         elif payload_type == "gabor_frequency":
-            frequency = torch.tensor(element.payload.get("frequency", (0.0, 0.0, 0.0)), dtype=torch.float32, device=device)
-            phase = float(element.payload.get("phase", 0.0))
-            bandwidth = max(0.0, min(1.0, float(element.payload.get("bandwidth", 1.0))))
+            frequency = _carrier_vector_parameter(
+                torch,
+                element,
+                "frequency",
+                carrier_parameters,
+                device,
+                default=element.payload.get("frequency", (0.0, 0.0, 0.0)),
+            )
+            phase = _carrier_parameter(torch, element, "phase", carrier_parameters, device, default=element.payload.get("phase", 0.0))
+            bandwidth = torch.clamp(
+                _carrier_parameter(torch, element, "bandwidth", carrier_parameters, device, default=element.payload.get("bandwidth", 1.0)),
+                min=0.0,
+                max=1.0,
+            )
             wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * frequency, dim=1) + phase)
             modulation = 1.0 - bandwidth + bandwidth * wave
             carrier_colors[mask] = torch.clamp(carrier_colors[mask] * modulation.unsqueeze(1), min=0.0, max=1.0)
@@ -196,6 +209,27 @@ def torch_carrier_parameter_tensors(
                     requires_grad=requires_grad,
                 ),
             }
+        elif payload_type == "gabor_frequency":
+            parameters[element.id] = {
+                "frequency": torch.tensor(
+                    tuple(element.payload.get("frequency", (0.0, 0.0, 0.0))),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "phase": torch.tensor(
+                    float(element.payload.get("phase", 0.0)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "bandwidth": torch.tensor(
+                    float(element.payload.get("bandwidth", 1.0)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+            }
     return parameters
 
 
@@ -213,6 +247,22 @@ def _carrier_parameter(
         if parameter is not None:
             return parameter
     return torch.tensor(float(default), dtype=torch.float32, device=device)
+
+
+def _carrier_vector_parameter(
+    torch: Any,
+    element: Any,
+    name: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    device: str,
+    *,
+    default: object,
+) -> Any:
+    if carrier_parameters is not None:
+        parameter = carrier_parameters.get(element.id, {}).get(name)
+        if parameter is not None:
+            return parameter
+    return torch.tensor(tuple(default), dtype=torch.float32, device=device)
 
 
 def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, alpha: Any, beta: Any) -> Any:

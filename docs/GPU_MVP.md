@@ -103,6 +103,7 @@ Use `aura torch-kernel-report` to list every native carrier kernel, its current
 reference/autograd status, and the missing CUDA blockers. The surface carrier
 has a tested torch autograd path, and the volume carrier has a differentiable
 density parameter path. The beta carrier has differentiable bounded-shape
+parameters, and the gabor carrier has differentiable frequency/phase/bandwidth
 parameters; production readiness still requires CUDA kernels and the remaining
 carrier autograd paths.
 
