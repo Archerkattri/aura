@@ -10,6 +10,145 @@ from aura.scene import AuraScene, RayTraversal
 
 
 CudaFallbackBackend = Literal["cpu", "torch", "auto", "none"]
+CUDA_RENDERER_CARRIER_IDS = {
+    "surface": 0,
+    "volume": 1,
+    "beta": 2,
+    "gabor": 3,
+    "neural": 4,
+    "semantic": 5,
+    "gaussian": 6,
+}
+
+
+@dataclass(frozen=True)
+class CudaRendererSceneBuffers:
+    """Flat host buffers matching the packaged CUDA renderer scene ABI."""
+
+    element_ids: tuple[str, ...]
+    carrier_ids: tuple[str, ...]
+    carrier_kernel_ids: tuple[int, ...]
+    material_id_table: tuple[str, ...]
+    semantic_id_table: tuple[str, ...]
+    material_ids: tuple[int, ...]
+    semantic_ids: tuple[int, ...]
+    element_mins: tuple[float, ...]
+    element_maxs: tuple[float, ...]
+    colors: tuple[float, ...]
+    opacities: tuple[float, ...]
+    confidences: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        element_count = len(self.element_ids)
+        if len(self.carrier_ids) != element_count or len(self.carrier_kernel_ids) != element_count:
+            raise ValueError("CUDA scene buffers require one carrier id per element")
+        for name, values, expected in (
+            ("material_ids", self.material_ids, element_count),
+            ("semantic_ids", self.semantic_ids, element_count),
+            ("opacities", self.opacities, element_count),
+            ("confidences", self.confidences, element_count),
+            ("element_mins", self.element_mins, element_count * 3),
+            ("element_maxs", self.element_maxs, element_count * 3),
+            ("colors", self.colors, element_count * 3),
+        ):
+            if len(values) != expected:
+                raise ValueError(f"CUDA scene buffer {name} length {len(values)} does not match expected {expected}")
+
+    @property
+    def element_count(self) -> int:
+        return len(self.element_ids)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "format": "AURA_CUDA_RENDERER_SCENE_BUFFERS",
+            "elementCount": self.element_count,
+            "elementIds": list(self.element_ids),
+            "carrierIds": list(self.carrier_ids),
+            "carrierKernelIds": list(self.carrier_kernel_ids),
+            "materialIdTable": list(self.material_id_table),
+            "semanticIdTable": list(self.semantic_id_table),
+            "materialIds": _flat_buffer_metadata(self.material_ids, "int32", (self.element_count,)),
+            "semanticIds": _flat_buffer_metadata(self.semantic_ids, "int32", (self.element_count,)),
+            "elementMins": _flat_buffer_metadata(self.element_mins, "float32", (self.element_count, 3)),
+            "elementMaxs": _flat_buffer_metadata(self.element_maxs, "float32", (self.element_count, 3)),
+            "colors": _flat_buffer_metadata(self.colors, "float32", (self.element_count, 3)),
+            "opacities": _flat_buffer_metadata(self.opacities, "float32", (self.element_count,)),
+            "confidences": _flat_buffer_metadata(self.confidences, "float32", (self.element_count,)),
+        }
+
+
+@dataclass(frozen=True)
+class CudaRendererKernelInputBuffers:
+    """Flat host buffers for the `aura_render_rays_kernel` launch ABI."""
+
+    scene: CudaRendererSceneBuffers
+    ray_origins: tuple[float, ...]
+    ray_directions: tuple[float, ...]
+    max_hits: int
+
+    def __post_init__(self) -> None:
+        if self.max_hits <= 0:
+            raise ValueError("CUDA renderer kernel max_hits must be positive")
+        if len(self.ray_origins) != len(self.ray_directions):
+            raise ValueError("CUDA renderer ray origin/direction buffers must have matching lengths")
+        if len(self.ray_origins) % 3 != 0:
+            raise ValueError("CUDA renderer ray buffers must be flat rayCount x 3 arrays")
+
+    @property
+    def ray_count(self) -> int:
+        return len(self.ray_origins) // 3
+
+    @property
+    def element_count(self) -> int:
+        return self.scene.element_count
+
+    def output_buffer_shapes(self) -> dict[str, tuple[int, ...]]:
+        return {
+            "out_color": (self.ray_count, 3),
+            "out_alpha": (self.ray_count,),
+            "out_transmittance": (self.ray_count,),
+            "out_depth": (self.ray_count,),
+            "out_normal": (self.ray_count, 3),
+            "out_confidence": (self.ray_count,),
+            "out_residual": (self.ray_count,),
+            "out_material_id": (self.ray_count,),
+            "out_semantic_id": (self.ray_count,),
+            "ordered_hits": (self.ray_count, self.max_hits),
+        }
+
+    def to_kernel_args(self) -> dict[str, object]:
+        return {
+            "ray_origins": self.ray_origins,
+            "ray_directions": self.ray_directions,
+            "element_mins": self.scene.element_mins,
+            "element_maxs": self.scene.element_maxs,
+            "carrier_ids": self.scene.carrier_kernel_ids,
+            "colors": self.scene.colors,
+            "opacities": self.scene.opacities,
+            "confidences": self.scene.confidences,
+            "material_ids": self.scene.material_ids,
+            "semantic_ids": self.scene.semantic_ids,
+            "ray_count": self.ray_count,
+            "element_count": self.element_count,
+            "max_hits": self.max_hits,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "format": "AURA_CUDA_RENDERER_KERNEL_INPUT_BUFFERS",
+            "kernelSymbol": "aura_render_rays_kernel",
+            "rayCount": self.ray_count,
+            "elementCount": self.element_count,
+            "maxHits": self.max_hits,
+            "scene": self.scene.to_dict(),
+            "rayOrigins": _flat_buffer_metadata(self.ray_origins, "float32", (self.ray_count, 3)),
+            "rayDirections": _flat_buffer_metadata(self.ray_directions, "float32", (self.ray_count, 3)),
+            "outputBufferShapes": {name: list(shape) for name, shape in self.output_buffer_shapes().items()},
+            "kernelArgs": {
+                name: _kernel_arg_summary(value)
+                for name, value in self.to_kernel_args().items()
+            },
+        }
 
 
 @dataclass(frozen=True)
@@ -125,6 +264,55 @@ def cuda_renderer_launch_config(
     )
 
 
+def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
+    """Pack an AURA scene into host buffers matching the CUDA renderer ABI."""
+
+    material_table = _stable_id_table(element.material_id for element in scene.elements)
+    semantic_table = _stable_id_table(element.semantic_id for element in scene.elements)
+    return CudaRendererSceneBuffers(
+        element_ids=tuple(element.id for element in scene.elements),
+        carrier_ids=tuple(element.carrier_id for element in scene.elements),
+        carrier_kernel_ids=tuple(_carrier_kernel_id(element.carrier_id) for element in scene.elements),
+        material_id_table=material_table,
+        semantic_id_table=semantic_table,
+        material_ids=tuple(_lookup_table_id(material_table, element.material_id) for element in scene.elements),
+        semantic_ids=tuple(_lookup_table_id(semantic_table, element.semantic_id) for element in scene.elements),
+        element_mins=tuple(value for element in scene.elements for value in element.bounds.min_corner),
+        element_maxs=tuple(value for element in scene.elements for value in element.bounds.max_corner),
+        colors=tuple(value for element in scene.elements for value in element.color),
+        opacities=tuple(float(element.opacity) for element in scene.elements),
+        confidences=tuple(float(element.confidence) for element in scene.elements),
+    )
+
+
+def cuda_renderer_kernel_inputs(
+    scene: AuraScene,
+    ray_origins: Sequence[Sequence[float]] | Any,
+    ray_directions: Sequence[Sequence[float]] | Any,
+    *,
+    max_hits: int = 8,
+) -> CudaRendererKernelInputBuffers:
+    rays = _validated_rays(ray_origins, ray_directions)
+    return CudaRendererKernelInputBuffers(
+        scene=cuda_renderer_scene_buffers(scene),
+        ray_origins=tuple(value for ray in rays for value in ray.origin),
+        ray_directions=tuple(value for ray in rays for value in ray.direction),
+        max_hits=max_hits,
+    )
+
+
+def cuda_renderer_reference_first_hit_indices(scene: AuraScene, rays: Sequence[Ray]) -> tuple[int, ...]:
+    element_index_by_id = {element.id: index for index, element in enumerate(scene.elements)}
+    indices = []
+    for ray in rays:
+        traversal = scene.traverse_ray(ray)
+        if traversal.ordered_hits:
+            indices.append(element_index_by_id.get(traversal.ordered_hits[0].element_id, -1))
+        else:
+            indices.append(-1)
+    return tuple(indices)
+
+
 def cuda_renderer_boundary_report(
     scene: AuraScene | None = None,
     *,
@@ -180,8 +368,15 @@ def cuda_renderer_boundary_report(
     }
     if scene is None:
         report["fallbackProbe"] = None
+        report["kernelInputProbe"] = None
         return report
     try:
+        kernel_inputs = cuda_renderer_kernel_inputs(
+            scene,
+            ray_origins=(tuple(float(value) for value in probe_ray_origin),),
+            ray_directions=(tuple(float(value) for value in probe_ray_direction),),
+            max_hits=max_hits,
+        )
         batch = cuda_render_rays(
             scene,
             ray_origins=(tuple(float(value) for value in probe_ray_origin),),
@@ -194,6 +389,7 @@ def cuda_renderer_boundary_report(
             "executed": False,
             "error": str(exc),
         }
+        report["kernelInputProbe"] = None
         return report
     payload = batch.to_dict()
     report["fallbackProbe"] = {
@@ -223,6 +419,14 @@ def cuda_renderer_boundary_report(
             if key in payload
         ],
         "orderedHitOverflow": payload["orderedHitOverflow"],
+    }
+    report["kernelInputProbe"] = {
+        "format": "AURA_CUDA_RENDERER_KERNEL_INPUT_PROBE",
+        "kernelSymbol": "aura_render_rays_kernel",
+        "rayCount": kernel_inputs.ray_count,
+        "elementCount": kernel_inputs.element_count,
+        "maxHits": kernel_inputs.max_hits,
+        "outputBufferShapes": {name: list(shape) for name, shape in kernel_inputs.output_buffer_shapes().items()},
     }
     return report
 
@@ -421,3 +625,48 @@ def _trim_hits(
         tuple(tuple(dict(hit) for hit in ray_hits[:max_hits]) for ray_hits in ordered_hits),
         tuple(len(ray_hits) > max_hits for ray_hits in ordered_hits),
     )
+
+
+def _carrier_kernel_id(carrier_id: str) -> int:
+    try:
+        return CUDA_RENDERER_CARRIER_IDS[carrier_id]
+    except KeyError as exc:
+        raise ValueError(f"unsupported CUDA renderer carrier id: {carrier_id}") from exc
+
+
+def _stable_id_table(values: Sequence[str | None]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return tuple(ordered)
+
+
+def _lookup_table_id(table: Sequence[str], value: str | None) -> int:
+    if value is None:
+        return -1
+    try:
+        return tuple(table).index(value)
+    except ValueError as exc:
+        raise ValueError(f"value {value!r} is missing from CUDA renderer id table") from exc
+
+
+def _flat_buffer_metadata(values: Sequence[object], dtype: str, shape: tuple[int, ...]) -> dict[str, object]:
+    return {
+        "dtype": dtype,
+        "shape": list(shape),
+        "length": len(values),
+        "preview": list(values[: min(6, len(values))]),
+    }
+
+
+def _kernel_arg_summary(value: object) -> dict[str, object] | object:
+    if isinstance(value, tuple):
+        return {
+            "length": len(value),
+            "preview": list(value[: min(6, len(value))]),
+        }
+    return value

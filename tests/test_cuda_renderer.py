@@ -3,7 +3,14 @@ import importlib.util
 import pytest
 
 from aura import AuraElement, AuraScene, Bounds, Ray
-from aura.cuda_renderer import cuda_render_rays, cuda_renderer_boundary_report, cuda_renderer_launch_config
+from aura.cuda_renderer import (
+    cuda_render_rays,
+    cuda_renderer_boundary_report,
+    cuda_renderer_kernel_inputs,
+    cuda_renderer_launch_config,
+    cuda_renderer_reference_first_hit_indices,
+    cuda_renderer_scene_buffers,
+)
 
 
 def test_cuda_renderer_launch_config_validates_and_computes_grid():
@@ -40,6 +47,119 @@ def test_cuda_renderer_launch_config_validates_and_computes_grid():
 def test_cuda_renderer_launch_config_rejects_invalid_values(kwargs, message):
     with pytest.raises(ValueError, match=message):
         cuda_renderer_launch_config(**kwargs)
+
+
+def test_cuda_renderer_scene_buffers_match_renderer_kernel_abi():
+    scene = AuraScene(
+        name="cuda_scene_buffer_test",
+        elements=(
+            AuraElement(
+                id="panel",
+                carrier_id="surface",
+                bounds=Bounds((-1.0, -0.5, 0.0), (0.0, 0.5, 0.2)),
+                color=(0.8, 0.2, 0.1),
+                opacity=0.75,
+                confidence=0.9,
+                material_id="enamel",
+                semantic_id="tooth",
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="residual",
+                carrier_id="neural",
+                bounds=Bounds((0.0, -0.5, 0.1), (1.0, 0.5, 0.3)),
+                color=(0.1, 0.2, 0.9),
+                opacity=0.4,
+                confidence=0.55,
+                material_id="enamel",
+                semantic_id="highlight",
+                payload={"type": "neural_residual", "residual_scale": 0.2},
+            ),
+        ),
+    )
+
+    buffers = cuda_renderer_scene_buffers(scene)
+    payload = buffers.to_dict()
+
+    assert payload["format"] == "AURA_CUDA_RENDERER_SCENE_BUFFERS"
+    assert buffers.element_ids == ("panel", "residual")
+    assert buffers.carrier_ids == ("surface", "neural")
+    assert buffers.carrier_kernel_ids == (0, 4)
+    assert buffers.material_id_table == ("enamel",)
+    assert buffers.semantic_id_table == ("tooth", "highlight")
+    assert buffers.material_ids == (0, 0)
+    assert buffers.semantic_ids == (0, 1)
+    assert buffers.element_mins == pytest.approx((-1.0, -0.5, 0.0, 0.0, -0.5, 0.1))
+    assert buffers.element_maxs == pytest.approx((0.0, 0.5, 0.2, 1.0, 0.5, 0.3))
+    assert payload["colors"]["shape"] == [2, 3]
+    assert payload["opacities"]["dtype"] == "float32"
+
+
+def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
+    scene = AuraScene(
+        name="cuda_kernel_input_test",
+        elements=(
+            AuraElement(
+                id="left",
+                carrier_id="surface",
+                bounds=Bounds((-1.0, -0.5, 0.0), (-0.1, 0.5, 0.2)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.8,
+                confidence=0.9,
+                material_id="matte",
+                semantic_id="left_object",
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="right",
+                carrier_id="semantic",
+                bounds=Bounds((0.1, -0.5, 0.0), (1.0, 0.5, 0.2)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.6,
+                confidence=0.7,
+                semantic_id="right_object",
+                payload={"type": "semantic_feature", "label": "right_object"},
+            ),
+        ),
+    )
+    ray_origins = ((-0.5, 0.0, -1.0), (0.5, 0.0, -1.0), (2.0, 0.0, -1.0))
+    ray_directions = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0))
+
+    inputs = cuda_renderer_kernel_inputs(scene, ray_origins, ray_directions, max_hits=3)
+    payload = inputs.to_dict()
+    kernel_args = inputs.to_kernel_args()
+    rays = tuple(Ray(origin=origin, direction=direction) for origin, direction in zip(ray_origins, ray_directions))
+
+    assert payload["format"] == "AURA_CUDA_RENDERER_KERNEL_INPUT_BUFFERS"
+    assert payload["kernelSymbol"] == "aura_render_rays_kernel"
+    assert inputs.ray_count == 3
+    assert inputs.element_count == 2
+    assert inputs.output_buffer_shapes()["ordered_hits"] == (3, 3)
+    assert kernel_args["ray_count"] == 3
+    assert kernel_args["element_count"] == 2
+    assert kernel_args["max_hits"] == 3
+    assert kernel_args["ray_origins"] == pytest.approx((-0.5, 0.0, -1.0, 0.5, 0.0, -1.0, 2.0, 0.0, -1.0))
+    assert kernel_args["carrier_ids"] == (0, 5)
+    assert kernel_args["material_ids"] == (0, -1)
+    assert kernel_args["semantic_ids"] == (0, 1)
+    assert cuda_renderer_reference_first_hit_indices(scene, rays) == (0, 1, -1)
+
+
+def test_cuda_renderer_scene_buffers_reject_unknown_carrier_for_kernel_abi():
+    scene = AuraScene(
+        name="unsupported_cuda_carrier",
+        elements=(
+            AuraElement(
+                id="custom",
+                carrier_id="custom",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                payload={"type": "custom"},
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="unsupported CUDA renderer carrier id"):
+        cuda_renderer_scene_buffers(scene)
 
 
 def test_cuda_render_rays_cpu_fallback_matches_aura_ray_query_contract():
@@ -148,6 +268,10 @@ def test_cuda_renderer_boundary_report_distinguishes_callable_fallback_from_prod
     assert report["fallbackProbe"]["backend"] == "cpu"
     assert report["fallbackProbe"]["rayCount"] == 1
     assert report["fallbackProbe"]["maxHits"] == 4
+    assert report["kernelInputProbe"]["kernelSymbol"] == "aura_render_rays_kernel"
+    assert report["kernelInputProbe"]["rayCount"] == 1
+    assert report["kernelInputProbe"]["elementCount"] == 1
+    assert report["kernelInputProbe"]["outputBufferShapes"]["ordered_hits"] == [1, 4]
     assert set(report["fallbackProbe"]["outputFields"]).issuperset(
         {"color", "transmittance", "depth", "normal", "confidence", "orderedHits"}
     )
@@ -161,6 +285,7 @@ def test_cuda_renderer_boundary_report_without_scene_is_metadata_only():
     assert report["callableBoundaryAvailable"] is True
     assert report["productionReady"] is False
     assert report["fallbackProbe"] is None
+    assert report["kernelInputProbe"] is None
 
 
 def test_cuda_render_rays_rejects_invalid_ray_batches_before_fallback():
