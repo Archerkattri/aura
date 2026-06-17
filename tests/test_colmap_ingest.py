@@ -2,11 +2,13 @@ import json
 import struct
 import subprocess
 import sys
+import zlib
 
 from aura import (
     colmap_binary_to_capture_manifest,
     colmap_text_to_capture_manifest,
     colmap_to_capture_manifest,
+    load_capture_assets,
     load_capture_manifest,
     load_colmap_binary_model,
     load_colmap_model,
@@ -104,6 +106,49 @@ def test_colmap_auto_model_converts_binary_to_capture_manifest_contract(tmp_path
     )
 
     assert manifest.regions[0].fallback_source == "colmap-binary"
+
+
+def test_colmap_manifest_links_standard_depth_maps(tmp_path):
+    colmap_dir = _write_colmap_text_model(tmp_path)
+    _write_colmap_depth_map(
+        tmp_path / "stereo" / "depth_maps" / "frame_000001.png.photometric.bin",
+        2,
+        1,
+        (1.0, 3.0),
+    )
+
+    manifest = colmap_text_to_capture_manifest(
+        colmap_dir,
+        root=str(tmp_path),
+        image_dir="images",
+    )
+
+    assert manifest.frames[0].depth_path == "stereo/depth_maps/frame_000001.png.photometric.bin"
+
+
+def test_colmap_manifest_depth_maps_can_materialize_training_depth(tmp_path):
+    colmap_dir = _write_colmap_text_model(tmp_path)
+    (tmp_path / "images").mkdir()
+    _write_png(tmp_path / "images" / "frame_000001.png", width=2, height=1, channels=3, values=(255, 0, 0, 0, 128, 128))
+    _write_png(tmp_path / "images" / "frame_000002.png", width=2, height=1, channels=3, values=(255, 0, 0, 0, 128, 128))
+    _write_colmap_depth_map(
+        tmp_path / "stereo" / "depth_maps" / "frame_000001.png.photometric.bin",
+        2,
+        1,
+        (1.0, 3.0),
+    )
+
+    manifest = colmap_text_to_capture_manifest(
+        colmap_dir,
+        root=str(tmp_path),
+        image_dir="images",
+    )
+    assets = load_capture_assets(manifest)
+    dataset = manifest.to_training_dataset(load_assets=True)
+
+    assert assets[0].average_depth == 2.0
+    assert dataset.frames[0].target_depth == 2.0
+    assert dataset.frames[1].target_depth > 2.0
 
 
 def test_colmap_images_parser_accepts_blank_observation_lines(tmp_path):
@@ -258,3 +303,29 @@ def _colmap_binary_point(point_id, xyz, rgb, error, track):
     for image_id, point2d_idx in track:
         payload += struct.pack("<ii", image_id, point2d_idx)
     return payload
+
+
+def _write_colmap_depth_map(path, width, height, values):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(f"{width}&{height}&1&".encode("ascii") + struct.pack("<" + "f" * len(values), *values))
+
+
+def _write_png(path, *, width, height, channels, values):
+    color_type = {1: 0, 3: 2, 4: 6}[channels]
+    scanline_width = width * channels
+    rows = []
+    for row in range(height):
+        start = row * scanline_width
+        rows.append(b"\x00" + bytes(values[start : start + scanline_width]))
+    raw = b"".join(rows)
+    payload = b"\x89PNG\r\n\x1a\n"
+    payload += _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0))
+    payload += _png_chunk(b"IDAT", zlib.compress(raw))
+    payload += _png_chunk(b"IEND", b"")
+    path.write_bytes(payload)
+
+
+def _png_chunk(kind, data):
+    checksum = zlib.crc32(kind)
+    checksum = zlib.crc32(data, checksum) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)

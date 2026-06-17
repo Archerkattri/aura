@@ -120,6 +120,18 @@ def test_capture_manifest_loads_png_asset_summaries(tmp_path):
     assert dataset.frames[0].target_depth == 383 / 510
 
 
+def test_capture_manifest_loads_colmap_depth_map_summary(tmp_path):
+    manifest_path = _write_colmap_depth_asset_manifest(tmp_path)
+    manifest = load_capture_manifest(manifest_path)
+
+    assets = load_capture_assets(manifest)
+    dataset = manifest.to_training_dataset(load_assets=True)
+
+    assert assets[0].average_color == (0.5, 0.25, 0.25)
+    assert assets[0].average_depth == 1.5
+    assert dataset.frames[0].target_depth == 1.5
+
+
 def test_capture_manifest_asset_loader_marks_exr_as_future_tensor_backend(tmp_path):
     manifest_path = _write_asset_manifest(tmp_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -237,6 +249,27 @@ def _write_png_asset_manifest(tmp_path):
     return manifest_path
 
 
+def _write_colmap_depth_asset_manifest(tmp_path):
+    root = tmp_path / "capture"
+    (root / "images").mkdir(parents=True)
+    (root / "stereo" / "depth_maps").mkdir(parents=True)
+    (root / "masks").mkdir()
+    (root / "images" / "frame_000001.ppm").write_text(
+        "P3\n2 1\n4\n4 0 0 0 2 2\n",
+        encoding="ascii",
+    )
+    _write_colmap_depth_map(root / "stereo" / "depth_maps" / "frame_000001.png.photometric.bin", 2, 1, (1.0, 2.0))
+    (root / "masks" / "frame_000001.pgm").write_text(
+        "P2\n2 1\n2\n2 0\n",
+        encoding="ascii",
+    )
+    payload = capture_asset_manifest_payload(root)
+    payload["frames"][0]["depth_path"] = "stereo/depth_maps/frame_000001.png.photometric.bin"
+    manifest_path = tmp_path / "colmap_depth_asset_capture.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    return manifest_path
+
+
 def capture_asset_manifest_payload(root):
     return {
         "format": "AURA_CAPTURE_MANIFEST",
@@ -288,3 +321,7 @@ def _png_chunk(kind, data):
     checksum = zlib.crc32(kind)
     checksum = zlib.crc32(data, checksum) & 0xFFFFFFFF
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+
+def _write_colmap_depth_map(path, width, height, values):
+    path.write_bytes(f"{width}&{height}&1&".encode("ascii") + struct.pack("<" + "f" * len(values), *values))

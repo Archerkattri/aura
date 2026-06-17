@@ -81,11 +81,12 @@ AURA_CAPTURE_MANIFEST
 1. Replace the CPU differentiable reference renderer in `src/aura/optimize.py`
    with a real PyTorch/CUDA renderer over the same `TrainingFrame` and
    `TrainingRegion` contracts.
-2. Replace the current dependency-free PNG/PPM/PGM summary loader with real
-   EXR/video tensor loading for manifest `image_path`, `depth_path`, and
-   `mask_path`.
-3. Harden COLMAP import beyond binary/text `cameras`/`images`/`points3D`
-   sparse models, including richer sparse/depth region generation.
+2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth summary loader
+   with real EXR/video tensor loading for manifest `image_path`, `depth_path`,
+   and `mask_path`.
+3. Harden COLMAP import beyond binary/text sparse models and standard dense
+   depth-map links, including richer region generation from sparse/depth
+   statistics.
 4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,
    neural residual, semantic, and Gaussian fallback carriers.
 5. Replace the current reference chunk traversal with a production BVH/GPU

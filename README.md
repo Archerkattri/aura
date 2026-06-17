@@ -35,14 +35,16 @@ native representation contract pieces:
 - AURA-Ingest adapters that convert 3DGS, depth, semantic mask, and sparse
   point priors into `EvidenceSample` contracts;
 - COLMAP binary/text sparse-model pose/intrinsics import to `AURA_CAPTURE_MANIFEST`;
+- COLMAP dense depth-map links and deterministic depth summaries for capture
+  manifests;
 - `.aura` package writer;
 - `.aura` package loader/validator;
 - explicit `.aura` format/version compatibility checks;
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
-- dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed
-  native training fixtures;
+- dependency-free PNG, PPM/PGM, and COLMAP depth-map capture asset summaries
+  for manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with color/depth gradients for
   native AURA-Core fixture optimization;
@@ -54,9 +56,8 @@ native representation contract pieces:
 - fixture CLI commands and tests.
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
-production EXR/video tensor loading, pose/depth bootstrapping, learned or GPU
-differentiable carrier optimization, CUDA kernels, BVH, or end-to-end benchmark
-results.
+production EXR/video tensor loading, learned or GPU differentiable carrier
+optimization, CUDA kernels, BVH, or end-to-end benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.
@@ -124,13 +125,13 @@ aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir out
 
 # Asset-backed fixture captures:
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
-# loads existing PNG or PPM/PGM image/depth/mask assets and prints deterministic summaries
+# loads existing PNG, PPM/PGM, or COLMAP depth-map assets and prints deterministic summaries
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
-# replaces target color/depth summaries from PNG or PPM/PGM assets
+# replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
 
 # COLMAP pose/intrinsics ingest:
 aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json
-# converts COLMAP cameras/images/points3D .bin or .txt files into the native capture manifest contract
+# converts COLMAP cameras/images/points3D .bin or .txt files, plus standard stereo/depth_maps when present, into the native capture manifest contract
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura

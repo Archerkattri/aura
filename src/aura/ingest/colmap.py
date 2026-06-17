@@ -118,6 +118,7 @@ def colmap_to_capture_manifest(
 ) -> CaptureManifest:
     cameras, images, points, source = load_colmap_model(path)
     return _colmap_to_capture_manifest(
+        Path(path),
         cameras,
         images,
         points,
@@ -139,6 +140,7 @@ def colmap_text_to_capture_manifest(
 ) -> CaptureManifest:
     cameras, images, points = load_colmap_text_model(path)
     return _colmap_to_capture_manifest(
+        Path(path),
         cameras,
         images,
         points,
@@ -160,6 +162,7 @@ def colmap_binary_to_capture_manifest(
 ) -> CaptureManifest:
     cameras, images, points = load_colmap_binary_model(path)
     return _colmap_to_capture_manifest(
+        Path(path),
         cameras,
         images,
         points,
@@ -172,6 +175,7 @@ def colmap_binary_to_capture_manifest(
 
 
 def _colmap_to_capture_manifest(
+    model_path: Path,
     cameras: dict[str, ColmapCamera],
     images: Sequence[ColmapImage],
     points: Sequence[ColmapPoint3D],
@@ -197,7 +201,7 @@ def _colmap_to_capture_manifest(
             {
                 "id": f"colmap_image_{image.id}",
                 "image_path": str(Path(image_dir) / image.name),
-                "depth_path": None,
+                "depth_path": _find_colmap_depth_path(model_path, image.name),
                 "mask_path": None,
                 "camera_model": camera.model,
                 "intrinsics": camera.intrinsics(),
@@ -287,6 +291,22 @@ def _read_points3d(path: Path) -> tuple[ColmapPoint3D, ...]:
             )
         )
     return tuple(points)
+
+
+def _find_colmap_depth_path(model_path: Path, image_name: str) -> str | None:
+    candidates = (
+        model_path.parent / "stereo" / "depth_maps" / f"{image_name}.photometric.bin",
+        model_path.parent / "stereo" / "depth_maps" / f"{image_name}.geometric.bin",
+        model_path / "depth_maps" / f"{image_name}.photometric.bin",
+        model_path / "depth_maps" / f"{image_name}.geometric.bin",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            try:
+                return candidate.relative_to(model_path.parent).as_posix()
+            except ValueError:
+                return candidate.as_posix()
+    return None
 
 
 def _read_cameras_binary(path: Path) -> dict[str, ColmapCamera]:

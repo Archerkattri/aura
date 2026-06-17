@@ -316,11 +316,13 @@ def _read_capture_raster(path: Path) -> _RasterImage:
         return _read_netpbm(path)
     if suffix == ".png":
         return _read_png(path)
+    if suffix == ".bin":
+        return _read_colmap_dense_map(path)
     if suffix in {".exr", ".hdr", ".mp4", ".mov", ".mkv", ".avi"}:
         raise ValueError(
-            f"{path} requires the future GPU tensor asset backend; current stdlib loader supports PNG and PPM/PGM"
+            f"{path} requires the future GPU tensor asset backend; current stdlib loader supports PNG, PPM/PGM, and COLMAP depth maps"
         )
-    raise ValueError(f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, or PGM")
+    raise ValueError(f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, PGM, or COLMAP depth .bin")
 
 
 def _read_netpbm(path: Path) -> _RasterImage:
@@ -415,6 +417,33 @@ def _read_png(path: Path) -> _RasterImage:
         offset += 1 + row_bytes
     values = tuple(channel / 255.0 for row in rows for channel in row)
     return _RasterImage(format="PNG", width=width, height=height, channels=channels, values=values)
+
+
+def _read_colmap_dense_map(path: Path) -> _RasterImage:
+    data = path.read_bytes()
+    header_parts: list[bytes] = []
+    offset = 0
+    for _index in range(3):
+        end = data.find(b"&", offset)
+        if end < 0:
+            raise ValueError(f"{path} is missing a COLMAP dense-map header")
+        header_parts.append(data[offset:end])
+        offset = end + 1
+    try:
+        width, height, channels = (int(part.decode("ascii")) for part in header_parts)
+    except ValueError as exc:
+        raise ValueError(f"{path} has an invalid COLMAP dense-map header") from exc
+    if channels != 1:
+        raise ValueError(f"{path} must be a single-channel COLMAP depth map")
+    expected_values = width * height * channels
+    expected_bytes = expected_values * 4
+    payload = data[offset:]
+    if len(payload) != expected_bytes:
+        raise ValueError(f"{path} expected {expected_bytes} float32 depth bytes but found {len(payload)}")
+    values = struct.unpack("<" + "f" * expected_values, payload)
+    if any(value < 0.0 for value in values):
+        raise ValueError(f"{path} contains negative depth values")
+    return _RasterImage(format="COLMAP_DEPTH", width=width, height=height, channels=channels, values=tuple(float(value) for value in values))
 
 
 def _png_unfilter(filter_type: int, scanline: bytes, previous: bytes, bytes_per_pixel: int) -> bytes:
