@@ -33,6 +33,7 @@ from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
 from aura.render import compare_images, read_ppm, render_orthographic
+from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batch
 from aura.torch_renderer import torch_capture_asset_batch, torch_capture_training_batch, torch_renderer_status
@@ -158,6 +159,9 @@ def main(argv: list[str] | None = None) -> int:
 
     inspect = sub.add_parser("inspect-package", help="Load, validate, and print a .aura package summary as JSON")
     inspect.add_argument("package_dir", type=Path)
+
+    export_report = sub.add_parser("export-report", help="Print native/glTF/USD runtime export readiness as JSON")
+    export_report.add_argument("package_dir", type=Path)
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
     render.add_argument("package_dir", type=Path)
@@ -341,6 +345,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "inspect-package":
         package = load_package(args.package_dir)
         print(json.dumps(package.summary(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "export-report":
+        package = load_package(args.package_dir)
+        print(json.dumps(runtime_export_report(package).to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "render-package":
         package = load_package(args.package_dir)

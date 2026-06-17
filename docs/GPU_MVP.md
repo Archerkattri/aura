@@ -110,6 +110,8 @@ contract checks, not quality or production-speed claims.
 Use `aura benchmark-visual <package> <teacher.ppm>` to compare a deterministic
 package render against a supplied teacher/reference image with MSE, PSNR, SSIM,
 LPIPS-proxy, and render-throughput fields.
+Use `aura export-report <package>` to report what the native `.aura` runtime
+preserves and what glTF/USD fallback targets lose for engine workflows.
 Use `aura migration-plan <package>` to report schema migration status.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports

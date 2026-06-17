@@ -116,6 +116,7 @@ from aura.render import (
     read_ppm,
     render_orthographic,
 )
+from aura.runtime_export import RuntimeExportReport, runtime_export_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
@@ -195,6 +196,7 @@ __all__ = [
     "ReconstructionStep",
     "RenderImage",
     "RenderTarget",
+    "RuntimeExportReport",
     "SemanticFeaturePayload",
     "SemanticEdge",
     "SemanticGraph",
@@ -261,6 +263,7 @@ __all__ = [
     "run_ray_query_correctness_benchmark",
     "run_reference_benchmark",
     "run_visual_quality_benchmark",
+    "runtime_export_report",
     "score_capture_proposals",
     "inspect_ray",
     "inspect_scene_rays",
