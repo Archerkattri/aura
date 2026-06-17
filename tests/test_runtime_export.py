@@ -23,10 +23,29 @@ def test_runtime_export_report_separates_native_contract_from_fallbacks(tmp_path
     assert "adaptive_native_carriers" in report["fallbackTargets"]["gltfFallback"]["losses"]
     assert report["engineWorkflow"]["nativeRuntimeReady"] is True
     assert report["engineWorkflow"]["gltfPreviewReady"] is True
+    assert report["engineWorkflow"]["chunkedStreamingReady"] is True
     assert report["engineWorkflow"]["requiresNativeAuraForQueries"] is True
+    assert report["rayQueryContract"]["fields"] == [
+        "firstHit",
+        "depth",
+        "normal",
+        "transmittance",
+        "opacity",
+        "semanticId",
+        "materialId",
+        "confidence",
+        "residual",
+        "provenance",
+    ]
+    assert report["rayQueryContract"]["supportsCompositing"] is True
     by_carrier = {item["carrierId"]: item for item in report["carrierExport"]}
     assert by_carrier["gabor"]["gltfFallback"] == "texture_metadata_only_without_native_runtime"
     assert by_carrier["semantic"]["usdBridge"] == "typed_metadata_no_native_ray_query"
+    by_chunk = {item["chunkId"]: item for item in report["chunkExport"]}
+    assert by_chunk["base_surface_lod0"]["lod"] == 0
+    assert by_chunk["detail_gabor_lod1"]["carrierIds"] == ["gabor"]
+    assert by_chunk["fallback_gaussian_lod2"]["carrierIds"] == ["gaussian"]
+    assert by_chunk["fallback_gaussian_lod2"]["requiresNativeRuntime"] is True
 
 
 def test_runtime_export_report_uses_exchange_plan_for_in_memory_packages():

@@ -29,6 +29,8 @@ native representation contract pieces:
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
 - bounded AURA elements and carrier/LOD chunks;
+- runtime export reports for carrier/LOD chunks and native ray-query contract
+  fields;
 - carrier-aware reference ray-query response with linear chunk traversal and
   cached BVH traversal metrics;
 - carrier-specific reference query tests for surface, volume, beta, gabor,

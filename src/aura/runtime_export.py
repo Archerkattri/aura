@@ -13,6 +13,8 @@ class RuntimeExportReport:
     native_contract: dict[str, bool]
     fallback_targets: dict[str, dict[str, Any]]
     carrier_export: tuple[dict[str, Any], ...]
+    chunk_export: tuple[dict[str, Any], ...]
+    ray_query_contract: dict[str, Any]
     engine_workflow: dict[str, bool]
 
     def to_dict(self) -> dict:
@@ -22,6 +24,8 @@ class RuntimeExportReport:
             "nativeContract": self.native_contract,
             "fallbackTargets": self.fallback_targets,
             "carrierExport": list(self.carrier_export),
+            "chunkExport": list(self.chunk_export),
+            "rayQueryContract": self.ray_query_contract,
             "engineWorkflow": self.engine_workflow,
         }
 
@@ -44,15 +48,19 @@ def runtime_export_report(package: AuraPackage) -> RuntimeExportReport:
         "usdBridge": _target_report(exchange.get("usdBridge", {}), package.asset.fallbacks, carriers),
     }
     carrier_export = tuple(_carrier_export_entry(carrier_id) for carrier_id in carriers)
+    chunk_export = _chunk_export_entries(scene)
     return RuntimeExportReport(
         asset=package.asset.name,
         native_contract=native_contract,
         fallback_targets=fallback_targets,
         carrier_export=carrier_export,
+        chunk_export=chunk_export,
+        ray_query_contract=_ray_query_contract(),
         engine_workflow={
             "nativeRuntimeReady": native_contract["typedCarriers"] and native_contract["rayQuery"],
             "gltfPreviewReady": bool(package.asset.fallbacks.get("mesh") or package.asset.fallbacks.get("splat")),
             "usdMetadataReady": bool(exchange.get("usdBridge", {}).get("supports_typed_carriers")),
+            "chunkedStreamingReady": bool(chunk_export),
             "requiresNativeAuraForQueries": True,
         },
     )
@@ -100,4 +108,49 @@ def _carrier_export_entry(carrier_id: str) -> dict[str, Any]:
         "gltfFallback": fallback_status,
         "usdBridge": "typed_metadata_no_native_ray_query",
         "requiresNativeRuntimeForRayQuery": carrier_id in {"volume", "beta", "gabor", "neural", "semantic", "gaussian", "surface"},
+    }
+
+
+def _chunk_export_entries(scene: Any) -> tuple[dict[str, Any], ...]:
+    element_by_id = {element.id: element for element in scene.elements}
+    entries = []
+    for chunk in scene.chunks:
+        elements = tuple(element_by_id[element_id] for element_id in chunk.element_ids if element_id in element_by_id)
+        entries.append(
+            {
+                "chunkId": chunk.id,
+                "lod": chunk.lod,
+                "elementIds": list(chunk.element_ids),
+                "elementCount": len(chunk.element_ids),
+                "carrierIds": sorted({element.carrier_id for element in elements}),
+                "bounds": {
+                    "min": list(chunk.bounds.min_corner),
+                    "max": list(chunk.bounds.max_corner),
+                },
+                "requiresNativeRuntime": any(
+                    element.carrier_id in {"volume", "beta", "gabor", "neural", "semantic", "gaussian", "surface"} for element in elements
+                ),
+            }
+        )
+    return tuple(entries)
+
+
+def _ray_query_contract() -> dict[str, Any]:
+    fields = (
+        "firstHit",
+        "depth",
+        "normal",
+        "transmittance",
+        "opacity",
+        "semanticId",
+        "materialId",
+        "confidence",
+        "residual",
+        "provenance",
+    )
+    return {
+        "fields": list(fields),
+        "supportsFirstHit": True,
+        "supportsCompositing": True,
+        "requiresNativeAuraRuntime": True,
     }

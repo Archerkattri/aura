@@ -11,6 +11,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
 - bounded local elements and carrier/LOD chunks;
+- runtime export reports for carrier/LOD chunks and native ray-query contract
+  fields;
 - carrier-aware reference ray queries;
 - carrier-specific reference query tests for surface, volume, beta, gabor,
   neural residual, semantic, and covariance-weighted Gaussian fallback
