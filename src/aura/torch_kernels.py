@@ -88,7 +88,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="semantic_feature",
             carrier_id="semantic",
             differentiable_fields=("confidence",),
-            description="Semantic/object feature confidence reference kernel.",
+            description="Semantic/object feature torch autograd kernel for confidence scoring; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_semantic_feature_kernel",
+            autograd_kernel=True,
         ),
         TorchCarrierKernelSpec(
             payload_type="gaussian_fallback",
@@ -179,7 +181,15 @@ def torch_carrier_response_tensors(
             confidence[mask] = torch.clamp(confidence[mask] * (1.0 - residual_scale * 0.25), min=0.0, max=1.0)
             residual[mask] = True
         elif payload_type == "semantic_feature":
-            confidence[mask] = torch.clamp(float(element.payload.get("confidence", element.confidence)), min=0.0, max=1.0)
+            semantic_confidence = _carrier_parameter(
+                torch,
+                element,
+                "confidence",
+                carrier_parameters,
+                device,
+                default=element.payload.get("confidence", element.confidence),
+            )
+            confidence[mask] = torch.clamp(semantic_confidence, min=0.0, max=1.0)
 
     return carrier_colors, transmittance, confidence, residual
 
@@ -243,6 +253,15 @@ def torch_carrier_parameter_tensors(
             parameters[element.id] = {
                 "residual_scale": torch.tensor(
                     float(element.payload.get("residual_scale", 0.0)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                )
+            }
+        elif payload_type == "semantic_feature":
+            parameters[element.id] = {
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,
