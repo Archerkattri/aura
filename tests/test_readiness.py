@@ -34,6 +34,10 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert any("3DGS" in gap for gap in by_id["benchmarks"]["gaps"])
     assert payload["torchCarrierKernels"]["productionReady"] is False
     assert payload["cudaKernelSources"]["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
+    assert payload["backendReadiness"]["format"] == "AURA_BACKEND_READINESS_EVALUATION"
+    assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0
+    assert payload["backendReadiness"]["productionCudaReady"] is False
+    assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
     assert "not production ready" in payload["summary"]
 
 
@@ -71,6 +75,7 @@ def test_readiness_report_cli_prints_json():
 
     assert payload["format"] == "AURA_PRODUCTION_READINESS_REPORT"
     assert payload["productionReady"] is False
+    assert payload["backendReadiness"]["requiresTorchImport"] is False
     assert {pillar["id"] for pillar in payload["missingOrIncomplete"]}.issuperset(
         {"native_carriers", "cuda_backend", "renderer_trainer", "benchmarks"}
     )

@@ -15,7 +15,7 @@ from aura.benchmark import (
     default_benchmark_suite,
 )
 from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_demo_scene, write_synthetic_training_frames
-from aura.cuda_kernels import cuda_kernel_extension_report
+from aura.cuda_kernels import cuda_kernel_extension_report, cuda_renderer_report
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
@@ -228,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     cuda_build = sub.add_parser("cuda-kernel-build-report", help="Probe native CUDA carrier extension build/load readiness as JSON")
     cuda_build.add_argument("--build", action="store_true", help="Attempt to compile and load the packaged CUDA source")
     cuda_build.add_argument("--verbose", action="store_true", help="Print verbose torch extension build output when --build is used")
+    sub.add_parser("cuda-renderer-report", help="Print CPU-safe CUDA renderer callable API readiness as JSON")
 
     inspect_rays = sub.add_parser("inspect-rays", help="Inspect reference ray-query outputs for a .aura package")
     inspect_rays.add_argument("package_dir", type=Path)
@@ -434,6 +435,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "cuda-kernel-build-report":
         print(json.dumps(cuda_kernel_extension_report(build=args.build, verbose=args.verbose), indent=2, sort_keys=True))
+        return 0
+    if args.command == "cuda-renderer-report":
+        print(json.dumps(cuda_renderer_report(), indent=2, sort_keys=True))
         return 0
     if args.command == "benchmark-core":
         print(json.dumps(run_core_reconstruction_benchmark(iterations=args.iterations), indent=2, sort_keys=True))

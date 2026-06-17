@@ -48,10 +48,14 @@ from aura.core import (
 from aura.cuda_kernels import (
     CudaExtensionStatus,
     CudaKernelSource,
+    CudaRendererLaunchReport,
     cuda_kernel_extension_report,
     cuda_kernel_extension_status,
     cuda_kernel_source_report,
     cuda_kernel_sources,
+    cuda_render_rays,
+    cuda_renderer_api_contract,
+    cuda_renderer_report,
 )
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
@@ -201,6 +205,7 @@ __all__ = [
     "ColmapPoint3D",
     "CudaExtensionStatus",
     "CudaKernelSource",
+    "CudaRendererLaunchReport",
     "DepthEvidencePoint",
     "DifferentiableRaySample",
     "EvidenceSample",
@@ -259,6 +264,9 @@ __all__ = [
     "cuda_kernel_extension_status",
     "cuda_kernel_source_report",
     "cuda_kernel_sources",
+    "cuda_render_rays",
+    "cuda_renderer_api_contract",
+    "cuda_renderer_report",
     "colmap_binary_to_capture_manifest",
     "colmap_text_to_capture_manifest",
     "colmap_to_capture_manifest",

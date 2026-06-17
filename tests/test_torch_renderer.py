@@ -23,6 +23,7 @@ from aura import (
     torch_renderer_status,
     torch_scene_tensors,
 )
+from aura.cli import native_demo_scene
 
 
 def test_torch_renderer_status_reports_optional_backend():
@@ -350,14 +351,45 @@ def test_torch_scene_tensors_cache_native_scene_on_device():
 
     assert scene_tensors.element_ids == ("surface",)
     assert scene_tensors.carrier_ids == ("surface",)
+    assert scene_tensors.carrier_group_indices["surface"].tolist() == [0]
     assert scene_tensors.chunk_ids == ("root",)
     assert payload["device"] == "cpu"
+    assert payload["carrierGroupIndices"] == {"surface": [0]}
     assert payload["mins"]["shape"] == [1, 3]
     assert payload["chunkMins"]["shape"] == [1, 3]
     assert payload["elementChunkIndices"]["shape"] == [1]
     assert payload["supportsChunkCulling"] is True
     assert payload["colors"]["device"] == "cpu"
     assert payload["carrierParameterIds"] == ["surface"]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_scene_tensors_groups_native_demo_carriers_for_dispatch():
+    scene = native_demo_scene()
+
+    scene_tensors = torch_scene_tensors(scene, device="cpu")
+    payload = scene_tensors.to_dict()
+
+    assert scene_tensors.carrier_ids == ("surface", "volume", "gabor", "neural", "semantic", "beta", "gaussian")
+    assert {carrier_id: indices.tolist() for carrier_id, indices in scene_tensors.carrier_group_indices.items()} == {
+        "beta": [5],
+        "gabor": [2],
+        "gaussian": [6],
+        "neural": [3],
+        "semantic": [4],
+        "surface": [0],
+        "volume": [1],
+    }
+    assert payload["carrierGroupIndices"] == {
+        "beta": [5],
+        "gabor": [2],
+        "gaussian": [6],
+        "neural": [3],
+        "semantic": [4],
+        "surface": [0],
+        "volume": [1],
+    }
+    assert sorted(index for indices in payload["carrierGroupIndices"].values() for index in indices) == list(range(len(scene.elements)))
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

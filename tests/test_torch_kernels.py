@@ -13,6 +13,9 @@ from aura import (
     cuda_kernel_extension_status,
     cuda_kernel_source_report,
     cuda_kernel_sources,
+    cuda_render_rays,
+    cuda_renderer_api_contract,
+    cuda_renderer_report,
     torch_carrier_kernel_report,
     torch_carrier_kernel_specs,
     torch_carrier_parameter_tensors,
@@ -255,6 +258,77 @@ def test_cuda_kernel_extension_status_does_not_build_by_default():
     assert report["format"] == "AURA_CUDA_EXTENSION_REPORT"
     assert report["productionReady"] is False
     assert report["buildAttempted"] is False
+
+
+def test_cuda_renderer_api_contract_declares_batched_ray_outputs_without_cuda():
+    contract = cuda_renderer_api_contract()
+
+    assert contract["format"] == "AURA_CUDA_RENDERER_API_CONTRACT"
+    assert contract["apiName"] == "cuda_render_rays"
+    assert contract["productionReady"] is False
+    assert contract["batchDimension"] == "rayCount"
+    assert contract["extension"]["buildAttempted"] is False
+    inputs = {item["name"]: item for item in contract["inputTensors"]}
+    outputs = {item["name"]: item for item in contract["outputTensors"]}
+
+    assert inputs["ray_origins"]["shape"] == "rayCount x 3"
+    assert inputs["ray_directions"]["shape"] == "rayCount x 3"
+    assert inputs["carrier_ids"]["shape"] == "elementCount"
+    assert outputs["out_color"]["shape"] == "rayCount x 3"
+    assert outputs["out_transmittance"]["shape"] == "rayCount"
+    assert outputs["out_depth"]["shape"] == "rayCount"
+    assert outputs["out_normal"]["shape"] == "rayCount x 3"
+    assert outputs["ordered_hits"]["shape"] == "rayCount x maxHits"
+    assert any("renderer binding dispatches cuda_render_rays" in item for item in contract["unavailableUntil"])
+
+
+def test_cuda_render_rays_callable_scaffold_validates_batches_but_does_not_compile():
+    report = cuda_render_rays(
+        ray_origins=((0.0, 0.0, -2.0), (0.25, 0.0, -2.0)),
+        ray_directions=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
+    ).to_dict()
+
+    assert report["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
+    assert report["apiName"] == "cuda_render_rays"
+    assert report["rayCount"] == 2
+    assert report["validatedInputs"] is True
+    assert report["available"] is False
+    assert report["productionReady"] is False
+    assert report["reason"] == "extension_not_compiled_or_loadable"
+    assert report["extension"]["buildAttempted"] is False
+    assert report["extension"]["reason"] == "build_not_attempted"
+    assert report["contract"]["productionReady"] is False
+
+
+def test_cuda_render_rays_reports_invalid_batched_ray_inputs_without_cuda():
+    report = cuda_render_rays(
+        ray_origins=((0.0, 0.0, -2.0),),
+        ray_directions=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
+    ).to_dict()
+
+    assert report["validatedInputs"] is False
+    assert report["available"] is False
+    assert report["productionReady"] is False
+    assert report["reason"].startswith("invalid_batched_ray_inputs:")
+    assert "does not match" in report["reason"]
+    assert report["extension"]["buildAttempted"] is False
+
+
+def test_cuda_renderer_report_cli_prints_cpu_safe_json():
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "cuda-renderer-report"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload == cuda_renderer_report()
+    assert payload["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
+    assert payload["productionReady"] is False
+    assert payload["available"] is False
+    assert payload["extension"]["buildAttempted"] is False
 
 
 def test_cuda_kernel_build_report_cli_is_non_destructive_without_build():

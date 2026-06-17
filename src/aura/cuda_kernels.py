@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from dataclasses import dataclass
 from importlib.util import find_spec
-from typing import Any
+from typing import Any, Sequence
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 
@@ -72,6 +72,31 @@ class CudaExtensionStatus:
             "sourcePaths": list(self.source_paths),
             "symbols": list(self.symbols),
             "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class CudaRendererLaunchReport:
+    api_name: str
+    ray_count: int | None
+    validated_inputs: bool
+    available: bool
+    production_ready: bool
+    reason: str
+    extension: CudaExtensionStatus
+    contract: dict
+
+    def to_dict(self) -> dict:
+        return {
+            "format": "AURA_CUDA_RENDERER_LAUNCH_REPORT",
+            "apiName": self.api_name,
+            "rayCount": self.ray_count,
+            "validatedInputs": self.validated_inputs,
+            "available": self.available,
+            "productionReady": self.production_ready,
+            "reason": self.reason,
+            "extension": self.extension.to_dict(),
+            "contract": self.contract,
         }
 
 
@@ -220,6 +245,94 @@ def cuda_kernel_extension_report(*, build: bool = False, verbose: bool = False) 
     }
 
 
+def cuda_renderer_api_contract() -> dict:
+    return {
+        "format": "AURA_CUDA_RENDERER_API_CONTRACT",
+        "apiName": "cuda_render_rays",
+        "productionReady": False,
+        "description": "Callable CUDA renderer launch contract for batched AURA ray queries.",
+        "batchDimension": "rayCount",
+        "inputTensors": [
+            _renderer_tensor("ray_origins", "float32", "rayCount x 3", "input", "World-space ray origins."),
+            _renderer_tensor("ray_directions", "float32", "rayCount x 3", "input", "World-space ray directions."),
+            _renderer_tensor("element_mins", "float32", "elementCount x 3", "scene", "Element AABB minimum corners."),
+            _renderer_tensor("element_maxs", "float32", "elementCount x 3", "scene", "Element AABB maximum corners."),
+            _renderer_tensor("carrier_ids", "int32", "elementCount", "scene", "Native carrier identifier per element."),
+            _renderer_tensor("colors", "float32", "elementCount x 3", "scene", "Base carrier color parameters."),
+            _renderer_tensor("opacities", "float32", "elementCount", "scene", "Base carrier opacity parameters."),
+            _renderer_tensor("confidences", "float32", "elementCount", "scene", "Base carrier confidence parameters."),
+            _renderer_tensor("carrier_parameters", "float32", "carrierParameterCount", "scene", "Packed carrier-specific parameter buffer."),
+            _renderer_tensor("chunk_indices", "int32", "chunkIndexCount", "scene", "Packed traversal/culling index buffer."),
+        ],
+        "outputTensors": [
+            _renderer_tensor("out_color", "float32", "rayCount x 3", "output", "Composited RGB color."),
+            _renderer_tensor("out_alpha", "float32", "rayCount", "output", "Composited opacity."),
+            _renderer_tensor("out_transmittance", "float32", "rayCount", "output", "Final ray transmittance."),
+            _renderer_tensor("out_depth", "float32", "rayCount", "output", "First-hit depth or infinity sentinel."),
+            _renderer_tensor("out_normal", "float32", "rayCount x 3", "output", "First-hit normal or zero vector."),
+            _renderer_tensor("out_confidence", "float32", "rayCount", "output", "Composited confidence."),
+            _renderer_tensor("out_residual", "bool", "rayCount", "output", "Residual/view-dependent carrier flag."),
+            _renderer_tensor("out_material_id", "int32", "rayCount", "output", "First-hit material dictionary index."),
+            _renderer_tensor("out_semantic_id", "int32", "rayCount", "output", "First-hit semantic dictionary index."),
+            _renderer_tensor("ordered_hits", "int32", "rayCount x maxHits", "output", "Ordered carrier hit trace indices for CPU/torch parity checks."),
+        ],
+        "sourceReport": cuda_kernel_source_report(),
+        "extension": cuda_kernel_extension_status(build=False).to_dict(),
+        "unavailableUntil": [
+            "CUDA extension is compiled from packaged sources",
+            "compiled extension is loadable in the current process",
+            "renderer binding dispatches cuda_render_rays over batched ray tensors",
+            "CPU/torch/CUDA parity and benchmark tests pass",
+        ],
+    }
+
+
+def cuda_renderer_report() -> dict:
+    return cuda_render_rays().to_dict()
+
+
+def cuda_render_rays(
+    ray_origins: Sequence[Sequence[float]] | Any | None = None,
+    ray_directions: Sequence[Sequence[float]] | Any | None = None,
+    *,
+    scene_tensors: Any | None = None,
+) -> CudaRendererLaunchReport:
+    """Validate the CUDA renderer call shape and report why launch is unavailable.
+
+    This function intentionally does not compile or load CUDA. It is a stable
+    callable contract for future extension bindings and remains safe on CPU-only
+    machines.
+    """
+
+    del scene_tensors
+    extension = cuda_kernel_extension_status(build=False)
+    contract = cuda_renderer_api_contract()
+    try:
+        ray_count = _validate_batched_rays(ray_origins, ray_directions)
+    except ValueError as exc:
+        return CudaRendererLaunchReport(
+            api_name="cuda_render_rays",
+            ray_count=None,
+            validated_inputs=False,
+            available=False,
+            production_ready=False,
+            reason=f"invalid_batched_ray_inputs: {exc}",
+            extension=extension,
+            contract=contract,
+        )
+    reason = "extension_not_compiled_or_loadable" if extension.reason == "build_not_attempted" else extension.reason
+    return CudaRendererLaunchReport(
+        api_name="cuda_render_rays",
+        ray_count=ray_count,
+        validated_inputs=True,
+        available=False,
+        production_ready=False,
+        reason=reason or "extension_not_compiled_or_loadable",
+        extension=extension,
+        contract=contract,
+    )
+
+
 def cuda_kernel_source_available(path: str) -> bool:
     try:
         resource = files("aura").joinpath(path)
@@ -264,6 +377,45 @@ def _input_shape(name: str) -> str:
     if name in {"color", "frequency", "hit_point"}:
         return "count x 3"
     return "count"
+
+
+def _renderer_tensor(name: str, dtype: str, shape: str, role: str, description: str) -> dict:
+    return {
+        "name": name,
+        "dtype": dtype,
+        "shape": shape,
+        "role": role,
+        "description": description,
+    }
+
+
+def _validate_batched_rays(ray_origins: Any | None, ray_directions: Any | None) -> int | None:
+    origin_count = _batched_vec3_count(ray_origins, "ray_origins")
+    direction_count = _batched_vec3_count(ray_directions, "ray_directions")
+    if origin_count is None and direction_count is None:
+        return None
+    if origin_count is None or direction_count is None:
+        raise ValueError("ray_origins and ray_directions must be provided together")
+    if origin_count != direction_count:
+        raise ValueError(f"ray_origins count {origin_count} does not match ray_directions count {direction_count}")
+    return origin_count
+
+
+def _batched_vec3_count(values: Any | None, name: str) -> int | None:
+    if values is None:
+        return None
+    shape = getattr(values, "shape", None)
+    if shape is not None:
+        shape_tuple = tuple(int(dim) for dim in shape)
+        if len(shape_tuple) != 2 or shape_tuple[1] != 3:
+            raise ValueError(f"{name} must have shape rayCount x 3")
+        return shape_tuple[0]
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{name} must be a sequence or tensor-like object with shape")
+    for row in values:
+        if not isinstance(row, Sequence) or isinstance(row, (str, bytes)) or len(row) != 3:
+            raise ValueError(f"{name} must contain 3D ray vectors")
+    return len(values)
 
 
 def _cuda_kernel_source_text(path: str) -> str | None:

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aura.benchmark import evaluate_backend_readiness
+from aura.core import synthetic_training_frames, synthetic_training_regions
 from aura.cuda_kernels import cuda_kernel_source_report
+from aura.decomposition import decompose_evidence
 from aura.torch_kernels import torch_carrier_kernel_report
 from aura.torch_renderer import torch_renderer_status
 
@@ -35,6 +38,7 @@ class ProductionReadinessReport:
     torch_renderer: dict
     torch_carrier_kernels: dict
     cuda_kernel_sources: dict
+    backend_readiness: dict
 
     @property
     def production_ready(self) -> bool:
@@ -62,6 +66,7 @@ class ProductionReadinessReport:
             "torchRenderer": self.torch_renderer,
             "torchCarrierKernels": self.torch_carrier_kernels,
             "cudaKernelSources": self.cuda_kernel_sources,
+            "backendReadiness": self.backend_readiness,
             "summary": _summary(self.pillars),
         }
 
@@ -70,6 +75,7 @@ def production_readiness_report() -> ProductionReadinessReport:
     torch_status = torch_renderer_status().to_dict()
     kernel_report = torch_carrier_kernel_report()
     cuda_sources = cuda_kernel_source_report()
+    backend_readiness = evaluate_backend_readiness(_readiness_scene())
     pillars = (
         ReadinessPillar(
             id="native_carriers",
@@ -116,6 +122,7 @@ def production_readiness_report() -> ProductionReadinessReport:
             evidence=(
                 "torch renderer status is reportable through aura torch-renderer-status",
                 "carrier payloads have torch autograd kernel specs",
+                f"backend readiness reports {backend_readiness['sceneCarrierAutogradCoverageRate']:.0%} scene-carrier autograd coverage",
                 "torch optimization scaffold can consume capture tensor batches when PyTorch is installed",
             ),
             gaps=(
@@ -136,6 +143,7 @@ def production_readiness_report() -> ProductionReadinessReport:
             evidence=(
                 "CUDA source stubs are packaged and discoverable",
                 "aura cuda-kernel-build-report can probe extension build/load status",
+                f"backend readiness reports {backend_readiness['sceneCarrierCudaCoverageRate']:.0%} scene-carrier CUDA production coverage",
             ),
             gaps=(
                 "CUDA extension build is not attempted by this readiness report",
@@ -174,6 +182,7 @@ def production_readiness_report() -> ProductionReadinessReport:
             evidence=(
                 "benchmark plan covers visual quality, ray-query correctness, interaction quality, export, speed, and ablations",
                 "reference benchmark emits deterministic scaffold metrics",
+                "readiness-report includes the CPU-only backend readiness contract used by reference benchmarks",
             ),
             gaps=(
                 "no production benchmark results against COLMAP, NeRF/nerfstudio, 3DGS, 2DGS, or ray-traced GS baselines",
@@ -191,7 +200,14 @@ def production_readiness_report() -> ProductionReadinessReport:
         torch_renderer=torch_status,
         torch_carrier_kernels=kernel_report,
         cuda_kernel_sources=cuda_sources,
+        backend_readiness=backend_readiness,
     )
+
+
+def _readiness_scene():
+    frames = {frame.id: frame for frame in synthetic_training_frames()}
+    evidence = tuple(region.to_evidence_sample(frames[region.frame_id]) for region in synthetic_training_regions())
+    return decompose_evidence(evidence, name="readiness_probe")
 
 
 def _summary(pillars: tuple[ReadinessPillar, ...]) -> str:

@@ -73,6 +73,10 @@ This package now contains the GPU-ready skeleton for AURA:
 - packaged CUDA carrier source symbols for surface, volume, beta, gabor, neural,
   semantic, and Gaussian fallback carriers, still gated as non-production until
   compiled extension tests and benchmarks exist;
+- CPU-safe CUDA renderer callable scaffold through `cuda_render_rays`, with a
+  batched `rayCount x 3` ray input contract and AURA output tensor contract for
+  color, opacity, transmittance, depth, normals, confidence, residual,
+  material/semantic IDs, and ordered hit traces;
 - `cuda-kernel-build-report --build` for GPU machines to attempt native carrier
   CUDA extension compile/load without changing the default CPU-safe test path;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
@@ -165,6 +169,10 @@ confidence parameters. Production readiness still requires compiling, testing,
 and benchmarking CUDA kernels for every carrier.
 Use `aura cuda-kernel-build-report --build` on a CUDA development machine to
 attempt the packaged carrier extension compile/load gate.
+Use `aura cuda-renderer-report` on any machine to inspect the future
+`cuda_render_rays` launch contract. It does not compile or load CUDA; it reports
+`productionReady: false` and explains that the renderer is unavailable until the
+extension is compiled, loadable, parity-tested, and benchmarked.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

@@ -112,6 +112,7 @@ class TorchSceneTensors:
     device: str
     element_ids: tuple[str, ...]
     carrier_ids: tuple[str, ...]
+    carrier_group_indices: dict[str, Any]
     chunk_ids: tuple[str, ...]
     mins: Any
     maxs: Any
@@ -128,6 +129,9 @@ class TorchSceneTensors:
             "device": self.device,
             "elementIds": list(self.element_ids),
             "carrierIds": list(self.carrier_ids),
+            "carrierGroupIndices": {
+                carrier_id: _torch_index_tensor_values(indices) for carrier_id, indices in self.carrier_group_indices.items()
+            },
             "chunkIds": list(self.chunk_ids),
             "mins": _torch_tensor_metadata(self.mins),
             "maxs": _torch_tensor_metadata(self.maxs),
@@ -244,6 +248,7 @@ def torch_scene_tensors(
         device=str(resolved_device),
         element_ids=tuple(element.id for element in elements),
         carrier_ids=tuple(element.carrier_id for element in elements),
+        carrier_group_indices=_torch_carrier_group_indices(torch, elements, device=resolved_device),
         chunk_ids=chunk_ids,
         mins=torch.tensor([element.bounds.min_corner for element in elements], dtype=torch.float32, device=resolved_device),
         maxs=torch.tensor([element.bounds.max_corner for element in elements], dtype=torch.float32, device=resolved_device),
@@ -993,6 +998,17 @@ def _torch_tensor_metadata(tensor: Any | None) -> dict | None:
         "dtype": str(tensor.dtype),
         "device": str(tensor.device),
     }
+
+
+def _torch_carrier_group_indices(torch: Any, elements: Sequence[Any], *, device: str) -> dict[str, Any]:
+    groups: dict[str, list[int]] = {}
+    for index, element in enumerate(elements):
+        groups.setdefault(element.carrier_id, []).append(index)
+    return {carrier_id: torch.tensor(indices, dtype=torch.long, device=device) for carrier_id, indices in sorted(groups.items())}
+
+
+def _torch_index_tensor_values(tensor: Any) -> list[int]:
+    return [int(index) for index in tensor.detach().cpu().tolist()]
 
 
 def _pixel_ray_direction(frame: TrainingFrame, x: int, y: int) -> tuple[float, float, float]:
