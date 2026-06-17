@@ -143,7 +143,34 @@ def torch_carrier_response_tensors(
         if not bool(torch.any(mask)):
             continue
         payload_type = element.payload.get("type")
-        if payload_type == "volume_cell":
+        if payload_type == "surface_cell" or element.carrier_id == "surface":
+            surface_color = (
+                carrier_parameters[element.id]["color"]
+                if carrier_parameters is not None and "color" in carrier_parameters.get(element.id, {})
+                else colors[element_index]
+            )
+            surface_opacity = torch.clamp(
+                (
+                    carrier_parameters[element.id]["opacity"]
+                    if carrier_parameters is not None and "opacity" in carrier_parameters.get(element.id, {})
+                    else opacities[element_index]
+                ),
+                min=0.0,
+                max=1.0,
+            )
+            surface_confidence = torch.clamp(
+                (
+                    carrier_parameters[element.id]["confidence"]
+                    if carrier_parameters is not None and "confidence" in carrier_parameters.get(element.id, {})
+                    else confidences[element_index]
+                ),
+                min=0.0,
+                max=1.0,
+            )
+            carrier_colors[mask] = torch.clamp(surface_color, min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - surface_opacity, min=0.0, max=1.0)
+            confidence[mask] = surface_confidence
+        elif payload_type == "volume_cell":
             density = _carrier_parameter(torch, element, "density", carrier_parameters, device, default=element.payload.get("density", element.opacity))
             path_length = torch.clamp(exit_depth[mask, element_index] - best_depth[mask], min=0.0)
             transmittance[mask] = torch.clamp(torch.exp(-density * path_length), min=0.0, max=1.0)
@@ -221,7 +248,28 @@ def torch_carrier_parameter_tensors(
     parameters: dict[str, dict[str, Any]] = {}
     for element in elements:
         payload_type = element.payload.get("type")
-        if payload_type == "volume_cell":
+        if payload_type == "surface_cell" or element.carrier_id == "surface":
+            parameters[element.id] = {
+                "color": torch.tensor(
+                    tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "opacity": torch.tensor(
+                    float(element.payload.get("opacity", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+            }
+        elif payload_type == "volume_cell":
             parameters[element.id] = {
                 "density": torch.tensor(
                     float(element.payload.get("density", element.opacity)),

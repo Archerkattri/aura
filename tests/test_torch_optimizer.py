@@ -109,7 +109,7 @@ def test_torch_optimize_capture_batch_updates_native_carrier_color():
     assert result.steps[0].image_loss > result.steps[1].image_loss
     assert result.steps[0].normal_loss == pytest.approx(0.0)
     assert result.scene.elements[0].color[0] > scene.elements[0].color[0]
-    assert result.scene.elements[0].metadata["optimized_by"] == "aura-core-torch-reference"
+    assert result.scene.elements[0].metadata["optimized_by"] == "aura-core-torch-autograd-reference"
     assert result.to_dict()["finalLoss"] == result.steps[-1].total_loss
 
 

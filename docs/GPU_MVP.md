@@ -51,8 +51,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - live torch render objectives through `torch_render_target_objective`, exposing
   differentiable image/depth losses over carrier parameter tensors;
 - torch reference optimization steps through `torch_optimize_capture_batch`,
-  which runs repeated batched AURA forward passes and records image/depth/query/
-  normal losses while applying bounded native carrier color updates;
+  which runs repeated batched AURA forward passes, records image/depth/query/
+  normal losses, and applies gradient updates to native carrier tensors;
 - explicit torch carrier kernel specs and autograd parameter tensors for
   surface, volume, beta, gabor, neural residual, semantic, and Gaussian fallback
   semantics;

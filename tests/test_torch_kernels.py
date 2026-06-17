@@ -167,6 +167,30 @@ def test_surface_kernel_keeps_color_opacity_confidence_differentiable():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_carrier_parameter_tensors_cover_native_surface_fields():
+    import torch
+
+    elements = (
+        AuraElement(
+            id="surface",
+            carrier_id="surface",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.2, 0.4, 0.6),
+            opacity=0.5,
+            confidence=0.75,
+            payload={"type": "surface_cell"},
+        ),
+    )
+
+    carrier_parameters = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+
+    assert set(carrier_parameters["surface"]) == {"color", "opacity", "confidence"}
+    assert carrier_parameters["surface"]["color"].requires_grad is True
+    assert carrier_parameters["surface"]["opacity"].requires_grad is True
+    assert carrier_parameters["surface"]["confidence"].requires_grad is True
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_volume_kernel_keeps_density_differentiable():
     import torch
 

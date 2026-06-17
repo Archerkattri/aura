@@ -16,6 +16,7 @@ from aura import (
     torch_capture_training_batch,
     torch_carrier_parameter_tensors,
     torch_render_capture_training_batch,
+    torch_render_capture_training_objective,
     torch_render_target_objective,
     torch_render_targets,
     torch_renderer_status,
@@ -78,6 +79,19 @@ def test_torch_render_target_objective_reports_install_hint_when_unavailable():
 
     with pytest.raises(RuntimeError, match="torch"):
         torch_render_target_objective(scene, (target,), device="cpu")
+
+
+def test_torch_render_capture_training_objective_reports_install_hint_when_unavailable():
+    if importlib.util.find_spec("torch") is not None:
+        pytest.skip("torch is installed in this environment")
+
+    scene = AuraScene(
+        name="capture_objective_unavailable_scene",
+        elements=(AuraElement(id="surface", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(RuntimeError, match="torch"):
+        torch_render_capture_training_objective(scene, _fake_capture_training_batch())
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -321,6 +335,56 @@ def test_torch_render_target_objective_backpropagates_carrier_parameters():
     assert objective.to_dict()["totalLoss"] > 0.0
     assert carrier_parameters["gaussian"]["color"].grad is not None
     assert carrier_parameters["gaussian"]["opacity"].grad is not None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_capture_training_objective_backpropagates_native_surface_parameters():
+    import torch
+
+    scene = AuraScene(
+        name="torch_capture_objective_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame",
+                image_values=(1.0, 0.0, 0.0),
+                depth_values=(2.0,),
+                mask_values=None,
+                width=1,
+                height=1,
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+
+    objective = torch_render_capture_training_objective(scene, batch, carrier_parameters=carrier_parameters)
+    objective.total_loss.backward()
+
+    assert objective.to_dict()["carrierParameterIds"] == ["surface"]
+    assert carrier_parameters["surface"]["color"].grad is not None
+    assert carrier_parameters["surface"]["opacity"].grad is not None
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

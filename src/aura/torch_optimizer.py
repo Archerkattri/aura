@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from typing import Sequence
+from typing import Any, Sequence
 
 from aura.elements import AuraElement
 from aura.scene import AuraScene
-from aura.torch_renderer import TorchCaptureTrainingBatch, TorchRenderBatch, require_torch, torch_render_capture_training_batch
+from aura.torch_kernels import torch_carrier_parameter_tensors
+from aura.torch_renderer import (
+    TorchCaptureTrainingBatch,
+    TorchRenderBatch,
+    require_torch,
+    torch_render_capture_training_batch,
+    torch_render_capture_training_objective,
+)
 
 
 @dataclass(frozen=True)
@@ -57,23 +64,28 @@ def torch_optimize_capture_batch(
     """Run the torch AURA forward contract in an iterative training loop.
 
     This is the first GPU-facing optimization scaffold: it uses
-    `torch_render_capture_training_batch` for every forward pass and updates
-    native carrier colors from batched residuals. The carrier kernels remain the
-    reference torch semantics until they are replaced by CUDA/autograd kernels.
+    `torch_render_capture_training_objective` for live losses and gradient
+    updates over native carrier tensors. The carrier kernels remain the
+    reference torch semantics until they are replaced by CUDA kernels.
     """
 
     require_torch()
     if not scene.elements:
         raise ValueError("torch optimization requires at least one scene element")
     config = config or TorchOptimizationConfig()
-    current = scene
+    torch = require_torch()
+    carrier_parameters = torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=str(batch.ray_origins.device))
     steps = []
     for iteration in range(config.iterations):
-        rendered = torch_render_capture_training_batch(current, batch)
-        step = _optimization_step_from_rendered(iteration, rendered, current.elements)
+        _zero_carrier_parameter_grads(carrier_parameters)
+        objective = torch_render_capture_training_objective(scene, batch, carrier_parameters=carrier_parameters)
+        rendered = torch_render_capture_training_batch(scene, batch, carrier_parameters=carrier_parameters)
+        step = _optimization_step_from_rendered(iteration, rendered, scene.elements)
         steps.append(step)
-        current = _refine_scene_from_torch_batch(current, rendered, learning_rate=config.color_learning_rate)
-    return TorchOptimizationResult(scene=current, steps=tuple(steps))
+        objective.total_loss.backward()
+        _gradient_step_carrier_parameters(torch, carrier_parameters, learning_rate=config.color_learning_rate)
+    optimized_scene = _scene_from_carrier_parameters(scene, carrier_parameters, rendered if steps else None)
+    return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps))
 
 
 def _optimization_step_from_rendered(
@@ -104,17 +116,52 @@ def _optimization_step_from_rendered(
     )
 
 
-def _refine_scene_from_torch_batch(scene: AuraScene, rendered: TorchRenderBatch, *, learning_rate: float) -> AuraScene:
-    updates = _element_color_updates(rendered, learning_rate=learning_rate)
-    if not updates:
-        return scene
+def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:
+    for fields in carrier_parameters.values():
+        for parameter in fields.values():
+            if getattr(parameter, "grad", None) is not None:
+                parameter.grad.zero_()
+
+
+def _gradient_step_carrier_parameters(torch: Any, carrier_parameters: dict[str, dict[str, Any]], *, learning_rate: float) -> None:
+    with torch.no_grad():
+        for fields in carrier_parameters.values():
+            for name, parameter in fields.items():
+                if getattr(parameter, "grad", None) is None:
+                    continue
+                parameter.sub_(learning_rate * parameter.grad)
+                if name in {"color", "opacity", "confidence", "density", "bandwidth", "residual_scale"}:
+                    parameter.clamp_(0.0, 1.0)
+                elif name in {"alpha", "beta"}:
+                    parameter.clamp_(1e-4)
+
+
+def _scene_from_carrier_parameters(
+    scene: AuraScene,
+    carrier_parameters: dict[str, dict[str, Any]],
+    rendered: TorchRenderBatch | None,
+) -> AuraScene:
     elements = []
-    loss_by_element = _loss_by_element(rendered)
+    loss_by_element = _loss_by_element(rendered) if rendered is not None else {}
     for element in scene.elements:
-        delta = updates.get(element.id)
+        fields = carrier_parameters.get(element.id, {})
         color = element.color
-        if delta is not None:
-            color = tuple(_clamp_unit(element.color[index] + delta[index]) for index in range(3))
+        opacity = element.opacity
+        confidence = element.confidence
+        payload = dict(element.payload)
+        if "color" in fields:
+            color = _tensor_vec3(fields["color"])
+        if "opacity" in fields:
+            opacity = _clamp_unit(_tensor_scalar(fields["opacity"]))
+        if "confidence" in fields:
+            confidence = _clamp_unit(_tensor_scalar(fields["confidence"]))
+            if payload.get("type") == "semantic_feature":
+                payload["confidence"] = confidence
+        for name in ("density", "alpha", "beta", "phase", "bandwidth", "residual_scale"):
+            if name in fields:
+                payload[name] = _tensor_scalar(fields[name])
+        if "frequency" in fields:
+            payload["frequency"] = list(_tensor_vec3(fields["frequency"]))
         losses = loss_by_element.get(element.id)
         confidence_map = element.confidence_map
         metadata = element.metadata
@@ -128,34 +175,21 @@ def _refine_scene_from_torch_batch(scene: AuraScene, rendered: TorchRenderBatch,
             }
             metadata = {
                 **element.metadata,
-                "optimized_by": "aura-core-torch-reference",
+                "optimized_by": "aura-core-torch-autograd-reference",
                 "torch_device": rendered.device,
             }
-        elements.append(replace(element, color=color, confidence_map=confidence_map, metadata=metadata))
+        elements.append(
+            replace(
+                element,
+                color=color,
+                opacity=opacity,
+                confidence=confidence,
+                payload=payload,
+                confidence_map=confidence_map,
+                metadata=metadata,
+            )
+        )
     return AuraScene(name=scene.name, elements=tuple(elements), chunks=scene.chunks, semantic_graph=scene.semantic_graph)
-
-
-def _element_color_updates(rendered: TorchRenderBatch, *, learning_rate: float) -> dict[str, tuple[float, float, float]]:
-    totals: dict[str, list[float]] = {}
-    counts: dict[str, int] = {}
-    for element_id, predicted, target, transmittance in zip(
-        rendered.element_ids,
-        rendered.predicted_color,
-        rendered.target_color,
-        rendered.transmittance,
-    ):
-        if element_id is None:
-            continue
-        observed_alpha = max(1.0 - transmittance, 0.05)
-        correction = [(target[index] - predicted[index]) / observed_alpha for index in range(3)]
-        totals.setdefault(element_id, [0.0, 0.0, 0.0])
-        counts[element_id] = counts.get(element_id, 0) + 1
-        for index in range(3):
-            totals[element_id][index] += correction[index]
-    return {
-        element_id: tuple(channel * learning_rate / counts[element_id] for channel in correction)
-        for element_id, correction in totals.items()
-    }
 
 
 def _loss_by_element(rendered: TorchRenderBatch) -> dict[str, dict[str, float]]:
@@ -191,6 +225,15 @@ def _carrier_counts(elements: Sequence[AuraElement]) -> dict[str, int]:
 
 def _mean(values: Sequence[float]) -> float:
     return 0.0 if not values else sum(float(value) for value in values) / len(values)
+
+
+def _tensor_scalar(value: Any) -> float:
+    return float(value.detach().cpu().item())
+
+
+def _tensor_vec3(value: Any) -> tuple[float, float, float]:
+    items = value.detach().cpu().tolist()
+    return (float(items[0]), float(items[1]), float(items[2]))
 
 
 def _clamp_unit(value: float) -> float:

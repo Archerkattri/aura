@@ -324,6 +324,31 @@ def torch_render_capture_training_batch(
     )
 
 
+def torch_render_capture_training_objective(
+    scene: AuraScene,
+    batch: TorchCaptureTrainingBatch,
+    *,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+) -> TorchRenderObjective:
+    """Return a live torch loss for sampled capture tensor targets."""
+
+    require_torch()
+    if int(batch.frame_indices.numel()) == 0:
+        raise ValueError("torch capture training batch requires at least one target")
+    frame_indices = batch.frame_indices.detach().cpu().tolist()
+    sample_frame_ids = tuple(batch.frame_ids[index] for index in frame_indices)
+    return _torch_render_objective_tensor_targets(
+        scene,
+        frame_ids=sample_frame_ids,
+        origins=batch.ray_origins,
+        directions=batch.ray_directions,
+        target_colors=batch.target_color,
+        target_depths=batch.target_depth,
+        device=str(batch.ray_origins.device),
+        carrier_parameters=carrier_parameters,
+    )
+
+
 def torch_render_targets(
     scene: AuraScene,
     targets: Sequence[RenderTarget],

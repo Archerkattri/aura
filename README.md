@@ -67,8 +67,7 @@ native representation contract pieces:
 - live torch render objectives via `torch_render_target_objective` for
   backpropagation through carrier parameter tensors;
 - torch reference optimization steps via `torch_optimize_capture_batch`, using
-  the batched native AURA forward contract for loss reporting and bounded
-  carrier color updates;
+  live render objectives for gradient updates over native carrier tensors;
 - explicit torch carrier kernel specs and autograd parameter tensors for
   surface, volume, beta, gabor, neural, semantic, and Gaussian fallback
   semantics;
