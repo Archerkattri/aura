@@ -4,7 +4,7 @@ This package now contains the GPU-ready skeleton for AURA:
 
 - adaptive carrier registry;
 - native carrier payload models;
-- payload/carrier consistency validation;
+- payload/carrier consistency validation with typed payload constructor checks;
 - evidence-to-carrier assignment;
 - evidence-to-element adaptive decomposition;
 - package-level confidence maps and edit metadata;

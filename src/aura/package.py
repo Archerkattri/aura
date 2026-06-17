@@ -9,6 +9,15 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 from aura.asset import AuraAsset
+from aura.carrier_payloads import (
+    BetaKernelPayload,
+    GaussianFallbackPayload,
+    GaborFrequencyPayload,
+    NeuralResidualPayload,
+    SemanticFeaturePayload,
+    SurfaceCellPayload,
+    VolumeCellPayload,
+)
 from aura.carriers import default_registry
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.exchange import exchange_plan
@@ -25,6 +34,16 @@ PAYLOAD_TYPE_BY_CARRIER = {
     "neural": "neural_residual",
     "gaussian": "gaussian_fallback",
     "semantic": "semantic_feature",
+}
+
+PAYLOAD_CLASS_BY_TYPE = {
+    "surface_cell": SurfaceCellPayload,
+    "volume_cell": VolumeCellPayload,
+    "beta_kernel": BetaKernelPayload,
+    "gabor_frequency": GaborFrequencyPayload,
+    "neural_residual": NeuralResidualPayload,
+    "gaussian_fallback": GaussianFallbackPayload,
+    "semantic_feature": SemanticFeaturePayload,
 }
 
 
@@ -235,6 +254,13 @@ def _validate_element_payload(element_id: str, carrier_id: str, payload: dict) -
         raise ValueError(f"element {element_id} uses unknown carrier payload mapping: {carrier_id}")
     if actual != expected:
         raise ValueError(f"element {element_id} payload type {actual!r} does not match carrier {carrier_id!r}; expected {expected!r}")
+    payload_class = PAYLOAD_CLASS_BY_TYPE.get(actual)
+    if payload_class is None:
+        raise ValueError(f"element {element_id} uses unknown typed payload: {actual!r}")
+    try:
+        payload_class.from_dict(payload).to_dict()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"element {element_id} malformed {actual!r} payload: {exc}") from exc
 
 
 def _validate_json_schema(schema_name: str, payload: object) -> None:

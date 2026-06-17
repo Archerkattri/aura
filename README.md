@@ -22,7 +22,7 @@ native representation contract pieces:
 - carrier registry;
 - native carrier payload models for surface, volume, beta, gabor, neural,
   Gaussian fallback, and semantic carriers;
-- payload/carrier consistency validation;
+- payload/carrier consistency validation with typed payload constructor checks;
 - evidence-to-carrier assignment;
 - evidence-to-element adaptive decomposition;
 - package-level confidence maps and edit metadata;

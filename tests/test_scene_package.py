@@ -201,6 +201,50 @@ def test_package_validation_rejects_payload_carrier_mismatch():
         validate_package(package)
 
 
+def test_package_validation_rejects_malformed_in_memory_typed_payload():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.0],
+                    "covariance": [[0.0, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]],
+                    "source": "test",
+                },
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="malformed 'gaussian_fallback' payload"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_accepts_well_formed_in_memory_typed_payloads():
+    scene = AuraScene(
+        name="typed",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                payload={"type": "surface_cell", "normal": [0.0, 0.0, 1.0], "thickness": 0.02, "roughness": 0.5},
+            ),
+            AuraElement(
+                id="semantic",
+                carrier_id="semantic",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                payload={"type": "semantic_feature", "label": "fixture", "confidence": 0.9, "feature_refs": []},
+            ),
+        ),
+    )
+
+    validate_package(package_scene(scene))
+
+
 def test_package_loader_rejects_manifest_chunk_mismatch(tmp_path):
     package_scene(demo_scene()).write(tmp_path)
     manifest_path = tmp_path / "manifest.json"
