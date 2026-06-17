@@ -33,6 +33,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "mixed_carrier_behavior",
         "confidence_calibration",
         "aura_core_reconstruction",
+        "runtime_export_contract",
     }.issubset(case_ids)
     visual_case = next(case for case in suite.cases if case.id == "visual_quality_vs_3dgs")
     speed_case = next(case for case in suite.cases if case.id == "render_query_speed")
@@ -85,6 +86,11 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["interactionQuality"]["shadowTransmittanceWithinBoundsRate"] == 1.0
     assert payload["interactionQuality"]["collisionDistanceReadyRate"] == 1.0
     assert payload["interactionQuality"]["reflectionVectorReadyRate"] > 0.0
+    assert payload["runtimeExport"]["format"] == "AURA_RUNTIME_EXPORT_REPORT"
+    assert payload["runtimeExport"]["engineWorkflow"]["nativeRuntimeReady"] is True
+    assert payload["runtimeExport"]["engineWorkflow"]["chunkedStreamingReady"] is True
+    assert len(payload["runtimeExport"]["chunkExport"]) == payload["chunkCount"]
+    assert "transmittance" in payload["runtimeExport"]["rayQueryContract"]["fields"]
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
     assert payload["previewRender"]["renderSeconds"] >= 0.0

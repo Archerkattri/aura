@@ -102,7 +102,8 @@ native representation contract pieces:
   confidence, residual, provenance, and query-loss outputs when installed with
   `aura-core[gpu]`;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
-  confidence-quality, and interaction-quality metrics;
+  runtime export readiness, confidence-quality, and interaction-quality
+  metrics;
 - ray-query correctness scoring for first-hit, carrier, depth, transmittance,
   semantic, material, normal, and residual contract checks;
 - strict-JSON render comparison metrics for regression checks;
@@ -165,7 +166,7 @@ aura query-demo --x -0.5 --y -0.5
 aura inspect-rays outputs/native-demo.aura --native-demo-probes
 # prints material-aware occlusion, shadow, reflection, and collision ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
-# runs CPU reference package/query/render timing, confidence-quality, and interaction-quality metrics
+# runs CPU reference package/query/render timing, runtime export, confidence, and interaction metrics
 aura benchmark-visual outputs/native-demo.aura outputs/native-reference.ppm --baseline-label native_self --min-psnr 40
 # compares a package render against a teacher/reference PPM using MSE/PSNR/SSIM/LPIPS-proxy/FPS JSON metrics
 aura benchmark-reference outputs/native-demo.aura --include-ablations

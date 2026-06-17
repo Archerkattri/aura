@@ -12,6 +12,7 @@ from aura.inspection import RayInspection, inspect_ray
 from aura.package import AuraPackage
 from aura.ray import Ray
 from aura.render import RenderImage, compare_images, render_orthographic
+from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
 
@@ -243,6 +244,7 @@ def run_reference_benchmark(
             "probes": [inspection.to_dict() for inspection in inspections],
         },
         "interactionQuality": _interaction_quality(inspections),
+        "runtimeExport": runtime_export_report(package).to_dict(),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
             _scene_center_expectations(scene),
@@ -458,6 +460,11 @@ def default_benchmark_suite() -> BenchmarkSuite:
                 purpose="Measure native AURA-Core reconstruction loss and adaptive carrier evolution.",
                 metrics=("final_loss", "image_loss_delta", "depth_loss_delta", "query_loss_delta", "split_promote_merge_demote_counts"),
                 baseline="static_carriers",
+            ),
+            BenchmarkCase(
+                id="runtime_export_contract",
+                purpose="Check native AURA runtime export metadata for carrier chunks, ray-query contract fields, and fallback losses.",
+                metrics=("chunk_export_count", "ray_query_field_count", "fallback_loss_count", "native_runtime_ready"),
             ),
         ),
         ablations=(
