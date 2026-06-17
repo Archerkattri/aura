@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from array import array
+from dataclasses import dataclass, field
 from math import sqrt
 from typing import Sequence
 
@@ -79,6 +80,89 @@ class CaptureSamplingBatch:
             "targetOffset": self.target_offset,
             "targetCount": self.target_count,
             "maxTargetCount": self.max_target_count,
+        }
+
+
+@dataclass(frozen=True)
+class CapturePackedRenderBatch:
+    """Bounded packed capture targets for tensor/CUDA ingestion."""
+
+    batch_index: int
+    frame_ids: tuple[str, ...]
+    frame_semantic_ids: tuple[str | None, ...]
+    target_offset: int
+    target_count: int
+    max_target_count: int
+    frame_indices: Sequence[int]
+    pixel_xy: Sequence[int]
+    ray_origins: Sequence[float]
+    ray_directions: Sequence[float]
+    target_color: Sequence[float]
+    target_depth: Sequence[float]
+    target_mask: Sequence[float] | None = None
+    target_normal: Sequence[float] | None = None
+    target_normal_present: Sequence[int] | None = None
+    sample_order: str = "row-major tiles, row-major pixels"
+
+    def __post_init__(self) -> None:
+        if self.target_count < 0:
+            raise ValueError("packed render batch target_count cannot be negative")
+        if self.max_target_count <= 0:
+            raise ValueError("packed render batch max_target_count must be positive")
+        if self.target_count > self.max_target_count:
+            raise ValueError("packed render batch exceeds max_target_count")
+        if len(self.frame_semantic_ids) != len(self.frame_ids):
+            raise ValueError("packed render batch frame semantic ids must match frame ids")
+        _require_buffer_length(self.frame_indices, self.target_count, "frame_indices")
+        _require_buffer_length(self.pixel_xy, self.target_count * 2, "pixel_xy")
+        _require_buffer_length(self.ray_origins, self.target_count * 3, "ray_origins")
+        _require_buffer_length(self.ray_directions, self.target_count * 3, "ray_directions")
+        _require_buffer_length(self.target_color, self.target_count * 3, "target_color")
+        _require_buffer_length(self.target_depth, self.target_count, "target_depth")
+        if self.target_mask is not None:
+            _require_buffer_length(self.target_mask, self.target_count, "target_mask")
+        if self.target_normal is not None:
+            _require_buffer_length(self.target_normal, self.target_count * 3, "target_normal")
+            if self.target_normal_present is None:
+                raise ValueError("packed render batch target_normal_present is required with target_normal")
+        if self.target_normal_present is not None:
+            _require_buffer_length(self.target_normal_present, self.target_count, "target_normal_present")
+            if self.target_normal is None:
+                raise ValueError("packed render batch target_normal is required with target_normal_present")
+        for frame_index in self.frame_indices:
+            if frame_index < 0 or frame_index >= len(self.frame_ids):
+                raise ValueError("packed render batch frame index is out of range")
+
+    def to_dict(self) -> dict:
+        return {
+            "format": "AURA_CAPTURE_PACKED_RENDER_BATCH",
+            "batchIndex": self.batch_index,
+            "frameIds": list(self.frame_ids),
+            "frameSemanticIds": list(self.frame_semantic_ids),
+            "targetOffset": self.target_offset,
+            "targetCount": self.target_count,
+            "maxTargetCount": self.max_target_count,
+            "sampleOrder": self.sample_order,
+            "bounded": self.target_count <= self.max_target_count,
+            "frameIndices": _packed_buffer_metadata(self.frame_indices, "int64", (self.target_count,)),
+            "pixelXY": _packed_buffer_metadata(self.pixel_xy, "int64", (self.target_count, 2)),
+            "rayOrigins": _packed_buffer_metadata(self.ray_origins, "float64", (self.target_count, 3)),
+            "rayDirections": _packed_buffer_metadata(self.ray_directions, "float64", (self.target_count, 3)),
+            "targetColor": _packed_buffer_metadata(self.target_color, "float64", (self.target_count, 3)),
+            "targetDepth": _packed_buffer_metadata(self.target_depth, "float64", (self.target_count,)),
+            "targetMask": _packed_buffer_metadata(self.target_mask, "float64", (self.target_count,))
+            if self.target_mask is not None
+            else None,
+            "targetNormal": _packed_buffer_metadata(self.target_normal, "float64", (self.target_count, 3))
+            if self.target_normal is not None
+            else None,
+            "targetNormalPresent": _packed_buffer_metadata(
+                self.target_normal_present,
+                "uint8_bool",
+                (self.target_count,),
+            )
+            if self.target_normal_present is not None
+            else None,
         }
 
 
@@ -215,6 +299,86 @@ def capture_tensors_to_render_targets(
     return tuple(targets)
 
 
+def capture_tensors_to_packed_render_batches(
+    frames: Sequence[TrainingFrame],
+    tensors: Sequence[CaptureFrameTensors],
+    *,
+    pixel_stride: int = 1,
+    max_targets_per_frame: int | None = None,
+    tile_size: int = 256,
+    max_targets_per_batch: int | None = None,
+) -> tuple[CapturePackedRenderBatch, ...]:
+    """Convert capture tensors into bounded packed render-target batches.
+
+    This is the GPU-ready companion to ``capture_tensors_to_render_targets``.
+    It preserves the same deterministic mask-aware sampling order, but stores
+    each bounded batch as flat packed arrays instead of per-pixel Python
+    ``CapturePixelTarget`` objects.
+    """
+
+    plan = plan_capture_tensor_sampling(
+        frames,
+        tensors,
+        pixel_stride=pixel_stride,
+        max_targets_per_frame=max_targets_per_frame,
+        tile_size=tile_size,
+        max_targets_per_batch=max_targets_per_batch,
+    )
+    by_frame = {frame.id: frame for frame in frames}
+    tensor_by_frame = {frame_tensors.frame_id: frame_tensors for frame_tensors in tensors}
+    frame_ids = tuple(frame_tensors.frame_id for frame_tensors in tensors)
+    frame_index_by_id = {frame_id: index for index, frame_id in enumerate(frame_ids)}
+    frame_semantic_ids = tuple(by_frame[frame_id].semantic_label for frame_id in frame_ids)
+    tiles_by_index = {tile.tile_index: tile for tile in plan.tiles}
+    include_mask = any(frame_tensors.mask is not None for frame_tensors in tensors)
+    include_normal = any(frame_tensors.normal is not None for frame_tensors in tensors)
+    packed_batches: list[CapturePackedRenderBatch] = []
+    for batch in plan.batches:
+        if batch.target_count == 0:
+            continue
+        builders = _PackedRenderBatchBuilder(include_mask=include_mask, include_normal=include_normal)
+        batch_start = batch.target_offset
+        batch_stop = batch.target_offset + batch.target_count
+        for tile_index in batch.tile_indices:
+            tile = tiles_by_index[tile_index]
+            tile_stop = tile.target_offset + tile.sampled_pixel_count
+            if tile.sampled_pixel_count == 0 or batch_start >= tile_stop or batch_stop <= tile.target_offset:
+                continue
+            frame_tensors = tensor_by_frame[tile.frame_id]
+            frame = by_frame[tile.frame_id]
+            frame_index = frame_index_by_id[tile.frame_id]
+            _append_tile_samples_to_packed_batch(
+                builders,
+                frame,
+                frame_tensors,
+                frame_index=frame_index,
+                tile=tile,
+                pixel_stride=pixel_stride,
+                target_start=batch_start,
+                target_stop=batch_stop,
+            )
+        packed_batches.append(
+            CapturePackedRenderBatch(
+                batch_index=batch.batch_index,
+                frame_ids=frame_ids,
+                frame_semantic_ids=frame_semantic_ids,
+                target_offset=batch.target_offset,
+                target_count=len(builders.frame_indices),
+                max_target_count=batch.max_target_count,
+                frame_indices=builders.frame_indices,
+                pixel_xy=builders.pixel_xy,
+                ray_origins=builders.ray_origins,
+                ray_directions=builders.ray_directions,
+                target_color=builders.target_color,
+                target_depth=builders.target_depth,
+                target_mask=builders.target_mask if include_mask else None,
+                target_normal=builders.target_normal if include_normal else None,
+                target_normal_present=builders.target_normal_present if include_normal else None,
+            )
+        )
+    return tuple(packed_batches)
+
+
 def plan_capture_tensor_sampling(
     frames: Sequence[TrainingFrame],
     tensors: Sequence[CaptureFrameTensors],
@@ -313,30 +477,10 @@ def _sampling_batches(
     pending_tile_indices: list[int] = []
     pending_target_count = 0
     pending_target_offset = 0
-    for tile in tiles:
+    def flush_pending() -> None:
+        nonlocal pending_tile_indices, pending_target_count, pending_target_offset
         if not pending_tile_indices:
-            pending_target_offset = tile.target_offset
-        would_exceed = (
-            pending_tile_indices
-            and tile.sampled_pixel_count > 0
-            and pending_target_count + tile.sampled_pixel_count > max_targets_per_batch
-        )
-        if would_exceed:
-            batches.append(
-                CaptureSamplingBatch(
-                    batch_index=len(batches),
-                    tile_indices=tuple(pending_tile_indices),
-                    target_offset=pending_target_offset,
-                    target_count=pending_target_count,
-                    max_target_count=max_targets_per_batch,
-                )
-            )
-            pending_tile_indices = []
-            pending_target_count = 0
-            pending_target_offset = tile.target_offset
-        pending_tile_indices.append(tile.tile_index)
-        pending_target_count += tile.sampled_pixel_count
-    if pending_tile_indices:
+            return
         batches.append(
             CaptureSamplingBatch(
                 batch_index=len(batches),
@@ -346,7 +490,109 @@ def _sampling_batches(
                 max_target_count=max_targets_per_batch,
             )
         )
+        pending_tile_indices = []
+        pending_target_count = 0
+
+    for tile in tiles:
+        if tile.sampled_pixel_count > max_targets_per_batch:
+            flush_pending()
+            consumed = 0
+            while consumed < tile.sampled_pixel_count:
+                target_count = min(max_targets_per_batch, tile.sampled_pixel_count - consumed)
+                batches.append(
+                    CaptureSamplingBatch(
+                        batch_index=len(batches),
+                        tile_indices=(tile.tile_index,),
+                        target_offset=tile.target_offset + consumed,
+                        target_count=target_count,
+                        max_target_count=max_targets_per_batch,
+                    )
+                )
+                consumed += target_count
+            continue
+        if not pending_tile_indices:
+            pending_target_offset = tile.target_offset
+        would_exceed = (
+            pending_tile_indices
+            and tile.sampled_pixel_count > 0
+            and pending_target_count + tile.sampled_pixel_count > max_targets_per_batch
+        )
+        if would_exceed:
+            flush_pending()
+            pending_target_offset = tile.target_offset
+        pending_tile_indices.append(tile.tile_index)
+        pending_target_count += tile.sampled_pixel_count
+    flush_pending()
     return tuple(batches)
+
+
+@dataclass
+class _PackedRenderBatchBuilder:
+    include_mask: bool
+    include_normal: bool
+    frame_indices: array = field(init=False)
+    pixel_xy: array = field(init=False)
+    ray_origins: array = field(init=False)
+    ray_directions: array = field(init=False)
+    target_color: array = field(init=False)
+    target_depth: array = field(init=False)
+    target_mask: array | None = field(init=False)
+    target_normal: array | None = field(init=False)
+    target_normal_present: array | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.frame_indices = array("q")
+        self.pixel_xy = array("q")
+        self.ray_origins = array("d")
+        self.ray_directions = array("d")
+        self.target_color = array("d")
+        self.target_depth = array("d")
+        self.target_mask = array("d") if self.include_mask else None
+        self.target_normal = array("d") if self.include_normal else None
+        self.target_normal_present = array("B") if self.include_normal else None
+
+
+def _append_tile_samples_to_packed_batch(
+    builders: _PackedRenderBatchBuilder,
+    frame: TrainingFrame,
+    frame_tensors: CaptureFrameTensors,
+    *,
+    frame_index: int,
+    tile: CaptureSamplingTile,
+    pixel_stride: int,
+    target_start: int,
+    target_stop: int,
+) -> None:
+    sampled_offset = tile.target_offset
+    tile_x, tile_y = tile.origin
+    width, height = tile.size
+    for y in range(tile_y, tile_y + height, pixel_stride):
+        for x in range(tile_x, tile_x + width, pixel_stride):
+            mask_value = _scalar_at(frame_tensors.mask, x, y)
+            if mask_value is not None and mask_value <= 0.0:
+                continue
+            if target_start <= sampled_offset < target_stop:
+                color = _rgb_at(frame_tensors.image, x, y)
+                depth = _scalar_at(frame_tensors.depth, x, y)
+                normal = _normal_at(frame_tensors.normal, x, y)
+                builders.frame_indices.append(frame_index)
+                builders.pixel_xy.extend((x, y))
+                builders.ray_origins.extend(frame.camera_origin)
+                builders.ray_directions.extend(_pixel_ray_direction(frame, x, y))
+                builders.target_color.extend(color)
+                builders.target_depth.append(depth if depth is not None and depth > 0.0 else frame.target_depth)
+                if builders.target_mask is not None:
+                    builders.target_mask.append(mask_value if mask_value is not None else 1.0)
+                if builders.target_normal is not None and builders.target_normal_present is not None:
+                    if normal is None:
+                        builders.target_normal.extend((0.0, 0.0, 0.0))
+                        builders.target_normal_present.append(0)
+                    else:
+                        builders.target_normal.extend(normal)
+                        builders.target_normal_present.append(1)
+            sampled_offset += 1
+            if sampled_offset >= target_stop:
+                return
 
 
 def _validate_tensor_dimensions(frame_tensors: CaptureFrameTensors) -> None:
@@ -427,3 +673,19 @@ def _normalize(vector: Vec3) -> Vec3:
 
 def _norm(vector: Vec3) -> float:
     return sqrt(sum(axis * axis for axis in vector))
+
+
+def _require_buffer_length(values: Sequence[object], expected: int, name: str) -> None:
+    if len(values) != expected:
+        raise ValueError(f"packed render batch {name} length must be {expected}")
+
+
+def _packed_buffer_metadata(values: Sequence[object] | None, dtype: str, shape: tuple[int, ...]) -> dict | None:
+    if values is None:
+        return None
+    return {
+        "dtype": dtype,
+        "shape": list(shape),
+        "valueCount": len(values),
+        "sampleValues": list(values[: min(len(values), 12)]),
+    }

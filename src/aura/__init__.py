@@ -57,6 +57,12 @@ from aura.cuda_kernels import (
     cuda_renderer_api_contract,
     cuda_renderer_report,
 )
+from aura.cuda_renderer import (
+    CudaRendererBatch,
+    CudaRendererLaunchConfig,
+    cuda_render_rays as cuda_renderer_render_rays,
+    cuda_renderer_launch_config,
+)
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
@@ -135,10 +141,12 @@ from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_V
 from aura.scene import AuraScene, RayHitTrace, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
 from aura.training_targets import (
+    CapturePackedRenderBatch,
     CaptureSamplingBatch,
     CapturePixelTarget,
     CaptureSamplingPlan,
     CaptureSamplingTile,
+    capture_tensors_to_packed_render_batches,
     capture_tensors_to_render_targets,
     plan_capture_tensor_sampling,
 )
@@ -152,6 +160,7 @@ from aura.torch_renderer import (
     require_torch,
     torch_capture_asset_batch,
     torch_capture_training_batch,
+    torch_capture_training_batch_from_packed,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
     torch_render_target_objective,
@@ -191,6 +200,7 @@ __all__ = [
     "CaptureFrameAssets",
     "CaptureFrameTensors",
     "CaptureManifest",
+    "CapturePackedRenderBatch",
     "CapturePixelTarget",
     "CaptureSamplingBatch",
     "CaptureSamplingPlan",
@@ -207,7 +217,9 @@ __all__ = [
     "ColmapPoint3D",
     "CudaExtensionStatus",
     "CudaKernelSource",
+    "CudaRendererBatch",
     "CudaRendererLaunchReport",
+    "CudaRendererLaunchConfig",
     "DepthEvidencePoint",
     "DifferentiableRaySample",
     "EvidenceSample",
@@ -259,6 +271,7 @@ __all__ = [
     "capture_manifest_template",
     "capture_tensors_to_training_dataset",
     "capture_proposal_features",
+    "capture_tensors_to_packed_render_batches",
     "capture_tensors_to_render_targets",
     "plan_capture_tensor_sampling",
     "choose_carrier",
@@ -268,6 +281,8 @@ __all__ = [
     "cuda_kernel_sources",
     "cuda_render_rays",
     "cuda_renderer_api_contract",
+    "cuda_renderer_launch_config",
+    "cuda_renderer_render_rays",
     "cuda_renderer_report",
     "colmap_binary_to_capture_manifest",
     "colmap_text_to_capture_manifest",
@@ -325,6 +340,7 @@ __all__ = [
     "synthetic_training_regions",
     "torch_capture_asset_batch",
     "torch_capture_training_batch",
+    "torch_capture_training_batch_from_packed",
     "torch_carrier_parameter_tensors",
     "torch_carrier_kernel_report",
     "torch_carrier_kernel_specs",

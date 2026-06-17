@@ -26,6 +26,7 @@ aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir out
 aura validate-package outputs/reconstruct-capture.aura
 aura inspect-package outputs/reconstruct-capture.aura
 aura readiness-report
+aura production-gate-report outputs/reconstruct-capture.aura
 aura torch-kernel-report
 aura cuda-kernel-build-report --build
 ```
@@ -98,10 +99,13 @@ Run `aura readiness-report` before claiming production status. The report is a
 native AURA audit of implemented scaffolds versus missing production pillars,
 including native carriers, package validation, PyTorch reference support, CUDA
 kernel status, renderer/trainer gaps, and benchmark claim boundaries.
-Benchmark reports also emit `productionGate`. Treat `productionReady: false` as
-authoritative: current CPU reference and visual smoke outputs are blocked from
-production interpretation while CUDA renderer readiness is unavailable or the
-visual score is a self-reference comparison.
+Run `aura production-gate-report <package>` on any package being used for a
+claim. Benchmark reports also emit `productionGate`. Treat
+`productionReady: false` as authoritative: current CPU reference and visual
+smoke outputs are blocked from production interpretation while CUDA renderer
+readiness is unavailable, the visual score is a self-reference comparison, or
+the benchmark package has not exercised native AURA carrier families beyond
+Gaussian fallback.
 
 1. Replace the optional payload-aware PyTorch ordered-compositing reference path
    and CPU differentiable reference renderer with a carrier-complete

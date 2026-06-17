@@ -8,6 +8,7 @@ from aura.ingest.capture import CaptureFrameTensors, CaptureTensor
 from aura.optimize import RenderTarget
 from aura.core import TrainingFrame
 from aura.scene import AuraScene
+from aura.training_targets import CapturePackedRenderBatch
 from aura.torch_kernels import torch_carrier_parameter_tensors, torch_carrier_response_tensors
 
 
@@ -381,6 +382,51 @@ def torch_capture_training_batch(
         ray_directions=torch.tensor(directions, dtype=torch.float32, device=device),
         target_color=target_color,
         target_depth=target_depth,
+        target_mask=target_mask,
+        target_normal=target_normal,
+        target_normal_present=target_normal_present,
+    )
+
+
+def torch_capture_training_batch_from_packed(
+    batch: CapturePackedRenderBatch,
+    *,
+    device: str | None = None,
+) -> TorchCaptureTrainingBatch:
+    """Move one packed capture render-target descriptor into torch tensors."""
+
+    if batch.target_count <= 0:
+        raise ValueError("packed torch capture training batch requires at least one target")
+    torch = require_torch()
+    status = torch_renderer_status()
+    resolved_device = device or status.default_device or "cpu"
+    target_count = batch.target_count
+    frame_indices = torch.as_tensor(batch.frame_indices, dtype=torch.long, device=resolved_device).reshape(target_count)
+    pixel_xy = torch.as_tensor(batch.pixel_xy, dtype=torch.long, device=resolved_device).reshape(target_count, 2)
+    target_mask = (
+        torch.as_tensor(batch.target_mask, dtype=torch.float32, device=resolved_device).reshape(target_count)
+        if batch.target_mask is not None
+        else None
+    )
+    target_normal = (
+        torch.as_tensor(batch.target_normal, dtype=torch.float32, device=resolved_device).reshape(target_count, 3)
+        if batch.target_normal is not None
+        else None
+    )
+    target_normal_present = (
+        torch.as_tensor(batch.target_normal_present, dtype=torch.bool, device=resolved_device).reshape(target_count)
+        if batch.target_normal_present is not None
+        else None
+    )
+    return TorchCaptureTrainingBatch(
+        device=str(resolved_device),
+        frame_ids=batch.frame_ids,
+        frame_indices=frame_indices,
+        pixel_xy=pixel_xy,
+        ray_origins=torch.as_tensor(batch.ray_origins, dtype=torch.float32, device=resolved_device).reshape(target_count, 3),
+        ray_directions=torch.as_tensor(batch.ray_directions, dtype=torch.float32, device=resolved_device).reshape(target_count, 3),
+        target_color=torch.as_tensor(batch.target_color, dtype=torch.float32, device=resolved_device).reshape(target_count, 3),
+        target_depth=torch.as_tensor(batch.target_depth, dtype=torch.float32, device=resolved_device).reshape(target_count),
         target_mask=target_mask,
         target_normal=target_normal,
         target_normal_present=target_normal_present,

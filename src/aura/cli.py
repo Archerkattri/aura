@@ -9,6 +9,7 @@ from aura.benchmark import (
     native_demo_ray_query_expectations,
     run_ablation_benchmarks,
     run_core_reconstruction_benchmark,
+    run_production_gate_report,
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
@@ -211,6 +212,18 @@ def main(argv: list[str] | None = None) -> int:
     visual_benchmark.add_argument("--width", type=int, default=None)
     visual_benchmark.add_argument("--height", type=int, default=None)
     visual_benchmark.add_argument("--min-psnr", type=float, default=None)
+
+    production_gate = sub.add_parser(
+        "production-gate-report",
+        help="Print the native AURA production-claim gate for a .aura package as JSON",
+    )
+    production_gate.add_argument("package_dir", type=Path)
+    production_gate.add_argument("--visual-baseline-label", default="reference_preview_self")
+    production_gate.add_argument(
+        "--external-visual-reference",
+        action="store_true",
+        help="Mark the visual gate context as external; run benchmark-visual separately for actual metrics",
+    )
 
     ray_benchmark = sub.add_parser("benchmark-ray-query", help="Score ray-query correctness for a .aura package")
     ray_benchmark.add_argument("package_dir", type=Path)
@@ -462,6 +475,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload["passed"] else 1
+    if args.command == "production-gate-report":
+        package = load_package(args.package_dir)
+        payload = run_production_gate_report(
+            package,
+            visual_baseline_label=args.visual_baseline_label,
+            visual_self_reference=not args.external_visual_reference,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
     if args.command == "benchmark-ray-query":
         package = load_package(args.package_dir)
         if not args.native_demo_expectations:

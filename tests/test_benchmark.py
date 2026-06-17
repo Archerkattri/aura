@@ -20,7 +20,7 @@ from aura import (
     run_reference_benchmark,
     run_visual_quality_benchmark,
 )
-from aura.benchmark import evaluate_backend_readiness
+from aura.benchmark import evaluate_backend_readiness, evaluate_native_carrier_coverage, run_production_gate_report
 from aura.cli import native_demo_scene
 
 
@@ -41,6 +41,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "aura_core_reconstruction",
         "runtime_export_contract",
         "backend_readiness_contract",
+        "production_gate_contract",
     }.issubset(case_ids)
     visual_case = next(case for case in suite.cases if case.id == "visual_quality_vs_3dgs")
     speed_case = next(case for case in suite.cases if case.id == "render_query_speed")
@@ -107,10 +108,20 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["backendReadiness"]["queryContract"]["fieldCoverageRate"] == 1.0
     assert payload["backendReadiness"]["chunkLodContract"]["chunkedElementCoverageRate"] == 1.0
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
+    assert payload["cudaRenderer"]["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
+    assert payload["cudaRenderer"]["available"] is False
+    assert payload["nativeCarrierCoverage"]["format"] == "AURA_NATIVE_CARRIER_COVERAGE"
+    assert payload["nativeCarrierCoverage"]["auraFirstCoverageReady"] is True
+    assert payload["nativeCarrierCoverage"]["requiredNativeCarrierCoverageRate"] == 1.0
+    assert payload["nativeCarrierCoverage"]["missingNativeCarrierIds"] == []
     assert payload["productionGate"]["format"] == "AURA_BENCHMARK_PRODUCTION_GATE"
     assert payload["productionGate"]["productionReady"] is False
     assert payload["productionGate"]["blocksProductionClaim"] is True
     assert payload["productionGate"]["cudaRendererReady"] is False
+    assert payload["productionGate"]["cudaRendererAvailable"] is False
+    assert payload["productionGate"]["cudaRendererProductionReady"] is False
+    assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
+    assert payload["productionGate"]["requiredNativeCarrierCoverageRate"] == 1.0
     assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
     assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
     assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
@@ -145,6 +156,7 @@ def test_visual_quality_benchmark_compares_package_render_to_reference():
     assert payload["visualClaimBoundary"]["productionClaimAllowed"] is False
     assert payload["productionGate"]["productionReady"] is False
     assert payload["productionGate"]["blocksProductionClaim"] is True
+    assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
     assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
     assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
     assert "learned LPIPS" in payload["metricNotes"]["lpipsProxy"]
@@ -152,6 +164,33 @@ def test_visual_quality_benchmark_compares_package_render_to_reference():
     relabeled_payload = run_visual_quality_benchmark(package, reference, baseline_label="teacher")
     assert relabeled_payload["visualClaimBoundary"]["selfReference"] is True
     assert "visual_benchmark_self_reference" in relabeled_payload["productionGate"]["productionBlockers"]
+
+
+def test_native_carrier_coverage_blocks_gaussian_fallback_only_claims(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+    package = load_package(tmp_path)
+    ablation = next(item for item in default_benchmark_suite().ablations if item.id == "gaussian_only")
+    fallback_only = apply_ablation(package, ablation)
+
+    coverage = evaluate_native_carrier_coverage(fallback_only.scene)
+    payload = run_reference_benchmark(fallback_only, render_width=4, render_height=4)
+
+    assert coverage["auraFirstCoverageReady"] is False
+    assert coverage["requiredNativeCarrierCoverageRate"] == 0.0
+    assert set(coverage["missingNativeCarrierIds"]) == {
+        "surface",
+        "volume",
+        "beta",
+        "gabor",
+        "neural",
+        "semantic",
+    }
+    assert "native_carriers_absent" in coverage["productionBlockers"]
+    assert "gaussian_fallback_only_scene" in coverage["productionBlockers"]
+    assert payload["productionGate"]["nativeCarrierCoverageReady"] is False
+    assert payload["productionGate"]["requiredNativeCarrierCoverageRate"] == 0.0
+    assert "native_carrier_coverage_incomplete" in payload["productionGate"]["productionBlockers"]
+    assert "gaussian_fallback_only_scene" in payload["productionGate"]["productionBlockers"]
 
 
 def test_apply_ablation_disables_requested_carriers(tmp_path):
@@ -291,6 +330,27 @@ def test_backend_readiness_evaluation_is_cpu_contract_not_cuda_claim():
     assert "does not execute torch" in payload["notes"]
 
 
+def test_production_gate_report_surfaces_cuda_visual_and_native_carrier_gates(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+    package = load_package(tmp_path)
+
+    payload = run_production_gate_report(package)
+    gate = payload["productionGate"]
+
+    assert payload["format"] == "AURA_PRODUCTION_GATE_REPORT"
+    assert payload["claimBoundary"]["productionClaimAllowed"] is False
+    assert "native adaptive radiance reconstruction engine" in payload["claimBoundary"]["safeCurrentClaim"]
+    assert payload["cudaRenderer"]["available"] is False
+    assert payload["visualClaimBoundary"]["selfReference"] is True
+    assert payload["nativeCarrierCoverage"]["auraFirstCoverageReady"] is True
+    assert gate["productionReady"] is False
+    assert gate["cudaRendererAvailable"] is False
+    assert gate["visualBenchmarkSelfReference"] is True
+    assert gate["nativeCarrierCoverageReady"] is True
+    assert "cuda_renderer_unavailable" in gate["productionBlockers"]
+    assert "visual_benchmark_self_reference" in gate["productionBlockers"]
+
+
 def test_core_benchmark_cli_prints_reconstruction_metrics():
     result = subprocess.run(
         [sys.executable, "-m", "aura.cli", "benchmark-core", "--iterations", "6"],
@@ -350,6 +410,25 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
     assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["previewRender"]["width"] == 8
     assert payload["previewRender"]["renderSeconds"] >= 0.0
+
+
+def test_production_gate_report_cli_prints_native_gate_json(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "production-gate-report", str(tmp_path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_PRODUCTION_GATE_REPORT"
+    assert payload["productionGate"]["productionReady"] is False
+    assert payload["productionGate"]["cudaRendererAvailable"] is False
+    assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
+    assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
 
 
 def test_visual_benchmark_cli_prints_result_json(tmp_path):

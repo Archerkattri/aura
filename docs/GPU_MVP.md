@@ -57,6 +57,11 @@ This package now contains the GPU-ready skeleton for AURA:
   selected device across reconstruction iterations;
 - per-pixel capture training target generation through
   `capture_tensors_to_render_targets` and `torch_capture_training_batch`;
+- bounded packed capture/render target batch descriptors through
+  `capture_tensors_to_packed_render_batches`, with flat integer/float buffers
+  for frame indices, pixels, rays, colors, depths, masks, and normals;
+- direct torch tensor ingestion for one packed descriptor through
+  `torch_capture_training_batch_from_packed`;
 - torch reference rendering directly from capture training batches through
   `torch_render_capture_training_batch`, using carrier parameter tensors for
   every supported native/fallback carrier;
@@ -73,10 +78,13 @@ This package now contains the GPU-ready skeleton for AURA:
 - packaged CUDA carrier source symbols for surface, volume, beta, gabor, neural,
   semantic, and Gaussian fallback carriers, still gated as non-production until
   compiled extension tests and benchmarks exist;
-- CPU-safe CUDA renderer callable scaffold through `cuda_render_rays`, with a
-  batched `rayCount x 3` ray input contract and AURA output tensor contract for
-  color, opacity, transmittance, depth, normals, confidence, residual,
-  material/semantic IDs, and ordered hit traces;
+- CPU-safe CUDA renderer callable scaffold through the legacy
+  `cuda_kernels.cuda_render_rays` report plus the concrete
+  `aura.cuda_renderer` launch boundary, with validated launch config
+  (`rayCount`, block count, threads per block, max ordered hits) and explicit
+  CPU/torch fallback batches for color, opacity, transmittance, depth, normals,
+  confidence, residual, material/semantic IDs, provenance, and ordered hit
+  traces when the compiled CUDA extension is unavailable;
 - `cuda-kernel-build-report --build` for GPU machines to attempt native carrier
   CUDA extension compile/load without changing the default CPU-safe test path;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
@@ -136,7 +144,12 @@ CUDA: it records row-major tile/pixel order, per-tile target offsets,
 candidate/sampled/masked pixel counts, first/last sampled pixels, and bounded
 batch metadata (`maxTargetsPerBatch`, batch tile indices, target offsets, and
 target counts) so production kernels can stream sampled tiles without
-materializing an unbounded all-pixel list.
+materializing an unbounded all-pixel list. Explicit batch caps smaller than a
+sampled tile split that tile into deterministic target-offset ranges. Use
+`capture_tensors_to_packed_render_batches(...)` when the next stage needs
+actual bounded buffers rather than only the sampling plan; it returns packed
+array-backed descriptors and keeps `capture_tensors_to_render_targets(...)`
+available for legacy CPU `RenderTarget` callers.
 Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
 N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
 sampled per-pixel capture tensor targets before moving the same target batches
@@ -174,10 +187,14 @@ confidence parameters. Production readiness still requires compiling, testing,
 and benchmarking CUDA kernels for every carrier.
 Use `aura cuda-kernel-build-report --build` on a CUDA development machine to
 attempt the packaged carrier extension compile/load gate.
-Use `aura cuda-renderer-report` on any machine to inspect the future
+Use `aura cuda-renderer-report` on any machine to inspect the legacy future
 `cuda_render_rays` launch contract. It does not compile or load CUDA; it reports
 `productionReady: false` and explains that the renderer is unavailable until the
-extension is compiled, loadable, parity-tested, and benchmarked.
+extension is compiled, loadable, parity-tested, and benchmarked. For callable
+MVP integration tests, import `aura.cuda_renderer.cuda_render_rays`; it validates
+the launch shape and either raises when CUDA is required or returns an explicit
+CPU/torch fallback batch matching the AURA ray-query contract. This fallback is
+not CUDA acceleration.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

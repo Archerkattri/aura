@@ -15,7 +15,11 @@ from aura.render import RenderImage, compare_images, render_orthographic
 from aura.runtime_export import runtime_export_report
 from aura.scene import BVH_CHUNK_THRESHOLD, AuraScene
 from aura.semantic import SemanticGraph
+from aura.cuda_kernels import cuda_renderer_report
 from aura.torch_kernels import torch_carrier_kernel_specs
+
+
+NATIVE_PRODUCTION_CARRIER_IDS = ("surface", "volume", "beta", "gabor", "neural", "semantic")
 
 
 @dataclass(frozen=True)
@@ -218,6 +222,8 @@ def run_reference_benchmark(
     query_seconds = sum(query_timings)
     runtime_export = runtime_export_report(package).to_dict()
     backend_readiness = evaluate_backend_readiness(scene, runtime_export, traversals)
+    native_carrier_coverage = evaluate_native_carrier_coverage(scene)
+    cuda_renderer = cuda_renderer_report()
     preview_visual_claim = _visual_claim_boundary(
         baseline_label="reference_preview_self",
         self_reference=True,
@@ -260,9 +266,13 @@ def run_reference_benchmark(
         "interactionQuality": _interaction_quality(inspections),
         "runtimeExport": runtime_export,
         "backendReadiness": backend_readiness,
+        "nativeCarrierCoverage": native_carrier_coverage,
+        "cudaRenderer": cuda_renderer,
         "productionGate": _benchmark_production_gate(
             backend_readiness=backend_readiness,
             visual_claims=(preview_visual_claim,),
+            native_carrier_coverage=native_carrier_coverage,
+            cuda_renderer=cuda_renderer,
         ),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
@@ -297,6 +307,8 @@ def run_visual_quality_benchmark(
     render_seconds = perf_counter() - render_start
     metrics = compare_images(reference_image, rendered, min_psnr=min_psnr)
     backend_readiness = evaluate_backend_readiness(package.scene)
+    native_carrier_coverage = evaluate_native_carrier_coverage(package.scene)
+    cuda_renderer = cuda_renderer_report()
     visual_claim = _visual_claim_boundary(
         baseline_label=baseline_label,
         self_reference=_is_self_reference_visual(baseline_label, metrics),
@@ -316,14 +328,65 @@ def run_visual_quality_benchmark(
         },
         "metrics": metrics,
         "passed": bool(metrics["passed"]),
+        "backendReadiness": backend_readiness,
+        "nativeCarrierCoverage": native_carrier_coverage,
+        "cudaRenderer": cuda_renderer,
         "productionGate": _benchmark_production_gate(
             backend_readiness=backend_readiness,
             visual_claims=(visual_claim,),
+            native_carrier_coverage=native_carrier_coverage,
+            cuda_renderer=cuda_renderer,
         ),
         "visualClaimBoundary": visual_claim,
         "metricNotes": {
             "lpipsProxy": "Deterministic mean absolute RGB distance; replace with learned LPIPS backend for paper claims.",
             "ssim": "Global RGB SSIM reference metric for deterministic smoke benchmarks.",
+        },
+    }
+
+
+def run_production_gate_report(
+    package: AuraPackage,
+    *,
+    visual_baseline_label: str = "reference_preview_self",
+    visual_self_reference: bool = True,
+) -> dict:
+    scene = package.scene
+    runtime_export = runtime_export_report(package).to_dict()
+    traversals = _scene_center_traversals(scene)
+    backend_readiness = evaluate_backend_readiness(scene, runtime_export, traversals)
+    native_carrier_coverage = evaluate_native_carrier_coverage(scene)
+    cuda_renderer = cuda_renderer_report()
+    visual_claim = _visual_claim_boundary(
+        baseline_label=visual_baseline_label,
+        self_reference=visual_self_reference or _is_self_reference_baseline(visual_baseline_label),
+        backend_readiness=backend_readiness,
+    )
+    production_gate = _benchmark_production_gate(
+        backend_readiness=backend_readiness,
+        visual_claims=(visual_claim,),
+        native_carrier_coverage=native_carrier_coverage,
+        cuda_renderer=cuda_renderer,
+    )
+    return {
+        "format": "AURA_PRODUCTION_GATE_REPORT",
+        "asset": package.asset.name,
+        "productionGate": production_gate,
+        "cudaRenderer": cuda_renderer,
+        "backendReadiness": backend_readiness,
+        "nativeCarrierCoverage": native_carrier_coverage,
+        "visualClaimBoundary": visual_claim,
+        "claimBoundary": {
+            "productionClaimAllowed": bool(production_gate["productionReady"]),
+            "safeCurrentClaim": (
+                "AURA-Core is a scaffold for a native adaptive radiance reconstruction engine "
+                "that converts captures into queryable runtime assets."
+            ),
+            "blockedClaims": [
+                "production-ready engine integration",
+                "real-time CUDA rendering or training",
+                "paper-quality visual superiority over external baselines",
+            ],
         },
     }
 
@@ -516,6 +579,16 @@ def default_benchmark_suite() -> BenchmarkSuite:
                     "production_cuda_ready",
                 ),
             ),
+            BenchmarkCase(
+                id="production_gate_contract",
+                purpose="Block production claims on CUDA renderer availability, self-reference visual scores, and native carrier coverage.",
+                metrics=(
+                    "cuda_renderer_available",
+                    "visual_benchmark_self_reference",
+                    "required_native_carrier_coverage_rate",
+                    "blocks_production_claim",
+                ),
+            ),
         ),
         ablations=(
             AblationConfig(id="gaussian_only", disabled_carriers=("surface", "volume", "beta", "gabor", "neural", "semantic"), notes="Fallback-only baseline."),
@@ -593,28 +666,104 @@ def evaluate_backend_readiness(
     }
 
 
+def evaluate_native_carrier_coverage(
+    scene: AuraScene,
+    *,
+    required_native_carrier_ids: Sequence[str] = NATIVE_PRODUCTION_CARRIER_IDS,
+) -> dict:
+    carrier_counts = _scene_carrier_counts(scene)
+    element_count = len(scene.elements)
+    required = tuple(required_native_carrier_ids)
+    present_required = tuple(carrier_id for carrier_id in required if carrier_counts.get(carrier_id, 0) > 0)
+    missing_required = tuple(carrier_id for carrier_id in required if carrier_counts.get(carrier_id, 0) <= 0)
+    native_element_count = sum(carrier_counts.get(carrier_id, 0) for carrier_id in required)
+    gaussian_fallback_count = carrier_counts.get("gaussian", 0)
+    blockers = []
+    if element_count == 0 or native_element_count == 0:
+        blockers.append("native_carriers_absent")
+    if missing_required:
+        blockers.append("native_carrier_coverage_incomplete")
+    if element_count > 0 and gaussian_fallback_count == element_count:
+        blockers.append("gaussian_fallback_only_scene")
+    return {
+        "format": "AURA_NATIVE_CARRIER_COVERAGE",
+        "scene": scene.name,
+        "requiredNativeCarrierIds": list(required),
+        "presentNativeCarrierIds": list(present_required),
+        "missingNativeCarrierIds": list(missing_required),
+        "carrierCounts": carrier_counts,
+        "elementCount": element_count,
+        "nativeElementCount": native_element_count,
+        "gaussianFallbackElementCount": gaussian_fallback_count,
+        "requiredNativeCarrierCoverageRate": _rate(carrier_id in present_required for carrier_id in required),
+        "nativeElementFraction": 0.0 if element_count == 0 else native_element_count / element_count,
+        "gaussianFallbackFraction": 0.0 if element_count == 0 else gaussian_fallback_count / element_count,
+        "auraFirstCoverageReady": not blockers,
+        "productionBlockers": blockers,
+        "notes": (
+            "This is a broad AURA-first production-claim gate for benchmark packages. "
+            "It does not make every valid package use every carrier, but it blocks broad "
+            "production claims until native carrier families are exercised instead of "
+            "relying only on Gaussian fallback."
+        ),
+    }
+
+
 def _benchmark_production_gate(
     *,
     backend_readiness: dict[str, Any],
     visual_claims: Sequence[dict[str, Any]] = (),
+    native_carrier_coverage: dict[str, Any] | None = None,
+    cuda_renderer: dict[str, Any] | None = None,
 ) -> dict:
     blockers = list(backend_readiness.get("productionBlockers", ()))
     if not backend_readiness.get("productionCudaReady", False):
         _append_unique(blockers, "cuda_renderer_unavailable")
+    if cuda_renderer is not None and not (
+        cuda_renderer.get("available", False) and cuda_renderer.get("productionReady", False)
+    ):
+        _append_unique(blockers, "cuda_renderer_unavailable")
+    if native_carrier_coverage is not None:
+        for blocker in native_carrier_coverage.get("productionBlockers", ()):
+            _append_unique(blockers, str(blocker))
     for claim in visual_claims:
         for blocker in claim.get("productionBlockers", ()):
             _append_unique(blockers, str(blocker))
+    cuda_renderer_ready = bool(backend_readiness.get("productionCudaReady")) and (
+        cuda_renderer is None or bool(cuda_renderer.get("productionReady"))
+    )
     return {
         "format": "AURA_BENCHMARK_PRODUCTION_GATE",
         "productionReady": not blockers,
         "blocksProductionClaim": bool(blockers),
-        "cudaRendererReady": bool(backend_readiness.get("productionCudaReady")),
+        "cudaRendererReady": cuda_renderer_ready,
+        "cudaRendererAvailable": bool(cuda_renderer and cuda_renderer.get("available")),
+        "cudaRendererProductionReady": bool(cuda_renderer and cuda_renderer.get("productionReady")),
+        "nativeCarrierCoverageReady": bool(
+            native_carrier_coverage and native_carrier_coverage.get("auraFirstCoverageReady")
+        ),
+        "requiredNativeCarrierCoverageRate": (
+            None
+            if native_carrier_coverage is None
+            else native_carrier_coverage.get("requiredNativeCarrierCoverageRate")
+        ),
+        "missingNativeCarrierIds": (
+            []
+            if native_carrier_coverage is None
+            else list(native_carrier_coverage.get("missingNativeCarrierIds", ()))
+        ),
         "visualBenchmarkSelfReference": any(bool(claim.get("selfReference")) for claim in visual_claims),
         "visualBenchmarkExternalReference": any(bool(claim.get("externalReference")) for claim in visual_claims),
         "productionBlockers": blockers,
+        "claimRequirements": [
+            "production CUDA renderer is compiled, loadable, parity-tested, and benchmarked",
+            "visual quality is measured against external teacher or baseline renders",
+            "benchmark package exercises native AURA carrier families instead of Gaussian fallback only",
+        ],
         "notes": (
             "This gate is deterministic and CPU-only. It blocks production claims when CUDA renderer readiness "
-            "is unavailable or visual quality is measured against a self-reference."
+            "is unavailable, visual quality is measured against a self-reference, or broad native carrier "
+            "coverage has not been exercised."
         ),
     }
 
@@ -630,6 +779,12 @@ def _visual_claim_boundary(
         blockers.append("visual_benchmark_self_reference")
     if not backend_readiness.get("productionCudaReady", False):
         blockers.append("cuda_renderer_unavailable")
+    notes = (
+        "Self-reference visual scores are smoke checks only and cannot support production or paper-quality "
+        "visual claims."
+        if self_reference
+        else "External-reference visual scores still require production CUDA readiness and baseline context before claims."
+    )
     return {
         "baseline": baseline_label,
         "selfReference": self_reference,
@@ -637,10 +792,7 @@ def _visual_claim_boundary(
         "cudaRendererReady": bool(backend_readiness.get("productionCudaReady")),
         "productionClaimAllowed": not blockers,
         "productionBlockers": blockers,
-        "notes": (
-            "Self-reference visual scores are smoke checks only and cannot support production or paper-quality "
-            "visual claims."
-        ),
+        "notes": notes,
     }
 
 
