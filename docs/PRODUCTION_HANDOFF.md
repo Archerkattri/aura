@@ -93,8 +93,8 @@ AURA_CAPTURE_MANIFEST
    region proposal generation for COLMAP/capture image, depth, mask, and normal
    tensors.
 4. Replace the reference `torch_kernels` carrier specs with real differentiable
-   beta, gabor, neural residual, semantic, and Gaussian fallback autograd
-   kernels, then add CUDA kernels for every carrier. Surface and volume have
+   gabor, neural residual, semantic, and Gaussian fallback autograd kernels,
+   then add CUDA kernels for every carrier. Surface, volume, and beta have
    tested torch autograd paths only; `aura torch-kernel-report` must report
    `productionReady: true` before claiming this is complete.
 5. Replace the current reference chunk traversal with a production BVH/GPU

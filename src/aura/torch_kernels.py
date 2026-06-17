@@ -64,7 +64,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="beta_kernel",
             carrier_id="beta",
             differentiable_fields=("color", "opacity", "alpha", "beta"),
-            description="Bounded beta support kernel for compact detail.",
+            description="Bounded beta support torch autograd kernel; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_beta_kernel",
+            autograd_kernel=True,
         ),
         TorchCarrierKernelSpec(
             payload_type="gabor_frequency",
@@ -138,7 +140,9 @@ def torch_carrier_response_tensors(
             path_length = torch.clamp(exit_depth[mask, element_index] - best_depth[mask], min=0.0)
             transmittance[mask] = torch.clamp(torch.exp(-density * path_length), min=0.0, max=1.0)
         elif payload_type == "beta_kernel":
-            weight = _torch_beta_weight(torch, hit_points[mask], mins[element_index], maxs[element_index], element.payload)
+            alpha = _carrier_parameter(torch, element, "alpha", carrier_parameters, device, default=element.payload.get("alpha", 1.0))
+            beta_value = _carrier_parameter(torch, element, "beta", carrier_parameters, device, default=element.payload.get("beta", 1.0))
+            weight = _torch_beta_weight(torch, hit_points[mask], mins[element_index], maxs[element_index], alpha=alpha, beta=beta_value)
             transmittance[mask] = torch.clamp(1.0 - opacities[element_index] * weight, min=0.0, max=1.0)
         elif payload_type == "gabor_frequency":
             frequency = torch.tensor(element.payload.get("frequency", (0.0, 0.0, 0.0)), dtype=torch.float32, device=device)
@@ -177,6 +181,21 @@ def torch_carrier_parameter_tensors(
                     requires_grad=requires_grad,
                 )
             }
+        elif payload_type == "beta_kernel":
+            parameters[element.id] = {
+                "alpha": torch.tensor(
+                    float(element.payload.get("alpha", 1.0)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "beta": torch.tensor(
+                    float(element.payload.get("beta", 1.0)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+            }
     return parameters
 
 
@@ -196,16 +215,17 @@ def _carrier_parameter(
     return torch.tensor(float(default), dtype=torch.float32, device=device)
 
 
-def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, payload: dict) -> Any:
+def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, alpha: Any, beta: Any) -> Any:
     extent = torch.clamp(maxs - mins, min=1e-6)
     coordinates = torch.clamp((points - mins) / extent, min=0.0, max=1.0)
     u = torch.mean(coordinates, dim=1)
-    alpha = max(1e-6, float(payload.get("alpha", 1.0)))
-    beta = max(1e-6, float(payload.get("beta", 1.0)))
-    raw = (u ** (alpha - 1.0)) * ((1.0 - u) ** (beta - 1.0))
-    if alpha > 1.0 and beta > 1.0:
-        mode = (alpha - 1.0) / (alpha + beta - 2.0)
-        peak = (mode ** (alpha - 1.0)) * ((1.0 - mode) ** (beta - 1.0))
-        if peak > 0.0:
-            raw = raw / peak
+    alpha_safe = torch.clamp(alpha, min=1e-6)
+    beta_safe = torch.clamp(beta, min=1e-6)
+    raw = (u ** (alpha_safe - 1.0)) * ((1.0 - u) ** (beta_safe - 1.0))
+    normalize = (alpha_safe > 1.0) & (beta_safe > 1.0)
+    raw_mode = (alpha_safe - 1.0) / torch.clamp(alpha_safe + beta_safe - 2.0, min=1e-6)
+    mode = torch.where(normalize, raw_mode, torch.full_like(raw_mode, 0.5))
+    peak = (mode ** (alpha_safe - 1.0)) * ((1.0 - mode) ** (beta_safe - 1.0))
+    safe_peak = torch.where((peak > 0.0) & normalize, peak, torch.ones_like(peak))
+    raw = torch.where(normalize, raw / safe_peak, raw)
     return torch.clamp(raw, min=0.0, max=1.0)
