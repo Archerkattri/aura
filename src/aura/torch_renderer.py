@@ -90,6 +90,7 @@ class TorchRenderObjective:
     image_loss: Any
     depth_loss: Any
     normal_loss: Any
+    mask_loss: Any
 
     def to_dict(self) -> dict:
         return {
@@ -99,6 +100,7 @@ class TorchRenderObjective:
             "imageLoss": float(self.image_loss.detach().cpu().item()),
             "depthLoss": float(self.depth_loss.detach().cpu().item()),
             "normalLoss": float(self.normal_loss.detach().cpu().item()),
+            "maskLoss": float(self.mask_loss.detach().cpu().item()),
             "carrierParameterIds": sorted(self.carrier_parameters),
         }
 
@@ -346,6 +348,7 @@ def torch_render_capture_training_objective(
         directions=batch.ray_directions,
         target_colors=batch.target_color,
         target_depths=batch.target_depth,
+        target_mask=batch.target_mask,
         target_normals=batch.target_normal,
         target_normal_present=batch.target_normal_present,
         device=str(batch.ray_origins.device),
@@ -570,6 +573,7 @@ def _torch_render_objective_tensor_targets(
     target_colors: Any,
     target_depths: Any,
     device: str,
+    target_mask: Any | None = None,
     target_normals: Any | None = None,
     target_normal_present: Any | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
@@ -623,8 +627,10 @@ def _torch_render_objective_tensor_targets(
         torch.zeros_like(carrier_colors),
     )
     predicted_depths = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
+    predicted_opacity = torch.where(has_hit, 1.0 - transmittance, torch.zeros_like(transmittance))
     image_loss = torch.mean((predicted_colors - target_colors) ** 2)
     depth_loss = torch.mean(torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths))
+    mask_loss = _torch_mask_loss(torch, predicted_opacity, target_mask)
     elements = tuple(scene.elements)
     best_indices = best_index.detach().cpu().tolist()
     hit_flags = has_hit.detach().cpu().tolist()
@@ -635,10 +641,11 @@ def _torch_render_objective_tensor_targets(
         device=device,
         frame_ids=tuple(frame_ids),
         carrier_parameters=carrier_parameters,
-        total_loss=image_loss + depth_loss + normal_loss,
+        total_loss=image_loss + depth_loss + normal_loss + mask_loss,
         image_loss=image_loss,
         depth_loss=depth_loss,
         normal_loss=normal_loss,
+        mask_loss=mask_loss,
     )
 
 
@@ -791,6 +798,12 @@ def _torch_normal_loss(
     missing_loss = torch.ones_like(cosine_loss)
     supervised_loss = torch.where(valid, cosine_loss, missing_loss)
     return torch.where(target_normal_present, supervised_loss, torch.zeros_like(supervised_loss))
+
+
+def _torch_mask_loss(torch: Any, predicted_opacity: Any, target_mask: Any | None) -> Any:
+    if target_mask is None:
+        return torch.zeros((), dtype=torch.float32, device=predicted_opacity.device)
+    return torch.mean((predicted_opacity - torch.clamp(target_mask, min=0.0, max=1.0)) ** 2)
 
 
 def _optional_target_normal_tuple(target_normals: Any | None, target_normal_present: Any | None) -> tuple[tuple[float, float, float] | None, ...]:
