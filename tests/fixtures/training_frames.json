@@ -1,0 +1,37 @@
+{
+  "format": "AURA_TRAINING_FRAMES",
+  "frames": [
+    {
+      "camera_origin": [-0.6, -0.8, -2.0],
+      "id": "front_left",
+      "look_at": [-0.35, -0.35, 0.0],
+      "semantic_label": "wall",
+      "target_color": [0.78, 0.7, 0.6],
+      "target_depth": 2.0
+    },
+    {
+      "camera_origin": [0.1, -0.8, -2.0],
+      "id": "front_center",
+      "look_at": [0.1, -0.4, 0.2],
+      "semantic_label": null,
+      "target_color": [0.55, 0.68, 0.88],
+      "target_depth": 2.2
+    },
+    {
+      "camera_origin": [0.7, -0.8, -2.0],
+      "id": "front_right",
+      "look_at": [0.7, -0.4, 0.05],
+      "semantic_label": null,
+      "target_color": [0.92, 0.82, 0.32],
+      "target_depth": 2.0
+    },
+    {
+      "camera_origin": [0.1, 0.8, -2.0],
+      "id": "object_view",
+      "look_at": [0.1, 0.25, 0.1],
+      "semantic_label": "fixture_object",
+      "target_color": [0.72, 0.55, 0.92],
+      "target_depth": 2.1
+    }
+  ]
+}

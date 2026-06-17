@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, replace
 from math import sqrt
+from pathlib import Path
 from typing import Sequence
 
 from aura.assignment import RegionEvidence
@@ -31,6 +33,19 @@ class TrainingFrame:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> TrainingFrame:
+        if not isinstance(payload, dict):
+            raise ValueError("training frame entry must be an object")
+        return cls(
+            id=str(payload["id"]),
+            camera_origin=_vec3_from_payload(payload["camera_origin"], "camera_origin"),
+            look_at=_vec3_from_payload(payload["look_at"], "look_at"),
+            target_color=_vec3_from_payload(payload["target_color"], "target_color"),
+            target_depth=float(payload["target_depth"]),
+            semantic_label=str(payload["semantic_label"]) if payload.get("semantic_label") is not None else None,
+        )
 
 
 @dataclass(frozen=True)
@@ -165,7 +180,38 @@ def synthetic_training_frames() -> tuple[TrainingFrame, ...]:
     )
 
 
-def reconstruct_demo_scene(config: ReconstructionConfig | None = None) -> ReconstructionResult:
+def load_training_frames(path: Path | str) -> tuple[TrainingFrame, ...]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    frames_payload = payload.get("frames") if isinstance(payload, dict) else payload
+    if not isinstance(frames_payload, list) or not frames_payload:
+        raise ValueError("training frames JSON must contain a non-empty frames array")
+    return tuple(TrainingFrame.from_dict(item) for item in frames_payload)
+
+
+def write_synthetic_training_frames(path: Path | str) -> Path:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "format": "AURA_TRAINING_FRAMES",
+                "frames": [frame.to_dict() for frame in synthetic_training_frames()],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return out
+
+
+def reconstruct_demo_scene(
+    config: ReconstructionConfig | None = None,
+    *,
+    frames: Sequence[TrainingFrame] | None = None,
+    name: str = "reconstruct_demo",
+) -> ReconstructionResult:
     """Run the deterministic AURA-Core fixture reconstruction path.
 
     This is a CPU reference scaffold: it creates posed observations, initializes
@@ -174,15 +220,15 @@ def reconstruct_demo_scene(config: ReconstructionConfig | None = None) -> Recons
     """
 
     config = config or ReconstructionConfig()
-    frames = synthetic_training_frames()
-    scene = decompose_evidence(_initial_evidence_from_frames(frames), name="reconstruct_demo")
-    scene, iterations = _reference_iterations(scene, frames, config)
+    training_frames = tuple(frames or synthetic_training_frames())
+    scene = decompose_evidence(_initial_evidence_from_frames(training_frames), name=name)
+    scene, iterations = _reference_iterations(scene, training_frames, config)
     final_loss = iterations[-1].image_loss + iterations[-1].depth_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
     native_fraction = 0.0 if not scene.elements else non_gaussian / len(scene.elements)
     report = ReconstructionReport(
         name=scene.name,
-        frames=frames,
+        frames=training_frames,
         stages=(
             "posed_synthetic_input",
             "native_evidence_initialization",
@@ -193,13 +239,19 @@ def reconstruct_demo_scene(config: ReconstructionConfig | None = None) -> Recons
         iterations=iterations,
         final_loss=final_loss,
         native_carrier_fraction=native_fraction,
-        sources=("synthetic_posed_images", "synthetic_depth", "semantic_masks"),
+        sources=("posed_training_frames", "depth_targets", "semantic_labels"),
     )
     return ReconstructionResult(scene=scene, report=report)
 
 
 def _initial_evidence_from_frames(frames: Sequence[TrainingFrame]) -> tuple[EvidenceSample, ...]:
+    if len(frames) < 4:
+        raise ValueError("AURA-Core demo reconstruction requires at least four posed training frames")
     by_id = {frame.id: frame for frame in frames}
+    required = {"front_left", "front_center", "front_right", "object_view"}
+    missing = sorted(required.difference(by_id))
+    if missing:
+        raise ValueError(f"training frames missing required fixture ids: {', '.join(missing)}")
     return (
         EvidenceSample(
             id="surface_wall",
@@ -514,6 +566,12 @@ def _normalized_direction(origin: Vec3, target: Vec3) -> Vec3:
     if norm <= 1e-12:
         raise ValueError("camera origin and look_at must differ")
     return tuple(axis / norm for axis in vector)  # type: ignore[return-value]
+
+
+def _vec3_from_payload(payload: object, name: str) -> Vec3:
+    if not isinstance(payload, list | tuple) or len(payload) != 3:
+        raise ValueError(f"{name} must be a 3-vector")
+    return (float(payload[0]), float(payload[1]), float(payload[2]))
 
 
 def _color_mse(left: Vec3, right: Vec3) -> float:

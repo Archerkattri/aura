@@ -6,7 +6,7 @@ from pathlib import Path
 
 from aura.assignment import RegionEvidence
 from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_core_reconstruction_benchmark, run_reference_benchmark
-from aura.core import ReconstructionConfig, reconstruct_demo_scene
+from aura.core import ReconstructionConfig, load_training_frames, reconstruct_demo_scene, write_synthetic_training_frames
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
@@ -41,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     reconstruct_demo.add_argument("--output-dir", type=Path, default=Path("outputs/reconstruct-demo.aura"))
     reconstruct_demo.add_argument("--iterations", type=int, default=4)
+    reconstruct_demo.add_argument("--frames", type=Path, default=None, help="JSON posed training frames for AURA-Core")
+
+    frames_demo = sub.add_parser("write-training-frames-demo", help="Write a JSON posed-frame fixture for AURA-Core")
+    frames_demo.add_argument("--output", type=Path, default=Path("outputs/training-frames.json"))
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -106,11 +110,15 @@ def main(argv: list[str] | None = None) -> int:
         print(package_scene(native_scene, fallbacks={"mesh": "fallback/native-preview.glb"}).write(args.output_dir))
         return 0
     if args.command == "reconstruct-demo":
-        result = reconstruct_demo_scene(ReconstructionConfig(iterations=args.iterations))
+        frames = load_training_frames(args.frames) if args.frames is not None else None
+        result = reconstruct_demo_scene(ReconstructionConfig(iterations=args.iterations), frames=frames)
         package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/reconstruct-preview.glb"}).write(args.output_dir)
         report_path = package_dir / "training_report.json"
         report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(package_dir)
+        return 0
+    if args.command == "write-training-frames-demo":
+        print(write_synthetic_training_frames(args.output))
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))

@@ -1,8 +1,18 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
-from aura import ReconstructionConfig, load_package, reconstruct_demo_scene, synthetic_training_frames
+from aura import (
+    ReconstructionConfig,
+    load_package,
+    load_training_frames,
+    reconstruct_demo_scene,
+    synthetic_training_frames,
+    write_synthetic_training_frames,
+)
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_synthetic_training_frames_are_posed_native_inputs():
@@ -13,8 +23,18 @@ def test_synthetic_training_frames_are_posed_native_inputs():
     assert {frame.semantic_label for frame in frames} >= {"wall", "fixture_object"}
 
 
+def test_training_frames_round_trip_through_json(tmp_path):
+    output = write_synthetic_training_frames(tmp_path / "frames.json")
+    loaded = load_training_frames(output)
+    fixture = load_training_frames(FIXTURE_DIR / "training_frames.json")
+
+    assert loaded == synthetic_training_frames()
+    assert fixture == synthetic_training_frames()
+
+
 def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
-    result = reconstruct_demo_scene(ReconstructionConfig(iterations=3, render_width=8, render_height=8))
+    frames = load_training_frames(FIXTURE_DIR / "training_frames.json")
+    result = reconstruct_demo_scene(ReconstructionConfig(iterations=3, render_width=8, render_height=8), frames=frames)
     report = result.report.to_dict()
 
     assert result.scene.name == "reconstruct_demo"
@@ -29,7 +49,7 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert by_id["semantic_object_neural_residual"].payload["type"] == "neural_residual"
     assert set(result.scene.chunks[0].element_ids) == set(by_id)
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
-    assert report["sources"] == ["synthetic_posed_images", "synthetic_depth", "semantic_masks"]
+    assert report["sources"] == ["posed_training_frames", "depth_targets", "semantic_labels"]
     assert "native_evidence_initialization" in report["stages"]
     assert "cpu_reference_render_loss" in report["stages"]
     assert report["nativeCarrierFraction"] > 0.8
@@ -75,6 +95,8 @@ def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
             "reconstruct-demo",
             "--output-dir",
             str(tmp_path),
+            "--frames",
+            str(FIXTURE_DIR / "training_frames.json"),
             "--iterations",
             "3",
         ],
@@ -95,3 +117,37 @@ def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["iterations"][0]["predictions"]
     assert report["iterations"][0]["carrier_evolution"]
+
+
+def test_write_training_frames_demo_cli_outputs_reconstructable_frames(tmp_path):
+    frames_path = tmp_path / "frames.json"
+    package_dir = tmp_path / "package.aura"
+
+    subprocess.run(
+        [sys.executable, "-m", "aura.cli", "write-training-frames-demo", "--output", str(frames_path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "reconstruct-demo",
+            "--frames",
+            str(frames_path),
+            "--output-dir",
+            str(package_dir),
+            "--iterations",
+            "3",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    package = load_package(package_dir)
+    assert package.asset.name == "reconstruct_demo"

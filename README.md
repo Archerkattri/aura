@@ -98,8 +98,10 @@ aura benchmark-core --iterations 6
 aura migration-plan outputs/native-demo.aura
 # prints package schema migration status
 
-# AURA-Core reconstruction path, to be built next:
-# aura reconstruct-demo --output-dir outputs/reconstruct-demo.aura
+# AURA-Core reconstruction path:
+aura write-training-frames-demo --output outputs/training-frames.json
+# writes a posed color/depth/semantic frame fixture
+aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6
 # runs posed-ray losses and adaptive split/promote/merge/demote carriers, without 3DGS
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
@@ -171,7 +173,7 @@ Recommended benchmark/baseline sources:
 Do not add more 3DGS convenience before the native engine exists. The next
 milestone is a small end-to-end AURA-Core reconstruction fixture:
 
-1. load or synthesize posed training images, depth, and masks;
+1. load or synthesize posed training-frame JSON with color, depth, and semantic targets;
 2. initialize native AURA evidence cells without 3DGS;
 3. render a CPU reference prediction and compute image/depth/ray-query losses;
 4. adaptively split/promote/merge/demote carriers based on residuals and confidence;

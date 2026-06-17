@@ -30,8 +30,10 @@ from aura.core import (
     ReconstructionResult,
     ReconstructionStep,
     TrainingFrame,
+    load_training_frames,
     reconstruct_demo_scene,
     synthetic_training_frames,
+    write_synthetic_training_frames,
 )
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
@@ -121,6 +123,7 @@ __all__ = [
     "load_3dgs_ply",
     "load_3dgs_scene",
     "load_package",
+    "load_training_frames",
     "migration_report",
     "package_scene",
     "package_3dgs_export",
@@ -137,6 +140,7 @@ __all__ = [
     "sparse_points_to_evidence",
     "supported_ingest_adapters",
     "synthetic_training_frames",
+    "write_synthetic_training_frames",
     "native_demo_interaction_probes",
     "validate_package",
     "validate_package_documents",
