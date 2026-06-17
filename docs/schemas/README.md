@@ -11,6 +11,8 @@ Current schema version: `0.1`
 - `semantic_graph.schema.json`: semantic/object nodes, element bindings, and
   relationships.
 - `exchange.schema.json`: native AURA, glTF fallback, and USD bridge metadata.
+- `training_dataset.schema.json`: AURA-Core posed frame, target, and native
+  evidence-region inputs used by reconstruction fixtures.
 
 The Python loader validates these schemas at runtime, then performs cross-file
 checks such as manifest chunk IDs matching `chunks.json` and chunk element
@@ -18,3 +20,7 @@ references resolving to records in `elements.json`. It also checks that any
 non-empty element payload type matches the element carrier. The JSON Schema
 validates the payload shape for surface, volume, beta, gabor, neural, gaussian
 fallback, and semantic carriers.
+
+The AURA-Core training loader also validates `training_dataset.schema.json`
+before constructing native frames and evidence regions, then checks that every
+region references a known frame.

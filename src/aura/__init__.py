@@ -38,6 +38,7 @@ from aura.core import (
     synthetic_training_frames,
     synthetic_training_dataset,
     synthetic_training_regions,
+    validate_training_dataset_document,
     write_synthetic_training_frames,
 )
 from aura.decomposition import EvidenceSample, decompose_evidence
@@ -154,4 +155,5 @@ __all__ = [
     "native_demo_interaction_probes",
     "validate_package",
     "validate_package_documents",
+    "validate_training_dataset_document",
 ]

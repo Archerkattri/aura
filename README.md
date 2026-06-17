@@ -39,6 +39,7 @@ native representation contract pieces:
 - explicit `.aura` format/version compatibility checks;
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
+- schema-validated AURA-Core posed frame and native evidence-region inputs;
 - deterministic orthographic package preview rendering and image metrics;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - strict-JSON render comparison metrics for regression checks;

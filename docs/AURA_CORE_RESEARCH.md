@@ -86,7 +86,8 @@ The repo should move toward these milestones, in this order:
 
 1. `aura write-training-frames-demo` and `aura reconstruct-demo --frames`:
    a posed color/depth/semantic training dataset contract with native evidence
-   region specs that builds a native AURA scene without 3DGS.
+   region specs that is schema-validated and builds a native AURA scene without
+   3DGS.
 2. CPU reference loop: cast posed training rays, compute per-frame image/depth
    losses, update carrier color/depth parameters, and emit a training report
    with carrier evolution decisions.

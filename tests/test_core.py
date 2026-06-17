@@ -15,6 +15,7 @@ from aura import (
     reconstruct_demo_scene,
     synthetic_training_dataset,
     synthetic_training_frames,
+    validate_training_dataset_document,
     write_synthetic_training_frames,
 )
 
@@ -38,6 +39,55 @@ def test_training_frames_round_trip_through_json(tmp_path):
     assert loaded == synthetic_training_frames()
     assert dataset == synthetic_training_dataset()
     assert fixture == synthetic_training_dataset()
+
+
+def test_training_dataset_schema_accepts_native_fixture_contract():
+    validate_training_dataset_document(synthetic_training_dataset().to_dict())
+    validate_training_dataset_document(json.loads((FIXTURE_DIR / "training_frames.json").read_text(encoding="utf-8")))
+
+
+def test_training_dataset_schema_rejects_missing_regions(tmp_path):
+    path = tmp_path / "missing_regions.json"
+    payload = synthetic_training_dataset().to_dict()
+    payload.pop("regions")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    try:
+        load_training_dataset(path)
+    except ValueError as exc:
+        assert "training_dataset.schema.json validation failed" in str(exc)
+        assert "'regions' is a required property" in str(exc)
+    else:
+        raise AssertionError("missing regions should fail schema validation")
+
+
+def test_training_dataset_schema_rejects_invalid_region_opacity(tmp_path):
+    path = tmp_path / "invalid_opacity.json"
+    payload = synthetic_training_dataset().to_dict()
+    payload["regions"][0]["opacity"] = 1.5
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    try:
+        load_training_dataset(path)
+    except ValueError as exc:
+        assert "training_dataset.schema.json validation failed at regions.0.opacity" in str(exc)
+        assert "greater than the maximum of 1" in str(exc)
+    else:
+        raise AssertionError("invalid opacity should fail schema validation")
+
+
+def test_training_dataset_rejects_regions_with_unknown_frame_ids(tmp_path):
+    path = tmp_path / "unknown_frame.json"
+    payload = synthetic_training_dataset().to_dict()
+    payload["regions"][0]["frame_id"] = "not_a_frame"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    try:
+        load_training_dataset(path)
+    except ValueError as exc:
+        assert "training regions reference unknown frame ids: not_a_frame" in str(exc)
+    else:
+        raise AssertionError("unknown frame references should fail dataset validation")
 
 
 def test_reconstruct_demo_accepts_data_driven_regions_without_fixture_ids():

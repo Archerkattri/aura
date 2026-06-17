@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, replace
+from importlib import resources
 from math import sqrt
 from pathlib import Path
 from typing import Sequence
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 
 from aura.assignment import RegionEvidence
 from aura.carrier_payloads import BetaKernelPayload, NeuralResidualPayload
@@ -32,7 +36,14 @@ class TrainingFrame:
             raise ValueError("target_depth must be positive")
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {
+            "id": self.id,
+            "camera_origin": list(self.camera_origin),
+            "look_at": list(self.look_at),
+            "target_color": list(self.target_color),
+            "target_depth": self.target_depth,
+            "semantic_label": self.semantic_label,
+        }
 
     @classmethod
     def from_dict(cls, payload: dict) -> TrainingFrame:
@@ -349,22 +360,17 @@ def synthetic_training_dataset() -> TrainingDataset:
 
 def load_training_dataset(path: Path | str) -> TrainingDataset:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    if isinstance(payload, list):
-        frames_payload = payload
-        regions_payload = []
-    elif isinstance(payload, dict):
-        frames_payload = payload.get("frames")
-        regions_payload = payload.get("regions", [])
-    else:
-        raise ValueError("training dataset JSON must be an object or frame array")
-    if not isinstance(frames_payload, list) or not frames_payload:
-        raise ValueError("training dataset JSON must contain a non-empty frames array")
-    if not isinstance(regions_payload, list):
-        raise ValueError("training dataset regions must be an array")
-    return TrainingDataset(
+    if not isinstance(payload, dict):
+        raise ValueError("training dataset JSON must be an object")
+    validate_training_dataset_document(payload)
+    frames_payload = payload["frames"]
+    regions_payload = payload["regions"]
+    dataset = TrainingDataset(
         frames=tuple(TrainingFrame.from_dict(item) for item in frames_payload),
         regions=tuple(TrainingRegion.from_dict(item) for item in regions_payload),
     )
+    _validate_training_dataset_links(dataset)
+    return dataset
 
 
 def load_training_frames(path: Path | str) -> tuple[TrainingFrame, ...]:
@@ -387,6 +393,36 @@ def write_synthetic_training_frames(path: Path | str) -> Path:
         encoding="utf-8",
     )
     return out
+
+
+def validate_training_dataset_document(payload: dict) -> None:
+    """Validate the native AURA-Core training dataset JSON contract."""
+
+    _validate_json_schema("training_dataset.schema.json", payload)
+
+
+def _validate_json_schema(schema_name: str, payload: object) -> None:
+    schema_path = resources.files("aura.schemas").joinpath(schema_name)
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    try:
+        validator.validate(payload)
+    except ValidationError as exc:
+        path = ".".join(str(item) for item in exc.absolute_path)
+        location = f" at {path}" if path else ""
+        raise ValueError(f"{schema_name} validation failed{location}: {exc.message}") from exc
+
+
+def _validate_training_dataset_links(dataset: TrainingDataset) -> None:
+    frame_ids = {frame.id for frame in dataset.frames}
+    if len(frame_ids) != len(dataset.frames):
+        raise ValueError("training dataset contains duplicate frame ids")
+    region_ids = {region.id for region in dataset.regions}
+    if len(region_ids) != len(dataset.regions):
+        raise ValueError("training dataset contains duplicate region ids")
+    missing = sorted({region.frame_id for region in dataset.regions}.difference(frame_ids))
+    if missing:
+        raise ValueError(f"training regions reference unknown frame ids: {', '.join(missing)}")
 
 
 def reconstruct_demo_scene(

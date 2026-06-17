@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.dev/schemas/0.1/training_dataset.schema.json",
+  "title": "AURA-Core Training Dataset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "frames", "regions"],
+  "properties": {
+    "format": {
+      "const": "AURA_TRAINING_FRAMES"
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/frame"
+      }
+    },
+    "regions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/region"
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/vec3" },
+        "max": { "$ref": "#/$defs/vec3" }
+      }
+    },
+    "unit": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "nullable_string": {
+      "type": ["string", "null"]
+    },
+    "nullable_vec3": {
+      "anyOf": [
+        { "$ref": "#/$defs/vec3" },
+        { "type": "null" }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image_error": { "$ref": "#/$defs/unit" },
+        "geometry_confidence": { "$ref": "#/$defs/unit" },
+        "material_confidence": { "$ref": "#/$defs/unit" },
+        "ray_need": { "$ref": "#/$defs/unit" },
+        "edit_need": { "$ref": "#/$defs/unit" },
+        "high_frequency": { "$ref": "#/$defs/unit" },
+        "view_dependent": { "$ref": "#/$defs/unit" },
+        "semantic_confidence": { "$ref": "#/$defs/unit" },
+        "fuzzy_confidence": { "$ref": "#/$defs/unit" },
+        "compact_detail": { "$ref": "#/$defs/unit" }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "camera_origin", "look_at", "target_color", "target_depth"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "camera_origin": { "$ref": "#/$defs/vec3" },
+        "look_at": { "$ref": "#/$defs/vec3" },
+        "target_color": { "$ref": "#/$defs/vec3" },
+        "target_depth": { "type": "number", "exclusiveMinimum": 0 },
+        "semantic_label": { "$ref": "#/$defs/nullable_string" }
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "frame_id", "bounds", "evidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "frame_id": { "type": "string", "minLength": 1 },
+        "bounds": { "$ref": "#/$defs/bounds" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "color": { "$ref": "#/$defs/nullable_vec3" },
+        "opacity": { "$ref": "#/$defs/unit" },
+        "confidence": { "$ref": "#/$defs/unit" },
+        "normal": { "$ref": "#/$defs/nullable_vec3" },
+        "material_id": { "$ref": "#/$defs/nullable_string" },
+        "semantic_label": { "$ref": "#/$defs/nullable_string" },
+        "fallback_source": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
