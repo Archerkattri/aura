@@ -98,7 +98,7 @@ aura migration-plan outputs/native-demo.aura
 
 # AURA-Core reconstruction path, to be built next:
 # aura reconstruct-demo --output-dir outputs/reconstruct-demo.aura
-# runs posed-ray losses and adaptive split/promote carriers, without 3DGS
+# runs posed-ray losses and adaptive split/promote/merge/demote carriers, without 3DGS
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
@@ -172,8 +172,7 @@ milestone is a small end-to-end AURA-Core reconstruction fixture:
 1. load or synthesize posed training images, depth, and masks;
 2. initialize native AURA evidence cells without 3DGS;
 3. render a CPU reference prediction and compute image/depth/ray-query losses;
-4. adaptively split/promote carriers based on residuals and confidence, then
-   extend the same path to merge/demote decisions;
+4. adaptively split/promote/merge/demote carriers based on residuals and confidence;
 5. optimize native carrier parameters for a few deterministic fixture steps;
 6. export a native `.aura` package and training report;
 7. compare the result against COLMAP/NeRF/3DGS-style baselines.

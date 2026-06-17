@@ -280,7 +280,7 @@ def _reference_iterations(
         predictions = _predict_training_frames(scene, frames)
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
-        evolution = _carrier_evolution_decisions(predictions)
+        evolution = _carrier_evolution_decisions(predictions, scene)
         steps.append(
             ReconstructionStep(
                 iteration=index,
@@ -292,7 +292,7 @@ def _reference_iterations(
                 carrier_evolution=evolution,
             )
         )
-        scene = _refine_scene_from_predictions(scene, predictions, config)
+        scene = _refine_scene_from_predictions(scene, predictions, config, evolution)
     return scene, tuple(steps)
 
 
@@ -324,9 +324,14 @@ def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) 
     return tuple(predictions)
 
 
-def _carrier_evolution_decisions(predictions: Sequence[FramePrediction]) -> tuple[CarrierEvolutionDecision, ...]:
+def _carrier_evolution_decisions(
+    predictions: Sequence[FramePrediction],
+    scene: AuraScene,
+) -> tuple[CarrierEvolutionDecision, ...]:
     decisions = []
     seen = set()
+    element_ids = {element.id for element in scene.elements}
+    element_by_id = {element.id: element for element in scene.elements}
     for prediction in predictions:
         if prediction.element_id is None or prediction.carrier_id is None:
             continue
@@ -334,13 +339,40 @@ def _carrier_evolution_decisions(predictions: Sequence[FramePrediction]) -> tupl
         if key in seen:
             continue
         seen.add(key)
-        if prediction.image_loss > 0.03 and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
+        beta_child_id = _created_element_id(prediction.element_id, "split_beta_detail")
+        neural_child_id = _created_element_id(prediction.element_id, "promote_neural_residual")
+        element = element_by_id[prediction.element_id]
+        if (
+            prediction.carrier_id == "volume"
+            and beta_child_id in element_ids
+            and prediction.image_loss < 0.025
+            and prediction.depth_loss < 0.04
+        ):
+            action = "merge_beta_detail"
+            reason = "volume parent residual fell below split-detail threshold"
+        elif (
+            prediction.carrier_id == "semantic"
+            and neural_child_id in element_ids
+            and prediction.image_loss < 0.045
+            and prediction.depth_loss < 0.02
+        ):
+            action = "demote_neural_residual"
+            reason = "semantic residual no longer needs a neural child"
+        elif prediction.image_loss > 0.03 and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
             if prediction.carrier_id == "volume":
-                action = "split_beta_detail"
-                reason = "volume residual benefits from compact bounded support"
+                if element.metadata.get("simplified_child") == beta_child_id:
+                    action = "retain_carrier"
+                    reason = "merged beta detail remains below re-split hysteresis"
+                else:
+                    action = "split_beta_detail"
+                    reason = "volume residual benefits from compact bounded support"
             elif prediction.carrier_id == "semantic":
-                action = "promote_neural_residual"
-                reason = "semantic object retains view-dependent photometric residual"
+                if element.metadata.get("simplified_child") == neural_child_id:
+                    action = "retain_semantic_carrier"
+                    reason = "demoted neural residual remains below re-promote hysteresis"
+                else:
+                    action = "promote_neural_residual"
+                    reason = "semantic object retains view-dependent photometric residual"
             else:
                 action = "refine_radiance"
                 reason = "photometric residual above native carrier threshold"
@@ -372,15 +404,23 @@ def _refine_scene_from_predictions(
     scene: AuraScene,
     predictions: Sequence[FramePrediction],
     config: ReconstructionConfig,
+    decisions: Sequence[CarrierEvolutionDecision],
 ) -> AuraScene:
     targets_by_element = {prediction.element_id: prediction.target_color for prediction in predictions if prediction.element_id}
     if not targets_by_element:
         return scene
     elements = []
     existing_ids = {element.id for element in scene.elements}
-    decisions = _carrier_evolution_decisions(predictions) if config.enable_adaptive_evolution else tuple()
-    decision_by_element = {decision.element_id: decision for decision in decisions}
+    active_decisions = tuple(decisions) if config.enable_adaptive_evolution else tuple()
+    decision_by_element = {decision.element_id: decision for decision in active_decisions}
+    removed_evolved_ids = {
+        decision.created_element_id
+        for decision in active_decisions
+        if decision.action in {"merge_beta_detail", "demote_neural_residual"} and decision.created_element_id is not None
+    }
     for element in scene.elements:
+        if element.id in removed_evolved_ids:
+            continue
         target = targets_by_element.get(element.id)
         if target is None:
             elements.append(element)
@@ -396,15 +436,19 @@ def _refine_scene_from_predictions(
         if prediction.predicted_depth is not None and prediction.depth_loss > 0.01:
             depth_delta = (prediction.target_depth - prediction.predicted_depth) * config.color_learning_rate
             bounds = _shift_bounds_along_ray(element.bounds, prediction.ray_direction, depth_delta)
+        decision = decision_by_element.get(element.id)
         elements.append(
             replace(
                 element,
                 bounds=bounds,
                 color=color,  # type: ignore[arg-type]
-                metadata={**element.metadata, "optimized_by": "aura-core-reference-loop"},
+                metadata={
+                    **element.metadata,
+                    "optimized_by": "aura-core-reference-loop",
+                    **_simplification_metadata(decision),
+                },
             )
         )
-        decision = decision_by_element.get(element.id)
         if decision is not None:
             evolved = _evolved_element_for(element, decision, prediction)
             if evolved is not None and evolved.id not in existing_ids:
@@ -504,7 +548,20 @@ def _created_element_id(element_id: str, action: str) -> str | None:
         return f"{element_id}_beta_detail"
     if action == "promote_neural_residual":
         return f"{element_id}_neural_residual"
+    if action == "merge_beta_detail":
+        return f"{element_id}_beta_detail"
+    if action == "demote_neural_residual":
+        return f"{element_id}_neural_residual"
     return None
+
+
+def _simplification_metadata(decision: CarrierEvolutionDecision | None) -> dict[str, str]:
+    if decision is None or decision.action not in {"merge_beta_detail", "demote_neural_residual"}:
+        return {}
+    return {
+        "simplified_child": decision.created_element_id or "",
+        "simplification": decision.action,
+    }
 
 
 def _shrink_bounds(bounds: Bounds, *, scale: float) -> Bounds:

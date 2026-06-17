@@ -51,6 +51,21 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert all("ray_direction" in item for item in report["iterations"][0]["predictions"])
 
 
+def test_reconstruct_demo_merges_and_demotes_converged_adaptive_children():
+    result = reconstruct_demo_scene(ReconstructionConfig(iterations=6, render_width=8, render_height=8))
+    by_id = {element.id: element for element in result.scene.elements}
+    actions = [item["action"] for step in result.report.to_dict()["iterations"] for item in step["carrier_evolution"]]
+
+    assert "soft_volume_beta_detail" not in by_id
+    assert by_id["soft_volume"].metadata["simplification"] == "merge_beta_detail"
+    assert by_id["soft_volume"].metadata["simplified_child"] == "soft_volume_beta_detail"
+    assert "semantic_object_neural_residual" not in by_id
+    assert by_id["semantic_object"].metadata["simplification"] == "demote_neural_residual"
+    assert by_id["semantic_object"].metadata["simplified_child"] == "semantic_object_neural_residual"
+    assert "merge_beta_detail" in actions
+    assert "demote_neural_residual" in actions
+
+
 def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
     result = subprocess.run(
         [

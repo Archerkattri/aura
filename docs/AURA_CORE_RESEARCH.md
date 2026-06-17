@@ -90,8 +90,8 @@ The repo should move toward these milestones, in this order:
    losses, update carrier color/depth parameters, and emit a training report
    with carrier evolution decisions.
 3. Adaptive evolution: split high-residual volume regions into beta detail
-   carriers and promote semantic residuals into neural residual carriers, then
-   extend the same mechanism to merge and demote carriers.
+   carriers, promote semantic residuals into neural residual carriers, and
+   merge/demote those children when measured residuals converge.
 4. Ray-query correctness: first hit, depth, normal, transmittance, material,
    confidence, provenance, shadow/reflection/collision readiness.
 5. GPU kernels: implement the same contract for real throughput only after the
