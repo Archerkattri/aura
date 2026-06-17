@@ -28,7 +28,7 @@ native representation contract pieces:
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
 - bounded AURA elements and chunks;
-- carrier-aware reference ray-query response;
+- carrier-aware reference ray-query response with chunk traversal metrics;
 - simple front-to-back scene query;
 - tiny JSON/ASCII/binary little-endian PLY 3DGS export reader for means/opacities/covariances;
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
@@ -230,7 +230,7 @@ src/aura/
   semantic.py    object graph nodes and relationships
   benchmark.py   benchmark and ablation plan contracts
   core.py        AURA-Core reconstruction engine contracts
-  scene.py       reference scene query
+  scene.py       reference scene query and chunk traversal
   ingest/
     baselines.py  3DGS export discovery and import adapter
     colmap.py     COLMAP text camera/pose/sparse-point manifest importer

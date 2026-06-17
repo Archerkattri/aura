@@ -18,17 +18,81 @@ class AuraScene:
     semantic_graph: SemanticGraph = field(default_factory=SemanticGraph)
 
     def ray_query(self, ray: Ray) -> RayQueryResult:
-        hits = [hit for element in self.elements if (hit := element.ray_query(ray)) is not None]
+        return self.traverse_ray(ray).result
+
+    def traverse_ray(self, ray: Ray) -> "RayTraversal":
+        element_by_id = {element.id: element for element in self.elements}
+        chunks = tuple(self.chunks)
+        candidate_chunks = _candidate_chunks(ray, chunks)
+        if chunks:
+            chunked_ids = {element_id for chunk in chunks for element_id in chunk.element_ids}
+            candidate_ids = []
+            for chunk in candidate_chunks:
+                candidate_ids.extend(chunk.element_ids)
+            chunk_candidates = tuple(element_by_id[element_id] for element_id in candidate_ids if element_id in element_by_id)
+            orphan_candidates = tuple(element for element in self.elements if element.id not in chunked_ids)
+            candidates = (*chunk_candidates, *orphan_candidates)
+        else:
+            candidates = tuple(self.elements)
+        hits = [hit for element in candidates if (hit := element.ray_query(ray)) is not None]
         if not hits:
-            return RayQueryResult(color=(0.0, 0.0, 0.0), transmittance=1.0, confidence=0.0, provenance="miss")
+            result = RayQueryResult(color=(0.0, 0.0, 0.0), transmittance=1.0, confidence=0.0, provenance="miss")
+            return RayTraversal(
+                result=result,
+                tested_chunk_ids=tuple(chunk.id for chunk in candidate_chunks),
+                tested_element_ids=tuple(element.id for element in candidates),
+                total_element_count=len(self.elements),
+                hit_count=0,
+            )
         hits.sort(key=lambda item: item.depth if item.depth is not None else float("inf"))
-        return composite_front_to_back(hits)
+        return RayTraversal(
+            result=composite_front_to_back(hits),
+            tested_chunk_ids=tuple(chunk.id for chunk in candidate_chunks),
+            tested_element_ids=tuple(element.id for element in candidates),
+            total_element_count=len(self.elements),
+            hit_count=len(hits),
+        )
 
     def carrier_ids(self) -> list[str]:
         return sorted({element.carrier_id for element in self.elements})
 
     def chunk_ids(self) -> list[str]:
         return sorted({element.chunk_id for element in self.elements})
+
+
+@dataclass(frozen=True)
+class RayTraversal:
+    result: RayQueryResult
+    tested_chunk_ids: tuple[str, ...]
+    tested_element_ids: tuple[str, ...]
+    total_element_count: int
+    hit_count: int
+
+    @property
+    def skipped_element_count(self) -> int:
+        return max(0, self.total_element_count - len(set(self.tested_element_ids)))
+
+    def to_dict(self) -> dict:
+        return {
+            "result": {
+                "color": list(self.result.color),
+                "transmittance": self.result.transmittance,
+                "opacity": self.result.opacity,
+                "confidence": self.result.confidence,
+                "depth": self.result.depth,
+                "normal": list(self.result.normal) if self.result.normal is not None else None,
+                "materialId": self.result.material_id,
+                "semanticId": self.result.semantic_id,
+                "residual": self.result.residual,
+                "provenance": self.result.provenance,
+            },
+            "testedChunkIds": list(self.tested_chunk_ids),
+            "testedElementIds": list(self.tested_element_ids),
+            "totalElementCount": self.total_element_count,
+            "testedElementCount": len(self.tested_element_ids),
+            "skippedElementCount": self.skipped_element_count,
+            "hitCount": self.hit_count,
+        }
 
 
 def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
@@ -66,3 +130,13 @@ def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
         residual=residual,
         provenance=",".join(provenance),
     )
+
+
+def _candidate_chunks(ray: Ray, chunks: Sequence[AuraChunk]) -> tuple[AuraChunk, ...]:
+    candidates = []
+    for chunk in chunks:
+        hit = chunk.bounds.intersect_ray(ray)
+        if hit is not None:
+            candidates.append((hit[0], chunk))
+    candidates.sort(key=lambda item: item[0])
+    return tuple(chunk for _depth, chunk in candidates)

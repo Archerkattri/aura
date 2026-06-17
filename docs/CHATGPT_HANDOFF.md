@@ -47,10 +47,11 @@ First useful tasks:
 18. harden the splat-to-AURA scaffold reader toward real baseline exports,
    preserving 3DGS log-scale and quaternion semantics;
 19. add more first-hit/depth/transmittance query tests;
-20. expand `.aura` package validation around migration fixtures and malformed
+20. harden reference chunk traversal into a production BVH/GPU traversal path;
+21. expand `.aura` package validation around migration fixtures and malformed
    cross-file references;
-21. use the deterministic preview renderer and `compare-renders` as regression
+22. use the deterministic preview renderer and `compare-renders` as regression
    targets;
-22. run `aura import-3dgs` against a real CUDA-trained 3DGS baseline scene only
+23. run `aura import-3dgs` against a real CUDA-trained 3DGS baseline scene only
     after the native reconstruction path is first-class.
 ```

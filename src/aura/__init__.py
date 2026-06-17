@@ -91,7 +91,7 @@ from aura.package import AuraPackage, load_package, package_scene, validate_pack
 from aura.ray import Ray, RayQueryResult
 from aura.render import RenderImage, compare_images, image_mse, image_psnr, read_ppm, render_orthographic
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
-from aura.scene import AuraScene
+from aura.scene import AuraScene, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
 
 __all__ = [
@@ -131,6 +131,7 @@ __all__ = [
     "RayInspection",
     "RayQueryExpectation",
     "RayQueryResult",
+    "RayTraversal",
     "RegionEvidence",
     "ReconstructionConfig",
     "ReconstructionReport",

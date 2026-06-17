@@ -201,6 +201,7 @@ def run_reference_benchmark(
     element_count = len(scene.elements)
     non_gaussian = sum(count for carrier, count in carrier_counts.items() if carrier != "gaussian")
     inspections, query_timings = _timed_scene_ray_inspections(scene)
+    traversals = _scene_center_traversals(scene)
     hits = [inspection for inspection in inspections if inspection.first_hit]
     render_start = perf_counter()
     image = render_orthographic(scene, width=render_width, height=render_height)
@@ -227,6 +228,14 @@ def run_reference_benchmark(
             "raysPerSecond": 0.0 if query_seconds <= 0.0 else len(inspections) / query_seconds,
             "queryP50Ms": _percentile_ms(query_timings, 0.5),
             "queryP95Ms": _percentile_ms(query_timings, 0.95),
+            "chunkTraversal": {
+                "enabled": bool(scene.chunks),
+                "probeCount": len(traversals),
+                "testedChunkCount": sum(len(item.tested_chunk_ids) for item in traversals),
+                "testedElementCount": sum(len(item.tested_element_ids) for item in traversals),
+                "skippedElementCount": sum(item.skipped_element_count for item in traversals),
+                "traversals": [item.to_dict() for item in traversals],
+            },
             "probes": [inspection.to_dict() for inspection in inspections],
         },
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
@@ -465,6 +474,18 @@ def _timed_scene_ray_inspections(scene: AuraScene) -> tuple[tuple[RayInspection,
         inspections.append(inspect_ray(scene, ray, label=element.id))
         timings.append(perf_counter() - start)
     return tuple(inspections), tuple(timings)
+
+
+def _scene_center_traversals(scene: AuraScene) -> tuple:
+    if not scene.elements:
+        return tuple()
+    camera_z = min(element.bounds.min_corner[2] for element in scene.elements) - 2.0
+    traversals = []
+    for element in scene.elements[:8]:
+        center = tuple((lo + hi) / 2.0 for lo, hi in zip(element.bounds.min_corner, element.bounds.max_corner))
+        ray = Ray(origin=(center[0], center[1], camera_z), direction=(0.0, 0.0, 1.0))
+        traversals.append(scene.traverse_ray(ray))
+    return tuple(traversals)
 
 
 def _scene_center_expectations(scene: AuraScene) -> tuple[RayQueryExpectation, ...]:

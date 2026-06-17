@@ -88,7 +88,8 @@ AURA_CAPTURE_MANIFEST
    including binary model support and richer sparse/depth region generation.
 4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,
    neural residual, semantic, and Gaussian fallback carriers.
-5. Implement BVH/chunk traversal for secondary ray queries.
+5. Replace the current reference chunk traversal with a production BVH/GPU
+   traversal path for secondary rays.
 6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
    2DGS, ray-traced GS, and radiance-mesh/neural-primitive baselines.
 7. Report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene behavior:
