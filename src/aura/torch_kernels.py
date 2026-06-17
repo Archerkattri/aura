@@ -56,7 +56,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="volume_cell",
             carrier_id="volume",
             differentiable_fields=("color", "density", "confidence"),
-            description="Density/path-length transmittance reference kernel.",
+            description="Density/path-length transmittance torch autograd kernel; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_volume_kernel",
+            autograd_kernel=True,
         ),
         TorchCarrierKernelSpec(
             payload_type="beta_kernel",
@@ -97,11 +99,12 @@ def torch_carrier_kernel_report() -> dict:
         "format": "AURA_TORCH_CARRIER_KERNEL_REPORT",
         "productionReady": all(spec.production_ready for spec in specs),
         "carrierCount": len(specs),
-        "referenceOnlyCarrierCount": sum(1 for spec in specs if not spec.production_ready),
+        "nonProductionCarrierCount": sum(1 for spec in specs if not spec.production_ready),
+        "referenceOnlyCarrierCount": sum(1 for spec in specs if not spec.autograd_kernel and not spec.cuda_kernel),
         "autogradCarrierCount": sum(1 for spec in specs if spec.autograd_kernel),
         "cudaCarrierCount": sum(1 for spec in specs if spec.cuda_kernel),
         "kernelSpecs": [spec.to_dict() for spec in specs],
-        "requiredNextStep": "replace reference torch payload kernels with carrier-complete autograd/CUDA kernels",
+        "requiredNextStep": "complete remaining carrier autograd paths and add carrier-complete CUDA kernels",
     }
 
 
@@ -118,6 +121,7 @@ def torch_carrier_response_tensors(
     mins: Any,
     maxs: Any,
     device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     carrier_colors = colors[best_index]
     transmittance = 1.0 - opacities[best_index]
@@ -130,7 +134,7 @@ def torch_carrier_response_tensors(
             continue
         payload_type = element.payload.get("type")
         if payload_type == "volume_cell":
-            density = float(element.payload.get("density", element.opacity))
+            density = _carrier_parameter(torch, element, "density", carrier_parameters, device, default=element.payload.get("density", element.opacity))
             path_length = torch.clamp(exit_depth[mask, element_index] - best_depth[mask], min=0.0)
             transmittance[mask] = torch.clamp(torch.exp(-density * path_length), min=0.0, max=1.0)
         elif payload_type == "beta_kernel":
@@ -152,6 +156,44 @@ def torch_carrier_response_tensors(
             confidence[mask] = torch.clamp(float(element.payload.get("confidence", element.confidence)), min=0.0, max=1.0)
 
     return carrier_colors, transmittance, confidence, residual
+
+
+def torch_carrier_parameter_tensors(
+    torch: Any,
+    elements: Sequence[Any],
+    *,
+    device: str,
+    requires_grad: bool = True,
+) -> dict[str, dict[str, Any]]:
+    parameters: dict[str, dict[str, Any]] = {}
+    for element in elements:
+        payload_type = element.payload.get("type")
+        if payload_type == "volume_cell":
+            parameters[element.id] = {
+                "density": torch.tensor(
+                    float(element.payload.get("density", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                )
+            }
+    return parameters
+
+
+def _carrier_parameter(
+    torch: Any,
+    element: Any,
+    name: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    device: str,
+    *,
+    default: object,
+) -> Any:
+    if carrier_parameters is not None:
+        parameter = carrier_parameters.get(element.id, {}).get(name)
+        if parameter is not None:
+            return parameter
+    return torch.tensor(float(default), dtype=torch.float32, device=device)
 
 
 def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, payload: dict) -> Any:

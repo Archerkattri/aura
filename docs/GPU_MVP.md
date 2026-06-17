@@ -101,8 +101,9 @@ optimization scaffold from the same native capture tensor batches. It writes a
 the reference carrier semantics are replaced by autograd/CUDA kernels.
 Use `aura torch-kernel-report` to list every native carrier kernel, its current
 reference/autograd status, and the missing CUDA blockers. The surface carrier
-has a tested torch autograd path; production readiness still requires CUDA
-kernels and the remaining carrier autograd paths.
+has a tested torch autograd path, and the volume carrier has a differentiable
+density parameter path; production readiness still requires CUDA kernels and
+the remaining carrier autograd paths.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
