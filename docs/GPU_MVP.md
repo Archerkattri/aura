@@ -116,6 +116,10 @@ Use `aura inspect-capture-tensors <manifest>` on real capture manifests before
 GPU training. It reports per-frame image/depth/mask/normal tensor shapes,
 loader backend, and sample values so the CUDA path can consume manifest assets
 without relying on summary-only statistics.
+Use `aura plan-capture-sampling <manifest> --tile-size N --pixel-stride S
+--max-targets-per-frame M` to emit the deterministic tile schedule and sampled
+pixel counts that future tiled, memory-mapped, or GPU-native loaders should
+match before materializing render targets.
 Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
 N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
 sampled per-pixel capture tensor targets before moving the same target batches

@@ -129,7 +129,13 @@ from aura.runtime_export import RuntimeExportReport, runtime_export_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene, RayHitTrace, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
-from aura.training_targets import CapturePixelTarget, capture_tensors_to_render_targets
+from aura.training_targets import (
+    CapturePixelTarget,
+    CaptureSamplingPlan,
+    CaptureSamplingTile,
+    capture_tensors_to_render_targets,
+    plan_capture_tensor_sampling,
+)
 from aura.torch_renderer import (
     TorchCaptureAssetBatch,
     TorchCaptureTrainingBatch,
@@ -178,6 +184,8 @@ __all__ = [
     "CaptureFrameTensors",
     "CaptureManifest",
     "CapturePixelTarget",
+    "CaptureSamplingPlan",
+    "CaptureSamplingTile",
     "CaptureProposalFeatures",
     "CaptureProposalModel",
     "CaptureProposalScore",
@@ -239,6 +247,7 @@ __all__ = [
     "capture_tensors_to_training_dataset",
     "capture_proposal_features",
     "capture_tensors_to_render_targets",
+    "plan_capture_tensor_sampling",
     "choose_carrier",
     "cuda_kernel_extension_report",
     "cuda_kernel_extension_status",

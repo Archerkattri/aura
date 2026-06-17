@@ -35,6 +35,7 @@ files exist as PNG, PPM/PGM, or COLMAP dense-map assets, also run:
 ```bash
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
+aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/reconstruct-capture-assets.aura --iterations 6
 aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/torch-optimize-capture.aura --iterations 6

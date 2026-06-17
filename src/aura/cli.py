@@ -40,7 +40,7 @@ from aura.scene import AuraScene
 from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batch
 from aura.torch_renderer import torch_capture_asset_batch, torch_capture_training_batch, torch_renderer_status
 from aura.torch_kernels import torch_carrier_kernel_report
-from aura.training_targets import capture_tensors_to_render_targets
+from aura.training_targets import capture_tensors_to_render_targets, plan_capture_tensor_sampling
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,6 +128,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Load capture-manifest image/depth/mask/normal assets and print tensor shape/sample metadata as JSON",
     )
     inspect_capture_tensors.add_argument("manifest", type=Path)
+
+    plan_capture_sampling = sub.add_parser(
+        "plan-capture-sampling",
+        help="Plan tiled capture tensor sampling for CPU reference or future GPU loaders",
+    )
+    plan_capture_sampling.add_argument("manifest", type=Path)
+    plan_capture_sampling.add_argument("--pixel-stride", type=int, default=1)
+    plan_capture_sampling.add_argument("--max-targets-per-frame", type=int, default=256)
+    plan_capture_sampling.add_argument("--tile-size", type=int, default=256)
 
     colmap_to_manifest = sub.add_parser(
         "colmap-to-capture-manifest",
@@ -327,6 +336,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "inspect-capture-tensors":
         manifest = load_capture_manifest(args.manifest)
         print(json.dumps([item.to_dict() for item in load_capture_asset_tensors(manifest)], indent=2, sort_keys=True))
+        return 0
+    if args.command == "plan-capture-sampling":
+        manifest = load_capture_manifest(args.manifest)
+        tensors = load_capture_asset_tensors(manifest)
+        dataset = capture_tensors_to_training_dataset(manifest, tensors)
+        plan = plan_capture_tensor_sampling(
+            dataset.frames,
+            tensors,
+            pixel_stride=args.pixel_stride,
+            max_targets_per_frame=args.max_targets_per_frame,
+            tile_size=args.tile_size,
+        )
+        print(json.dumps(plan.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "colmap-to-capture-manifest":
         print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir))

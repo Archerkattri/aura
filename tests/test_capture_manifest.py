@@ -18,6 +18,7 @@ from aura import (
     load_capture_assets,
     load_capture_manifest,
     load_package,
+    plan_capture_tensor_sampling,
     validate_capture_manifest_document,
     write_capture_manifest_template,
 )
@@ -234,6 +235,31 @@ def test_capture_tensors_create_masked_per_pixel_render_targets():
     assert targets[0].target_normal == (0.0, 0.0, -1.0)
     assert targets[0].render_target.ray.origin == (0.0, 0.0, -2.0)
     assert targets[0].render_target.ray.direction == (0.0, 0.0, 1.0)
+
+
+def test_capture_tensor_sampling_plan_counts_tiles_and_masks():
+    frame = TrainingFrame(
+        id="frame_000001",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.1, 0.1, 0.1),
+        target_depth=2.0,
+    )
+    tensors = CaptureFrameTensors(
+        frame_id="frame_000001",
+        image=CaptureTensor("image.ppm", "Netpbm", "stdlib", 2, 1, 3, (1.0, 0.0, 0.0, 0.0, 0.5, 0.5)),
+        mask=CaptureTensor("mask.pgm", "Netpbm", "stdlib", 2, 1, 1, (1.0, 0.0)),
+    )
+
+    plan = plan_capture_tensor_sampling((frame,), (tensors,), tile_size=1)
+    payload = plan.to_dict()
+
+    assert plan.total_sampled_pixel_count == 1
+    assert plan.total_masked_pixel_count == 1
+    assert payload["format"] == "AURA_CAPTURE_SAMPLING_PLAN"
+    assert payload["tileCount"] == 2
+    assert payload["tiles"][0]["sampledPixelCount"] == 1
+    assert payload["tiles"][1]["maskedPixelCount"] == 1
 
 
 def test_capture_tensors_to_training_dataset_reuses_loaded_tensor_batch(tmp_path):
@@ -538,6 +564,35 @@ def test_inspect_capture_tensors_cli_reports_tensor_shapes(tmp_path):
     assert payload[0]["image"]["shape"] == [1, 2, 3]
     assert payload[0]["image"]["valueCount"] == 6
     assert payload[0]["depth"]["sampleValues"] == [0.5, 1.0]
+
+
+def test_plan_capture_sampling_cli_reports_tile_schedule(tmp_path):
+    manifest_path = _write_asset_manifest(tmp_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "plan-capture-sampling",
+            str(manifest_path),
+            "--tile-size",
+            "1",
+            "--pixel-stride",
+            "1",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_CAPTURE_SAMPLING_PLAN"
+    assert payload["tileSize"] == 1
+    assert payload["tileCount"] == 2
+    assert payload["totalSampledPixelCount"] == 1
+    assert payload["totalMaskedPixelCount"] == 1
 
 
 def test_reconstruct_capture_manifest_cli_reuses_single_loaded_tensor_batch(tmp_path, monkeypatch):

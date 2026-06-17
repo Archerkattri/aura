@@ -32,6 +32,52 @@ class CapturePixelTarget:
         }
 
 
+@dataclass(frozen=True)
+class CaptureSamplingTile:
+    frame_id: str
+    origin: tuple[int, int]
+    size: tuple[int, int]
+    sampled_pixel_count: int
+    masked_pixel_count: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "frameId": self.frame_id,
+            "origin": list(self.origin),
+            "size": list(self.size),
+            "sampledPixelCount": self.sampled_pixel_count,
+            "maskedPixelCount": self.masked_pixel_count,
+        }
+
+
+@dataclass(frozen=True)
+class CaptureSamplingPlan:
+    pixel_stride: int
+    tile_size: int
+    max_targets_per_frame: int | None
+    tiles: tuple[CaptureSamplingTile, ...]
+
+    @property
+    def total_sampled_pixel_count(self) -> int:
+        return sum(tile.sampled_pixel_count for tile in self.tiles)
+
+    @property
+    def total_masked_pixel_count(self) -> int:
+        return sum(tile.masked_pixel_count for tile in self.tiles)
+
+    def to_dict(self) -> dict:
+        return {
+            "format": "AURA_CAPTURE_SAMPLING_PLAN",
+            "pixelStride": self.pixel_stride,
+            "tileSize": self.tile_size,
+            "maxTargetsPerFrame": self.max_targets_per_frame,
+            "tileCount": len(self.tiles),
+            "totalSampledPixelCount": self.total_sampled_pixel_count,
+            "totalMaskedPixelCount": self.total_masked_pixel_count,
+            "tiles": [tile.to_dict() for tile in self.tiles],
+        }
+
+
 def capture_tensors_to_render_targets(
     frames: Sequence[TrainingFrame],
     tensors: Sequence[CaptureFrameTensors],
@@ -82,6 +128,68 @@ def capture_tensors_to_render_targets(
             if max_targets_per_frame is not None and produced >= max_targets_per_frame:
                 break
     return tuple(targets)
+
+
+def plan_capture_tensor_sampling(
+    frames: Sequence[TrainingFrame],
+    tensors: Sequence[CaptureFrameTensors],
+    *,
+    pixel_stride: int = 1,
+    max_targets_per_frame: int | None = None,
+    tile_size: int = 256,
+) -> CaptureSamplingPlan:
+    """Plan tiled pixel sampling before materializing render targets."""
+
+    if pixel_stride <= 0:
+        raise ValueError("pixel_stride must be positive")
+    if tile_size <= 0:
+        raise ValueError("tile_size must be positive")
+    by_frame = {frame.id: frame for frame in frames}
+    tiles: list[CaptureSamplingTile] = []
+    for frame_tensors in tensors:
+        if frame_tensors.frame_id not in by_frame:
+            raise ValueError(f"capture tensors reference unknown training frame: {frame_tensors.frame_id}")
+        _validate_tensor_dimensions(frame_tensors)
+        produced = 0
+        stop_frame = False
+        for tile_y in range(0, frame_tensors.image.height, tile_size):
+            if stop_frame:
+                break
+            for tile_x in range(0, frame_tensors.image.width, tile_size):
+                width = min(tile_size, frame_tensors.image.width - tile_x)
+                height = min(tile_size, frame_tensors.image.height - tile_y)
+                sampled = 0
+                masked = 0
+                for y in range(tile_y, tile_y + height, pixel_stride):
+                    for x in range(tile_x, tile_x + width, pixel_stride):
+                        mask_value = _scalar_at(frame_tensors.mask, x, y)
+                        if mask_value is not None and mask_value <= 0.0:
+                            masked += 1
+                            continue
+                        sampled += 1
+                        produced += 1
+                        if max_targets_per_frame is not None and produced >= max_targets_per_frame:
+                            stop_frame = True
+                            break
+                    if stop_frame:
+                        break
+                tiles.append(
+                    CaptureSamplingTile(
+                        frame_id=frame_tensors.frame_id,
+                        origin=(tile_x, tile_y),
+                        size=(width, height),
+                        sampled_pixel_count=sampled,
+                        masked_pixel_count=masked,
+                    )
+                )
+                if stop_frame:
+                    break
+    return CaptureSamplingPlan(
+        pixel_stride=pixel_stride,
+        tile_size=tile_size,
+        max_targets_per_frame=max_targets_per_frame,
+        tiles=tuple(tiles),
+    )
 
 
 def _validate_tensor_dimensions(frame_tensors: CaptureFrameTensors) -> None:

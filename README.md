@@ -205,6 +205,8 @@ aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 # loads existing PNG, PPM/PGM, or COLMAP depth-map assets and prints deterministic summaries
 aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
 # prints per-frame image/depth/mask/normal tensor shape, backend, and sample metadata
+aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
+# prints deterministic tiled pixel sampling counts for CPU reference or future GPU loaders
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 # replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
 aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --pixel-stride 8 --max-targets-per-frame 1024
