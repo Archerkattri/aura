@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aura-contract"
+version = "0.1.0"
+description = "CPU-only AURA representation contract scaffold"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+aura = "aura.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+where = ["src"]
