@@ -38,6 +38,18 @@ class CaptureManifest:
             "regions": [region.to_dict() for region in self.regions],
         }
 
+    @classmethod
+    def from_dict(cls, payload: dict) -> "CaptureManifest":
+        if not isinstance(payload, dict):
+            raise ValueError("capture manifest payload must be an object")
+        validate_capture_manifest_document(payload)
+        root = str(payload.get("root") or ".")
+        frames = tuple(_frame_from_capture_payload(item) for item in payload["frames"])
+        regions = tuple(_region_from_capture_payload(item) for item in payload["regions"])
+        dataset = TrainingDataset(frames=frames, regions=regions)
+        _validate_manifest_links(dataset)
+        return cls(root=root, frames=frames, regions=regions)
+
 
 @dataclass(frozen=True)
 class CaptureFrameAssets:
@@ -81,12 +93,9 @@ def load_capture_manifest(path: Path | str) -> CaptureManifest:
         raise ValueError("capture manifest JSON must be an object")
     validate_capture_manifest_document(payload)
 
-    root = str(payload.get("root") or manifest_path.parent)
-    frames = tuple(_frame_from_capture_payload(item) for item in payload["frames"])
-    regions = tuple(_region_from_capture_payload(item) for item in payload["regions"])
-    dataset = TrainingDataset(frames=frames, regions=regions)
-    _validate_manifest_links(dataset)
-    return CaptureManifest(root=root, frames=frames, regions=regions)
+    if "root" not in payload:
+        payload = {**payload, "root": str(manifest_path.parent)}
+    return CaptureManifest.from_dict(payload)
 
 
 def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, ...]:
@@ -134,6 +143,13 @@ def write_capture_manifest_template(path: Path | str) -> Path:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(capture_manifest_template(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return out
+
+
+def write_capture_manifest(manifest: CaptureManifest, path: Path | str) -> Path:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return out
 
 

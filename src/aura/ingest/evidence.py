@@ -86,7 +86,7 @@ def supported_ingest_adapters() -> tuple[IngestAdapterSpec, ...]:
         IngestAdapterSpec(id="3dgs", status="implemented", notes="PLY/JSON splats are converted to EvidenceSample before AURA decomposition."),
         IngestAdapterSpec(id="depth-prior", status="contract", notes="Depth points become surface evidence samples."),
         IngestAdapterSpec(id="semantic-mask", status="contract", notes="Mask regions become semantic/object evidence samples."),
-        IngestAdapterSpec(id="colmap-sparse", status="contract", notes="Sparse points become compact geometry priors."),
+        IngestAdapterSpec(id="colmap-sparse", status="implemented", notes="COLMAP text models become AURA_CAPTURE_MANIFEST frames plus sparse prior regions."),
         IngestAdapterSpec(id="pixelsplat", status="future", notes="Future feed-forward splats must enter as evidence samples."),
         IngestAdapterSpec(id="idesplat", status="future", notes="Future depth/semantic splat variants must enter as evidence samples."),
     )

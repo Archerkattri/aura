@@ -34,6 +34,7 @@ native representation contract pieces:
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
 - AURA-Ingest adapters that convert 3DGS, depth, semantic mask, and sparse
   point priors into `EvidenceSample` contracts;
+- COLMAP text-model pose/intrinsics import to `AURA_CAPTURE_MANIFEST`;
 - `.aura` package writer;
 - `.aura` package loader/validator;
 - explicit `.aura` format/version compatibility checks;
@@ -122,6 +123,10 @@ aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 # loads existing fixture PPM/PGM image/depth/mask assets and prints deterministic summaries
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 # replaces target color/depth summaries from fixture PPM/PGM assets
+
+# COLMAP pose/intrinsics ingest:
+aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json
+# converts COLMAP cameras.txt/images.txt/points3D.txt into the native capture manifest contract
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
@@ -225,6 +230,7 @@ src/aura/
   scene.py       reference scene query
   ingest/
     baselines.py  3DGS export discovery and import adapter
+    colmap.py     COLMAP text camera/pose/sparse-point manifest importer
     capture.py    image/depth/mask/camera manifest to AURA-Core training dataset
     splats.py     JSON/PLY 3DGS evidence reader and AURA conversion
 tests/           contract tests

@@ -23,6 +23,7 @@ from aura.ingest import (
     package_3dgs_export,
     supported_ingest_adapters,
     write_capture_manifest_template,
+    write_colmap_capture_manifest,
 )
 from aura.inspection import inspect_scene_rays, native_demo_interaction_probes
 from aura.migration import migration_report
@@ -96,6 +97,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Load capture-manifest PPM/PGM assets and print deterministic summaries as JSON",
     )
     inspect_capture_assets.add_argument("manifest", type=Path)
+
+    colmap_to_manifest = sub.add_parser(
+        "colmap-to-capture-manifest",
+        help="Convert a COLMAP text model directory to an AURA capture manifest",
+    )
+    colmap_to_manifest.add_argument("colmap_dir", type=Path)
+    colmap_to_manifest.add_argument("--output", type=Path, default=Path("outputs/capture-from-colmap.json"))
+    colmap_to_manifest.add_argument("--root", default="data/custom-captures/colmap-scene")
+    colmap_to_manifest.add_argument("--image-dir", default="images")
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -213,6 +223,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
         print(json.dumps([item.to_dict() for item in load_capture_assets(manifest)], indent=2, sort_keys=True))
+        return 0
+    if args.command == "colmap-to-capture-manifest":
+        print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir))
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))

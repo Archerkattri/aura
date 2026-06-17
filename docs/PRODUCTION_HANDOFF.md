@@ -34,6 +34,12 @@ aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 ```
 
+For COLMAP text models, generate the capture manifest with:
+
+```bash
+aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json
+```
+
 ## Real Data Layout
 
 Do not commit data, third-party repos, checkpoints, outputs, or secrets.
@@ -78,7 +84,8 @@ AURA_CAPTURE_MANIFEST
 2. Replace the current dependency-free PPM/PGM fixture asset loader with real
    PNG/EXR/video tensor loading for manifest `image_path`, `depth_path`, and
    `mask_path`.
-3. Add COLMAP pose/intrinsics import that writes `AURA_CAPTURE_MANIFEST`.
+3. Harden COLMAP import beyond text `cameras.txt`/`images.txt`/`points3D.txt`,
+   including binary model support and richer sparse/depth region generation.
 4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,
    neural residual, semantic, and Gaussian fallback carriers.
 5. Implement BVH/chunk traversal for secondary ray queries.
