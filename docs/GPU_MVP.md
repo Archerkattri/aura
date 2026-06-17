@@ -48,6 +48,8 @@ This package now contains the GPU-ready skeleton for AURA:
   `torch_render_capture_training_batch`;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
+- tensor-driven native feature proposals for image-detail and depth-edge
+  regions before adaptive decomposition;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors over `AuraScene`
   and `RenderTarget`;

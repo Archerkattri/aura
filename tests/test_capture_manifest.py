@@ -126,6 +126,39 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert dataset.regions[-1].evidence.semantic_confidence == 0.825
 
 
+def test_capture_manifest_asset_tensors_seed_feature_proposal_regions(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    dataset = manifest.to_training_dataset(load_assets=True)
+    by_id = {region.id: region for region in dataset.regions}
+
+    assert by_id["frame_000001_image_detail_proposal"].fallback_source == "capture-feature-proposal"
+    assert by_id["frame_000001_image_detail_proposal"].evidence.high_frequency >= 0.8
+    assert by_id["frame_000001_image_detail_proposal"].semantic_label is None
+    assert by_id["frame_000001_depth_edge_proposal"].fallback_source == "capture-feature-proposal"
+    assert by_id["frame_000001_depth_edge_proposal"].evidence.compact_detail >= 0.8
+    assert by_id["frame_000001_depth_edge_proposal"].semantic_label is None
+
+
+def test_capture_manifest_feature_proposals_decompose_to_native_detail_carriers(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    dataset = manifest.to_training_dataset(load_assets=True)
+    frame_by_id = {frame.id: frame for frame in dataset.frames}
+    samples = tuple(region.to_evidence_sample(frame_by_id[region.frame_id]) for region in dataset.regions)
+
+    scene = decompose_evidence(samples)
+    by_id = {element.id: element for element in scene.elements}
+
+    assert by_id["frame_000001_image_detail_proposal"].carrier_id == "gabor"
+    assert by_id["frame_000001_image_detail_proposal"].payload["type"] == "gabor_frequency"
+    assert by_id["frame_000001_depth_edge_proposal"].carrier_id == "beta"
+    assert by_id["frame_000001_depth_edge_proposal"].payload["type"] == "beta_kernel"
+    assert scene.semantic_graph.nodes[0].element_ids == (
+        "frame_000001_depth_prior_0",
+        "frame_000001_depth_prior_1",
+        "frame_000001_mask_semantic",
+    )
+
+
 def test_capture_manifest_loads_per_pixel_asset_tensors(tmp_path):
     manifest_path = _write_asset_manifest(tmp_path)
     manifest = load_capture_manifest(manifest_path)

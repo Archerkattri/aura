@@ -29,8 +29,14 @@ class CaptureManifest:
         if not load_assets:
             return TrainingDataset(frames=self.frames, regions=self.regions)
         assets = {item.frame_id: item for item in load_capture_assets(self)}
+        tensors = {item.frame_id: item for item in load_capture_asset_tensors(self)}
         frames = tuple(_frame_with_asset_summaries(frame, assets.get(frame.id)) for frame in self.frames)
-        regions = (*self.regions, *_depth_regions_from_assets(frames, assets), *_mask_regions_from_assets(frames, assets))
+        regions = (
+            *self.regions,
+            *_feature_regions_from_tensors(frames, tensors, assets),
+            *_depth_regions_from_assets(frames, assets),
+            *_mask_regions_from_assets(frames, assets),
+        )
         return TrainingDataset(frames=frames, regions=regions)
 
     def to_dict(self) -> dict:
@@ -415,6 +421,91 @@ def _depth_regions_from_assets(
     return tuple(regions)
 
 
+def _feature_regions_from_tensors(
+    frames: tuple[TrainingFrame, ...],
+    tensors: dict[str, CaptureFrameTensors],
+    assets: dict[str, CaptureFrameAssets],
+) -> tuple[TrainingRegion, ...]:
+    regions = []
+    for frame in frames:
+        frame_tensors = tensors.get(frame.id)
+        if frame_tensors is None:
+            continue
+        asset = assets.get(frame.id)
+        depth = asset.average_depth if asset is not None and asset.average_depth is not None else frame.target_depth
+        contrast = _image_detail_score(frame_tensors.image)
+        if contrast >= 0.35:
+            regions.append(_image_detail_region(frame, frame_tensors, depth, contrast, asset))
+        depth_edge = _depth_edge_score(frame_tensors.depth)
+        if depth_edge >= 0.25:
+            regions.append(_depth_edge_region(frame, frame_tensors, depth, depth_edge, asset))
+    return tuple(regions)
+
+
+def _image_detail_region(
+    frame: TrainingFrame,
+    tensors: CaptureFrameTensors,
+    depth: float,
+    contrast: float,
+    asset: CaptureFrameAssets | None,
+) -> TrainingRegion:
+    half_width = _depth_region_half_extent(frame, depth) * 0.5
+    confidence = min(1.0, 0.55 + 0.4 * contrast)
+    return TrainingRegion(
+        id=f"{frame.id}_image_detail_proposal",
+        frame_id=frame.id,
+        bounds=Bounds(
+            min_corner=(-half_width, -half_width, max(depth - max(depth * 0.03, 1e-3), 1e-6)),
+            max_corner=(half_width, half_width, depth + max(depth * 0.03, 1e-3)),
+        ),
+        evidence=RegionEvidence(
+            high_frequency=min(1.0, max(0.8, contrast)),
+            image_error=min(1.0, contrast),
+            material_confidence=0.45,
+            ray_need=0.65,
+            compact_detail=0.45,
+        ),
+        color=_average_tensor_rgb(tensors.image),
+        opacity=0.7,
+        confidence=confidence,
+        normal=asset.average_normal if asset is not None else None,
+        material_id="mat_image_detail_proposal",
+        fallback_source="capture-feature-proposal",
+    )
+
+
+def _depth_edge_region(
+    frame: TrainingFrame,
+    tensors: CaptureFrameTensors,
+    depth: float,
+    edge_score: float,
+    asset: CaptureFrameAssets | None,
+) -> TrainingRegion:
+    half_width = _depth_region_half_extent(frame, depth) * 0.4
+    thickness = max(depth * 0.02, edge_score * depth * 0.05, 1e-3)
+    confidence = min(1.0, 0.5 + 0.45 * edge_score)
+    return TrainingRegion(
+        id=f"{frame.id}_depth_edge_proposal",
+        frame_id=frame.id,
+        bounds=Bounds(
+            min_corner=(-half_width, -half_width, max(depth - thickness, 1e-6)),
+            max_corner=(half_width, half_width, depth + thickness),
+        ),
+        evidence=RegionEvidence(
+            compact_detail=min(1.0, max(0.8, edge_score)),
+            geometry_confidence=min(0.9, 0.45 + 0.45 * edge_score),
+            image_error=min(1.0, edge_score),
+            ray_need=0.7,
+        ),
+        color=_average_tensor_rgb(tensors.image),
+        opacity=0.75,
+        confidence=confidence,
+        normal=asset.average_normal if asset is not None else None,
+        material_id="mat_depth_edge_proposal",
+        fallback_source="capture-feature-proposal",
+    )
+
+
 def _depth_region_for_bin(
     frame: TrainingFrame,
     asset: CaptureFrameAssets,
@@ -520,6 +611,56 @@ def _average_rgb(image: _RasterImage) -> Vec3:
             totals[channel] += image.values[pixel_start + channel]
     pixels = image.width * image.height
     return (totals[0] / pixels, totals[1] / pixels, totals[2] / pixels)
+
+
+def _average_tensor_rgb(image: CaptureTensor) -> Vec3:
+    if image.channels < 3:
+        raise ValueError("average RGB requires at least a 3-channel image")
+    totals = [0.0, 0.0, 0.0]
+    for pixel_start in range(0, len(image.values), image.channels):
+        for channel in range(3):
+            totals[channel] += image.values[pixel_start + channel]
+    pixels = image.width * image.height
+    return (totals[0] / pixels, totals[1] / pixels, totals[2] / pixels)
+
+
+def _image_detail_score(image: CaptureTensor) -> float:
+    if image.channels < 3 or image.width * image.height < 2:
+        return 0.0
+    scores = []
+    for y in range(image.height):
+        for x in range(image.width):
+            if x + 1 < image.width:
+                scores.append(_rgb_distance(image, x, y, x + 1, y))
+            if y + 1 < image.height:
+                scores.append(_rgb_distance(image, x, y, x, y + 1))
+    return 0.0 if not scores else sum(scores) / len(scores)
+
+
+def _rgb_distance(image: CaptureTensor, ax: int, ay: int, bx: int, by: int) -> float:
+    first = (ay * image.width + ax) * image.channels
+    second = (by * image.width + bx) * image.channels
+    return sum(abs(image.values[first + channel] - image.values[second + channel]) for channel in range(3)) / 3.0
+
+
+def _depth_edge_score(depth: CaptureTensor | None) -> float:
+    if depth is None or depth.channels != 1 or depth.width * depth.height < 2:
+        return 0.0
+    scores = []
+    for y in range(depth.height):
+        for x in range(depth.width):
+            value = depth.values[y * depth.width + x]
+            if value <= 0.0:
+                continue
+            if x + 1 < depth.width:
+                neighbor = depth.values[y * depth.width + x + 1]
+                if neighbor > 0.0:
+                    scores.append(abs(value - neighbor))
+            if y + 1 < depth.height:
+                neighbor = depth.values[(y + 1) * depth.width + x]
+                if neighbor > 0.0:
+                    scores.append(abs(value - neighbor))
+    return 0.0 if not scores else min(1.0, sum(scores) / len(scores))
 
 
 def _average_scalar(image: _RasterImage | None) -> float | None:
