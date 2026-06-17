@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from math import sqrt
 from typing import Sequence
 
 from aura.assignment import RegionEvidence
 from aura.decomposition import EvidenceSample, decompose_evidence
-from aura.elements import Bounds
-from aura.ray import Vec3
-from aura.render import render_orthographic
+from aura.elements import AuraElement, Bounds
+from aura.ray import Ray, Vec3
 from aura.scene import AuraScene
 
 
@@ -37,12 +37,43 @@ class ReconstructionConfig:
     iterations: int = 4
     render_width: int = 8
     render_height: int = 8
+    color_learning_rate: float = 0.35
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
             raise ValueError("iterations must be positive")
         if self.render_width <= 0 or self.render_height <= 0:
             raise ValueError("render dimensions must be positive")
+        if not 0.0 < self.color_learning_rate <= 1.0:
+            raise ValueError("color_learning_rate must be in (0, 1]")
+
+
+@dataclass(frozen=True)
+class FramePrediction:
+    frame_id: str
+    element_id: str | None
+    carrier_id: str | None
+    ray_direction: Vec3
+    predicted_color: Vec3
+    target_color: Vec3
+    predicted_depth: float | None
+    target_depth: float
+    image_loss: float
+    depth_loss: float
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class CarrierEvolutionDecision:
+    element_id: str
+    carrier_id: str
+    action: str
+    reason: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -51,10 +82,20 @@ class ReconstructionStep:
     image_loss: float
     depth_loss: float
     carrier_counts: dict[str, int]
-    adaptation: str
+    total_loss: float
+    predictions: tuple[FramePrediction, ...]
+    carrier_evolution: tuple[CarrierEvolutionDecision, ...]
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {
+            "iteration": self.iteration,
+            "image_loss": self.image_loss,
+            "depth_loss": self.depth_loss,
+            "total_loss": self.total_loss,
+            "carrier_counts": dict(self.carrier_counts),
+            "predictions": [prediction.to_dict() for prediction in self.predictions],
+            "carrier_evolution": [decision.to_dict() for decision in self.carrier_evolution],
+        }
 
 
 @dataclass(frozen=True)
@@ -132,7 +173,7 @@ def reconstruct_demo_scene(config: ReconstructionConfig | None = None) -> Recons
     config = config or ReconstructionConfig()
     frames = synthetic_training_frames()
     scene = decompose_evidence(_initial_evidence_from_frames(frames), name="reconstruct_demo")
-    iterations = _reference_iterations(scene, frames, config)
+    scene, iterations = _reference_iterations(scene, frames, config)
     final_loss = iterations[-1].image_loss + iterations[-1].depth_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
     native_fraction = 0.0 if not scene.elements else non_gaussian / len(scene.elements)
@@ -230,49 +271,160 @@ def _reference_iterations(
     scene: AuraScene,
     frames: Sequence[TrainingFrame],
     config: ReconstructionConfig,
-) -> tuple[ReconstructionStep, ...]:
-    base_image_loss = _fixture_image_loss(scene, frames, config)
-    base_depth_loss = _fixture_depth_loss(scene, frames)
-    counts = _carrier_counts(scene)
+) -> tuple[AuraScene, tuple[ReconstructionStep, ...]]:
     steps = []
     for index in range(config.iterations):
-        progress = index / max(1, config.iterations - 1)
-        image_loss = base_image_loss * (1.0 - 0.55 * progress)
-        depth_loss = base_depth_loss * (1.0 - 0.40 * progress)
-        adaptation = "initialize" if index == 0 else "promote_or_refine_native_carriers"
+        predictions = _predict_training_frames(scene, frames)
+        image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
+        depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
+        evolution = _carrier_evolution_decisions(predictions)
         steps.append(
             ReconstructionStep(
                 iteration=index,
                 image_loss=image_loss,
                 depth_loss=depth_loss,
-                carrier_counts=counts,
-                adaptation=adaptation,
+                total_loss=image_loss + depth_loss,
+                carrier_counts=_carrier_counts(scene),
+                predictions=predictions,
+                carrier_evolution=evolution,
             )
         )
-    return tuple(steps)
+        scene = _refine_scene_from_predictions(scene, predictions, config)
+    return scene, tuple(steps)
 
 
-def _fixture_image_loss(scene: AuraScene, frames: Sequence[TrainingFrame], config: ReconstructionConfig) -> float:
-    image = render_orthographic(scene, width=config.render_width, height=config.render_height)
-    predicted = _mean_color(image.pixels)
-    target = _mean_color(tuple(frame.target_color for frame in frames))
-    return sum((left - right) ** 2 for left, right in zip(predicted, target)) / 3.0
+def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) -> tuple[FramePrediction, ...]:
+    predictions = []
+    element_by_id = {element.id: element for element in scene.elements}
+    for frame in frames:
+        direction = _normalized_direction(frame.camera_origin, frame.look_at)
+        ray = Ray(origin=frame.camera_origin, direction=direction)
+        result = scene.ray_query(ray)
+        provenance = result.provenance.split(",", 1)[0] if result.provenance else None
+        element = element_by_id.get(provenance)
+        image_loss = _color_mse(result.color, frame.target_color)
+        depth_loss = abs((result.depth or 0.0) - frame.target_depth) if result.depth is not None else frame.target_depth
+        predictions.append(
+            FramePrediction(
+                frame_id=frame.id,
+                element_id=element.id if element is not None else None,
+                carrier_id=element.carrier_id if element is not None else None,
+                ray_direction=direction,
+                predicted_color=result.color,
+                target_color=frame.target_color,
+                predicted_depth=result.depth,
+                target_depth=frame.target_depth,
+                image_loss=image_loss,
+                depth_loss=depth_loss,
+            )
+        )
+    return tuple(predictions)
 
 
-def _fixture_depth_loss(scene: AuraScene, frames: Sequence[TrainingFrame]) -> float:
-    scene_depth = min(element.bounds.min_corner[2] for element in scene.elements) + 2.0 if scene.elements else 0.0
-    target_depth = sum(frame.target_depth for frame in frames) / len(frames)
-    return abs(scene_depth - target_depth)
+def _carrier_evolution_decisions(predictions: Sequence[FramePrediction]) -> tuple[CarrierEvolutionDecision, ...]:
+    decisions = []
+    seen = set()
+    for prediction in predictions:
+        if prediction.element_id is None or prediction.carrier_id is None:
+            continue
+        key = (prediction.element_id, prediction.carrier_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        if prediction.image_loss > 0.03 and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
+            action = "refine_radiance"
+            reason = "photometric residual above native carrier threshold"
+        elif prediction.depth_loss > 0.10 and prediction.carrier_id in {"surface", "volume", "semantic"}:
+            action = "anchor_carrier_depth"
+            reason = "depth residual exceeds reference tolerance"
+        elif prediction.carrier_id == "gabor":
+            action = "retain_frequency_carrier"
+            reason = "high-frequency evidence is represented by a native carrier"
+        elif prediction.carrier_id == "semantic":
+            action = "retain_semantic_carrier"
+            reason = "semantic observation remains object-addressable"
+        else:
+            action = "retain_carrier"
+            reason = "current carrier explains fixture evidence within reference tolerance"
+        decisions.append(
+            CarrierEvolutionDecision(
+                element_id=prediction.element_id,
+                carrier_id=prediction.carrier_id,
+                action=action,
+                reason=reason,
+            )
+        )
+    return tuple(decisions)
 
 
-def _mean_color(colors: Sequence[Vec3]) -> Vec3:
-    if not colors:
-        return (0.0, 0.0, 0.0)
-    scale = 1.0 / len(colors)
-    return (
-        sum(color[0] for color in colors) * scale,
-        sum(color[1] for color in colors) * scale,
-        sum(color[2] for color in colors) * scale,
+def _refine_scene_from_predictions(
+    scene: AuraScene,
+    predictions: Sequence[FramePrediction],
+    config: ReconstructionConfig,
+) -> AuraScene:
+    targets_by_element = {prediction.element_id: prediction.target_color for prediction in predictions if prediction.element_id}
+    if not targets_by_element:
+        return scene
+    elements = []
+    for element in scene.elements:
+        target = targets_by_element.get(element.id)
+        if target is None:
+            elements.append(element)
+            continue
+        prediction = next(item for item in predictions if item.element_id == element.id)
+        observation_scale = _observed_color_scale(element.color, prediction.predicted_color)
+        target_unattenuated = tuple(_clamp_unit(channel / observation_scale) for channel in target)
+        color = tuple(
+            channel + (target_channel - channel) * config.color_learning_rate
+            for channel, target_channel in zip(element.color, target_unattenuated)
+        )
+        bounds = element.bounds
+        if prediction.predicted_depth is not None and prediction.depth_loss > 0.01:
+            depth_delta = (prediction.target_depth - prediction.predicted_depth) * config.color_learning_rate
+            bounds = _shift_bounds_along_ray(element.bounds, prediction.ray_direction, depth_delta)
+        elements.append(
+            replace(
+                element,
+                bounds=bounds,
+                color=color,  # type: ignore[arg-type]
+                metadata={**element.metadata, "optimized_by": "aura-core-reference-loop"},
+            )
+        )
+    return AuraScene(name=scene.name, elements=tuple(elements), chunks=scene.chunks, semantic_graph=scene.semantic_graph)
+
+
+def _normalized_direction(origin: Vec3, target: Vec3) -> Vec3:
+    vector = tuple(target[index] - origin[index] for index in range(3))
+    norm = sqrt(sum(axis * axis for axis in vector))
+    if norm <= 1e-12:
+        raise ValueError("camera origin and look_at must differ")
+    return tuple(axis / norm for axis in vector)  # type: ignore[return-value]
+
+
+def _color_mse(left: Vec3, right: Vec3) -> float:
+    return sum((left_channel - right_channel) ** 2 for left_channel, right_channel in zip(left, right)) / 3.0
+
+
+def _observed_color_scale(element_color: Vec3, predicted_color: Vec3) -> float:
+    ratios = [
+        predicted / raw
+        for raw, predicted in zip(element_color, predicted_color)
+        if abs(raw) > 1e-6
+    ]
+    if not ratios:
+        return 1.0
+    return max(0.05, min(1.0, sum(ratios) / len(ratios)))
+
+
+def _clamp_unit(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _shift_bounds_along_ray(bounds: Bounds, direction: Vec3, distance: float) -> Bounds:
+    offset = tuple(axis * distance for axis in direction)
+    return Bounds(
+        min_corner=tuple(value + delta for value, delta in zip(bounds.min_corner, offset)),  # type: ignore[arg-type]
+        max_corner=tuple(value + delta for value, delta in zip(bounds.max_corner, offset)),  # type: ignore[arg-type]
     )
 
 

@@ -28,6 +28,11 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert len(report["iterations"]) == 3
     assert report["iterations"][-1]["image_loss"] < report["iterations"][0]["image_loss"]
     assert report["iterations"][-1]["depth_loss"] < report["iterations"][0]["depth_loss"]
+    assert report["iterations"][-1]["total_loss"] < report["iterations"][0]["total_loss"]
+    assert len(report["iterations"][0]["predictions"]) == len(report["frames"])
+    assert {item["carrier_id"] for item in report["iterations"][0]["predictions"]} >= {"surface", "volume", "gabor", "semantic"}
+    assert {item["action"] for item in report["iterations"][0]["carrier_evolution"]} >= {"refine_radiance"}
+    assert all("ray_direction" in item for item in report["iterations"][0]["predictions"])
 
 
 def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
@@ -56,3 +61,5 @@ def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
     assert package.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
     assert report["name"] == "reconstruct_demo"
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
+    assert report["iterations"][0]["predictions"]
+    assert report["iterations"][0]["carrier_evolution"]

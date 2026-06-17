@@ -86,8 +86,9 @@ The repo should move toward these milestones, in this order:
 
 1. `aura reconstruct-demo`: a synthetic posed-image/depth fixture that builds a
    native AURA scene without 3DGS.
-2. CPU differentiable-reference loop: render, compute image/depth losses, update
-   carrier parameters, and emit a training report.
+2. CPU reference loop: cast posed training rays, compute per-frame image/depth
+   losses, update carrier color/depth parameters, and emit a training report
+   with carrier evolution decisions.
 3. Adaptive evolution: promote regions between gaussian, surface, volume, beta,
    gabor, neural, and semantic carriers based on measured residuals.
 4. Ray-query correctness: first hit, depth, normal, transmittance, material,

@@ -1,4 +1,4 @@
-"""GPU-ready AURA representation contract scaffold."""
+"""AURA-Core native adaptive radiance reconstruction scaffold."""
 
 from aura.asset import AuraAsset
 from aura.assignment import RegionEvidence, choose_carrier
@@ -22,6 +22,8 @@ from aura.carrier_payloads import (
     VolumeCellPayload,
 )
 from aura.core import (
+    CarrierEvolutionDecision,
+    FramePrediction,
     ReconstructionConfig,
     ReconstructionReport,
     ReconstructionResult,
@@ -76,8 +78,10 @@ __all__ = [
     "Bounds",
     "CarrierKind",
     "CarrierSpec",
+    "CarrierEvolutionDecision",
     "DepthEvidencePoint",
     "EvidenceSample",
+    "FramePrediction",
     "GaborFrequencyPayload",
     "GaussianFallbackPayload",
     "GaussianSplatSample",
