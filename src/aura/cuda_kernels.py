@@ -174,6 +174,84 @@ def cuda_kernel_source_report() -> dict:
     }
 
 
+def cuda_renderer_source_report() -> dict:
+    path = "cuda/aura_carriers.cu"
+    symbol = "aura_render_rays_kernel"
+    contract_outputs = (
+        "out_color",
+        "out_alpha",
+        "out_transmittance",
+        "out_depth",
+        "out_normal",
+        "out_confidence",
+        "out_residual",
+        "out_material_id",
+        "out_semantic_id",
+        "ordered_hits",
+    )
+    source_text = _cuda_kernel_source_text(path)
+    expected_fragments = (
+        f'extern "C" __global__ void {symbol}',
+        "aura_ray_aabb_intersect",
+        "ray_origins",
+        "ray_directions",
+        "element_mins",
+        "element_maxs",
+        *contract_outputs,
+    )
+    missing_fragments = (
+        list(expected_fragments)
+        if source_text is None
+        else [fragment for fragment in expected_fragments if fragment not in source_text]
+    )
+    return {
+        "format": "AURA_CUDA_RENDERER_SOURCE_REPORT",
+        "path": path,
+        "symbol": symbol,
+        "available": cuda_kernel_source_available(path),
+        "sourceSymbolAvailable": source_text is not None and not missing_fragments,
+        "contractComplete": not missing_fragments,
+        "missingSourceFragments": missing_fragments,
+        "productionReady": False,
+        "arguments": [
+            _renderer_kernel_argument("ray_origins", "const float*", "input", "rayCount x 3"),
+            _renderer_kernel_argument("ray_directions", "const float*", "input", "rayCount x 3"),
+            _renderer_kernel_argument("element_mins", "const float*", "scene", "elementCount x 3"),
+            _renderer_kernel_argument("element_maxs", "const float*", "scene", "elementCount x 3"),
+            _renderer_kernel_argument("carrier_ids", "const int*", "scene", "elementCount"),
+            _renderer_kernel_argument("colors", "const float*", "scene", "elementCount x 3"),
+            _renderer_kernel_argument("opacities", "const float*", "scene", "elementCount"),
+            _renderer_kernel_argument("confidences", "const float*", "scene", "elementCount"),
+            _renderer_kernel_argument("material_ids", "const int*", "scene", "elementCount"),
+            _renderer_kernel_argument("semantic_ids", "const int*", "scene", "elementCount"),
+            *(
+                _renderer_kernel_argument(output, _renderer_output_dtype(output), "output", _renderer_output_shape(output))
+                for output in contract_outputs
+            ),
+            _renderer_kernel_argument("ray_count", "int", "size", "scalar"),
+            _renderer_kernel_argument("element_count", "int", "size", "scalar"),
+            _renderer_kernel_argument("max_hits", "int", "size", "scalar"),
+        ],
+        "contractOutputs": list(contract_outputs),
+        "implementedSemantics": [
+            "batched ray input validation target",
+            "AABB first-hit traversal over native element bounds",
+            "first-hit color, opacity, transmittance, depth, normal, confidence, material, semantic, residual outputs",
+            "ordered hit buffer initialized with -1 miss sentinel and first-hit element index",
+        ],
+        "productionBlockers": [
+            "python binding dispatch missing",
+            "compiled CUDA extension parity tests missing",
+            "multi-hit ordered compositing and chunk/BVH traversal missing",
+            "performance benchmarks missing",
+        ],
+        "notes": (
+            "This is packaged renderer source for the native AURA ray-query ABI. "
+            "It is not production-ready until compiled dispatch, parity, and speed gates pass."
+        ),
+    }
+
+
 def cuda_kernel_extension_status(*, build: bool = False, verbose: bool = False) -> CudaExtensionStatus:
     sources = cuda_kernel_sources()
     source_paths = tuple(sorted({source.path for source in sources}))
@@ -277,6 +355,7 @@ def cuda_renderer_api_contract() -> dict:
             _renderer_tensor("ordered_hits", "int32", "rayCount x maxHits", "output", "Ordered carrier hit trace indices for CPU/torch parity checks."),
         ],
         "sourceReport": cuda_kernel_source_report(),
+        "rendererSourceReport": cuda_renderer_source_report(),
         "extension": cuda_kernel_extension_status(build=False).to_dict(),
         "unavailableUntil": [
             "CUDA extension is compiled from packaged sources",
@@ -387,6 +466,31 @@ def _renderer_tensor(name: str, dtype: str, shape: str, role: str, description: 
         "role": role,
         "description": description,
     }
+
+
+def _renderer_kernel_argument(name: str, dtype: str, role: str, shape: str) -> dict:
+    return {
+        "name": name,
+        "dtype": dtype,
+        "role": role,
+        "shape": shape,
+    }
+
+
+def _renderer_output_dtype(name: str) -> str:
+    if name in {"out_residual"}:
+        return "unsigned char*"
+    if name in {"out_material_id", "out_semantic_id", "ordered_hits"}:
+        return "int*"
+    return "float*"
+
+
+def _renderer_output_shape(name: str) -> str:
+    if name in {"out_color", "out_normal"}:
+        return "rayCount x 3"
+    if name == "ordered_hits":
+        return "rayCount x maxHits"
+    return "rayCount"
 
 
 def _validate_batched_rays(ray_origins: Any | None, ray_directions: Any | None) -> int | None:

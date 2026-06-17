@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
-from aura.cuda_kernels import CudaExtensionStatus, cuda_kernel_extension_status
+from aura.cuda_kernels import CudaExtensionStatus, cuda_kernel_extension_status, cuda_renderer_source_report
 from aura.optimize import RenderTarget
 from aura.ray import Ray
 from aura.scene import AuraScene, RayTraversal
@@ -149,6 +149,7 @@ def cuda_renderer_boundary_report(
         "available": bool(extension.available),
         "productionReady": False,
         "extension": extension.to_dict(),
+        "rendererSource": cuda_renderer_source_report(),
         "fallbackBackends": ["cpu", "torch", "auto", "none"],
         "fallbackContractFields": [
             "elementIds",

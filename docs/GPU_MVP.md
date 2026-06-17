@@ -78,6 +78,11 @@ This package now contains the GPU-ready skeleton for AURA:
 - packaged CUDA carrier source symbols for surface, volume, beta, gabor, neural,
   semantic, and Gaussian fallback carriers, still gated as non-production until
   compiled extension tests and benchmarks exist;
+- packaged CUDA renderer source symbol `aura_render_rays_kernel` for batched
+  ray/AABB first-hit query outputs over native element bounds, reported
+  separately from carrier kernels and still gated as non-production until
+  compiled dispatch, parity tests, chunk/BVH traversal, and speed benchmarks
+  exist;
 - CPU-safe CUDA renderer callable scaffold through the legacy
   `cuda_kernels.cuda_render_rays` report plus the concrete
   `aura.cuda_renderer` launch boundary, with validated launch config
@@ -190,11 +195,13 @@ attempt the packaged carrier extension compile/load gate.
 Use `aura cuda-renderer-report` on any machine to inspect the legacy future
 `cuda_render_rays` launch contract. It does not compile or load CUDA; it reports
 `productionReady: false` and explains that the renderer is unavailable until the
-extension is compiled, loadable, parity-tested, and benchmarked. For callable
-MVP integration tests, import `aura.cuda_renderer.cuda_render_rays`; it validates
-the launch shape and either raises when CUDA is required or returns an explicit
-CPU/torch fallback batch matching the AURA ray-query contract. This fallback is
-not CUDA acceleration.
+extension is compiled, loadable, parity-tested, and benchmarked. The API
+contract also reports the packaged `aura_render_rays_kernel` source ABI for
+batched first-hit ray queries; source availability is not compiled dispatch. For
+callable MVP integration tests, import `aura.cuda_renderer.cuda_render_rays`; it
+validates the launch shape and either raises when CUDA is required or returns an
+explicit CPU/torch fallback batch matching the AURA ray-query contract. This
+fallback is not CUDA acceleration.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

@@ -83,6 +83,9 @@ native representation contract pieces:
   semantics;
 - packaged CUDA carrier source entry points for every native/fallback carrier,
   reported by `torch-kernel-report` but not yet compiled or production-ready;
+- a packaged CUDA renderer source entry point, `aura_render_rays_kernel`, for
+  batched native AABB first-hit ray-query outputs, reported separately from
+  carrier kernels and not yet compiled or production-ready;
 - an explicit `cuda-kernel-build-report --build` probe for GPU machines to
   compile/load the packaged carrier extension and keep readiness claims gated;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor

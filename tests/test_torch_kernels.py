@@ -16,6 +16,7 @@ from aura import (
     cuda_render_rays,
     cuda_renderer_api_contract,
     cuda_renderer_report,
+    cuda_renderer_source_report,
     torch_carrier_kernel_report,
     torch_carrier_kernel_specs,
     torch_carrier_parameter_tensors,
@@ -155,6 +156,49 @@ def test_cuda_kernel_sources_cover_every_native_carrier_symbol():
         assert source["symbol"] in source_text
 
 
+def test_cuda_renderer_source_report_declares_native_ray_query_kernel():
+    report = cuda_renderer_source_report()
+    source_text = files("aura").joinpath(report["path"]).read_text(encoding="utf-8")
+    kernel_text = _cuda_kernel_text(source_text, report["symbol"])
+
+    assert report["format"] == "AURA_CUDA_RENDERER_SOURCE_REPORT"
+    assert report["symbol"] == "aura_render_rays_kernel"
+    assert report["available"] is True
+    assert report["sourceSymbolAvailable"] is True
+    assert report["contractComplete"] is True
+    assert report["missingSourceFragments"] == []
+    assert report["productionReady"] is False
+    assert "python binding dispatch missing" in report["productionBlockers"]
+    assert "AABB first-hit traversal over native element bounds" in report["implementedSemantics"]
+    assert set(report["contractOutputs"]) == {
+        "out_color",
+        "out_alpha",
+        "out_transmittance",
+        "out_depth",
+        "out_normal",
+        "out_confidence",
+        "out_residual",
+        "out_material_id",
+        "out_semantic_id",
+        "ordered_hits",
+    }
+
+    arguments = {argument["name"]: argument for argument in report["arguments"]}
+    assert arguments["ray_origins"]["shape"] == "rayCount x 3"
+    assert arguments["element_mins"]["shape"] == "elementCount x 3"
+    assert arguments["carrier_ids"]["dtype"] == "const int*"
+    assert arguments["ordered_hits"]["shape"] == "rayCount x maxHits"
+    assert arguments["max_hits"]["role"] == "size"
+    for fragment in (
+        "aura_ray_aabb_intersect",
+        "ordered_hits[ray_i * max_hits + hit_i] = -1",
+        "out_material_id[ray_i]",
+        "out_semantic_id[ray_i]",
+        "out_residual[ray_i]",
+    ):
+        assert fragment in kernel_text
+
+
 def test_cuda_kernel_source_metadata_declares_carrier_complete_argument_schema():
     report = cuda_kernel_source_report()
 
@@ -268,6 +312,9 @@ def test_cuda_renderer_api_contract_declares_batched_ray_outputs_without_cuda():
     assert contract["productionReady"] is False
     assert contract["batchDimension"] == "rayCount"
     assert contract["extension"]["buildAttempted"] is False
+    assert contract["rendererSourceReport"]["format"] == "AURA_CUDA_RENDERER_SOURCE_REPORT"
+    assert contract["rendererSourceReport"]["sourceSymbolAvailable"] is True
+    assert contract["rendererSourceReport"]["productionReady"] is False
     inputs = {item["name"]: item for item in contract["inputTensors"]}
     outputs = {item["name"]: item for item in contract["outputTensors"]}
 

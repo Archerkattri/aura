@@ -111,6 +111,9 @@ renderer report from the callable `aura.cuda_renderer` boundary. A callable CPU
 or torch fallback proves the launch/output contract can be exercised; it is not
 CUDA acceleration and keeps production CUDA claims blocked until compiled CUDA
 dispatch is available, parity-tested, and benchmarked.
+The packaged `aura_render_rays_kernel` renderer source symbol is the ABI target
+for that future dispatch, but source availability alone must not clear any
+production gate.
 
 1. Replace the optional payload-aware PyTorch ordered-compositing reference path
    and CPU differentiable reference renderer with a carrier-complete

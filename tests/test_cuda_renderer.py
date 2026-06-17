@@ -140,6 +140,10 @@ def test_cuda_renderer_boundary_report_distinguishes_callable_fallback_from_prod
     assert report["callableBoundaryAvailable"] is True
     assert report["available"] is False
     assert report["productionReady"] is False
+    assert report["rendererSource"]["format"] == "AURA_CUDA_RENDERER_SOURCE_REPORT"
+    assert report["rendererSource"]["symbol"] == "aura_render_rays_kernel"
+    assert report["rendererSource"]["sourceSymbolAvailable"] is True
+    assert report["rendererSource"]["productionReady"] is False
     assert report["fallbackProbe"]["executed"] is True
     assert report["fallbackProbe"]["backend"] == "cpu"
     assert report["fallbackProbe"]["rayCount"] == 1
