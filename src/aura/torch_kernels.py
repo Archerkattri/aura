@@ -262,9 +262,10 @@ def torch_carrier_response_tensors(
                 min=0.0,
                 max=1.0,
             )
+            gaussian_weight = _torch_gaussian_weight(torch, hit_points[mask], element, device)
             carrier_colors[mask] = torch.clamp(gaussian_color, min=0.0, max=1.0)
-            transmittance[mask] = torch.clamp(1.0 - gaussian_opacity, min=0.0, max=1.0)
-            confidence[mask] = gaussian_confidence
+            transmittance[mask] = torch.clamp(1.0 - gaussian_opacity * gaussian_weight, min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(gaussian_confidence * gaussian_weight, min=0.0, max=1.0)
 
     return carrier_colors, transmittance, confidence, residual
 
@@ -469,3 +470,23 @@ def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, alpha: 
     safe_peak = torch.where((peak > 0.0) & normalize, peak, torch.ones_like(peak))
     raw = torch.where(normalize, raw / safe_peak, raw)
     return torch.clamp(raw, min=0.0, max=1.0)
+
+
+def _torch_gaussian_weight(torch: Any, points: Any, element: Any, device: str) -> Any:
+    mean = element.payload.get("mean")
+    covariance = element.payload.get("covariance")
+    if not _is_matrix3(covariance) or not isinstance(mean, (list, tuple)) or len(mean) != 3:
+        return torch.ones((int(points.shape[0]),), dtype=torch.float32, device=device)
+    mean_tensor = torch.tensor(tuple(float(item) for item in mean), dtype=torch.float32, device=device)
+    covariance_tensor = torch.tensor(covariance, dtype=torch.float32, device=device)
+    try:
+        inverse = torch.linalg.inv(covariance_tensor)
+    except RuntimeError:
+        return torch.ones((int(points.shape[0]),), dtype=torch.float32, device=device)
+    delta = points - mean_tensor
+    mahalanobis = torch.sum((delta @ inverse) * delta, dim=1)
+    return torch.clamp(torch.exp(-0.5 * torch.clamp(mahalanobis, min=0.0)), min=0.0, max=1.0)
+
+
+def _is_matrix3(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 3 and all(isinstance(row, (list, tuple)) and len(row) == 3 for row in value)

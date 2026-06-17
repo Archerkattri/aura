@@ -599,6 +599,57 @@ def test_gaussian_fallback_kernel_keeps_color_opacity_confidence_differentiable(
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_fallback_kernel_uses_covariance_weighted_support():
+    import torch
+
+    elements = (
+        AuraElement(
+            id="gaussian",
+            carrier_id="gaussian",
+            bounds=Bounds((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)),
+            color=(0.2, 0.4, 0.6),
+            opacity=0.8,
+            confidence=0.75,
+            payload={
+                "type": "gaussian_fallback",
+                "mean": [0.0, 0.0, 0.0],
+                "covariance": [[0.04, 0.0, 0.0], [0.0, 0.04, 0.0], [0.0, 0.0, 0.04]],
+            },
+        ),
+    )
+    best_index = torch.tensor([0, 0], dtype=torch.long)
+    best_depth = torch.tensor([1.0, 1.0])
+    exit_depth = torch.tensor([[2.0], [2.0]])
+    hit_points = torch.tensor([[0.0, 0.0, 0.0], [0.4, 0.0, 0.0]])
+    colors = torch.tensor([element.color for element in elements])
+    opacities = torch.tensor([element.opacity for element in elements])
+    confidences = torch.tensor([element.confidence for element in elements])
+    mins = torch.tensor([element.bounds.min_corner for element in elements])
+    maxs = torch.tensor([element.bounds.max_corner for element in elements])
+
+    _colors, transmittance, confidence, _residual = torch_carrier_response_tensors(
+        torch,
+        elements,
+        best_index,
+        best_depth,
+        exit_depth,
+        hit_points,
+        colors,
+        opacities,
+        confidences,
+        mins,
+        maxs,
+        "cpu",
+    )
+
+    offset_weight = torch.exp(torch.tensor(-2.0)).item()
+    assert transmittance[0].item() == pytest.approx(0.2)
+    assert confidence[0].item() == pytest.approx(0.75)
+    assert transmittance[1].item() == pytest.approx(1.0 - 0.8 * offset_weight)
+    assert confidence[1].item() == pytest.approx(0.75 * offset_weight)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_carrier_response_tensors_apply_payload_kernels():
     import torch
 

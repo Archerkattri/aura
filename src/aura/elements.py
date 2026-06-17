@@ -105,6 +105,10 @@ class AuraElement:
         elif payload_type == "semantic_feature":
             semantic_id = semantic_id or str(self.payload.get("label", ""))
             confidence = _clamp_unit(float(self.payload.get("confidence", self.confidence)))
+        elif payload_type == "gaussian_fallback":
+            weight = _gaussian_weight(ray, self.payload, depth, exit_depth)
+            transmittance = _clamp_unit(1.0 - self.opacity * weight)
+            confidence = _clamp_unit(self.confidence * weight)
 
         return RayQueryResult(
             color=color,
@@ -167,6 +171,46 @@ def _gabor_color(color: Vec3, point: Vec3, payload: Dict[str, Any]) -> Vec3:
     wave = 0.5 + 0.5 * sin(2.0 * pi * dot + phase)
     modulation = 1.0 - bandwidth + bandwidth * wave
     return tuple(_clamp_unit(channel * modulation) for channel in color)  # type: ignore[return-value]
+
+
+def _gaussian_weight(ray: Ray, payload: Dict[str, Any], entry_depth: float, exit_depth: float) -> float:
+    mean = _payload_vec3(payload.get("mean"))
+    covariance = payload.get("covariance")
+    if mean is None or not _is_matrix3(covariance):
+        return 1.0
+    direction_norm = sum(axis * axis for axis in ray.direction)
+    if direction_norm <= 1e-12:
+        sample_depth = entry_depth
+    else:
+        projected = sum((mean[index] - ray.origin[index]) * ray.direction[index] for index in range(3)) / direction_norm
+        sample_depth = max(entry_depth, min(exit_depth, projected))
+    point = _ray_point(ray, sample_depth)
+    delta = tuple(point[index] - mean[index] for index in range(3))
+    inverse = _invert_matrix3(covariance)
+    if inverse is None:
+        return 1.0
+    mahalanobis = sum(delta[row] * inverse[row][column] * delta[column] for row in range(3) for column in range(3))
+    return _clamp_unit(exp(-0.5 * max(0.0, mahalanobis)))
+
+
+def _is_matrix3(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 3 and all(isinstance(row, (list, tuple)) and len(row) == 3 for row in value)
+
+
+def _invert_matrix3(value: Any) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]] | None:
+    matrix = tuple(tuple(float(item) for item in row) for row in value)
+    a, b, c = matrix[0]
+    d, e, f = matrix[1]
+    g, h, i = matrix[2]
+    determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(determinant) <= 1e-12:
+        return None
+    inv_det = 1.0 / determinant
+    return (
+        ((e * i - f * h) * inv_det, (c * h - b * i) * inv_det, (b * f - c * e) * inv_det),
+        ((f * g - d * i) * inv_det, (a * i - c * g) * inv_det, (c * d - a * f) * inv_det),
+        ((d * h - e * g) * inv_det, (b * g - a * h) * inv_det, (a * e - b * d) * inv_det),
+    )
 
 
 @dataclass(frozen=True)

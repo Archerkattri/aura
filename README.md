@@ -30,6 +30,9 @@ native representation contract pieces:
 - bounded AURA elements and chunks;
 - carrier-aware reference ray-query response with linear chunk traversal and
   cached BVH traversal metrics;
+- carrier-specific reference query tests for surface, volume, beta, gabor,
+  neural residual, semantic, and covariance-weighted Gaussian fallback
+  carriers;
 - CPU reference interaction probes for hit points, shadow transmittance,
   reflection directions, and collision proxy distances;
 - simple front-to-back scene query;

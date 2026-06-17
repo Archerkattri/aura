@@ -11,6 +11,9 @@ This package now contains the GPU-ready skeleton for AURA:
 - semantic/object graph package artifact;
 - bounded local elements;
 - carrier-aware reference ray queries;
+- carrier-specific reference query tests for surface, volume, beta, gabor,
+  neural residual, semantic, and covariance-weighted Gaussian fallback
+  carriers;
 - CPU reference interaction probes for hit points, shadow transmittance,
   reflection directions, and collision proxy distances;
 - front-to-back compositing;
