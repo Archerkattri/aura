@@ -74,6 +74,8 @@ class RayQueryExpectation:
     expected_semantic_id: str | None = None
     expected_material_id: str | None = None
     expected_residual: bool | None = None
+    expected_ordered_element_ids: tuple[str, ...] = ()
+    expected_ordered_carrier_ids: tuple[str, ...] = ()
     require_normal: bool = False
 
     def __post_init__(self) -> None:
@@ -100,6 +102,8 @@ class RayQueryExpectation:
             "expectedSemanticId": self.expected_semantic_id,
             "expectedMaterialId": self.expected_material_id,
             "expectedResidual": self.expected_residual,
+            "expectedOrderedElementIds": list(self.expected_ordered_element_ids),
+            "expectedOrderedCarrierIds": list(self.expected_ordered_carrier_ids),
             "requireNormal": self.require_normal,
         }
 
@@ -182,6 +186,8 @@ def run_ray_query_correctness_benchmark(
         "transmittanceWithinBoundsRate": _rate(_optional_check_passed(probe, "transmittance") for probe in probes),
         "semanticAccuracy": _rate(_optional_check_passed(probe, "semanticId") for probe in probes),
         "materialAccuracy": _rate(_optional_check_passed(probe, "materialId") for probe in probes),
+        "orderedElementTraceAccuracy": _rate(_optional_check_passed(probe, "orderedElementIds") for probe in probes),
+        "orderedCarrierTraceAccuracy": _rate(_optional_check_passed(probe, "orderedCarrierIds") for probe in probes),
         "normalReadyRate": _rate(_optional_check_passed(probe, "normal") for probe in probes),
         "residualAccuracy": _rate(_optional_check_passed(probe, "residual") for probe in probes),
         "probes": list(probes),
@@ -422,8 +428,15 @@ def default_benchmark_suite() -> BenchmarkSuite:
             ),
             BenchmarkCase(
                 id="ray_query_correctness",
-                purpose="Check first-hit, depth, normal, opacity, transmittance, semantic id, and provenance.",
-                metrics=("first_hit_accuracy", "depth_abs_error", "normal_cosine", "transmittance_abs_error"),
+                purpose="Check first-hit, ordered hit traces, depth, normal, opacity, transmittance, semantic id, and provenance.",
+                metrics=(
+                    "first_hit_accuracy",
+                    "ordered_element_trace_accuracy",
+                    "ordered_carrier_trace_accuracy",
+                    "depth_abs_error",
+                    "normal_cosine",
+                    "transmittance_abs_error",
+                ),
             ),
             BenchmarkCase(
                 id="geometry_collision_proxy",
@@ -631,11 +644,14 @@ def _score_ray_query_expectation(
     element_by_id: dict[str, object],
     expectation: RayQueryExpectation,
 ) -> dict:
-    result = scene.ray_query(expectation.ray)
+    traversal = scene.traverse_ray(expectation.ray)
+    result = traversal.result
     first_hit = result.provenance != "miss"
     first_element_id = result.provenance.split(",", 1)[0] if first_hit and result.provenance else None
     element = element_by_id.get(first_element_id or "")
     actual_carrier_id = getattr(element, "carrier_id", None)
+    ordered_element_ids = tuple(hit.element_id for hit in traversal.ordered_hits)
+    ordered_carrier_ids = tuple(hit.carrier_id for hit in traversal.ordered_hits)
     checks = {
         "firstHit": _check(expectation.expected_first_hit, first_hit),
     }
@@ -661,6 +677,16 @@ def _score_ray_query_expectation(
         checks["materialId"] = _check(expectation.expected_material_id, result.material_id)
     if expectation.expected_residual is not None:
         checks["residual"] = _check(expectation.expected_residual, result.residual)
+    if expectation.expected_ordered_element_ids:
+        checks["orderedElementIds"] = _check(
+            list(expectation.expected_ordered_element_ids),
+            list(ordered_element_ids),
+        )
+    if expectation.expected_ordered_carrier_ids:
+        checks["orderedCarrierIds"] = _check(
+            list(expectation.expected_ordered_carrier_ids),
+            list(ordered_carrier_ids),
+        )
     if expectation.require_normal:
         checks["normal"] = _check(True, result.normal is not None)
     return {
@@ -680,6 +706,9 @@ def _score_ray_query_expectation(
             "residual": result.residual,
             "normal": list(result.normal) if result.normal is not None else None,
             "provenance": result.provenance,
+            "orderedHits": [hit.to_dict() for hit in traversal.ordered_hits],
+            "orderedElementIds": list(ordered_element_ids),
+            "orderedCarrierIds": list(ordered_carrier_ids),
         },
         "checks": checks,
     }

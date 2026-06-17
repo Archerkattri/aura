@@ -106,8 +106,9 @@ native representation contract pieces:
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   runtime export readiness, confidence-quality, and interaction-quality
   metrics;
-- ray-query correctness scoring for first-hit, carrier, depth, transmittance,
-  semantic, material, normal, and residual contract checks;
+- ray-query correctness scoring for first-hit, ordered carrier traces, carrier,
+  depth, transmittance, semantic, material, normal, and residual contract
+  checks;
 - strict-JSON render comparison metrics for regression checks;
 - package-backed glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.

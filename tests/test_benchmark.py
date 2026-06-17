@@ -3,6 +3,11 @@ import subprocess
 import sys
 
 from aura import (
+    AuraElement,
+    AuraScene,
+    Bounds,
+    Ray,
+    RayQueryExpectation,
     apply_ablation,
     default_benchmark_suite,
     load_package,
@@ -184,6 +189,54 @@ def test_ray_query_correctness_benchmark_scores_native_demo_contract():
     assert by_label["semantic_object"]["actual"]["semanticId"] == "fixture_object"
     assert by_label["neural_residual"]["actual"]["residual"] is True
     assert by_label["empty_space_control"]["actual"]["firstHit"] is False
+
+
+def test_ray_query_correctness_benchmark_scores_ordered_hit_trace():
+    scene = AuraScene(
+        name="ordered_trace_benchmark",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.5,
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="rear_volume",
+                carrier_id="volume",
+                bounds=Bounds((-0.5, -0.5, 0.2), (0.5, 0.5, 0.7)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.8,
+                payload={"type": "volume_cell", "density": 1.0},
+            ),
+        ),
+    )
+
+    payload = run_ray_query_correctness_benchmark(
+        scene,
+        (
+            RayQueryExpectation(
+                label="surface_then_volume",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                expected_first_hit=True,
+                expected_element_id="front_surface",
+                expected_carrier_id="surface",
+                expected_ordered_element_ids=("front_surface", "rear_volume"),
+                expected_ordered_carrier_ids=("surface", "volume"),
+            ),
+        ),
+    )
+    probe = payload["probes"][0]
+
+    assert payload["passed"] is True
+    assert payload["orderedElementTraceAccuracy"] == 1.0
+    assert payload["orderedCarrierTraceAccuracy"] == 1.0
+    assert probe["checks"]["orderedElementIds"]["passed"] is True
+    assert probe["actual"]["orderedElementIds"] == ["front_surface", "rear_volume"]
+    assert probe["actual"]["orderedCarrierIds"] == ["surface", "volume"]
+    assert probe["actual"]["orderedHits"][1]["carrierId"] == "volume"
 
 
 def test_core_benchmark_cli_prints_reconstruction_metrics():
