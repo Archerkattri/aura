@@ -9,6 +9,9 @@ from aura.ray import Ray, RayQueryResult, Vec3
 from aura.semantic import SemanticGraph
 
 
+BVH_CHUNK_THRESHOLD = 3
+
+
 @dataclass(frozen=True)
 class AuraScene:
     """Reference scene for the AURA ray-query contract."""
@@ -73,7 +76,7 @@ class AuraScene:
     @cached_property
     def _chunk_bvh(self) -> "_BvhNode | None":
         chunks = tuple(self.chunks)
-        if len(chunks) < 3:
+        if len(chunks) < BVH_CHUNK_THRESHOLD:
             return None
         return _build_bvh(chunks)
 
@@ -207,7 +210,7 @@ def _candidate_chunks(
     chunks: Sequence[AuraChunk],
     bvh_root: "_BvhNode | None" = None,
 ) -> tuple[tuple[AuraChunk, ...], str, int]:
-    if len(chunks) >= 3:
+    if len(chunks) >= BVH_CHUNK_THRESHOLD:
         root = bvh_root if bvh_root is not None else _build_bvh(tuple(chunks))
         candidates, tested_nodes = _candidate_chunks_bvh(ray, root)
         return candidates, "bvh", tested_nodes

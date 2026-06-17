@@ -2,7 +2,7 @@ import json
 import subprocess
 import sys
 
-from aura import load_package, package_scene, runtime_export_report
+from aura import AuraElement, AuraScene, Bounds, load_package, package_scene, runtime_export_report
 from aura.cli import native_demo_scene
 
 
@@ -40,6 +40,11 @@ def test_runtime_export_report_separates_native_contract_from_fallbacks(tmp_path
     ]
     assert report["rayQueryContract"]["supportsOrderedHitTrace"] is True
     assert report["rayQueryContract"]["supportsCompositing"] is True
+    assert report["accelerationContract"]["bvhChunkThreshold"] == 3
+    assert report["accelerationContract"]["activeTraversalMode"] == "bvh"
+    assert report["accelerationContract"]["supportsCachedBvh"] is True
+    assert report["accelerationContract"]["supportsOrderedFrontToBackCandidates"] is True
+    assert report["accelerationContract"]["productionGpuTraversalReady"] is False
     by_carrier = {item["carrierId"]: item for item in report["carrierExport"]}
     assert by_carrier["gabor"]["gltfFallback"] == "texture_metadata_only_without_native_runtime"
     assert by_carrier["semantic"]["usdBridge"] == "typed_metadata_no_native_ray_query"
@@ -57,7 +62,21 @@ def test_runtime_export_report_uses_exchange_plan_for_in_memory_packages():
 
     assert report["fallbackTargets"]["gltfFallback"]["name"] == "glTF/KHR_gaussian_splatting fallback"
     assert report["fallbackTargets"]["usdBridge"]["supportsTypedCarriers"] is True
+    assert report["accelerationContract"]["activeTraversalMode"] == "bvh"
     assert report["engineWorkflow"]["usdMetadataReady"] is True
+
+
+def test_runtime_export_report_marks_unchunked_linear_traversal():
+    scene = AuraScene(
+        name="linear_scene",
+        elements=(AuraElement(id="surface", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),),
+    )
+
+    report = runtime_export_report(package_scene(scene)).to_dict()
+
+    assert report["accelerationContract"]["activeTraversalMode"] == "element_linear"
+    assert report["accelerationContract"]["supportsChunkCulling"] is False
+    assert report["accelerationContract"]["supportsCachedBvh"] is False
 
 
 def test_export_report_cli_prints_runtime_export_json(tmp_path):

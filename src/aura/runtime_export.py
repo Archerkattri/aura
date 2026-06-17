@@ -5,6 +5,7 @@ from typing import Any
 
 from aura.exchange import exchange_plan
 from aura.package import AuraPackage
+from aura.scene import BVH_CHUNK_THRESHOLD
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class RuntimeExportReport:
     carrier_export: tuple[dict[str, Any], ...]
     chunk_export: tuple[dict[str, Any], ...]
     ray_query_contract: dict[str, Any]
+    acceleration_contract: dict[str, Any]
     engine_workflow: dict[str, bool]
 
     def to_dict(self) -> dict:
@@ -26,6 +28,7 @@ class RuntimeExportReport:
             "carrierExport": list(self.carrier_export),
             "chunkExport": list(self.chunk_export),
             "rayQueryContract": self.ray_query_contract,
+            "accelerationContract": self.acceleration_contract,
             "engineWorkflow": self.engine_workflow,
         }
 
@@ -56,6 +59,7 @@ def runtime_export_report(package: AuraPackage) -> RuntimeExportReport:
         carrier_export=carrier_export,
         chunk_export=chunk_export,
         ray_query_contract=_ray_query_contract(),
+        acceleration_contract=_acceleration_contract(scene),
         engine_workflow={
             "nativeRuntimeReady": native_contract["typedCarriers"] and native_contract["rayQuery"],
             "gltfPreviewReady": bool(package.asset.fallbacks.get("mesh") or package.asset.fallbacks.get("splat")),
@@ -155,4 +159,20 @@ def _ray_query_contract() -> dict[str, Any]:
         "supportsOrderedHitTrace": True,
         "supportsCompositing": True,
         "requiresNativeAuraRuntime": True,
+    }
+
+
+def _acceleration_contract(scene: Any) -> dict[str, Any]:
+    chunk_count = len(scene.chunks)
+    active_mode = "bvh" if chunk_count >= BVH_CHUNK_THRESHOLD else "chunk_linear" if chunk_count else "element_linear"
+    return {
+        "chunkCount": chunk_count,
+        "bvhChunkThreshold": BVH_CHUNK_THRESHOLD,
+        "activeTraversalMode": active_mode,
+        "supportedTraversalModes": ["element_linear", "chunk_linear", "bvh"],
+        "supportsChunkCulling": chunk_count > 0,
+        "supportsCachedBvh": chunk_count >= BVH_CHUNK_THRESHOLD,
+        "supportsOrderedFrontToBackCandidates": True,
+        "supportsUnchunkedElementFallback": True,
+        "productionGpuTraversalReady": False,
     }

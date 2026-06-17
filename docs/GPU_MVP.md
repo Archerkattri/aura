@@ -83,6 +83,8 @@ This package now contains the GPU-ready skeleton for AURA:
   outputs against the CPU `RayTraversal.orderedHits` contract;
 - cached reference chunk BVH traversal metrics for native ray-query probes,
   including traversal mode and tested node counts;
+- runtime export acceleration metadata for element-linear, chunk-linear, and
+  cached-BVH traversal modes, with production GPU traversal still marked false;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   runtime export readiness, confidence-quality, and interaction-quality

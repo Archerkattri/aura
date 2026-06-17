@@ -29,8 +29,8 @@ native representation contract pieces:
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
 - bounded AURA elements and carrier/LOD chunks;
-- runtime export reports for carrier/LOD chunks and native ray-query contract
-  fields;
+- runtime export reports for carrier/LOD chunks, native ray-query fields, and
+  reference acceleration contract metadata;
 - carrier-aware reference ray-query response with linear chunk traversal and
   cached BVH traversal metrics;
 - carrier-specific reference query tests for surface, volume, beta, gabor,
@@ -147,9 +147,9 @@ aura cuda-kernel-build-report --build
 ```
 
 The PyTorch renderer is currently a native AABB reference path with ordered
-front-to-back carrier compositing, first-hit query metadata, and ordered
-per-carrier hit traces. It is not yet production CUDA rendering or production
-GPU BVH traversal.
+front-to-back carrier compositing, first-hit query metadata, ordered per-carrier
+hit traces, and export-report acceleration metadata. It is not yet production
+CUDA rendering or production GPU BVH traversal.
 
 ## Quick Smoke Commands
 
