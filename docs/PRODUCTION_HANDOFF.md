@@ -91,9 +91,9 @@ AURA_CAPTURE_MANIFEST
 3. Replace the current reference-weight `CaptureProposalModel` with learned
    region proposal generation for COLMAP/capture image, depth, mask, and normal
    tensors.
-4. Replace the reference Torch payload semantics with real differentiable
+4. Replace the reference `torch_kernels` carrier specs with real differentiable
    surface, volume, beta, gabor, neural residual, semantic, and Gaussian
-   fallback carrier kernels.
+   fallback CUDA/autograd kernels.
 5. Replace the current reference chunk traversal with a production BVH/GPU
    traversal path for secondary rays.
 6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,

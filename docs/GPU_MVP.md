@@ -49,6 +49,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - torch reference optimization steps through `torch_optimize_capture_batch`,
   which runs repeated batched AURA forward passes and records image/depth/query/
   normal losses while applying bounded native carrier color updates;
+- explicit torch carrier kernel specs for the current reference surface, volume,
+  beta, gabor, neural residual, semantic, and Gaussian fallback semantics;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - model-scored native feature proposals for image-detail and depth-edge regions

@@ -67,6 +67,8 @@ native representation contract pieces:
 - torch reference optimization steps via `torch_optimize_capture_batch`, using
   the batched native AURA forward contract for loss reporting and bounded
   carrier color updates;
+- explicit torch carrier kernel specs for surface, volume, beta, gabor, neural,
+  semantic, and Gaussian fallback reference semantics;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
 - model-scored native feature proposals from image/depth/mask/normal tensor
