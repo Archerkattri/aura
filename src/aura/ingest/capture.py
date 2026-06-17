@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import struct
+import zlib
 from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
@@ -99,11 +101,10 @@ def load_capture_manifest(path: Path | str) -> CaptureManifest:
 
 
 def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, ...]:
-    """Load manifest image/depth/mask fixtures and return deterministic summaries.
+    """Load manifest image/depth/mask assets and return deterministic summaries.
 
-    The production renderer will need full PNG/EXR tensor loading. This
-    dependency-free path intentionally supports Netpbm PPM/PGM fixtures so CI can
-    validate the manifest asset contract without hiding image IO behind 3DGS.
+    PNG and Netpbm PPM/PGM are loaded without optional dependencies so capture
+    manifests can be validated in CI before the GPU tensor backend is installed.
     """
 
     root = Path(manifest.root)
@@ -112,17 +113,17 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
         if frame.image_path is None:
             raise ValueError(f"capture frame {frame.id} is missing image_path")
         image_path = _resolve_capture_path(root, frame.image_path)
-        image = _read_netpbm(image_path)
-        if image.channels != 3:
-            raise ValueError(f"capture frame {frame.id} image_path must reference a PPM RGB image")
+        image = _read_capture_raster(image_path)
+        if image.channels < 3:
+            raise ValueError(f"capture frame {frame.id} image_path must reference an RGB/RGBA image")
         depth_path = _resolve_capture_path(root, frame.depth_path) if frame.depth_path is not None else None
-        depth = _read_netpbm(depth_path) if depth_path is not None else None
+        depth = _read_capture_raster(depth_path) if depth_path is not None else None
         if depth is not None and depth.channels != 1:
-            raise ValueError(f"capture frame {frame.id} depth_path must reference a PGM image")
+            raise ValueError(f"capture frame {frame.id} depth_path must reference a single-channel image")
         mask_path = _resolve_capture_path(root, frame.mask_path) if frame.mask_path is not None else None
-        mask = _read_netpbm(mask_path) if mask_path is not None else None
+        mask = _read_capture_raster(mask_path) if mask_path is not None else None
         if mask is not None and mask.channels != 1:
-            raise ValueError(f"capture frame {frame.id} mask_path must reference a PGM image")
+            raise ValueError(f"capture frame {frame.id} mask_path must reference a single-channel image")
         assets.append(
             CaptureFrameAssets(
                 frame_id=frame.id,
@@ -257,20 +258,18 @@ def _vec3(payload: object, name: str) -> Vec3:
 
 
 @dataclass(frozen=True)
-class _NetpbmImage:
+class _RasterImage:
+    format: str
     width: int
     height: int
     channels: int
-    max_value: int
-    values: tuple[int, ...]
+    values: tuple[float, ...]
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0:
-            raise ValueError("Netpbm dimensions must be positive")
-        if self.max_value <= 0:
-            raise ValueError("Netpbm max value must be positive")
+            raise ValueError(f"{self.format} dimensions must be positive")
         if len(self.values) != self.width * self.height * self.channels:
-            raise ValueError("Netpbm payload does not match dimensions")
+            raise ValueError(f"{self.format} payload does not match dimensions")
 
 
 def _frame_with_asset_summaries(frame: TrainingFrame, assets: CaptureFrameAssets | None) -> TrainingFrame:
@@ -290,25 +289,41 @@ def _resolve_capture_path(root: Path, value: str | Path) -> Path:
     return root / path
 
 
-def _average_rgb(image: _NetpbmImage) -> Vec3:
-    if image.channels != 3:
-        raise ValueError("average RGB requires a 3-channel image")
+def _average_rgb(image: _RasterImage) -> Vec3:
+    if image.channels < 3:
+        raise ValueError("average RGB requires at least a 3-channel image")
     totals = [0.0, 0.0, 0.0]
-    for index, value in enumerate(image.values):
-        totals[index % 3] += value / image.max_value
+    for pixel_start in range(0, len(image.values), image.channels):
+        for channel in range(3):
+            totals[channel] += image.values[pixel_start + channel]
     pixels = image.width * image.height
     return (totals[0] / pixels, totals[1] / pixels, totals[2] / pixels)
 
 
-def _average_scalar(image: _NetpbmImage | None) -> float | None:
+def _average_scalar(image: _RasterImage | None) -> float | None:
     if image is None:
         return None
     if image.channels != 1:
         raise ValueError("average scalar requires a 1-channel image")
-    return sum(value / image.max_value for value in image.values) / len(image.values)
+    return sum(image.values) / len(image.values)
 
 
-def _read_netpbm(path: Path) -> _NetpbmImage:
+def _read_capture_raster(path: Path) -> _RasterImage:
+    if not path.exists():
+        raise FileNotFoundError(path)
+    suffix = path.suffix.lower()
+    if suffix in {".ppm", ".pgm", ".pnm"}:
+        return _read_netpbm(path)
+    if suffix == ".png":
+        return _read_png(path)
+    if suffix in {".exr", ".hdr", ".mp4", ".mov", ".mkv", ".avi"}:
+        raise ValueError(
+            f"{path} requires the future GPU tensor asset backend; current stdlib loader supports PNG and PPM/PGM"
+        )
+    raise ValueError(f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, or PGM")
+
+
+def _read_netpbm(path: Path) -> _RasterImage:
     if not path.exists():
         raise FileNotFoundError(path)
     data = path.read_bytes()
@@ -338,7 +353,102 @@ def _read_netpbm(path: Path) -> _NetpbmImage:
         raise ValueError(f"{path} expected {expected} channel values but found {len(values)}")
     if any(value < 0 or value > max_value for value in values):
         raise ValueError(f"{path} contains channel values outside [0, {max_value}]")
-    return _NetpbmImage(width=width, height=height, channels=channels, max_value=max_value, values=tuple(values))
+    return _RasterImage(
+        format="Netpbm",
+        width=width,
+        height=height,
+        channels=channels,
+        values=tuple(value / max_value for value in values),
+    )
+
+
+def _read_png(path: Path) -> _RasterImage:
+    data = path.read_bytes()
+    signature = b"\x89PNG\r\n\x1a\n"
+    if not data.startswith(signature):
+        raise ValueError(f"{path} is not a PNG file")
+    offset = len(signature)
+    width = height = bit_depth = color_type = None
+    idat = bytearray()
+    while offset < len(data):
+        if offset + 12 > len(data):
+            raise ValueError(f"{path} has a truncated PNG chunk")
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_data = data[offset + 8 : offset + 8 + length]
+        if len(chunk_data) != length:
+            raise ValueError(f"{path} has a truncated PNG chunk payload")
+        offset += 12 + length
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
+            if bit_depth != 8:
+                raise ValueError(f"{path} PNG loader supports only 8-bit channels")
+            if color_type not in {0, 2, 4, 6}:
+                raise ValueError(f"{path} PNG loader supports grayscale, RGB, grayscale-alpha, and RGBA")
+            if compression != 0 or filter_method != 0 or interlace != 0:
+                raise ValueError(f"{path} PNG loader supports only non-interlaced deflate PNG images")
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+    if width is None or height is None or bit_depth is None or color_type is None:
+        raise ValueError(f"{path} is missing a PNG IHDR chunk")
+    channels = {0: 1, 2: 3, 4: 2, 6: 4}[color_type]
+    raw = zlib.decompress(bytes(idat))
+    row_bytes = width * channels
+    expected = height * (1 + row_bytes)
+    if len(raw) != expected:
+        raise ValueError(f"{path} expected {expected} inflated PNG bytes but found {len(raw)}")
+    rows: list[bytes] = []
+    previous = bytes(row_bytes)
+    offset = 0
+    for _row in range(height):
+        filter_type = raw[offset]
+        scanline = raw[offset + 1 : offset + 1 + row_bytes]
+        if len(scanline) != row_bytes:
+            raise ValueError(f"{path} has a truncated PNG scanline")
+        reconstructed = _png_unfilter(filter_type, scanline, previous, channels)
+        rows.append(reconstructed)
+        previous = reconstructed
+        offset += 1 + row_bytes
+    values = tuple(channel / 255.0 for row in rows for channel in row)
+    return _RasterImage(format="PNG", width=width, height=height, channels=channels, values=values)
+
+
+def _png_unfilter(filter_type: int, scanline: bytes, previous: bytes, bytes_per_pixel: int) -> bytes:
+    out = bytearray(len(scanline))
+    for index, value in enumerate(scanline):
+        left = out[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+        up = previous[index]
+        up_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+        if filter_type == 0:
+            predictor = 0
+        elif filter_type == 1:
+            predictor = left
+        elif filter_type == 2:
+            predictor = up
+        elif filter_type == 3:
+            predictor = (left + up) // 2
+        elif filter_type == 4:
+            predictor = _paeth_predictor(left, up, up_left)
+        else:
+            raise ValueError(f"unsupported PNG filter type {filter_type}")
+        out[index] = (value + predictor) & 0xFF
+    return bytes(out)
+
+
+def _paeth_predictor(left: int, up: int, up_left: int) -> int:
+    estimate = left + up - up_left
+    left_distance = abs(estimate - left)
+    up_distance = abs(estimate - up)
+    up_left_distance = abs(estimate - up_left)
+    if left_distance <= up_distance and left_distance <= up_left_distance:
+        return left
+    if up_distance <= up_left_distance:
+        return up
+    return up_left
 
 
 def _netpbm_token(data: bytes, offset: int) -> tuple[str, int]:

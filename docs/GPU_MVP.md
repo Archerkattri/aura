@@ -16,6 +16,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
 - AURA-Ingest adapters that convert 3DGS, depth priors, semantic masks, and
   sparse point priors into `EvidenceSample` contracts;
+- dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed
+  native training fixtures;
 - chunk and LOD metadata;
 - native `.aura` package writer;
 - native `.aura` package loader/validator;

@@ -27,7 +27,7 @@ aura inspect-package outputs/reconstruct-capture.aura
 ```
 
 For manifests whose `image_path`, `depth_path`, and `mask_path` files exist as
-PPM/PGM fixtures, also run:
+PNG or PPM/PGM assets, also run:
 
 ```bash
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
@@ -81,8 +81,8 @@ AURA_CAPTURE_MANIFEST
 1. Replace the CPU differentiable reference renderer in `src/aura/optimize.py`
    with a real PyTorch/CUDA renderer over the same `TrainingFrame` and
    `TrainingRegion` contracts.
-2. Replace the current dependency-free PPM/PGM fixture asset loader with real
-   PNG/EXR/video tensor loading for manifest `image_path`, `depth_path`, and
+2. Replace the current dependency-free PNG/PPM/PGM summary loader with real
+   EXR/video tensor loading for manifest `image_path`, `depth_path`, and
    `mask_path`.
 3. Harden COLMAP import beyond text `cameras.txt`/`images.txt`/`points3D.txt`,
    including binary model support and richer sparse/depth region generation.

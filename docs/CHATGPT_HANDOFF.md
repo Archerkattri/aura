@@ -28,7 +28,7 @@ First useful tasks:
 1. run tests;
 2. run `aura write-capture-manifest-template --output outputs/capture-manifest.json`;
 3. run `aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json`;
-4. for fixture captures with existing PPM/PGM assets, run `aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json`
+4. for fixture captures with existing PNG or PPM/PGM assets, run `aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json`
    and `aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets`;
 5. run `aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6`;
 6. run `aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json` for COLMAP text models;

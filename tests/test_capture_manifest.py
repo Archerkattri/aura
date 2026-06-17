@@ -1,6 +1,8 @@
 import json
+import struct
 import subprocess
 import sys
+import zlib
 
 from aura import (
     load_capture_assets,
@@ -101,6 +103,40 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert dataset.frames[0].target_depth == 0.75
 
 
+def test_capture_manifest_loads_png_asset_summaries(tmp_path):
+    manifest_path = _write_png_asset_manifest(tmp_path)
+    manifest = load_capture_manifest(manifest_path)
+
+    assets = load_capture_assets(manifest)
+    dataset = manifest.to_training_dataset(load_assets=True)
+
+    assert len(assets) == 1
+    assert assets[0].width == 2
+    assert assets[0].height == 1
+    assert assets[0].average_color == (0.5, 128 / 510, 128 / 510)
+    assert assets[0].average_depth == 383 / 510
+    assert assets[0].mask_coverage == 0.5
+    assert dataset.frames[0].target_color == (0.5, 128 / 510, 128 / 510)
+    assert dataset.frames[0].target_depth == 383 / 510
+
+
+def test_capture_manifest_asset_loader_marks_exr_as_future_tensor_backend(tmp_path):
+    manifest_path = _write_asset_manifest(tmp_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["frames"][0]["depth_path"] = "depth/frame_000001.exr"
+    (tmp_path / "capture" / "depth" / "frame_000001.exr").write_bytes(b"not-real-exr")
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    manifest = load_capture_manifest(manifest_path)
+
+    try:
+        load_capture_assets(manifest)
+    except ValueError as exc:
+        assert "future GPU tensor asset backend" in str(exc)
+    else:
+        raise AssertionError("EXR assets should require the tensor backend")
+
+
 def test_capture_manifest_asset_loader_rejects_missing_image(tmp_path):
     manifest_path = _write_asset_manifest(tmp_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -184,6 +220,23 @@ def _write_asset_manifest(tmp_path):
     return manifest_path
 
 
+def _write_png_asset_manifest(tmp_path):
+    root = tmp_path / "capture"
+    (root / "images").mkdir(parents=True)
+    (root / "depth").mkdir()
+    (root / "masks").mkdir()
+    _write_png(root / "images" / "frame_000001.png", width=2, height=1, channels=3, values=(255, 0, 0, 0, 128, 128))
+    _write_png(root / "depth" / "frame_000001.png", width=2, height=1, channels=1, values=(128, 255))
+    _write_png(root / "masks" / "frame_000001.png", width=2, height=1, channels=1, values=(255, 0))
+    payload = capture_asset_manifest_payload(root)
+    payload["frames"][0]["image_path"] = "images/frame_000001.png"
+    payload["frames"][0]["depth_path"] = "depth/frame_000001.png"
+    payload["frames"][0]["mask_path"] = "masks/frame_000001.png"
+    manifest_path = tmp_path / "png_asset_capture.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    return manifest_path
+
+
 def capture_asset_manifest_payload(root):
     return {
         "format": "AURA_CAPTURE_MANIFEST",
@@ -214,3 +267,24 @@ def capture_asset_manifest_payload(root):
             }
         ],
     }
+
+
+def _write_png(path, *, width, height, channels, values):
+    color_type = {1: 0, 3: 2, 4: 6}[channels]
+    scanline_width = width * channels
+    rows = []
+    for row in range(height):
+        start = row * scanline_width
+        rows.append(b"\x00" + bytes(values[start : start + scanline_width]))
+    raw = b"".join(rows)
+    payload = b"\x89PNG\r\n\x1a\n"
+    payload += _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0))
+    payload += _png_chunk(b"IDAT", zlib.compress(raw))
+    payload += _png_chunk(b"IEND", b"")
+    path.write_bytes(payload)
+
+
+def _png_chunk(kind, data):
+    checksum = zlib.crc32(kind)
+    checksum = zlib.crc32(data, checksum) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)

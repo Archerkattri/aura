@@ -41,6 +41,8 @@ native representation contract pieces:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
+- dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed
+  native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with color/depth gradients for
   native AURA-Core fixture optimization;
@@ -52,9 +54,9 @@ native representation contract pieces:
 - fixture CLI commands and tests.
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
-production PNG/EXR/video tensor loading, pose/depth bootstrapping, learned or
-GPU differentiable carrier optimization, CUDA kernels, BVH, or end-to-end
-benchmark results.
+production EXR/video tensor loading, pose/depth bootstrapping, learned or GPU
+differentiable carrier optimization, CUDA kernels, BVH, or end-to-end benchmark
+results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.
@@ -122,9 +124,9 @@ aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir out
 
 # Asset-backed fixture captures:
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
-# loads existing fixture PPM/PGM image/depth/mask assets and prints deterministic summaries
+# loads existing PNG or PPM/PGM image/depth/mask assets and prints deterministic summaries
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
-# replaces target color/depth summaries from fixture PPM/PGM assets
+# replaces target color/depth summaries from PNG or PPM/PGM assets
 
 # COLMAP pose/intrinsics ingest:
 aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json

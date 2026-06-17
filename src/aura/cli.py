@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     capture_to_training.add_argument(
         "--load-assets",
         action="store_true",
-        help="Read fixture PPM/PGM image/depth/mask assets and replace target summaries",
+        help="Read PNG or PPM/PGM image/depth/mask assets and replace target summaries",
     )
 
     reconstruct_capture = sub.add_parser(
@@ -89,12 +89,12 @@ def main(argv: list[str] | None = None) -> int:
     reconstruct_capture.add_argument(
         "--load-assets",
         action="store_true",
-        help="Read fixture PPM/PGM image/depth/mask assets before reconstruction",
+        help="Read PNG or PPM/PGM image/depth/mask assets before reconstruction",
     )
 
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
-        help="Load capture-manifest PPM/PGM assets and print deterministic summaries as JSON",
+        help="Load capture-manifest PNG or PPM/PGM assets and print deterministic summaries as JSON",
     )
     inspect_capture_assets.add_argument("manifest", type=Path)
 
