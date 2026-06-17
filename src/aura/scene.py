@@ -35,11 +35,16 @@ class AuraScene:
             candidates = (*chunk_candidates, *orphan_candidates)
         else:
             candidates = tuple(self.elements)
-        hits = [hit for element in candidates if (hit := element.ray_query(ray)) is not None]
+        hits = tuple(
+            RayHitTrace(element_id=element.id, carrier_id=element.carrier_id, result=hit)
+            for element in candidates
+            if (hit := element.ray_query(ray)) is not None
+        )
         if not hits:
             result = RayQueryResult(color=(0.0, 0.0, 0.0), transmittance=1.0, confidence=0.0, provenance="miss")
             return RayTraversal(
                 result=result,
+                ordered_hits=(),
                 tested_chunk_ids=tuple(chunk.id for chunk in candidate_chunks),
                 tested_element_ids=tuple(element.id for element in candidates),
                 total_element_count=len(self.elements),
@@ -47,9 +52,10 @@ class AuraScene:
                 traversal_mode=traversal_mode,
                 tested_bvh_node_count=tested_bvh_node_count,
             )
-        hits.sort(key=lambda item: item.depth if item.depth is not None else float("inf"))
+        ordered_hits = tuple(sorted(hits, key=lambda item: item.depth if item.depth is not None else float("inf")))
         return RayTraversal(
-            result=composite_front_to_back(hits),
+            result=composite_front_to_back(hit.result for hit in ordered_hits),
+            ordered_hits=ordered_hits,
             tested_chunk_ids=tuple(chunk.id for chunk in candidate_chunks),
             tested_element_ids=tuple(element.id for element in candidates),
             total_element_count=len(self.elements),
@@ -73,8 +79,38 @@ class AuraScene:
 
 
 @dataclass(frozen=True)
+class RayHitTrace:
+    """One carrier contribution in front-to-back ray order."""
+
+    element_id: str
+    carrier_id: str
+    result: RayQueryResult
+
+    @property
+    def depth(self) -> float | None:
+        return self.result.depth
+
+    def to_dict(self) -> dict:
+        return {
+            "elementId": self.element_id,
+            "carrierId": self.carrier_id,
+            "depth": self.result.depth,
+            "color": list(self.result.color),
+            "transmittance": self.result.transmittance,
+            "opacity": self.result.opacity,
+            "confidence": self.result.confidence,
+            "normal": list(self.result.normal) if self.result.normal is not None else None,
+            "materialId": self.result.material_id,
+            "semanticId": self.result.semantic_id,
+            "residual": self.result.residual,
+            "provenance": self.result.provenance,
+        }
+
+
+@dataclass(frozen=True)
 class RayTraversal:
     result: RayQueryResult
+    ordered_hits: tuple[RayHitTrace, ...]
     tested_chunk_ids: tuple[str, ...]
     tested_element_ids: tuple[str, ...]
     total_element_count: int
@@ -99,6 +135,12 @@ class RayTraversal:
                 "semanticId": self.result.semantic_id,
                 "residual": self.result.residual,
                 "provenance": self.result.provenance,
+            },
+            "orderedHits": [hit.to_dict() for hit in self.ordered_hits],
+            "compositing": {
+                "mode": "front_to_back",
+                "orderedHitCount": len(self.ordered_hits),
+                "provenanceOrder": [hit.result.provenance for hit in self.ordered_hits],
             },
             "testedChunkIds": list(self.tested_chunk_ids),
             "testedElementIds": list(self.tested_element_ids),

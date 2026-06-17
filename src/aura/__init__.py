@@ -127,7 +127,7 @@ from aura.render import (
 )
 from aura.runtime_export import RuntimeExportReport, runtime_export_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
-from aura.scene import AuraScene, RayTraversal
+from aura.scene import AuraScene, RayHitTrace, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
 from aura.training_targets import CapturePixelTarget, capture_tensors_to_render_targets
 from aura.torch_renderer import (
@@ -201,6 +201,7 @@ __all__ = [
     "NeuralResidualPayload",
     "MigrationReport",
     "Ray",
+    "RayHitTrace",
     "RayInspection",
     "RayQueryExpectation",
     "RayQueryResult",

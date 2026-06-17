@@ -147,10 +147,12 @@ def _ray_query_contract() -> dict[str, Any]:
         "confidence",
         "residual",
         "provenance",
+        "orderedHits",
     )
     return {
         "fields": list(fields),
         "supportsFirstHit": True,
+        "supportsOrderedHitTrace": True,
         "supportsCompositing": True,
         "requiresNativeAuraRuntime": True,
     }

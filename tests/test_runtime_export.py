@@ -36,7 +36,9 @@ def test_runtime_export_report_separates_native_contract_from_fallbacks(tmp_path
         "confidence",
         "residual",
         "provenance",
+        "orderedHits",
     ]
+    assert report["rayQueryContract"]["supportsOrderedHitTrace"] is True
     assert report["rayQueryContract"]["supportsCompositing"] is True
     by_carrier = {item["carrierId"]: item for item in report["carrierExport"]}
     assert by_carrier["gabor"]["gltfFallback"] == "texture_metadata_only_without_native_runtime"

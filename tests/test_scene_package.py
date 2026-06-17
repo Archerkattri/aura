@@ -1,4 +1,5 @@
 import json
+from math import exp
 import subprocess
 import sys
 from importlib import resources
@@ -46,6 +47,50 @@ def test_scene_ray_query_hits_front_element():
     assert result.provenance == "surface"
     assert result.depth == 1.0
     assert result.opacity == 0.5
+
+
+def test_scene_traversal_reports_ordered_multi_carrier_hits():
+    scene = AuraScene(
+        name="trace_fixture",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+                payload={"type": "surface_cell", "normal": [0.0, 0.0, -1.0]},
+                color=(1.0, 0.0, 0.0),
+                opacity=0.25,
+                confidence=0.9,
+                material_id="mat_surface",
+            ),
+            AuraElement(
+                id="rear_volume",
+                carrier_id="volume",
+                bounds=Bounds((-1.0, -1.0, 0.2), (1.0, 1.0, 0.7)),
+                payload={"type": "volume_cell", "density": 1.0},
+                color=(0.0, 0.0, 1.0),
+                opacity=0.8,
+                confidence=0.6,
+                semantic_id="mist",
+            ),
+        ),
+    )
+
+    traversal = scene.traverse_ray(Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
+    payload = traversal.to_dict()
+
+    assert traversal.hit_count == 2
+    assert [hit.element_id for hit in traversal.ordered_hits] == ["front_surface", "rear_volume"]
+    assert [hit.carrier_id for hit in traversal.ordered_hits] == ["surface", "volume"]
+    assert traversal.result.depth == 1.0
+    assert traversal.result.normal == (0.0, 0.0, -1.0)
+    assert traversal.result.material_id == "mat_surface"
+    assert traversal.result.provenance == "front_surface,rear_volume"
+    assert traversal.result.transmittance == pytest.approx(0.75 * exp(-0.5))
+    assert payload["orderedHits"][0]["elementId"] == "front_surface"
+    assert payload["orderedHits"][1]["carrierId"] == "volume"
+    assert payload["compositing"]["mode"] == "front_to_back"
+    assert payload["compositing"]["provenanceOrder"] == ["front_surface", "rear_volume"]
 
 
 def test_scene_ray_query_miss_returns_empty_result():

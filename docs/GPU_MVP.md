@@ -77,8 +77,8 @@ This package now contains the GPU-ready skeleton for AURA:
   before adaptive decomposition, with a replaceable learned-proposal contract;
 - optional PyTorch renderer contract for ordered native carrier compositing,
   first-hit depth/normal/material/semantic metadata, transmittance, opacity,
-  confidence, residual, provenance, and query-loss outputs over `AuraScene`
-  and `RenderTarget`;
+  confidence, residual, provenance, ordered per-carrier hit traces, and
+  query-loss outputs over `AuraScene` and `RenderTarget`;
 - cached reference chunk BVH traversal metrics for native ray-query probes,
   including traversal mode and tested node counts;
 - strict-JSON render comparison metrics for regression checks;

@@ -146,8 +146,9 @@ aura cuda-kernel-build-report --build
 ```
 
 The PyTorch renderer is currently a native AABB reference path with ordered
-front-to-back carrier compositing and first-hit query metadata. It is not yet
-production CUDA rendering or production GPU BVH traversal.
+front-to-back carrier compositing, first-hit query metadata, and ordered
+per-carrier hit traces. It is not yet production CUDA rendering or production
+GPU BVH traversal.
 
 ## Quick Smoke Commands
 
