@@ -225,7 +225,12 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert by_id["semantic_object_neural_residual"].carrier_id == "neural"
     assert by_id["semantic_object_neural_residual"].payload["type"] == "neural_residual"
     assert by_id["semantic_object_neural_residual"].confidence_map["query"] == 0.0
-    assert set(result.scene.chunks[0].element_ids) == set(by_id)
+    chunk_members = tuple(element_id for chunk in result.scene.chunks for element_id in chunk.element_ids)
+    assert set(chunk_members) == set(by_id)
+    assert len(chunk_members) == len(by_id)
+    chunk_by_id = {chunk.id: chunk for chunk in result.scene.chunks}
+    assert "soft_volume_beta_detail" in chunk_by_id["detail_beta_lod1"].element_ids
+    assert "semantic_object_neural_residual" in chunk_by_id["residual_neural_lod1"].element_ids
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["sources"] == ["posed_training_frames", "training_regions", "depth_targets", "semantic_labels"]
     assert "native_evidence_initialization" in report["stages"]

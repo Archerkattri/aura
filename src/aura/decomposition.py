@@ -48,10 +48,9 @@ def decompose_evidence(samples: Sequence[EvidenceSample], name: str = "aura_deco
     if not samples:
         return AuraScene(name=name, elements=tuple(), chunks=tuple())
 
-    elements = tuple(_sample_to_element(sample) for sample in samples)
-    chunk = AuraChunk(id="root", bounds=_union_bounds([sample.bounds for sample in samples]), element_ids=tuple(item.id for item in elements))
+    elements, chunks = carrier_lod_elements_and_chunks(tuple(_sample_to_element(sample) for sample in samples))
     semantic_graph = _semantic_graph_for(samples, elements)
-    return AuraScene(name=name, elements=elements, chunks=(chunk,), semantic_graph=semantic_graph)
+    return AuraScene(name=name, elements=elements, chunks=chunks, semantic_graph=semantic_graph)
 
 
 def _sample_to_element(sample: EvidenceSample) -> AuraElement:
@@ -130,6 +129,74 @@ def _union_bounds(bounds: Sequence[Bounds]) -> Bounds:
     min_corner = tuple(min(item.min_corner[index] for item in bounds) for index in range(3))
     max_corner = tuple(max(item.max_corner[index] for item in bounds) for index in range(3))
     return Bounds(min_corner=min_corner, max_corner=max_corner)  # type: ignore[arg-type]
+
+
+def carrier_lod_elements_and_chunks(elements: Sequence[AuraElement]) -> tuple[tuple[AuraElement, ...], tuple[AuraChunk, ...]]:
+    """Assign deterministic carrier/LOD chunks to native AURA elements."""
+
+    chunked_elements = tuple(
+        AuraElement(
+            id=element.id,
+            carrier_id=element.carrier_id,
+            bounds=element.bounds,
+            color=element.color,
+            opacity=element.opacity,
+            confidence=element.confidence,
+            normal=element.normal,
+            material_id=element.material_id,
+            semantic_id=element.semantic_id,
+            residual=element.residual,
+            lod=_lod_for_carrier(element.carrier_id),
+            chunk_id=_chunk_id_for_carrier(element.carrier_id),
+            metadata=element.metadata,
+            confidence_map=element.confidence_map,
+            edit=element.edit,
+            payload=element.payload,
+        )
+        for element in elements
+    )
+    return chunked_elements, _chunks_for_elements(chunked_elements)
+
+
+def _chunks_for_elements(elements: Sequence[AuraElement]) -> tuple[AuraChunk, ...]:
+    grouped: dict[str, list[AuraElement]] = {}
+    for element in elements:
+        grouped.setdefault(element.chunk_id, []).append(element)
+    chunks = []
+    for chunk_id, chunk_elements in grouped.items():
+        chunks.append(
+            AuraChunk(
+                id=chunk_id,
+                bounds=_union_bounds([element.bounds for element in chunk_elements]),
+                element_ids=tuple(element.id for element in chunk_elements),
+                lod=min(element.lod for element in chunk_elements),
+            )
+        )
+    return tuple(chunks)
+
+
+def _chunk_id_for_carrier(carrier_id: str) -> str:
+    return {
+        "surface": "base_surface_lod0",
+        "volume": "base_volume_lod0",
+        "semantic": "semantic_object_lod0",
+        "beta": "detail_beta_lod1",
+        "gabor": "detail_gabor_lod1",
+        "neural": "residual_neural_lod1",
+        "gaussian": "fallback_gaussian_lod2",
+    }.get(carrier_id, f"{carrier_id}_lod2")
+
+
+def _lod_for_carrier(carrier_id: str) -> int:
+    return {
+        "surface": 0,
+        "volume": 0,
+        "semantic": 0,
+        "beta": 1,
+        "gabor": 1,
+        "neural": 1,
+        "gaussian": 2,
+    }.get(carrier_id, 2)
 
 
 def _semantic_graph_for(samples: Sequence[EvidenceSample], elements: Sequence[AuraElement]) -> SemanticGraph:

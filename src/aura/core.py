@@ -12,7 +12,7 @@ from jsonschema.exceptions import ValidationError
 
 from aura.assignment import RegionEvidence
 from aura.carrier_payloads import BetaKernelPayload, NeuralResidualPayload
-from aura.decomposition import EvidenceSample, decompose_evidence
+from aura.decomposition import EvidenceSample, carrier_lod_elements_and_chunks, decompose_evidence
 from aura.elements import AuraElement, Bounds
 from aura.optimize import RenderTarget, differentiate_scene_rays, gradient_descent_color_step, precondition_color_gradient
 from aura.ray import Ray, Vec3
@@ -773,9 +773,8 @@ def _refine_scene_from_predictions(
             if evolved is not None and evolved.id not in existing_ids:
                 elements.append(evolved)
                 existing_ids.add(evolved.id)
-    element_ids = tuple(element.id for element in elements)
-    chunks = tuple(replace(chunk, element_ids=element_ids) for chunk in scene.chunks)
-    return AuraScene(name=scene.name, elements=tuple(elements), chunks=chunks, semantic_graph=scene.semantic_graph)
+    chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(elements))
+    return AuraScene(name=scene.name, elements=chunked_elements, chunks=chunks, semantic_graph=scene.semantic_graph)
 
 
 def _evolved_element_for(

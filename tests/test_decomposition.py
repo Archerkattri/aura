@@ -22,6 +22,15 @@ def test_native_demo_scene_is_mixed_aura_first_fixture():
 
     assert scene.name == "native_demo"
     assert scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
+    assert scene.chunk_ids() == [
+        "base_surface_lod0",
+        "base_volume_lod0",
+        "detail_beta_lod1",
+        "detail_gabor_lod1",
+        "fallback_gaussian_lod2",
+        "residual_neural_lod1",
+        "semantic_object_lod0",
+    ]
     assert all(element.payload for element in scene.elements)
     assert {element.id: element.semantic_id for element in scene.elements}["surface_wall"] == "wall"
     assert {node.label for node in scene.semantic_graph.nodes} == {"wall", "fixture_object"}
@@ -89,7 +98,23 @@ def test_decompose_evidence_produces_mixed_native_carriers(tmp_path):
     ]
     assert loaded.scene.elements[0].confidence_map == {"assignment": 1.0, "geometry": 0.9, "material": 0.7}
     assert loaded.scene.elements[0].edit == {"source": "adaptive-decomposition", "editable": True, "group": "wall"}
-    assert loaded.scene.chunks[0].element_ids == tuple(sample.id for sample in samples)
+    chunk_by_id = {chunk.id: chunk for chunk in loaded.scene.chunks}
+    assert chunk_by_id["base_surface_lod0"].element_ids == ("surface_wall",)
+    assert chunk_by_id["base_volume_lod0"].element_ids == ("fog_volume",)
+    assert chunk_by_id["detail_gabor_lod1"].element_ids == ("weave_detail",)
+    assert chunk_by_id["residual_neural_lod1"].element_ids == ("view_residual",)
+    assert chunk_by_id["semantic_object_lod0"].element_ids == ("semantic_tooth",)
+    assert chunk_by_id["detail_beta_lod1"].element_ids == ("compact_chip",)
+    assert chunk_by_id["fallback_gaussian_lod2"].element_ids == ("fallback_sample",)
+    assert {element.id: element.lod for element in loaded.scene.elements} == {
+        "surface_wall": 0,
+        "fog_volume": 0,
+        "weave_detail": 1,
+        "view_residual": 1,
+        "semantic_tooth": 0,
+        "compact_chip": 1,
+        "fallback_sample": 2,
+    }
     assert [node.label for node in loaded.scene.semantic_graph.nodes] == ["tooth_12"]
     assert loaded.scene.semantic_graph.nodes[0].element_ids == ("semantic_tooth",)
 

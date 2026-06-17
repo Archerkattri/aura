@@ -40,7 +40,7 @@ def test_load_3dgs_scene_builds_gaussian_aura_elements_with_bounds():
 
     assert scene.name == "tiny_splats"
     assert scene.carrier_ids() == ["gaussian"]
-    assert scene.chunk_ids() == ["root"]
+    assert scene.chunk_ids() == ["fallback_gaussian_lod2"]
     assert len(scene.elements) == 2
     assert scene.elements[0].bounds.min_corner == pytest.approx((-0.2, -0.2, -0.1))
     assert scene.elements[0].bounds.max_corner == pytest.approx((0.2, 0.2, 0.1))

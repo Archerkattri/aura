@@ -24,10 +24,11 @@ native representation contract pieces:
   Gaussian fallback, and semantic carriers;
 - payload/carrier consistency validation with typed payload constructor checks;
 - evidence-to-carrier assignment;
-- evidence-to-element adaptive decomposition;
+- evidence-to-element adaptive decomposition with deterministic carrier/LOD
+  chunking;
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
-- bounded AURA elements and chunks;
+- bounded AURA elements and carrier/LOD chunks;
 - carrier-aware reference ray-query response with linear chunk traversal and
   cached BVH traversal metrics;
 - carrier-specific reference query tests for surface, volume, beta, gabor,

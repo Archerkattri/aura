@@ -6,10 +6,11 @@ This package now contains the GPU-ready skeleton for AURA:
 - native carrier payload models;
 - payload/carrier consistency validation with typed payload constructor checks;
 - evidence-to-carrier assignment;
-- evidence-to-element adaptive decomposition;
+- evidence-to-element adaptive decomposition with deterministic carrier/LOD
+  chunking;
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
-- bounded local elements;
+- bounded local elements and carrier/LOD chunks;
 - carrier-aware reference ray queries;
 - carrier-specific reference query tests for surface, volume, beta, gabor,
   neural residual, semantic, and covariance-weighted Gaussian fallback
@@ -29,7 +30,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - loaded mask assets seed native semantic/object priors;
 - dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed
   native training fixtures;
-- chunk and LOD metadata;
+- chunk and LOD metadata from adaptive decomposition;
 - native `.aura` package writer;
 - native `.aura` package loader/validator;
 - explicit `.aura` format/version compatibility checks;
