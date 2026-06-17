@@ -338,6 +338,102 @@ def test_torch_render_target_objective_backpropagates_carrier_parameters():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_composites_ordered_carrier_hits():
+    scene = AuraScene(
+        name="torch_composite_scene",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.5,
+                confidence=0.8,
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="back_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.2), (0.5, 0.5, 0.3)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.5,
+                confidence=0.4,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.5, 0.0, 0.25),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert batch.element_ids == ("front_surface",)
+    assert batch.provenance == ("front_surface,back_surface",)
+    assert batch.predicted_depth == pytest.approx((2.0,))
+    assert batch.predicted_color[0] == pytest.approx((0.5, 0.0, 0.25))
+    assert batch.transmittance == pytest.approx((0.25,))
+    assert batch.opacity == pytest.approx((0.75,))
+    assert batch.confidence == pytest.approx(((0.5 * 0.8 + 0.25 * 0.4) / 0.75,))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_backpropagates_ordered_carrier_hits():
+    scene = AuraScene(
+        name="torch_composite_objective_scene",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.5,
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="back_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.2), (0.5, 0.5, 0.3)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.5,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    torch = require_torch()
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+
+    objective = torch_render_target_objective(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.1, 0.0, 0.9),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+    objective.total_loss.backward()
+
+    assert objective.to_dict()["carrierParameterIds"] == ["back_surface", "front_surface"]
+    assert carrier_parameters["front_surface"]["color"].grad is not None
+    assert carrier_parameters["front_surface"]["opacity"].grad is not None
+    assert carrier_parameters["back_surface"]["color"].grad is not None
+    assert carrier_parameters["back_surface"]["opacity"].grad is not None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_capture_training_objective_backpropagates_native_surface_parameters():
     import torch
 

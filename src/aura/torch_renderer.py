@@ -479,48 +479,31 @@ def _torch_render_tensor_targets(
     confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
     carrier_parameters = carrier_parameters or torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=device)
 
-    safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
-    t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
-    t1 = (maxs[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
-    lower = torch.minimum(t0, t1)
-    upper = torch.maximum(t0, t1)
-    parallel_outside = (directions.abs()[:, None, :] < 1e-8) & (
-        (origins[:, None, :] < mins[None, :, :]) | (origins[:, None, :] > maxs[None, :, :])
-    )
-    entry = torch.clamp(torch.max(lower, dim=2).values, min=0.0)
-    exit_depth = torch.min(upper, dim=2).values
-    hits = (exit_depth >= entry) & (~torch.any(parallel_outside, dim=2))
-    hit_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
-    best_depth, best_index = torch.min(hit_depths, dim=1)
-    has_hit = torch.isfinite(best_depth)
-
-    safe_best_depth = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
-    hit_points = origins + directions * safe_best_depth.unsqueeze(1)
-    carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors(
+    composited = _torch_composite_carrier_hits(
         torch,
         tuple(scene.elements),
-        best_index,
-        best_depth,
-        exit_depth,
-        hit_points,
+        origins,
+        directions,
+        mins,
+        maxs,
         colors,
         opacities,
         confidences,
-        mins,
-        maxs,
-        device,
+        device=device,
         carrier_parameters=carrier_parameters,
     )
-    gathered_colors = carrier_colors * (1.0 - transmittance).unsqueeze(1)
-    predicted_colors = torch.where(has_hit.unsqueeze(1), gathered_colors, torch.zeros_like(gathered_colors))
-    predicted_depths = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
-    transmittance = torch.where(has_hit, transmittance, torch.ones_like(transmittance))
-    confidence = torch.where(has_hit, confidence, torch.zeros_like(confidence))
-    residual_flags = torch.where(has_hit, residual_flags, torch.zeros_like(residual_flags))
+    has_hit = composited["has_hit"]
+    first_index = composited["first_index"]
+    first_depth = composited["first_depth"]
+    predicted_colors = composited["color"]
+    predicted_depths = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
+    transmittance = composited["transmittance"]
+    confidence = composited["confidence"]
+    residual_flags = composited["residual"]
     image_loss = torch.mean((predicted_colors - target_colors) ** 2, dim=1)
     depth_loss = torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths)
 
-    best_indices = best_index.detach().cpu().tolist()
+    best_indices = first_index.detach().cpu().tolist()
     hit_flags = has_hit.detach().cpu().tolist()
     elements = tuple(scene.elements)
     normals = tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
@@ -551,7 +534,7 @@ def _torch_render_tensor_targets(
         material_ids=material_ids,
         residual=tuple(bool(value) for value in residual_flags.detach().cpu().tolist()),
         semantic_ids=semantic_ids,
-        provenance=tuple(elements[index].id if hit else "miss" for index, hit in zip(best_indices, hit_flags)),
+        provenance=tuple(_torch_hit_provenance(elements, indices) for indices in composited["hit_indices"]),
         target_color=_tensor_vec3_tuple(target_colors.detach().cpu().tolist()),
         target_depth=tuple(float(value) for value in target_depths.detach().cpu().tolist()),
         target_normal=_optional_target_normal_tuple(target_normals, target_normal_present),
@@ -589,50 +572,30 @@ def _torch_render_objective_tensor_targets(
     confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
     carrier_parameters = carrier_parameters or torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=device)
 
-    safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
-    t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
-    t1 = (maxs[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
-    lower = torch.minimum(t0, t1)
-    upper = torch.maximum(t0, t1)
-    parallel_outside = (directions.abs()[:, None, :] < 1e-8) & (
-        (origins[:, None, :] < mins[None, :, :]) | (origins[:, None, :] > maxs[None, :, :])
-    )
-    entry = torch.clamp(torch.max(lower, dim=2).values, min=0.0)
-    exit_depth = torch.min(upper, dim=2).values
-    hits = (exit_depth >= entry) & (~torch.any(parallel_outside, dim=2))
-    hit_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
-    best_depth, best_index = torch.min(hit_depths, dim=1)
-    has_hit = torch.isfinite(best_depth)
-
-    safe_best_depth = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
-    hit_points = origins + directions * safe_best_depth.unsqueeze(1)
-    carrier_colors, transmittance, _confidence, _residual_flags = torch_carrier_response_tensors(
+    composited = _torch_composite_carrier_hits(
         torch,
         tuple(scene.elements),
-        best_index,
-        best_depth,
-        exit_depth,
-        hit_points,
+        origins,
+        directions,
+        mins,
+        maxs,
         colors,
         opacities,
         confidences,
-        mins,
-        maxs,
-        device,
+        device=device,
         carrier_parameters=carrier_parameters,
     )
-    predicted_colors = torch.where(
-        has_hit.unsqueeze(1),
-        carrier_colors * (1.0 - transmittance).unsqueeze(1),
-        torch.zeros_like(carrier_colors),
-    )
-    predicted_depths = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
-    predicted_opacity = torch.where(has_hit, 1.0 - transmittance, torch.zeros_like(transmittance))
+    has_hit = composited["has_hit"]
+    first_index = composited["first_index"]
+    first_depth = composited["first_depth"]
+    predicted_colors = composited["color"]
+    predicted_depths = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
+    predicted_opacity = 1.0 - composited["transmittance"]
     image_loss = torch.mean((predicted_colors - target_colors) ** 2)
     depth_loss = torch.mean(torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths))
     mask_loss = _torch_mask_loss(torch, predicted_opacity, target_mask)
     elements = tuple(scene.elements)
-    best_indices = best_index.detach().cpu().tolist()
+    best_indices = first_index.detach().cpu().tolist()
     hit_flags = has_hit.detach().cpu().tolist()
     normals = tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
     predicted_normals, predicted_normal_present = _predicted_normal_tensors(torch, normals, device=device)
@@ -647,6 +610,98 @@ def _torch_render_objective_tensor_targets(
         normal_loss=normal_loss,
         mask_loss=mask_loss,
     )
+
+
+def _torch_composite_carrier_hits(
+    torch: Any,
+    elements: Sequence[Any],
+    origins: Any,
+    directions: Any,
+    mins: Any,
+    maxs: Any,
+    colors: Any,
+    opacities: Any,
+    confidences: Any,
+    *,
+    device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
+    t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
+    t1 = (maxs[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
+    lower = torch.minimum(t0, t1)
+    upper = torch.maximum(t0, t1)
+    parallel_outside = (directions.abs()[:, None, :] < 1e-8) & (
+        (origins[:, None, :] < mins[None, :, :]) | (origins[:, None, :] > maxs[None, :, :])
+    )
+    entry = torch.clamp(torch.max(lower, dim=2).values, min=0.0)
+    exit_depth = torch.min(upper, dim=2).values
+    hits = (exit_depth >= entry) & (~torch.any(parallel_outside, dim=2))
+    hit_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
+    first_depth, first_index = torch.min(hit_depths, dim=1)
+    has_hit = torch.isfinite(first_depth)
+    sorted_depths, sorted_indices = torch.sort(hit_depths, dim=1)
+
+    ray_count = int(origins.shape[0])
+    color = torch.zeros((ray_count, 3), dtype=torch.float32, device=device)
+    remaining = torch.ones((ray_count,), dtype=torch.float32, device=device)
+    confidence_num = torch.zeros((ray_count,), dtype=torch.float32, device=device)
+    confidence_den = torch.zeros((ray_count,), dtype=torch.float32, device=device)
+    residual = torch.zeros((ray_count,), dtype=torch.bool, device=device)
+
+    for order in range(len(elements)):
+        current_index = sorted_indices[:, order]
+        current_depth = sorted_depths[:, order]
+        active = torch.isfinite(current_depth)
+        if not bool(torch.any(active)):
+            continue
+        safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
+        hit_points = origins + directions * safe_depth.unsqueeze(1)
+        carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors(
+            torch,
+            elements,
+            current_index,
+            safe_depth,
+            exit_depth,
+            hit_points,
+            colors,
+            opacities,
+            confidences,
+            mins,
+            maxs,
+            device,
+            carrier_parameters=carrier_parameters,
+        )
+        transmittance = torch.clamp(torch.where(active, transmittance, torch.ones_like(transmittance)), min=0.0, max=1.0)
+        alpha = 1.0 - transmittance
+        weight = torch.where(active, remaining * alpha, torch.zeros_like(remaining))
+        color = color + weight.unsqueeze(1) * carrier_colors
+        confidence_num = confidence_num + weight * confidence
+        confidence_den = confidence_den + weight
+        remaining = torch.where(active, remaining * transmittance, remaining)
+        residual = residual | (active & residual_flags)
+
+    hit_indices = []
+    for indices, depths in zip(sorted_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
+        hit_indices.append(tuple(int(index) for index, depth in zip(indices, depths) if depth != float("inf")))
+
+    confidence = torch.where(confidence_den > 0.0, confidence_num / torch.clamp(confidence_den, min=1e-8), torch.zeros_like(confidence_den))
+    return {
+        "color": color,
+        "transmittance": torch.where(has_hit, remaining, torch.ones_like(remaining)),
+        "confidence": torch.where(has_hit, confidence, torch.zeros_like(confidence)),
+        "residual": torch.where(has_hit, residual, torch.zeros_like(residual)),
+        "first_depth": first_depth,
+        "first_index": first_index,
+        "has_hit": has_hit,
+        "hit_indices": tuple(hit_indices),
+    }
+
+
+def _torch_hit_provenance(elements: Sequence[Any], indices: Sequence[int]) -> str:
+    if not indices:
+        return "miss"
+    return ",".join(elements[index].id for index in indices)
 
 
 def _import_torch() -> Any:

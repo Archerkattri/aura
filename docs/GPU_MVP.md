@@ -67,9 +67,10 @@ This package now contains the GPU-ready skeleton for AURA:
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - model-scored native feature proposals for image-detail and depth-edge regions
   before adaptive decomposition, with a replaceable learned-proposal contract;
-- optional PyTorch renderer contract for batched native first-hit/depth/color,
-  transmittance, opacity, confidence, normal, material, semantic, residual,
-  provenance, and query-loss outputs over `AuraScene` and `RenderTarget`;
+- optional PyTorch renderer contract for ordered native carrier compositing,
+  first-hit depth/normal/material/semantic metadata, transmittance, opacity,
+  confidence, residual, provenance, and query-loss outputs over `AuraScene`
+  and `RenderTarget`;
 - cached reference chunk BVH traversal metrics for native ray-query probes,
   including traversal mode and tested node counts;
 - strict-JSON render comparison metrics for regression checks;
@@ -88,12 +89,13 @@ rendering and training work should implement against the native carrier
 contract next, after the mixed-carrier decomposition path is the primary
 fixture.
 
-The current renderer is a deterministic validation preview, and the optional
-PyTorch path is a payload-aware reference contract rather than the final CUDA
-renderer. A future GPU renderer should match this package/query contract while
-replacing the reference implementation for real throughput. The live
-`torch_render_target_objective` path is the current autograd bridge for turning
-carrier parameter tensors into real GPU optimization losses.
+The current CPU renderer is a deterministic validation preview, and the optional
+PyTorch path is a payload-aware ordered-compositing reference contract rather
+than the final CUDA renderer. A future GPU renderer should match this
+package/query contract while replacing the reference implementation for real
+throughput. The live `torch_render_target_objective` path is the current
+autograd bridge for turning carrier parameter tensors into real GPU
+optimization losses.
 
 The first CLI smoke path is `aura build-native-demo`, which builds a
 mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are

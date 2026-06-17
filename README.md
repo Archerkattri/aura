@@ -91,9 +91,10 @@ native representation contract pieces:
   outputs for native AURA-Core fixture optimization;
 - residual-driven confidence updates and confidence maps on optimized native
   carriers;
-- optional PyTorch renderer contract with batched native first-hit/depth/color,
-  transmittance, opacity, confidence, normal, material, semantic, residual,
-  provenance, and query-loss outputs when installed with `aura-core[gpu]`;
+- optional PyTorch renderer contract with ordered native carrier compositing,
+  first-hit depth/normal/material/semantic metadata, transmittance, opacity,
+  confidence, residual, provenance, and query-loss outputs when installed with
+  `aura-core[gpu]`;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   confidence-quality, and interaction-quality metrics;
 - ray-query correctness scoring for first-hit, carrier, depth, transmittance,
@@ -103,7 +104,7 @@ native representation contract pieces:
 - fixture CLI commands and tests.
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
-production EXR/video tensor loading, carrier-complete GPU differentiable
+production EXR/video tensor loading, production GPU differentiable
 optimization, compiled CUDA kernels, production GPU BVH traversal, or
 end-to-end benchmark results.
 
@@ -135,9 +136,9 @@ aura torch-renderer-status
 aura cuda-kernel-build-report --build
 ```
 
-The PyTorch renderer is currently a native AABB first-hit prototype with
-payload-aware reference semantics for transmittance, confidence, residual flags,
-and semantic IDs. It is not yet carrier-complete CUDA rendering.
+The PyTorch renderer is currently a native AABB reference path with ordered
+front-to-back carrier compositing and first-hit query metadata. It is not yet
+production CUDA rendering or production GPU BVH traversal.
 
 ## Quick Smoke Commands
 
