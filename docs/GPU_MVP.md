@@ -88,6 +88,9 @@ This package now contains the GPU-ready skeleton for AURA:
   packing native element bounds, carrier IDs, material/semantic dictionaries,
   rays, and output buffer shapes for the future `aura_render_rays_kernel`
   launch;
+- a CPU oracle for the packaged renderer kernel through
+  `simulate_cuda_renderer_kernel(...)`, validating flat output buffers and
+  first-hit parity before compiled CUDA dispatch exists;
 - CPU-safe CUDA renderer callable scaffold through the legacy
   `cuda_kernels.cuda_render_rays` report plus the concrete
   `aura.cuda_renderer` launch boundary, with validated launch config
@@ -209,7 +212,9 @@ explicit CPU/torch fallback batch matching the AURA ray-query contract. This
 fallback is not CUDA acceleration. Use
 `aura.cuda_renderer.cuda_renderer_kernel_inputs(...)` to produce deterministic
 host-side buffers matching the packaged `aura_render_rays_kernel` ABI; these
-buffers are parity-test inputs, not a compiled CUDA launch.
+buffers are parity-test inputs, not a compiled CUDA launch. Use
+`simulate_cuda_renderer_kernel(...)` as the CPU oracle for those buffers while
+compiled CUDA dispatch is still unavailable.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

@@ -61,6 +61,7 @@ from aura.cuda_kernels import (
 from aura.cuda_renderer import (
     CudaRendererBatch,
     CudaRendererKernelInputBuffers,
+    CudaRendererKernelSimulation,
     CudaRendererLaunchConfig,
     CudaRendererSceneBuffers,
     cuda_renderer_kernel_inputs,
@@ -69,6 +70,7 @@ from aura.cuda_renderer import (
     cuda_render_rays as cuda_renderer_render_rays,
     cuda_renderer_launch_config,
     cuda_renderer_scene_buffers,
+    simulate_cuda_renderer_kernel,
 )
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
@@ -226,6 +228,7 @@ __all__ = [
     "CudaKernelSource",
     "CudaRendererBatch",
     "CudaRendererKernelInputBuffers",
+    "CudaRendererKernelSimulation",
     "CudaRendererLaunchReport",
     "CudaRendererLaunchConfig",
     "CudaRendererSceneBuffers",
@@ -297,6 +300,7 @@ __all__ = [
     "cuda_renderer_reference_first_hit_indices",
     "cuda_renderer_render_rays",
     "cuda_renderer_scene_buffers",
+    "simulate_cuda_renderer_kernel",
     "cuda_renderer_report",
     "colmap_binary_to_capture_manifest",
     "colmap_text_to_capture_manifest",

@@ -19,6 +19,7 @@ CUDA_RENDERER_CARRIER_IDS = {
     "semantic": 5,
     "gaussian": 6,
 }
+CUDA_RENDERER_INF_SENTINEL = 3.402823466e38
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,74 @@ class CudaRendererKernelInputBuffers:
                 name: _kernel_arg_summary(value)
                 for name, value in self.to_kernel_args().items()
             },
+        }
+
+
+@dataclass(frozen=True)
+class CudaRendererKernelSimulation:
+    """CPU oracle for the packaged `aura_render_rays_kernel` ABI."""
+
+    inputs: CudaRendererKernelInputBuffers
+    out_color: tuple[float, ...]
+    out_alpha: tuple[float, ...]
+    out_transmittance: tuple[float, ...]
+    out_depth: tuple[float, ...]
+    out_normal: tuple[float, ...]
+    out_confidence: tuple[float, ...]
+    out_residual: tuple[int, ...]
+    out_material_id: tuple[int, ...]
+    out_semantic_id: tuple[int, ...]
+    ordered_hits: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        ray_count = self.inputs.ray_count
+        max_hits = self.inputs.max_hits
+        for name, values, expected in (
+            ("out_color", self.out_color, ray_count * 3),
+            ("out_alpha", self.out_alpha, ray_count),
+            ("out_transmittance", self.out_transmittance, ray_count),
+            ("out_depth", self.out_depth, ray_count),
+            ("out_normal", self.out_normal, ray_count * 3),
+            ("out_confidence", self.out_confidence, ray_count),
+            ("out_residual", self.out_residual, ray_count),
+            ("out_material_id", self.out_material_id, ray_count),
+            ("out_semantic_id", self.out_semantic_id, ray_count),
+            ("ordered_hits", self.ordered_hits, ray_count * max_hits),
+        ):
+            if len(values) != expected:
+                raise ValueError(f"CUDA renderer simulation {name} length {len(values)} does not match expected {expected}")
+
+    @property
+    def ray_count(self) -> int:
+        return self.inputs.ray_count
+
+    @property
+    def first_hit_indices(self) -> tuple[int, ...]:
+        return tuple(self.ordered_hits[index * self.inputs.max_hits] for index in range(self.ray_count))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "format": "AURA_CUDA_RENDERER_KERNEL_SIMULATION",
+            "kernelSymbol": "aura_render_rays_kernel",
+            "productionReady": False,
+            "rayCount": self.ray_count,
+            "elementCount": self.inputs.element_count,
+            "maxHits": self.inputs.max_hits,
+            "firstHitIndices": list(self.first_hit_indices),
+            "outColor": _flat_buffer_metadata(self.out_color, "float32", (self.ray_count, 3)),
+            "outAlpha": _flat_buffer_metadata(self.out_alpha, "float32", (self.ray_count,)),
+            "outTransmittance": _flat_buffer_metadata(self.out_transmittance, "float32", (self.ray_count,)),
+            "outDepth": _flat_buffer_metadata(self.out_depth, "float32", (self.ray_count,)),
+            "outNormal": _flat_buffer_metadata(self.out_normal, "float32", (self.ray_count, 3)),
+            "outConfidence": _flat_buffer_metadata(self.out_confidence, "float32", (self.ray_count,)),
+            "outResidual": _flat_buffer_metadata(self.out_residual, "uint8", (self.ray_count,)),
+            "outMaterialId": _flat_buffer_metadata(self.out_material_id, "int32", (self.ray_count,)),
+            "outSemanticId": _flat_buffer_metadata(self.out_semantic_id, "int32", (self.ray_count,)),
+            "orderedHits": _flat_buffer_metadata(self.ordered_hits, "int32", (self.ray_count, self.inputs.max_hits)),
+            "notes": (
+                "CPU oracle for the packaged CUDA renderer ABI. This validates flat buffer semantics "
+                "without compiling or launching CUDA."
+            ),
         }
 
 
@@ -311,6 +380,82 @@ def cuda_renderer_reference_first_hit_indices(scene: AuraScene, rays: Sequence[R
         else:
             indices.append(-1)
     return tuple(indices)
+
+
+def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> CudaRendererKernelSimulation:
+    """Run the packaged CUDA renderer ABI on CPU for parity tests."""
+
+    out_color: list[float] = []
+    out_alpha: list[float] = []
+    out_transmittance: list[float] = []
+    out_depth: list[float] = []
+    out_normal: list[float] = []
+    out_confidence: list[float] = []
+    out_residual: list[int] = []
+    out_material_id: list[int] = []
+    out_semantic_id: list[int] = []
+    ordered_hits: list[int] = []
+
+    for ray_index in range(inputs.ray_count):
+        origin = _flat_vec3(inputs.ray_origins, ray_index)
+        direction = _flat_vec3(inputs.ray_directions, ray_index)
+        best_depth = CUDA_RENDERER_INF_SENTINEL
+        best_element = -1
+        best_normal = (0.0, 0.0, 0.0)
+        for element_index in range(inputs.element_count):
+            hit = _simulate_ray_aabb_intersect(
+                origin,
+                direction,
+                _flat_vec3(inputs.scene.element_mins, element_index),
+                _flat_vec3(inputs.scene.element_maxs, element_index),
+            )
+            if hit is None:
+                continue
+            depth, _exit_depth, normal = hit
+            if depth < best_depth:
+                best_depth = depth
+                best_element = element_index
+                best_normal = normal
+
+        if best_element < 0:
+            out_color.extend((0.0, 0.0, 0.0))
+            out_alpha.append(0.0)
+            out_transmittance.append(1.0)
+            out_depth.append(CUDA_RENDERER_INF_SENTINEL)
+            out_normal.extend((0.0, 0.0, 0.0))
+            out_confidence.append(0.0)
+            out_residual.append(0)
+            out_material_id.append(-1)
+            out_semantic_id.append(-1)
+            ordered_hits.extend((-1,) * inputs.max_hits)
+            continue
+
+        opacity = _clamp_unit(inputs.scene.opacities[best_element])
+        out_color.extend(_flat_vec3(inputs.scene.colors, best_element))
+        out_alpha.append(opacity)
+        out_transmittance.append(_clamp_unit(1.0 - opacity))
+        out_depth.append(best_depth)
+        out_normal.extend(best_normal)
+        out_confidence.append(_clamp_unit(inputs.scene.confidences[best_element]))
+        out_residual.append(1 if inputs.scene.carrier_kernel_ids[best_element] == CUDA_RENDERER_CARRIER_IDS["neural"] else 0)
+        out_material_id.append(inputs.scene.material_ids[best_element])
+        out_semantic_id.append(inputs.scene.semantic_ids[best_element])
+        ordered_hits.append(best_element)
+        ordered_hits.extend((-1,) * (inputs.max_hits - 1))
+
+    return CudaRendererKernelSimulation(
+        inputs=inputs,
+        out_color=tuple(out_color),
+        out_alpha=tuple(out_alpha),
+        out_transmittance=tuple(out_transmittance),
+        out_depth=tuple(out_depth),
+        out_normal=tuple(out_normal),
+        out_confidence=tuple(out_confidence),
+        out_residual=tuple(out_residual),
+        out_material_id=tuple(out_material_id),
+        out_semantic_id=tuple(out_semantic_id),
+        ordered_hits=tuple(ordered_hits),
+    )
 
 
 def cuda_renderer_boundary_report(
@@ -652,6 +797,53 @@ def _lookup_table_id(table: Sequence[str], value: str | None) -> int:
         return tuple(table).index(value)
     except ValueError as exc:
         raise ValueError(f"value {value!r} is missing from CUDA renderer id table") from exc
+
+
+def _flat_vec3(values: Sequence[float], index: int) -> tuple[float, float, float]:
+    offset = index * 3
+    return (float(values[offset]), float(values[offset + 1]), float(values[offset + 2]))
+
+
+def _clamp_unit(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _simulate_ray_aabb_intersect(
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    box_min: tuple[float, float, float],
+    box_max: tuple[float, float, float],
+) -> tuple[float, float, tuple[float, float, float]] | None:
+    t_min = 0.0
+    t_max = CUDA_RENDERER_INF_SENTINEL
+    normal = (0.0, 0.0, 0.0)
+    for axis in range(3):
+        ray_o = origin[axis]
+        ray_d = direction[axis]
+        lower = box_min[axis]
+        upper = box_max[axis]
+        if abs(ray_d) < 1.0e-8:
+            if ray_o < lower or ray_o > upper:
+                return None
+            continue
+        inv_d = 1.0 / ray_d
+        t0 = (lower - ray_o) * inv_d
+        t1 = (upper - ray_o) * inv_d
+        sign = -1.0
+        if t0 > t1:
+            t0, t1 = t1, t0
+            sign = 1.0
+        if t0 > t_min:
+            t_min = t0
+            normal_values = [0.0, 0.0, 0.0]
+            normal_values[axis] = sign
+            normal = (normal_values[0], normal_values[1], normal_values[2])
+        t_max = min(t_max, t1)
+        if t_min > t_max:
+            return None
+    if t_max < 0.0:
+        return None
+    return (t_min, t_max, normal)
 
 
 def _flat_buffer_metadata(values: Sequence[object], dtype: str, shape: tuple[int, ...]) -> dict[str, object]:

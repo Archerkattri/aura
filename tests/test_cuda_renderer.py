@@ -10,6 +10,7 @@ from aura.cuda_renderer import (
     cuda_renderer_launch_config,
     cuda_renderer_reference_first_hit_indices,
     cuda_renderer_scene_buffers,
+    simulate_cuda_renderer_kernel,
 )
 
 
@@ -143,6 +144,58 @@ def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
     assert kernel_args["material_ids"] == (0, -1)
     assert kernel_args["semantic_ids"] == (0, 1)
     assert cuda_renderer_reference_first_hit_indices(scene, rays) == (0, 1, -1)
+
+
+def test_cuda_renderer_kernel_simulation_matches_flat_abi_first_hit_outputs():
+    scene = AuraScene(
+        name="cuda_kernel_simulation_test",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                color=(0.9, 0.2, 0.1),
+                opacity=0.75,
+                confidence=0.8,
+                material_id="paint",
+                semantic_id="front",
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="back_residual",
+                carrier_id="neural",
+                bounds=Bounds((-0.5, -0.5, 0.3), (0.5, 0.5, 0.5)),
+                color=(0.1, 0.2, 0.9),
+                opacity=0.5,
+                confidence=0.6,
+                semantic_id="back",
+                payload={"type": "neural_residual", "residual_scale": 0.2},
+            ),
+        ),
+    )
+    ray_origins = ((0.0, 0.0, -1.0), (0.0, 0.0, 0.25), (2.0, 0.0, -1.0))
+    ray_directions = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0))
+    inputs = cuda_renderer_kernel_inputs(scene, ray_origins, ray_directions, max_hits=2)
+
+    simulation = simulate_cuda_renderer_kernel(inputs)
+    payload = simulation.to_dict()
+
+    assert payload["format"] == "AURA_CUDA_RENDERER_KERNEL_SIMULATION"
+    assert payload["productionReady"] is False
+    assert simulation.first_hit_indices == (0, 1, -1)
+    assert simulation.ordered_hits == (0, -1, 1, -1, -1, -1)
+    assert simulation.out_color == pytest.approx((0.9, 0.2, 0.1, 0.1, 0.2, 0.9, 0.0, 0.0, 0.0))
+    assert simulation.out_alpha == pytest.approx((0.75, 0.5, 0.0))
+    assert simulation.out_transmittance == pytest.approx((0.25, 0.5, 1.0))
+    assert simulation.out_depth[0] == pytest.approx(1.0)
+    assert simulation.out_depth[1] == pytest.approx(0.05)
+    assert simulation.out_depth[2] > 1.0e30
+    assert simulation.out_normal == pytest.approx((0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0))
+    assert simulation.out_confidence == pytest.approx((0.8, 0.6, 0.0))
+    assert simulation.out_residual == (0, 1, 0)
+    assert simulation.out_material_id == (0, -1, -1)
+    assert simulation.out_semantic_id == (0, 1, -1)
+    assert payload["orderedHits"]["shape"] == [3, 2]
 
 
 def test_cuda_renderer_scene_buffers_reject_unknown_carrier_for_kernel_abi():
