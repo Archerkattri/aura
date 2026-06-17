@@ -31,8 +31,9 @@ This package now contains the GPU-ready skeleton for AURA:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
-- optional PyTorch renderer contract for batched native first-hit/depth/color
-  tensors over `AuraScene` and `RenderTarget`;
+- optional PyTorch renderer contract for batched native first-hit/depth/color,
+  transmittance, confidence, residual, and semantic tensors over `AuraScene`
+  and `RenderTarget`;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - package-backed glTF/USD exchange-plan metadata;
@@ -47,7 +48,8 @@ rendering and training work should implement against the native carrier
 contract next, after the mixed-carrier decomposition path is the primary
 fixture.
 
-The current renderer is a deterministic validation preview, not the final CUDA
+The current renderer is a deterministic validation preview, and the optional
+PyTorch path is a payload-aware reference contract rather than the final CUDA
 renderer. A future GPU renderer should match this package/query contract while
 replacing the reference implementation for real throughput.
 

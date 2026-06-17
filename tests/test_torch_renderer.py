@@ -59,5 +59,54 @@ def test_torch_render_targets_matches_native_first_hit_contract():
     assert batch.element_ids == ("surface",)
     assert batch.carrier_ids == ("surface",)
     assert batch.predicted_depth == (2.0,)
+    assert batch.transmittance == (0.0,)
+    assert batch.confidence == (1.0,)
+    assert batch.residual == (False,)
+    assert batch.semantic_ids == (None,)
     assert batch.image_loss[0] == pytest.approx(0.0)
     assert batch.depth_loss[0] == pytest.approx(0.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_reports_native_payload_semantics():
+    scene = AuraScene(
+        name="torch_payload_scene",
+        elements=(
+            AuraElement(
+                id="semantic",
+                carrier_id="semantic",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.3, 0.3, 0.7),
+                opacity=0.5,
+                payload={"type": "semantic_feature", "label": "object", "confidence": 0.9},
+            ),
+            AuraElement(
+                id="neural",
+                carrier_id="neural",
+                bounds=Bounds((1.0, -0.5, 0.0), (2.0, 0.5, 0.1)),
+                color=(0.7, 0.2, 0.2),
+                opacity=0.5,
+                payload={"type": "neural_residual", "latent_dim": 16, "residual_scale": 0.4},
+            ),
+        ),
+    )
+    targets = (
+        RenderTarget(
+            frame_id="semantic_frame",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(0.15, 0.15, 0.35),
+            target_depth=2.0,
+        ),
+        RenderTarget(
+            frame_id="neural_frame",
+            ray=Ray(origin=(1.5, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(0.35, 0.1, 0.1),
+            target_depth=2.0,
+        ),
+    )
+
+    batch = torch_render_targets(scene, targets, device="cpu")
+
+    assert batch.semantic_ids == ("object", None)
+    assert batch.confidence[0] == pytest.approx(0.9)
+    assert batch.residual == (False, True)

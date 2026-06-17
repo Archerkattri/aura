@@ -57,8 +57,9 @@ native representation contract pieces:
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with color/depth gradients for
   native AURA-Core fixture optimization;
-- optional PyTorch renderer contract with batched native first-hit/depth/color
-  tensors when installed with `aura-core[gpu]`;
+- optional PyTorch renderer contract with batched native first-hit/depth/color,
+  transmittance, confidence, residual, and semantic tensors when installed with
+  `aura-core[gpu]`;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - ray-query correctness scoring for first-hit, carrier, depth, transmittance,
   semantic, material, normal, and residual contract checks;
@@ -95,8 +96,9 @@ export CUDA_VISIBLE_DEVICES=0
 aura torch-renderer-status
 ```
 
-The PyTorch renderer is currently a native AABB first-hit/depth/color prototype.
-It is not yet carrier-complete CUDA rendering.
+The PyTorch renderer is currently a native AABB first-hit prototype with
+payload-aware reference semantics for transmittance, confidence, residual flags,
+and semantic IDs. It is not yet carrier-complete CUDA rendering.
 
 ## Quick Smoke Commands
 
