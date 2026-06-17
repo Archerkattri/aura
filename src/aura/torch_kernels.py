@@ -171,15 +171,31 @@ def torch_carrier_response_tensors(
             transmittance[mask] = torch.clamp(1.0 - surface_opacity, min=0.0, max=1.0)
             confidence[mask] = surface_confidence
         elif payload_type == "volume_cell":
+            volume_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             density = _carrier_parameter(torch, element, "density", carrier_parameters, device, default=element.payload.get("density", element.opacity))
+            volume_confidence = torch.clamp(
+                _carrier_parameter(torch, element, "confidence", carrier_parameters, device, default=element.confidence),
+                min=0.0,
+                max=1.0,
+            )
             path_length = torch.clamp(exit_depth[mask, element_index] - best_depth[mask], min=0.0)
+            carrier_colors[mask] = torch.clamp(volume_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(torch.exp(-density * path_length), min=0.0, max=1.0)
+            confidence[mask] = volume_confidence
         elif payload_type == "beta_kernel":
+            beta_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
+            beta_opacity = torch.clamp(
+                _carrier_parameter(torch, element, "opacity", carrier_parameters, device, default=element.opacity),
+                min=0.0,
+                max=1.0,
+            )
             alpha = _carrier_parameter(torch, element, "alpha", carrier_parameters, device, default=element.payload.get("alpha", 1.0))
             beta_value = _carrier_parameter(torch, element, "beta", carrier_parameters, device, default=element.payload.get("beta", 1.0))
             weight = _torch_beta_weight(torch, hit_points[mask], mins[element_index], maxs[element_index], alpha=alpha, beta=beta_value)
-            transmittance[mask] = torch.clamp(1.0 - opacities[element_index] * weight, min=0.0, max=1.0)
+            carrier_colors[mask] = torch.clamp(beta_color, min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - beta_opacity * weight, min=0.0, max=1.0)
         elif payload_type == "gabor_frequency":
+            gabor_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             frequency = _carrier_vector_parameter(
                 torch,
                 element,
@@ -196,9 +212,10 @@ def torch_carrier_response_tensors(
             )
             wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * frequency, dim=1) + phase)
             modulation = 1.0 - bandwidth + bandwidth * wave
-            carrier_colors[mask] = torch.clamp(carrier_colors[mask] * modulation.unsqueeze(1), min=0.0, max=1.0)
+            carrier_colors[mask] = torch.clamp(gabor_color * modulation.unsqueeze(1), min=0.0, max=1.0)
             confidence[mask] = torch.clamp(confidence[mask] * bandwidth, min=0.0, max=1.0)
         elif payload_type == "neural_residual":
+            neural_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             residual_scale = _carrier_parameter(
                 torch,
                 element,
@@ -207,6 +224,7 @@ def torch_carrier_response_tensors(
                 device,
                 default=element.payload.get("residual_scale", 0.0),
             )
+            carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(confidence[mask] * (1.0 - residual_scale * 0.25), min=0.0, max=1.0)
             residual[mask] = True
         elif payload_type == "semantic_feature":
@@ -271,15 +289,39 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "volume_cell":
             parameters[element.id] = {
+                "color": torch.tensor(
+                    tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
                 "density": torch.tensor(
                     float(element.payload.get("density", element.opacity)),
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,
-                )
+                ),
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
             }
         elif payload_type == "beta_kernel":
             parameters[element.id] = {
+                "color": torch.tensor(
+                    tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "opacity": torch.tensor(
+                    float(element.payload.get("opacity", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
                 "alpha": torch.tensor(
                     float(element.payload.get("alpha", 1.0)),
                     dtype=torch.float32,
@@ -295,6 +337,12 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "gabor_frequency":
             parameters[element.id] = {
+                "color": torch.tensor(
+                    tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
                 "frequency": torch.tensor(
                     tuple(element.payload.get("frequency", (0.0, 0.0, 0.0))),
                     dtype=torch.float32,
@@ -316,6 +364,12 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "neural_residual":
             parameters[element.id] = {
+                "color": torch.tensor(
+                    tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
                 "residual_scale": torch.tensor(
                     float(element.payload.get("residual_scale", 0.0)),
                     dtype=torch.float32,
