@@ -95,6 +95,15 @@ from aura.optimize import (
     precondition_color_gradient,
 )
 from aura.package import AuraPackage, load_package, package_scene, validate_package, validate_package_documents
+from aura.proposals import (
+    CaptureProposalFeatures,
+    CaptureProposalModel,
+    CaptureProposalScore,
+    capture_proposal_features,
+    default_capture_proposal_model,
+    propose_training_regions_from_tensors,
+    score_capture_proposals,
+)
 from aura.ray import Ray, RayQueryResult
 from aura.render import RenderImage, compare_images, image_mse, image_psnr, read_ppm, render_orthographic
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
@@ -139,6 +148,9 @@ __all__ = [
     "CaptureFrameTensors",
     "CaptureManifest",
     "CapturePixelTarget",
+    "CaptureProposalFeatures",
+    "CaptureProposalModel",
+    "CaptureProposalScore",
     "CaptureTensor",
     "CarrierKind",
     "CarrierSpec",
@@ -188,6 +200,7 @@ __all__ = [
     "VolumeCellPayload",
     "apply_ablation",
     "capture_manifest_template",
+    "capture_proposal_features",
     "capture_tensors_to_render_targets",
     "choose_carrier",
     "colmap_binary_to_capture_manifest",
@@ -197,6 +210,7 @@ __all__ = [
     "depth_points_to_evidence",
     "decompose_evidence",
     "default_benchmark_suite",
+    "default_capture_proposal_model",
     "default_registry",
     "differentiate_scene_rays",
     "discover_3dgs_export",
@@ -220,6 +234,7 @@ __all__ = [
     "package_scene",
     "precondition_color_gradient",
     "package_3dgs_export",
+    "propose_training_regions_from_tensors",
     "read_ppm",
     "render_orthographic",
     "reconstruct_demo_scene",
@@ -227,6 +242,7 @@ __all__ = [
     "run_core_reconstruction_benchmark",
     "run_ray_query_correctness_benchmark",
     "run_reference_benchmark",
+    "score_capture_proposals",
     "inspect_ray",
     "inspect_scene_rays",
     "semantic_masks_to_evidence",

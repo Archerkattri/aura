@@ -51,8 +51,8 @@ This package now contains the GPU-ready skeleton for AURA:
   normal losses while applying bounded native carrier color updates;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
-- tensor-driven native feature proposals for image-detail and depth-edge
-  regions before adaptive decomposition;
+- model-scored native feature proposals for image-detail and depth-edge regions
+  before adaptive decomposition, with a replaceable learned-proposal contract;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, opacity, confidence, normal, material, semantic, residual,
   provenance, and query-loss outputs over `AuraScene` and `RenderTarget`;

@@ -88,9 +88,9 @@ AURA_CAPTURE_MANIFEST
 2. Replace the CPU reference optimization loop with a GPU loop that uses
    `torch_capture_training_batch` and `torch_render_capture_training_batch` for
    forward passes, gradients, and carrier updates.
-3. Replace the current deterministic tensor feature proposal heuristics with
-   learned region proposal generation for COLMAP/capture image, depth, mask,
-   and normal tensors.
+3. Replace the current reference-weight `CaptureProposalModel` with learned
+   region proposal generation for COLMAP/capture image, depth, mask, and normal
+   tensors.
 4. Replace the reference Torch payload semantics with real differentiable
    surface, volume, beta, gabor, neural residual, semantic, and Gaussian
    fallback carrier kernels.

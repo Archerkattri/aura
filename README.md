@@ -68,9 +68,9 @@ native representation contract pieces:
   carrier color updates;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
-- tensor-driven native feature proposals from image contrast and depth
-  discontinuities, producing high-frequency and compact-detail
-  `TrainingRegion` evidence before decomposition;
+- model-scored native feature proposals from image/depth/mask/normal tensor
+  features, producing high-frequency and compact-detail `TrainingRegion`
+  evidence before decomposition;
 - deterministic capture asset summaries built from the same tensor path for
   manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
