@@ -26,8 +26,8 @@ aura validate-package outputs/reconstruct-capture.aura
 aura inspect-package outputs/reconstruct-capture.aura
 ```
 
-For manifests whose `image_path`, `depth_path`, and `mask_path` files exist as
-PNG or PPM/PGM assets, also run:
+For manifests whose `image_path`, `depth_path`, `mask_path`, and `normal_path`
+files exist as PNG, PPM/PGM, or COLMAP dense-map assets, also run:
 
 ```bash
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
@@ -81,11 +81,11 @@ AURA_CAPTURE_MANIFEST
 1. Replace the optional PyTorch AABB first-hit prototype and CPU differentiable
    reference renderer with a carrier-complete PyTorch/CUDA renderer over the
    same `TrainingFrame` and `TrainingRegion` contracts.
-2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth summary loader
-   with real EXR/video tensor loading for manifest `image_path`, `depth_path`,
-   and `mask_path`.
-3. Harden COLMAP import beyond deterministic sparse/depth/mask prior regions,
-   including normal-aware regions and learned region proposal generation.
+2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth/normal summary
+   loader with real EXR/video tensor loading for manifest image/depth/mask/
+   normal assets.
+3. Harden COLMAP import beyond deterministic sparse/depth/mask/normal prior
+   regions, including learned region proposal generation.
 4. Extend the PyTorch/CUDA path from AABB first-hit/depth/color tensors to real
    surface, volume, beta, gabor, neural residual, semantic, and Gaussian
    fallback carrier behavior.

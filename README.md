@@ -38,6 +38,8 @@ native representation contract pieces:
 - COLMAP sparse point depth-layer priors for native region initialization;
 - COLMAP dense depth-map links and deterministic depth summaries for capture
   manifests;
+- COLMAP normal-map links and average-normal summaries for normal-aware native
+  priors;
 - depth asset statistics that seed deterministic multi-region native
   surface-prior `TrainingRegion` evidence during manifest-to-training
   conversion;
@@ -50,8 +52,8 @@ native representation contract pieces:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
-- dependency-free PNG, PPM/PGM, and COLMAP depth-map capture asset summaries
-  for manifest-backed native training fixtures;
+- dependency-free PNG, PPM/PGM, COLMAP depth-map, and COLMAP normal-map capture
+  asset summaries for manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with color/depth gradients for
   native AURA-Core fixture optimization;
@@ -129,7 +131,7 @@ aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs
 
 # Real-capture manifest path:
 aura write-capture-manifest-template --output outputs/capture-manifest.json
-# writes the schema-backed image/depth/mask/camera/evidence manifest template
+# writes the schema-backed image/depth/mask/normal/camera/evidence manifest template
 aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json
 # validates the manifest and converts it to the AURA-Core training dataset contract
 aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
@@ -214,7 +216,7 @@ Recommended benchmark/baseline sources:
 Do not add more 3DGS convenience before the native engine exists. The next
 milestone is a small end-to-end AURA-Core reconstruction path:
 
-1. write or import an `AURA_CAPTURE_MANIFEST` with image/depth/mask paths,
+1. write or import an `AURA_CAPTURE_MANIFEST` with image/depth/mask/normal paths,
    camera intrinsics, posed frame summaries, and native seed regions;
 2. convert that manifest into the `AURA_TRAINING_FRAMES` contract;
 3. initialize native AURA evidence cells from those region specs without 3DGS;
@@ -249,7 +251,7 @@ src/aura/
   ingest/
     baselines.py  3DGS export discovery and import adapter
     colmap.py     COLMAP binary/text camera/pose/sparse-point manifest importer
-    capture.py    image/depth/mask/camera manifest to AURA-Core training dataset
+    capture.py    image/depth/mask/normal/camera manifest to AURA-Core training dataset
     splats.py     JSON/PLY 3DGS evidence reader and AURA conversion
 tests/           contract tests
 docs/            GPU handoff, production handoff, and dataset docs

@@ -153,6 +153,24 @@ def test_colmap_manifest_links_standard_depth_maps(tmp_path):
     assert manifest.frames[0].depth_path == "stereo/depth_maps/frame_000001.png.photometric.bin"
 
 
+def test_colmap_manifest_links_standard_normal_maps(tmp_path):
+    colmap_dir = _write_colmap_text_model(tmp_path)
+    _write_colmap_normal_map(
+        tmp_path / "stereo" / "normal_maps" / "frame_000001.png.photometric.bin",
+        2,
+        1,
+        ((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
+    )
+
+    manifest = colmap_text_to_capture_manifest(
+        colmap_dir,
+        root=str(tmp_path),
+        image_dir="images",
+    )
+
+    assert manifest.frames[0].normal_path == "stereo/normal_maps/frame_000001.png.photometric.bin"
+
+
 def test_colmap_manifest_depth_maps_can_materialize_training_depth(tmp_path):
     colmap_dir = _write_colmap_text_model(tmp_path)
     (tmp_path / "images").mkdir()
@@ -163,6 +181,12 @@ def test_colmap_manifest_depth_maps_can_materialize_training_depth(tmp_path):
         2,
         1,
         (1.0, 3.0),
+    )
+    _write_colmap_normal_map(
+        tmp_path / "stereo" / "normal_maps" / "frame_000001.png.photometric.bin",
+        2,
+        1,
+        ((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
     )
 
     manifest = colmap_text_to_capture_manifest(
@@ -177,11 +201,13 @@ def test_colmap_manifest_depth_maps_can_materialize_training_depth(tmp_path):
     assert assets[0].min_depth == 1.0
     assert assets[0].max_depth == 3.0
     assert assets[0].depth_coverage == 1.0
+    assert assets[0].average_normal == (0.0, 0.0, -1.0)
     assert [item["average"] for item in assets[0].depth_bins] == [1.0, 3.0]
     assert dataset.frames[0].target_depth == 2.0
     assert [region.id for region in dataset.regions[-2:]] == ["colmap_image_1_depth_prior_0", "colmap_image_1_depth_prior_1"]
     assert all(region.fallback_source == "capture-depth-prior" for region in dataset.regions[-2:])
     assert all(region.evidence.geometry_confidence == 0.75 for region in dataset.regions[-2:])
+    assert all(region.normal == (0.0, 0.0, -1.0) for region in dataset.regions[-2:])
     assert dataset.frames[1].target_depth > 2.0
 
 
@@ -342,6 +368,12 @@ def _colmap_binary_point(point_id, xyz, rgb, error, track):
 def _write_colmap_depth_map(path, width, height, values):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(f"{width}&{height}&1&".encode("ascii") + struct.pack("<" + "f" * len(values), *values))
+
+
+def _write_colmap_normal_map(path, width, height, values):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flat = [component for normal in values for component in normal]
+    path.write_bytes(f"{width}&{height}&3&".encode("ascii") + struct.pack("<" + "f" * len(flat), *flat))
 
 
 def _write_png(path, *, width, height, channels, values):

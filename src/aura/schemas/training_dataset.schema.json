@@ -107,6 +107,7 @@
         "image_path": { "$ref": "#/$defs/nullable_string" },
         "depth_path": { "$ref": "#/$defs/nullable_string" },
         "mask_path": { "$ref": "#/$defs/nullable_string" },
+        "normal_path": { "$ref": "#/$defs/nullable_string" },
         "camera_model": { "$ref": "#/$defs/nullable_string" },
         "intrinsics": { "$ref": "#/$defs/nullable_intrinsics" }
       }

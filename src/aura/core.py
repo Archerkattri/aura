@@ -32,6 +32,7 @@ class TrainingFrame:
     image_path: str | None = None
     depth_path: str | None = None
     mask_path: str | None = None
+    normal_path: str | None = None
     camera_model: str | None = None
     intrinsics: dict[str, float] | None = None
 
@@ -57,6 +58,7 @@ class TrainingFrame:
             "image_path": self.image_path,
             "depth_path": self.depth_path,
             "mask_path": self.mask_path,
+            "normal_path": self.normal_path,
             "camera_model": self.camera_model,
             "intrinsics": dict(self.intrinsics) if self.intrinsics is not None else None,
         }
@@ -75,6 +77,7 @@ class TrainingFrame:
             image_path=str(payload["image_path"]) if payload.get("image_path") is not None else None,
             depth_path=str(payload["depth_path"]) if payload.get("depth_path") is not None else None,
             mask_path=str(payload["mask_path"]) if payload.get("mask_path") is not None else None,
+            normal_path=str(payload["normal_path"]) if payload.get("normal_path") is not None else None,
             camera_model=str(payload["camera_model"]) if payload.get("camera_model") is not None else None,
             intrinsics={key: float(value) for key, value in payload["intrinsics"].items()}
             if payload.get("intrinsics") is not None

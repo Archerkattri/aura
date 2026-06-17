@@ -22,6 +22,7 @@ def test_capture_manifest_template_loads_as_training_dataset(tmp_path):
     assert dataset.frames[0].image_path == "images/frame_000001.png"
     assert dataset.frames[0].depth_path == "depth/frame_000001.exr"
     assert dataset.frames[0].mask_path == "masks/frame_000001.png"
+    assert dataset.frames[0].normal_path == "normal/frame_000001.bin"
     assert dataset.frames[0].intrinsics["fx"] == 1200.0
     assert dataset.regions[0].fallback_source == "capture-manifest"
 
@@ -104,6 +105,7 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert assets[0].depth_coverage == 1.0
     assert [item["average"] for item in assets[0].depth_bins] == [0.5, 1.0]
     assert assets[0].mask_coverage == 0.5
+    assert assets[0].average_normal == (0.0, 0.0, -1.0)
     assert dataset.frames[0].target_color == (0.5, 0.25, 0.25)
     assert dataset.frames[0].target_depth == 0.75
     assert [region.id for region in dataset.regions[-3:]] == [
@@ -113,7 +115,9 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     ]
     assert all(region.fallback_source == "capture-depth-prior" for region in dataset.regions[-3:-1])
     assert all(region.evidence.geometry_confidence == 0.75 for region in dataset.regions[-3:-1])
+    assert all(region.normal == (0.0, 0.0, -1.0) for region in dataset.regions[-3:-1])
     assert dataset.regions[-1].fallback_source == "capture-mask-prior"
+    assert dataset.regions[-1].normal == (0.0, 0.0, -1.0)
     assert dataset.regions[-1].evidence.semantic_confidence == 0.825
 
 
@@ -267,6 +271,7 @@ def _write_asset_manifest(tmp_path):
     (root / "images").mkdir(parents=True)
     (root / "depth").mkdir()
     (root / "masks").mkdir()
+    (root / "normal").mkdir()
     (root / "images" / "frame_000001.ppm").write_text(
         "P3\n2 1\n4\n4 0 0 0 2 2\n",
         encoding="ascii",
@@ -279,6 +284,7 @@ def _write_asset_manifest(tmp_path):
         "P2\n2 1\n2\n2 0\n",
         encoding="ascii",
     )
+    _write_colmap_normal_map(root / "normal" / "frame_000001.bin", 2, 1, ((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)))
     payload = capture_asset_manifest_payload(root)
     manifest_path = tmp_path / "asset_capture.json"
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -297,6 +303,7 @@ def _write_png_asset_manifest(tmp_path):
     payload["frames"][0]["image_path"] = "images/frame_000001.png"
     payload["frames"][0]["depth_path"] = "depth/frame_000001.png"
     payload["frames"][0]["mask_path"] = "masks/frame_000001.png"
+    payload["frames"][0]["normal_path"] = None
     manifest_path = tmp_path / "png_asset_capture.json"
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
     return manifest_path
@@ -318,6 +325,7 @@ def _write_colmap_depth_asset_manifest(tmp_path):
     )
     payload = capture_asset_manifest_payload(root)
     payload["frames"][0]["depth_path"] = "stereo/depth_maps/frame_000001.png.photometric.bin"
+    payload["frames"][0]["normal_path"] = None
     manifest_path = tmp_path / "colmap_depth_asset_capture.json"
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
     return manifest_path
@@ -333,6 +341,7 @@ def capture_asset_manifest_payload(root):
                 "image_path": "images/frame_000001.ppm",
                 "depth_path": "depth/frame_000001.pgm",
                 "mask_path": "masks/frame_000001.pgm",
+                "normal_path": "normal/frame_000001.bin",
                 "camera_origin": [0.0, 0.0, -2.0],
                 "look_at": [0.0, 0.0, 0.0],
                 "target_color": [0.1, 0.1, 0.1],
@@ -378,3 +387,8 @@ def _png_chunk(kind, data):
 
 def _write_colmap_depth_map(path, width, height, values):
     path.write_bytes(f"{width}&{height}&1&".encode("ascii") + struct.pack("<" + "f" * len(values), *values))
+
+
+def _write_colmap_normal_map(path, width, height, values):
+    flat = [component for normal in values for component in normal]
+    path.write_bytes(f"{width}&{height}&3&".encode("ascii") + struct.pack("<" + "f" * len(flat), *flat))

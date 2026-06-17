@@ -203,6 +203,7 @@ def _colmap_to_capture_manifest(
                 "image_path": str(Path(image_dir) / image.name),
                 "depth_path": _find_colmap_depth_path(model_path, image.name),
                 "mask_path": None,
+                "normal_path": _find_colmap_normal_path(model_path, image.name),
                 "camera_model": camera.model,
                 "intrinsics": camera.intrinsics(),
                 "camera_origin": list(origin),
@@ -299,6 +300,22 @@ def _find_colmap_depth_path(model_path: Path, image_name: str) -> str | None:
         model_path.parent / "stereo" / "depth_maps" / f"{image_name}.geometric.bin",
         model_path / "depth_maps" / f"{image_name}.photometric.bin",
         model_path / "depth_maps" / f"{image_name}.geometric.bin",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            try:
+                return candidate.relative_to(model_path.parent).as_posix()
+            except ValueError:
+                return candidate.as_posix()
+    return None
+
+
+def _find_colmap_normal_path(model_path: Path, image_name: str) -> str | None:
+    candidates = (
+        model_path.parent / "stereo" / "normal_maps" / f"{image_name}.photometric.bin",
+        model_path.parent / "stereo" / "normal_maps" / f"{image_name}.geometric.bin",
+        model_path / "normal_maps" / f"{image_name}.photometric.bin",
+        model_path / "normal_maps" / f"{image_name}.geometric.bin",
     )
     for candidate in candidates:
         if candidate.exists():

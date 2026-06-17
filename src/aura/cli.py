@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     capture_to_training.add_argument(
         "--load-assets",
         action="store_true",
-        help="Read PNG, PPM/PGM, or COLMAP depth-map assets and replace target summaries",
+        help="Read PNG, PPM/PGM, or COLMAP depth/normal-map assets and replace target summaries",
     )
 
     reconstruct_capture = sub.add_parser(
@@ -90,12 +90,12 @@ def main(argv: list[str] | None = None) -> int:
     reconstruct_capture.add_argument(
         "--load-assets",
         action="store_true",
-        help="Read PNG, PPM/PGM, or COLMAP depth-map assets before reconstruction",
+        help="Read PNG, PPM/PGM, or COLMAP depth/normal-map assets before reconstruction",
     )
 
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
-        help="Load capture-manifest PNG, PPM/PGM, or COLMAP depth-map assets and print deterministic summaries as JSON",
+        help="Load capture-manifest PNG, PPM/PGM, or COLMAP depth/normal-map assets and print deterministic summaries as JSON",
     )
     inspect_capture_assets.add_argument("manifest", type=Path)
 

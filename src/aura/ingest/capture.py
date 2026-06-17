@@ -71,6 +71,8 @@ class CaptureFrameAssets:
     depth_bins: tuple[dict[str, float], ...] = ()
     mask_path: str | None = None
     mask_coverage: float | None = None
+    normal_path: str | None = None
+    average_normal: Vec3 | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -87,6 +89,8 @@ class CaptureFrameAssets:
             "depthBins": [dict(item) for item in self.depth_bins],
             "maskPath": self.mask_path,
             "maskCoverage": self.mask_coverage,
+            "normalPath": self.normal_path,
+            "averageNormal": list(self.average_normal) if self.average_normal is not None else None,
         }
 
 
@@ -134,6 +138,10 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
         mask = _read_capture_raster(mask_path) if mask_path is not None else None
         if mask is not None and mask.channels != 1:
             raise ValueError(f"capture frame {frame.id} mask_path must reference a single-channel image")
+        normal_path = _resolve_capture_path(root, frame.normal_path) if frame.normal_path is not None else None
+        normal = _read_capture_raster(normal_path) if normal_path is not None else None
+        if normal is not None and normal.channels != 3:
+            raise ValueError(f"capture frame {frame.id} normal_path must reference a 3-channel normal map")
         assets.append(
             CaptureFrameAssets(
                 frame_id=frame.id,
@@ -149,6 +157,8 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
                 depth_bins=depth_summary.bins if depth_summary is not None else (),
                 mask_path=str(mask_path) if mask_path is not None else None,
                 mask_coverage=_average_scalar(mask) if mask is not None else None,
+                normal_path=str(normal_path) if normal_path is not None else None,
+                average_normal=_average_normal(normal),
             )
         )
     return tuple(assets)
@@ -178,6 +188,7 @@ def capture_manifest_template() -> dict:
                 "image_path": "images/frame_000001.png",
                 "depth_path": "depth/frame_000001.exr",
                 "mask_path": "masks/frame_000001.png",
+                "normal_path": "normal/frame_000001.bin",
                 "camera_model": "pinhole",
                 "intrinsics": {"fx": 1200.0, "fy": 1200.0, "cx": 960.0, "cy": 540.0, "width": 1920.0, "height": 1080.0},
                 "camera_origin": [0.0, 0.0, -2.0],
@@ -228,6 +239,7 @@ def _frame_from_capture_payload(payload: dict[str, Any]) -> TrainingFrame:
         image_path=str(payload["image_path"]),
         depth_path=str(payload["depth_path"]) if payload.get("depth_path") is not None else None,
         mask_path=str(payload["mask_path"]) if payload.get("mask_path") is not None else None,
+        normal_path=str(payload["normal_path"]) if payload.get("normal_path") is not None else None,
         camera_model=str(payload["camera_model"]) if payload.get("camera_model") is not None else None,
         intrinsics={key: float(value) for key, value in payload["intrinsics"].items()}
         if payload.get("intrinsics") is not None
@@ -360,7 +372,7 @@ def _depth_region_for_bin(
         color=frame.target_color,
         opacity=min(0.95, max(0.35, coverage)),
         confidence=geometry_confidence,
-        normal=(0.0, 0.0, -1.0),
+        normal=asset.average_normal or (0.0, 0.0, -1.0),
         material_id=f"mat_depth_prior_{bin_index}",
         semantic_label=frame.semantic_label,
         fallback_source="capture-depth-prior",
@@ -409,7 +421,7 @@ def _mask_regions_from_assets(
                 color=frame.target_color,
                 opacity=min(0.9, max(0.25, asset.mask_coverage)),
                 confidence=semantic_confidence,
-                normal=None,
+                normal=asset.average_normal,
                 material_id="mat_mask_semantic",
                 semantic_label=label,
                 fallback_source="capture-mask-prior",
@@ -442,6 +454,23 @@ def _average_scalar(image: _RasterImage | None) -> float | None:
     if image.channels != 1:
         raise ValueError("average scalar requires a 1-channel image")
     return sum(image.values) / len(image.values)
+
+
+def _average_normal(image: _RasterImage | None) -> Vec3 | None:
+    if image is None:
+        return None
+    if image.channels != 3:
+        raise ValueError("average normal requires a 3-channel image")
+    totals = [0.0, 0.0, 0.0]
+    for pixel_start in range(0, len(image.values), image.channels):
+        for channel in range(3):
+            totals[channel] += image.values[pixel_start + channel]
+    pixels = image.width * image.height
+    vector = tuple(total / pixels for total in totals)
+    norm = sum(channel * channel for channel in vector) ** 0.5
+    if norm <= 1e-12:
+        return None
+    return tuple(channel / norm for channel in vector)  # type: ignore[return-value]
 
 
 def _depth_summary(image: _RasterImage | None) -> _ScalarSummary | None:
@@ -618,17 +647,17 @@ def _read_colmap_dense_map(path: Path) -> _RasterImage:
         width, height, channels = (int(part.decode("ascii")) for part in header_parts)
     except ValueError as exc:
         raise ValueError(f"{path} has an invalid COLMAP dense-map header") from exc
-    if channels != 1:
-        raise ValueError(f"{path} must be a single-channel COLMAP depth map")
+    if channels not in {1, 3}:
+        raise ValueError(f"{path} must be a single-channel COLMAP depth map or 3-channel normal map")
     expected_values = width * height * channels
     expected_bytes = expected_values * 4
     payload = data[offset:]
     if len(payload) != expected_bytes:
         raise ValueError(f"{path} expected {expected_bytes} float32 depth bytes but found {len(payload)}")
     values = struct.unpack("<" + "f" * expected_values, payload)
-    if any(value < 0.0 for value in values):
+    if channels == 1 and any(value < 0.0 for value in values):
         raise ValueError(f"{path} contains negative depth values")
-    return _RasterImage(format="COLMAP_DEPTH", width=width, height=height, channels=channels, values=tuple(float(value) for value in values))
+    return _RasterImage(format="COLMAP_DENSE_MAP", width=width, height=height, channels=channels, values=tuple(float(value) for value in values))
 
 
 def _png_unfilter(filter_type: int, scanline: bytes, previous: bytes, bytes_per_pixel: int) -> bytes:
