@@ -150,6 +150,55 @@ def test_package_validation_rejects_unknown_chunk_element():
         validate_package(bad_package)
 
 
+def test_package_validation_rejects_unused_manifest_carrier():
+    scene = AuraScene(
+        name="bad",
+        elements=(AuraElement(id="surface", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))),),
+    )
+    package = package_scene(scene)
+    bad_package = type(package)(
+        asset=type(package.asset)(
+            name=package.asset.name,
+            carrier_ids=("surface", "gaussian"),
+            version=package.asset.version,
+            units=package.asset.units,
+            coordinate_system=package.asset.coordinate_system,
+            fallbacks=package.asset.fallbacks,
+        ),
+        scene=scene,
+        exchange=package.exchange,
+    )
+
+    with pytest.raises(ValueError, match="unused manifest carriers: gaussian"):
+        validate_package(bad_package)
+
+
+def test_package_validation_rejects_missing_manifest_carrier():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(id="surface", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))),
+            AuraElement(id="gaussian", carrier_id="gaussian", bounds=Bounds((2.0, 0.0, 0.0), (3.0, 1.0, 1.0))),
+        ),
+    )
+    package = package_scene(scene)
+    bad_package = type(package)(
+        asset=type(package.asset)(
+            name=package.asset.name,
+            carrier_ids=("surface",),
+            version=package.asset.version,
+            units=package.asset.units,
+            coordinate_system=package.asset.coordinate_system,
+            fallbacks=package.asset.fallbacks,
+        ),
+        scene=scene,
+        exchange=package.exchange,
+    )
+
+    with pytest.raises(ValueError, match="missing scene carriers: gaussian"):
+        validate_package(bad_package)
+
+
 def test_package_validation_rejects_duplicate_chunk_ids():
     scene = AuraScene(
         name="bad",

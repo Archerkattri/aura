@@ -158,6 +158,16 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
     registry = default_registry()
     package.asset.capabilities(registry)
     carrier_ids = set(package.asset.carrier_ids)
+    scene_carrier_ids = set(package.scene.carrier_ids())
+    if carrier_ids != scene_carrier_ids:
+        missing = sorted(scene_carrier_ids.difference(carrier_ids))
+        extra = sorted(carrier_ids.difference(scene_carrier_ids))
+        details = []
+        if missing:
+            details.append(f"missing scene carriers: {', '.join(missing)}")
+        if extra:
+            details.append(f"unused manifest carriers: {', '.join(extra)}")
+        raise ValueError(f"manifest carrierIds do not match scene carriers ({'; '.join(details)})")
     element_ids = {element.id for element in package.scene.elements}
     if len(element_ids) != len(package.scene.elements):
         raise ValueError("package contains duplicate element ids")
