@@ -6,7 +6,7 @@ from pathlib import Path
 
 from aura.assignment import RegionEvidence
 from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_core_reconstruction_benchmark, run_reference_benchmark
-from aura.core import ReconstructionConfig, load_training_frames, reconstruct_demo_scene, write_synthetic_training_frames
+from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_demo_scene, write_synthetic_training_frames
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
@@ -110,8 +110,12 @@ def main(argv: list[str] | None = None) -> int:
         print(package_scene(native_scene, fallbacks={"mesh": "fallback/native-preview.glb"}).write(args.output_dir))
         return 0
     if args.command == "reconstruct-demo":
-        frames = load_training_frames(args.frames) if args.frames is not None else None
-        result = reconstruct_demo_scene(ReconstructionConfig(iterations=args.iterations), frames=frames)
+        dataset = load_training_dataset(args.frames) if args.frames is not None else None
+        result = reconstruct_demo_scene(
+            ReconstructionConfig(iterations=args.iterations),
+            frames=dataset.frames if dataset is not None else None,
+            regions=dataset.regions if dataset is not None else None,
+        )
         package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/reconstruct-preview.glb"}).write(args.output_dir)
         report_path = package_dir / "training_report.json"
         report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")

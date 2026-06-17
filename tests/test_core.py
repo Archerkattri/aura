@@ -4,10 +4,16 @@ import sys
 from pathlib import Path
 
 from aura import (
+    Bounds,
     ReconstructionConfig,
+    RegionEvidence,
+    TrainingFrame,
+    TrainingRegion,
     load_package,
+    load_training_dataset,
     load_training_frames,
     reconstruct_demo_scene,
+    synthetic_training_dataset,
     synthetic_training_frames,
     write_synthetic_training_frames,
 )
@@ -26,10 +32,47 @@ def test_synthetic_training_frames_are_posed_native_inputs():
 def test_training_frames_round_trip_through_json(tmp_path):
     output = write_synthetic_training_frames(tmp_path / "frames.json")
     loaded = load_training_frames(output)
-    fixture = load_training_frames(FIXTURE_DIR / "training_frames.json")
+    dataset = load_training_dataset(output)
+    fixture = load_training_dataset(FIXTURE_DIR / "training_frames.json")
 
     assert loaded == synthetic_training_frames()
-    assert fixture == synthetic_training_frames()
+    assert dataset == synthetic_training_dataset()
+    assert fixture == synthetic_training_dataset()
+
+
+def test_reconstruct_demo_accepts_data_driven_regions_without_fixture_ids():
+    frames = (
+        TrainingFrame(
+            id="capture_a",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.7, 0.6, 0.5),
+            target_depth=2.0,
+            semantic_label="panel",
+        ),
+    )
+    regions = (
+        TrainingRegion(
+            id="custom_surface",
+            frame_id="capture_a",
+            bounds=Bounds((-0.25, -0.25, 0.0), (0.25, 0.25, 0.1)),
+            evidence=RegionEvidence(geometry_confidence=0.9, edit_need=0.6),
+            opacity=0.8,
+            normal=(0.0, 0.0, -1.0),
+        ),
+    )
+
+    result = reconstruct_demo_scene(
+        ReconstructionConfig(iterations=2, enable_adaptive_evolution=False),
+        frames=frames,
+        regions=regions,
+        name="custom_reconstruct",
+    )
+
+    assert result.scene.name == "custom_reconstruct"
+    assert result.scene.elements[0].id == "custom_surface"
+    assert result.scene.elements[0].carrier_id == "surface"
+    assert result.report.frames == frames
 
 
 def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
@@ -40,7 +83,7 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert result.scene.name == "reconstruct_demo"
     assert result.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
     by_id = {element.id: element for element in result.scene.elements}
-    assert by_id["surface_wall"].metadata["source"] == "aura-core-synthetic"
+    assert by_id["surface_wall"].metadata["source"] == "aura-core-training-region"
     assert by_id["soft_volume_beta_detail"].metadata["source"] == "aura-core-adaptive-evolution"
     assert by_id["soft_volume_beta_detail"].carrier_id == "beta"
     assert by_id["soft_volume_beta_detail"].payload["type"] == "beta_kernel"
@@ -49,7 +92,7 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert by_id["semantic_object_neural_residual"].payload["type"] == "neural_residual"
     assert set(result.scene.chunks[0].element_ids) == set(by_id)
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
-    assert report["sources"] == ["posed_training_frames", "depth_targets", "semantic_labels"]
+    assert report["sources"] == ["posed_training_frames", "training_regions", "depth_targets", "semantic_labels"]
     assert "native_evidence_initialization" in report["stages"]
     assert "cpu_reference_render_loss" in report["stages"]
     assert report["nativeCarrierFraction"] > 0.8

@@ -33,5 +33,175 @@
       "target_color": [0.72, 0.55, 0.92],
       "target_depth": 2.1
     }
+  ],
+  "regions": [
+    {
+      "bounds": {"max": [-0.25, -0.25, 0.1], "min": [-0.75, -0.75, 0.0]},
+      "color": null,
+      "confidence": 1.0,
+      "evidence": {
+        "compact_detail": 0.0,
+        "edit_need": 0.6,
+        "fuzzy_confidence": 0.0,
+        "geometry_confidence": 0.9,
+        "high_frequency": 0.0,
+        "image_error": 0.0,
+        "material_confidence": 0.7,
+        "ray_need": 0.8,
+        "semantic_confidence": 0.0,
+        "view_dependent": 0.0
+      },
+      "fallback_source": "aura-core-training-region",
+      "frame_id": "front_left",
+      "id": "surface_wall",
+      "material_id": "mat_wall_plaster",
+      "normal": [0.0, 0.0, -1.0],
+      "opacity": 0.9,
+      "semantic_label": "wall"
+    },
+    {
+      "bounds": {"max": [0.35, -0.2, 0.8], "min": [-0.15, -0.7, 0.0]},
+      "color": null,
+      "confidence": 0.72,
+      "evidence": {
+        "compact_detail": 0.0,
+        "edit_need": 0.0,
+        "fuzzy_confidence": 0.85,
+        "geometry_confidence": 0.25,
+        "high_frequency": 0.0,
+        "image_error": 0.0,
+        "material_confidence": 0.0,
+        "ray_need": 0.0,
+        "semantic_confidence": 0.0,
+        "view_dependent": 0.0
+      },
+      "fallback_source": "aura-core-training-region",
+      "frame_id": "front_center",
+      "id": "soft_volume",
+      "material_id": "mat_soft_volume",
+      "normal": null,
+      "opacity": 0.35,
+      "semantic_label": null
+    },
+    {
+      "bounds": {"max": [0.95, -0.2, 0.15], "min": [0.45, -0.7, 0.0]},
+      "color": null,
+      "confidence": 1.0,
+      "evidence": {
+        "compact_detail": 0.0,
+        "edit_need": 0.0,
+        "fuzzy_confidence": 0.0,
+        "geometry_confidence": 0.65,
+        "high_frequency": 0.92,
+        "image_error": 0.0,
+        "material_confidence": 0.0,
+        "ray_need": 0.0,
+        "semantic_confidence": 0.0,
+        "view_dependent": 0.0
+      },
+      "fallback_source": "aura-core-training-region",
+      "frame_id": "front_right",
+      "id": "woven_frequency",
+      "material_id": "mat_woven_detail",
+      "normal": null,
+      "opacity": 0.75,
+      "semantic_label": null
+    },
+    {
+      "bounds": {"max": [-0.25, 0.55, 0.2], "min": [-0.75, 0.05, 0.0]},
+      "color": [0.4, 0.75, 0.7],
+      "confidence": 1.0,
+      "evidence": {
+        "compact_detail": 0.0,
+        "edit_need": 0.0,
+        "fuzzy_confidence": 0.0,
+        "geometry_confidence": 0.0,
+        "high_frequency": 0.0,
+        "image_error": 0.55,
+        "material_confidence": 0.25,
+        "ray_need": 0.0,
+        "semantic_confidence": 0.0,
+        "view_dependent": 0.88
+      },
+      "fallback_source": "aura-core-training-region",
+      "frame_id": "front_left",
+      "id": "view_residual",
+      "material_id": null,
+      "normal": null,
+      "opacity": 0.6,
+      "semantic_label": null
+    },
+    {
+      "bounds": {"max": [0.35, 0.5, 0.2], "min": [-0.1, 0.05, 0.0]},
+      "color": null,
+      "confidence": 1.0,
+      "evidence": {
+        "compact_detail": 0.0,
+        "edit_need": 0.0,
+        "fuzzy_confidence": 0.0,
+        "geometry_confidence": 0.0,
+        "high_frequency": 0.0,
+        "image_error": 0.0,
+        "material_confidence": 0.0,
+        "ray_need": 0.0,
+        "semantic_confidence": 0.95,
+        "view_dependent": 0.0
+      },
+      "fallback_source": "aura-core-training-region",
+      "frame_id": "object_view",
+      "id": "semantic_object",
+      "material_id": null,
+      "normal": null,
+      "opacity": 0.45,
+      "semantic_label": "fixture_object"
+    },
+    {
+      "bounds": {"max": [0.8, 0.35, 0.15], "min": [0.5, 0.05, 0.0]},
+      "color": [0.95, 0.45, 0.35],
+      "confidence": 1.0,
+      "evidence": {
+        "compact_detail": 0.9,
+        "edit_need": 0.0,
+        "fuzzy_confidence": 0.0,
+        "geometry_confidence": 0.0,
+        "high_frequency": 0.0,
+        "image_error": 0.2,
+        "material_confidence": 0.0,
+        "ray_need": 0.0,
+        "semantic_confidence": 0.0,
+        "view_dependent": 0.0
+      },
+      "fallback_source": "aura-core-training-region",
+      "frame_id": "front_right",
+      "id": "compact_detail",
+      "material_id": null,
+      "normal": null,
+      "opacity": 0.85,
+      "semantic_label": null
+    },
+    {
+      "bounds": {"max": [1.05, 0.5, 0.2], "min": [0.85, 0.3, 0.0]},
+      "color": [0.65, 0.65, 0.65],
+      "confidence": 0.6,
+      "evidence": {
+        "compact_detail": 0.0,
+        "edit_need": 0.1,
+        "fuzzy_confidence": 0.0,
+        "geometry_confidence": 0.3,
+        "high_frequency": 0.0,
+        "image_error": 0.05,
+        "material_confidence": 0.0,
+        "ray_need": 0.0,
+        "semantic_confidence": 0.0,
+        "view_dependent": 0.0
+      },
+      "fallback_source": "aura-core-uncertain-region",
+      "frame_id": "front_right",
+      "id": "gaussian_fallback",
+      "material_id": null,
+      "normal": null,
+      "opacity": 0.5,
+      "semantic_label": null
+    }
   ]
 }

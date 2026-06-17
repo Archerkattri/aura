@@ -28,7 +28,7 @@ First useful tasks:
 2. run `aura build-native-demo --output-dir outputs/native-demo.aura`;
 3. read `docs/AURA_CORE_RESEARCH.md`;
 4. use `aura write-training-frames-demo` and `aura reconstruct-demo --frames`
-   around posed color/depth/semantic training frames, not 3DGS;
+   around posed color/depth/semantic frames plus native evidence regions, not 3DGS;
 5. add a CPU reference optimization loop with image/depth losses and a training report;
 6. add adaptive carrier promote/split/merge tests;
 7. expand mixed-carrier decomposition fixtures, semantic graph checks, and query tests;

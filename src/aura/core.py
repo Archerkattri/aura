@@ -49,6 +49,103 @@ class TrainingFrame:
 
 
 @dataclass(frozen=True)
+class TrainingRegion:
+    """Native evidence region used to initialize AURA carriers from frame data."""
+
+    id: str
+    frame_id: str
+    bounds: Bounds
+    evidence: RegionEvidence
+    color: Vec3 | None = None
+    opacity: float = 1.0
+    confidence: float = 1.0
+    normal: Vec3 | None = None
+    material_id: str | None = None
+    semantic_label: str | None = None
+    fallback_source: str = "aura-core-training-region"
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("training region id is required")
+        if not self.frame_id:
+            raise ValueError("training region frame_id is required")
+        if not 0.0 <= self.opacity <= 1.0:
+            raise ValueError("training region opacity must be in [0, 1]")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("training region confidence must be in [0, 1]")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "frame_id": self.frame_id,
+            "bounds": {"min": list(self.bounds.min_corner), "max": list(self.bounds.max_corner)},
+            "evidence": asdict(self.evidence),
+            "color": list(self.color) if self.color is not None else None,
+            "opacity": self.opacity,
+            "confidence": self.confidence,
+            "normal": list(self.normal) if self.normal is not None else None,
+            "material_id": self.material_id,
+            "semantic_label": self.semantic_label,
+            "fallback_source": self.fallback_source,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> TrainingRegion:
+        if not isinstance(payload, dict):
+            raise ValueError("training region entry must be an object")
+        bounds_payload = payload["bounds"]
+        if not isinstance(bounds_payload, dict):
+            raise ValueError("training region bounds must be an object")
+        evidence_payload = payload.get("evidence", {})
+        if not isinstance(evidence_payload, dict):
+            raise ValueError("training region evidence must be an object")
+        return cls(
+            id=str(payload["id"]),
+            frame_id=str(payload["frame_id"]),
+            bounds=Bounds(
+                min_corner=_vec3_from_payload(bounds_payload["min"], "bounds.min"),
+                max_corner=_vec3_from_payload(bounds_payload["max"], "bounds.max"),
+            ),
+            evidence=RegionEvidence(**{key: float(value) for key, value in evidence_payload.items()}),
+            color=_vec3_from_payload(payload["color"], "color") if payload.get("color") is not None else None,
+            opacity=float(payload.get("opacity", 1.0)),
+            confidence=float(payload.get("confidence", 1.0)),
+            normal=_vec3_from_payload(payload["normal"], "normal") if payload.get("normal") is not None else None,
+            material_id=str(payload["material_id"]) if payload.get("material_id") is not None else None,
+            semantic_label=str(payload["semantic_label"]) if payload.get("semantic_label") is not None else None,
+            fallback_source=str(payload.get("fallback_source", "aura-core-training-region")),
+        )
+
+    def to_evidence_sample(self, frame: TrainingFrame) -> EvidenceSample:
+        return EvidenceSample(
+            id=self.id,
+            bounds=self.bounds,
+            evidence=self.evidence,
+            color=self.color or frame.target_color,
+            opacity=self.opacity,
+            confidence=self.confidence,
+            normal=self.normal,
+            material_id=self.material_id,
+            semantic_label=self.semantic_label,
+            fallback_source=self.fallback_source,
+            metadata={"source": "aura-core-training-region", "frame_id": self.frame_id},
+        )
+
+
+@dataclass(frozen=True)
+class TrainingDataset:
+    frames: tuple[TrainingFrame, ...]
+    regions: tuple[TrainingRegion, ...]
+
+    def to_dict(self) -> dict:
+        return {
+            "format": "AURA_TRAINING_FRAMES",
+            "frames": [frame.to_dict() for frame in self.frames],
+            "regions": [region.to_dict() for region in self.regions],
+        }
+
+
+@dataclass(frozen=True)
 class ReconstructionConfig:
     iterations: int = 4
     render_width: int = 8
@@ -180,12 +277,98 @@ def synthetic_training_frames() -> tuple[TrainingFrame, ...]:
     )
 
 
-def load_training_frames(path: Path | str) -> tuple[TrainingFrame, ...]:
+def synthetic_training_regions() -> tuple[TrainingRegion, ...]:
+    return (
+        TrainingRegion(
+            id="surface_wall",
+            frame_id="front_left",
+            bounds=Bounds((-0.75, -0.75, 0.0), (-0.25, -0.25, 0.1)),
+            evidence=RegionEvidence(geometry_confidence=0.9, material_confidence=0.7, edit_need=0.6, ray_need=0.8),
+            opacity=0.9,
+            normal=(0.0, 0.0, -1.0),
+            material_id="mat_wall_plaster",
+            semantic_label="wall",
+        ),
+        TrainingRegion(
+            id="soft_volume",
+            frame_id="front_center",
+            bounds=Bounds((-0.15, -0.7, 0.0), (0.35, -0.2, 0.8)),
+            evidence=RegionEvidence(fuzzy_confidence=0.85, geometry_confidence=0.25),
+            opacity=0.35,
+            confidence=0.72,
+            material_id="mat_soft_volume",
+        ),
+        TrainingRegion(
+            id="woven_frequency",
+            frame_id="front_right",
+            bounds=Bounds((0.45, -0.7, 0.0), (0.95, -0.2, 0.15)),
+            evidence=RegionEvidence(high_frequency=0.92, geometry_confidence=0.65),
+            opacity=0.75,
+            material_id="mat_woven_detail",
+        ),
+        TrainingRegion(
+            id="view_residual",
+            frame_id="front_left",
+            bounds=Bounds((-0.75, 0.05, 0.0), (-0.25, 0.55, 0.2)),
+            evidence=RegionEvidence(view_dependent=0.88, material_confidence=0.25, image_error=0.55),
+            color=(0.4, 0.75, 0.7),
+            opacity=0.6,
+        ),
+        TrainingRegion(
+            id="semantic_object",
+            frame_id="object_view",
+            bounds=Bounds((-0.1, 0.05, 0.0), (0.35, 0.5, 0.2)),
+            evidence=RegionEvidence(semantic_confidence=0.95),
+            opacity=0.45,
+            semantic_label="fixture_object",
+        ),
+        TrainingRegion(
+            id="compact_detail",
+            frame_id="front_right",
+            bounds=Bounds((0.5, 0.05, 0.0), (0.8, 0.35, 0.15)),
+            evidence=RegionEvidence(compact_detail=0.9, image_error=0.2),
+            color=(0.95, 0.45, 0.35),
+            opacity=0.85,
+        ),
+        TrainingRegion(
+            id="gaussian_fallback",
+            frame_id="front_right",
+            bounds=Bounds((0.85, 0.3, 0.0), (1.05, 0.5, 0.2)),
+            evidence=RegionEvidence(image_error=0.05, geometry_confidence=0.3, edit_need=0.1),
+            color=(0.65, 0.65, 0.65),
+            opacity=0.5,
+            confidence=0.6,
+            fallback_source="aura-core-uncertain-region",
+        ),
+    )
+
+
+def synthetic_training_dataset() -> TrainingDataset:
+    return TrainingDataset(frames=synthetic_training_frames(), regions=synthetic_training_regions())
+
+
+def load_training_dataset(path: Path | str) -> TrainingDataset:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    frames_payload = payload.get("frames") if isinstance(payload, dict) else payload
+    if isinstance(payload, list):
+        frames_payload = payload
+        regions_payload = []
+    elif isinstance(payload, dict):
+        frames_payload = payload.get("frames")
+        regions_payload = payload.get("regions", [])
+    else:
+        raise ValueError("training dataset JSON must be an object or frame array")
     if not isinstance(frames_payload, list) or not frames_payload:
-        raise ValueError("training frames JSON must contain a non-empty frames array")
-    return tuple(TrainingFrame.from_dict(item) for item in frames_payload)
+        raise ValueError("training dataset JSON must contain a non-empty frames array")
+    if not isinstance(regions_payload, list):
+        raise ValueError("training dataset regions must be an array")
+    return TrainingDataset(
+        frames=tuple(TrainingFrame.from_dict(item) for item in frames_payload),
+        regions=tuple(TrainingRegion.from_dict(item) for item in regions_payload),
+    )
+
+
+def load_training_frames(path: Path | str) -> tuple[TrainingFrame, ...]:
+    return load_training_dataset(path).frames
 
 
 def write_synthetic_training_frames(path: Path | str) -> Path:
@@ -195,7 +378,7 @@ def write_synthetic_training_frames(path: Path | str) -> Path:
         json.dumps(
             {
                 "format": "AURA_TRAINING_FRAMES",
-                "frames": [frame.to_dict() for frame in synthetic_training_frames()],
+                **synthetic_training_dataset().to_dict(),
             },
             indent=2,
             sort_keys=True,
@@ -210,6 +393,7 @@ def reconstruct_demo_scene(
     config: ReconstructionConfig | None = None,
     *,
     frames: Sequence[TrainingFrame] | None = None,
+    regions: Sequence[TrainingRegion] | None = None,
     name: str = "reconstruct_demo",
 ) -> ReconstructionResult:
     """Run the deterministic AURA-Core fixture reconstruction path.
@@ -221,7 +405,8 @@ def reconstruct_demo_scene(
 
     config = config or ReconstructionConfig()
     training_frames = tuple(frames or synthetic_training_frames())
-    scene = decompose_evidence(_initial_evidence_from_frames(training_frames), name=name)
+    training_regions = tuple(regions or synthetic_training_regions())
+    scene = decompose_evidence(_initial_evidence_from_regions(training_frames, training_regions), name=name)
     scene, iterations = _reference_iterations(scene, training_frames, config)
     final_loss = iterations[-1].image_loss + iterations[-1].depth_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
@@ -239,87 +424,24 @@ def reconstruct_demo_scene(
         iterations=iterations,
         final_loss=final_loss,
         native_carrier_fraction=native_fraction,
-        sources=("posed_training_frames", "depth_targets", "semantic_labels"),
+        sources=("posed_training_frames", "training_regions", "depth_targets", "semantic_labels"),
     )
     return ReconstructionResult(scene=scene, report=report)
 
 
-def _initial_evidence_from_frames(frames: Sequence[TrainingFrame]) -> tuple[EvidenceSample, ...]:
-    if len(frames) < 4:
-        raise ValueError("AURA-Core demo reconstruction requires at least four posed training frames")
+def _initial_evidence_from_regions(
+    frames: Sequence[TrainingFrame],
+    regions: Sequence[TrainingRegion],
+) -> tuple[EvidenceSample, ...]:
+    if not frames:
+        raise ValueError("AURA-Core reconstruction requires at least one posed training frame")
+    if not regions:
+        raise ValueError("AURA-Core reconstruction requires at least one training region")
     by_id = {frame.id: frame for frame in frames}
-    required = {"front_left", "front_center", "front_right", "object_view"}
-    missing = sorted(required.difference(by_id))
+    missing = sorted({region.frame_id for region in regions}.difference(by_id))
     if missing:
-        raise ValueError(f"training frames missing required fixture ids: {', '.join(missing)}")
-    return (
-        EvidenceSample(
-            id="surface_wall",
-            bounds=Bounds((-0.75, -0.75, 0.0), (-0.25, -0.25, 0.1)),
-            evidence=RegionEvidence(geometry_confidence=0.9, material_confidence=0.7, edit_need=0.6, ray_need=0.8),
-            color=by_id["front_left"].target_color,
-            opacity=0.9,
-            normal=(0.0, 0.0, -1.0),
-            material_id="mat_wall_plaster",
-            semantic_label="wall",
-            metadata={"source": "aura-core-synthetic"},
-        ),
-        EvidenceSample(
-            id="soft_volume",
-            bounds=Bounds((-0.15, -0.7, 0.0), (0.35, -0.2, 0.8)),
-            evidence=RegionEvidence(fuzzy_confidence=0.85, geometry_confidence=0.25),
-            color=by_id["front_center"].target_color,
-            opacity=0.35,
-            confidence=0.72,
-            material_id="mat_soft_volume",
-            metadata={"source": "aura-core-synthetic"},
-        ),
-        EvidenceSample(
-            id="woven_frequency",
-            bounds=Bounds((0.45, -0.7, 0.0), (0.95, -0.2, 0.15)),
-            evidence=RegionEvidence(high_frequency=0.92, geometry_confidence=0.65),
-            color=by_id["front_right"].target_color,
-            opacity=0.75,
-            material_id="mat_woven_detail",
-            metadata={"source": "aura-core-synthetic"},
-        ),
-        EvidenceSample(
-            id="view_residual",
-            bounds=Bounds((-0.75, 0.05, 0.0), (-0.25, 0.55, 0.2)),
-            evidence=RegionEvidence(view_dependent=0.88, material_confidence=0.25, image_error=0.55),
-            color=(0.4, 0.75, 0.7),
-            opacity=0.6,
-            metadata={"source": "aura-core-synthetic"},
-        ),
-        EvidenceSample(
-            id="semantic_object",
-            bounds=Bounds((-0.1, 0.05, 0.0), (0.35, 0.5, 0.2)),
-            evidence=RegionEvidence(semantic_confidence=0.95),
-            color=by_id["object_view"].target_color,
-            opacity=0.45,
-            semantic_label="fixture_object",
-            edit={"selectable": True},
-            metadata={"source": "aura-core-synthetic"},
-        ),
-        EvidenceSample(
-            id="compact_detail",
-            bounds=Bounds((0.5, 0.05, 0.0), (0.8, 0.35, 0.15)),
-            evidence=RegionEvidence(compact_detail=0.9, image_error=0.2),
-            color=(0.95, 0.45, 0.35),
-            opacity=0.85,
-            metadata={"source": "aura-core-synthetic"},
-        ),
-        EvidenceSample(
-            id="gaussian_fallback",
-            bounds=Bounds((0.85, 0.3, 0.0), (1.05, 0.5, 0.2)),
-            evidence=RegionEvidence(image_error=0.05, geometry_confidence=0.3, edit_need=0.1),
-            color=(0.65, 0.65, 0.65),
-            opacity=0.5,
-            confidence=0.6,
-            fallback_source="aura-core-uncertain-region",
-            metadata={"source": "aura-core-synthetic"},
-        ),
-    )
+        raise ValueError(f"training regions reference unknown frame ids: {', '.join(missing)}")
+    return tuple(region.to_evidence_sample(by_id[region.frame_id]) for region in regions)
 
 
 def _reference_iterations(

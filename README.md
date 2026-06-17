@@ -100,7 +100,7 @@ aura migration-plan outputs/native-demo.aura
 
 # AURA-Core reconstruction path:
 aura write-training-frames-demo --output outputs/training-frames.json
-# writes a posed color/depth/semantic frame fixture
+# writes posed color/depth/semantic frames plus native evidence regions
 aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6
 # runs posed-ray losses and adaptive split/promote/merge/demote carriers, without 3DGS
 
@@ -173,8 +173,9 @@ Recommended benchmark/baseline sources:
 Do not add more 3DGS convenience before the native engine exists. The next
 milestone is a small end-to-end AURA-Core reconstruction fixture:
 
-1. load or synthesize posed training-frame JSON with color, depth, and semantic targets;
-2. initialize native AURA evidence cells without 3DGS;
+1. load or synthesize posed training-frame JSON with color, depth, semantic
+   targets, and native evidence region specs;
+2. initialize native AURA evidence cells from those region specs without 3DGS;
 3. render a CPU reference prediction and compute image/depth/ray-query losses;
 4. adaptively split/promote/merge/demote carriers based on residuals and confidence;
 5. optimize native carrier parameters for a few deterministic fixture steps;
