@@ -14,6 +14,7 @@ from aura import (
     require_torch,
     torch_capture_asset_batch,
     torch_capture_training_batch,
+    torch_render_capture_training_batch,
     torch_render_targets,
     torch_renderer_status,
 )
@@ -44,6 +45,18 @@ def test_torch_capture_asset_batch_reports_install_hint_when_unavailable():
 
     with pytest.raises(RuntimeError, match="torch"):
         torch_capture_asset_batch((_capture_tensor_frame(),), device="cpu")
+
+
+def test_torch_render_capture_training_batch_reports_install_hint_when_unavailable():
+    if importlib.util.find_spec("torch") is not None:
+        pytest.skip("torch is installed in this environment")
+
+    scene = AuraScene(
+        name="empty",
+        elements=(AuraElement(id="surface", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    with pytest.raises(RuntimeError, match="torch"):
+        torch_render_capture_training_batch(scene, _fake_capture_training_batch())
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -108,6 +121,65 @@ def test_torch_capture_training_batch_samples_per_pixel_targets():
     assert batch.target_mask.tolist() == [1.0, 0.0]
     assert batch.ray_directions.tolist()[0] == [0.0, 0.0, 1.0]
     assert payload["targetColor"]["shape"] == [2, 3]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_capture_training_batch_matches_render_target_path():
+    scene = AuraScene(
+        name="torch_capture_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame_a",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                image_values=(1.0, 0.0, 0.0),
+                depth_values=(2.0,),
+                mask_values=None,
+                width=1,
+                height=1,
+            ),
+        ),
+        device="cpu",
+    )
+    capture_batch = torch_capture_training_batch((frame,), assets)
+    direct_batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame_a",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+    )
+
+    rendered = torch_render_capture_training_batch(scene, capture_batch)
+
+    assert rendered.frame_ids == direct_batch.frame_ids
+    assert rendered.element_ids == direct_batch.element_ids
+    assert rendered.predicted_color == direct_batch.predicted_color
+    assert rendered.predicted_depth == direct_batch.predicted_depth
+    assert rendered.image_loss == direct_batch.image_loss
+    assert rendered.depth_loss == direct_batch.depth_loss
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -214,6 +286,8 @@ def _capture_tensor_frame(
     image_values=(1.0, 0.0, 0.0, 0.0, 0.5, 0.5),
     depth_values=(0.5, 1.0),
     mask_values=(1.0, 0.0),
+    width: int = 2,
+    height: int = 1,
 ) -> CaptureFrameTensors:
     return CaptureFrameTensors(
         frame_id=frame_id,
@@ -221,8 +295,8 @@ def _capture_tensor_frame(
             path=f"{frame_id}.ppm",
             format="Netpbm",
             backend="stdlib",
-            width=2,
-            height=1,
+            width=width,
+            height=height,
             channels=3,
             values=tuple(image_values),
         ),
@@ -230,8 +304,8 @@ def _capture_tensor_frame(
             path=f"{frame_id}.pgm",
             format="Netpbm",
             backend="stdlib",
-            width=2,
-            height=1,
+            width=width,
+            height=height,
             channels=1,
             values=tuple(depth_values),
         )
@@ -241,11 +315,30 @@ def _capture_tensor_frame(
             path=f"{frame_id}_mask.pgm",
             format="Netpbm",
             backend="stdlib",
-            width=2,
-            height=1,
+            width=width,
+            height=height,
             channels=1,
             values=tuple(mask_values),
         )
         if mask_values is not None
         else None,
     )
+
+
+def _fake_capture_training_batch():
+    class _FakeTensor:
+        def numel(self):
+            return 1
+
+    return type(
+        "FakeCaptureTrainingBatch",
+        (),
+        {
+            "frame_indices": _FakeTensor(),
+            "frame_ids": ("frame",),
+            "ray_origins": None,
+            "ray_directions": None,
+            "target_color": None,
+            "target_depth": None,
+        },
+    )()

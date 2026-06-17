@@ -84,9 +84,9 @@ AURA_CAPTURE_MANIFEST
 1. Replace the optional payload-aware PyTorch AABB reference path and CPU
    differentiable reference renderer with a carrier-complete PyTorch/CUDA
    renderer over the same `TrainingFrame` and `TrainingRegion` contracts.
-2. Replace the CPU reference per-pixel capture target loop with
-   `torch_capture_training_batch` inside the GPU optimizer so CUDA training
-   consumes the same image/depth/mask/normal targets.
+2. Replace the CPU reference optimization loop with a GPU loop that uses
+   `torch_capture_training_batch` and `torch_render_capture_training_batch` for
+   forward passes, gradients, and carrier updates.
 3. Harden COLMAP import beyond deterministic sparse/depth/mask/normal prior
    regions, including learned region proposal generation.
 4. Replace the reference Torch payload semantics with real differentiable

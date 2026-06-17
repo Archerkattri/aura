@@ -253,6 +253,28 @@ def torch_capture_training_batch(
     )
 
 
+def torch_render_capture_training_batch(
+    scene: AuraScene,
+    batch: TorchCaptureTrainingBatch,
+) -> TorchRenderBatch:
+    """Render sampled capture tensor targets through the torch AURA contract."""
+
+    require_torch()
+    if int(batch.frame_indices.numel()) == 0:
+        raise ValueError("torch capture training batch requires at least one target")
+    frame_indices = batch.frame_indices.detach().cpu().tolist()
+    sample_frame_ids = tuple(batch.frame_ids[index] for index in frame_indices)
+    return _torch_render_tensor_targets(
+        scene,
+        frame_ids=sample_frame_ids,
+        origins=batch.ray_origins,
+        directions=batch.ray_directions,
+        target_colors=batch.target_color,
+        target_depths=batch.target_depth,
+        device=str(batch.ray_origins.device),
+    )
+
+
 def torch_render_targets(
     scene: AuraScene,
     targets: Sequence[RenderTarget],
@@ -271,20 +293,47 @@ def torch_render_targets(
     if not scene.elements:
         raise ValueError("torch renderer requires at least one scene element")
 
-    torch = require_torch()
     status = torch_renderer_status()
     resolved_device = device or status.default_device or "cpu"
-
-    mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=resolved_device)
-    maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=resolved_device)
-    colors = torch.tensor([element.color for element in scene.elements], dtype=torch.float32, device=resolved_device)
-    opacities = torch.tensor([element.opacity for element in scene.elements], dtype=torch.float32, device=resolved_device)
-    confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=resolved_device)
-
+    torch = require_torch()
     origins = torch.tensor([target.ray.origin for target in targets], dtype=torch.float32, device=resolved_device)
     directions = torch.tensor([target.ray.direction for target in targets], dtype=torch.float32, device=resolved_device)
     target_colors = torch.tensor([target.target_color for target in targets], dtype=torch.float32, device=resolved_device)
     target_depths = torch.tensor([target.target_depth for target in targets], dtype=torch.float32, device=resolved_device)
+    return _torch_render_tensor_targets(
+        scene,
+        frame_ids=tuple(target.frame_id for target in targets),
+        origins=origins,
+        directions=directions,
+        target_colors=target_colors,
+        target_depths=target_depths,
+        device=str(resolved_device),
+    )
+
+
+def _torch_render_tensor_targets(
+    scene: AuraScene,
+    *,
+    frame_ids: Sequence[str],
+    origins: Any,
+    directions: Any,
+    target_colors: Any,
+    target_depths: Any,
+    device: str,
+) -> TorchRenderBatch:
+    torch = require_torch()
+    if not scene.elements:
+        raise ValueError("torch renderer requires at least one scene element")
+    if len(frame_ids) == 0:
+        raise ValueError("torch renderer requires at least one target")
+    if int(origins.shape[0]) != len(frame_ids):
+        raise ValueError("torch tensor target count must match frame ids")
+
+    mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=device)
+    maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=device)
+    colors = torch.tensor([element.color for element in scene.elements], dtype=torch.float32, device=device)
+    opacities = torch.tensor([element.opacity for element in scene.elements], dtype=torch.float32, device=device)
+    confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
 
     safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
     t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
@@ -314,7 +363,7 @@ def torch_render_targets(
         confidences,
         mins,
         maxs,
-        resolved_device,
+        device,
     )
     gathered_colors = carrier_colors * (1.0 - transmittance).unsqueeze(1)
     predicted_colors = torch.where(has_hit.unsqueeze(1), gathered_colors, torch.zeros_like(gathered_colors))
@@ -329,8 +378,8 @@ def torch_render_targets(
     hit_flags = has_hit.detach().cpu().tolist()
     elements = tuple(scene.elements)
     return TorchRenderBatch(
-        device=str(resolved_device),
-        frame_ids=tuple(target.frame_id for target in targets),
+        device=device,
+        frame_ids=tuple(frame_ids),
         element_ids=tuple(elements[index].id if hit else None for index, hit in zip(best_indices, hit_flags)),
         carrier_ids=tuple(elements[index].carrier_id if hit else None for index, hit in zip(best_indices, hit_flags)),
         predicted_color=_tensor_vec3_tuple(predicted_colors.detach().cpu().tolist()),
@@ -339,8 +388,8 @@ def torch_render_targets(
         confidence=tuple(float(value) for value in confidence.detach().cpu().tolist()),
         residual=tuple(bool(value) for value in residual_flags.detach().cpu().tolist()),
         semantic_ids=tuple(_semantic_id_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags)),
-        target_color=tuple(tuple(float(channel) for channel in target.target_color) for target in targets),  # type: ignore[return-value]
-        target_depth=tuple(float(target.target_depth) for target in targets),
+        target_color=_tensor_vec3_tuple(target_colors.detach().cpu().tolist()),
+        target_depth=tuple(float(value) for value in target_depths.detach().cpu().tolist()),
         image_loss=tuple(float(value) for value in image_loss.detach().cpu().tolist()),
         depth_loss=tuple(float(value) for value in depth_loss.detach().cpu().tolist()),
     )

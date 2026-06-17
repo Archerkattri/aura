@@ -109,6 +109,7 @@ from aura.torch_renderer import (
     require_torch,
     torch_capture_asset_batch,
     torch_capture_training_batch,
+    torch_render_capture_training_batch,
     torch_render_targets,
     torch_renderer_status,
 )
@@ -228,6 +229,7 @@ __all__ = [
     "synthetic_training_regions",
     "torch_capture_asset_batch",
     "torch_capture_training_batch",
+    "torch_render_capture_training_batch",
     "torch_render_targets",
     "torch_renderer_status",
     "require_torch",

@@ -61,6 +61,8 @@ native representation contract pieces:
 - per-pixel capture training target generation from image/depth/mask/normal
   tensors via `capture_tensors_to_render_targets` and
   `torch_capture_training_batch`;
+- torch reference rendering from capture training batches via
+  `torch_render_capture_training_batch`;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
 - deterministic capture asset summaries built from the same tensor path for
