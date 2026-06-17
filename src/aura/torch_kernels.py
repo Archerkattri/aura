@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import pi
 from typing import Any, Sequence
 
-from aura.cuda_kernels import cuda_kernel_sources
+from aura.cuda_kernels import cuda_kernel_extension_status, cuda_kernel_sources
 
 
 @dataclass(frozen=True)
@@ -108,6 +108,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
 def torch_carrier_kernel_report() -> dict:
     specs = torch_carrier_kernel_specs()
     sources_by_carrier = {source.carrier_id: source for source in cuda_kernel_sources()}
+    extension_status = cuda_kernel_extension_status(build=False)
     return {
         "format": "AURA_TORCH_CARRIER_KERNEL_REPORT",
         "productionReady": all(spec.production_ready for spec in specs),
@@ -118,6 +119,7 @@ def torch_carrier_kernel_report() -> dict:
         "cudaCarrierCount": sum(1 for spec in specs if spec.cuda_kernel),
         "cudaSourceCount": len(sources_by_carrier),
         "availableCudaSourceCount": sum(1 for source in sources_by_carrier.values() if source.to_dict()["available"]),
+        "cudaExtension": extension_status.to_dict(),
         "kernelSpecs": [_kernel_spec_report(spec, sources_by_carrier.get(spec.carrier_id)) for spec in specs],
         "requiredNextStep": "add carrier-complete CUDA kernels for every autograd-covered carrier",
     }

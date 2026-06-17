@@ -9,6 +9,8 @@ import pytest
 from aura import (
     AuraElement,
     Bounds,
+    cuda_kernel_extension_report,
+    cuda_kernel_extension_status,
     cuda_kernel_source_report,
     cuda_kernel_sources,
     torch_carrier_kernel_report,
@@ -148,6 +150,8 @@ def test_torch_kernel_report_links_cuda_source_but_keeps_production_gate_closed(
     report = torch_carrier_kernel_report()
 
     assert report["productionReady"] is False
+    assert report["cudaExtension"]["buildAttempted"] is False
+    assert report["cudaExtension"]["reason"] == "build_not_attempted"
     assert report["cudaSourceCount"] == 7
     assert report["availableCudaSourceCount"] == 7
     for spec in report["kernelSpecs"]:
@@ -156,6 +160,41 @@ def test_torch_kernel_report_links_cuda_source_but_keeps_production_gate_closed(
         assert spec["cudaSource"]["carrierId"] == spec["carrierId"]
         assert spec["cudaSource"]["available"] is True
         assert spec["cudaSource"]["symbol"].startswith("aura_")
+
+
+def test_cuda_kernel_extension_status_does_not_build_by_default():
+    status = cuda_kernel_extension_status()
+    report = cuda_kernel_extension_report()
+
+    assert status.available is False
+    assert status.build_attempted is False
+    assert status.compiled is False
+    assert status.loadable is False
+    assert status.reason == "build_not_attempted"
+    assert status.module_name == "aura_cuda_carriers"
+    assert status.source_paths == ("cuda/aura_carriers.cu",)
+    assert len(status.symbols) == 7
+    assert report["format"] == "AURA_CUDA_EXTENSION_REPORT"
+    assert report["productionReady"] is False
+    assert report["buildAttempted"] is False
+
+
+def test_cuda_kernel_build_report_cli_is_non_destructive_without_build():
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "cuda-kernel-build-report"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_CUDA_EXTENSION_REPORT"
+    assert payload["productionReady"] is False
+    assert payload["buildAttempted"] is False
+    assert payload["compiled"] is False
+    assert payload["loadable"] is False
+    assert payload["reason"] == "build_not_attempted"
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

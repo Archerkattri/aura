@@ -73,6 +73,8 @@ native representation contract pieces:
   semantics;
 - packaged CUDA carrier source entry points for every native/fallback carrier,
   reported by `torch-kernel-report` but not yet compiled or production-ready;
+- an explicit `cuda-kernel-build-report --build` probe for GPU machines to
+  compile/load the packaged carrier extension and keep readiness claims gated;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
 - model-scored native feature proposals from image/depth/mask/normal tensor
@@ -128,6 +130,7 @@ Expose the primary CUDA device for GPU development:
 ```bash
 export CUDA_VISIBLE_DEVICES=0
 aura torch-renderer-status
+aura cuda-kernel-build-report --build
 ```
 
 The PyTorch renderer is currently a native AABB first-hit prototype with

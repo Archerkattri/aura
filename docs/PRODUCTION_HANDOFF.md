@@ -26,6 +26,7 @@ aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir out
 aura validate-package outputs/reconstruct-capture.aura
 aura inspect-package outputs/reconstruct-capture.aura
 aura torch-kernel-report
+aura cuda-kernel-build-report --build
 ```
 
 For manifests whose `image_path`, `depth_path`, `mask_path`, and `normal_path`

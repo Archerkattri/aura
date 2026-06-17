@@ -59,6 +59,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - packaged CUDA carrier source symbols for surface, volume, beta, gabor, neural,
   semantic, and Gaussian fallback carriers, still gated as non-production until
   compiled extension tests and benchmarks exist;
+- `cuda-kernel-build-report --build` for GPU machines to attempt native carrier
+  CUDA extension compile/load without changing the default CPU-safe test path;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - model-scored native feature proposals for image-detail and depth-edge regions
@@ -119,6 +121,8 @@ path, and the semantic carrier has differentiable confidence scoring;
 the Gaussian fallback carrier has differentiable fallback color/opacity/
 confidence parameters. Production readiness still requires compiling, testing,
 and benchmarking CUDA kernels for every carrier.
+Use `aura cuda-kernel-build-report --build` on a CUDA development machine to
+attempt the packaged carrier extension compile/load gate.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
