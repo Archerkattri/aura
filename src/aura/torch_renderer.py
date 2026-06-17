@@ -89,6 +89,7 @@ class TorchRenderObjective:
     total_loss: Any
     image_loss: Any
     depth_loss: Any
+    normal_loss: Any
 
     def to_dict(self) -> dict:
         return {
@@ -97,6 +98,7 @@ class TorchRenderObjective:
             "totalLoss": float(self.total_loss.detach().cpu().item()),
             "imageLoss": float(self.image_loss.detach().cpu().item()),
             "depthLoss": float(self.depth_loss.detach().cpu().item()),
+            "normalLoss": float(self.normal_loss.detach().cpu().item()),
             "carrierParameterIds": sorted(self.carrier_parameters),
         }
 
@@ -344,6 +346,8 @@ def torch_render_capture_training_objective(
         directions=batch.ray_directions,
         target_colors=batch.target_color,
         target_depths=batch.target_depth,
+        target_normals=batch.target_normal,
+        target_normal_present=batch.target_normal_present,
         device=str(batch.ray_origins.device),
         carrier_parameters=carrier_parameters,
     )
@@ -421,6 +425,12 @@ def torch_render_target_objective(
         directions=torch.tensor([target.ray.direction for target in targets], dtype=torch.float32, device=resolved_device),
         target_colors=torch.tensor([target.target_color for target in targets], dtype=torch.float32, device=resolved_device),
         target_depths=torch.tensor([target.target_depth for target in targets], dtype=torch.float32, device=resolved_device),
+        target_normals=torch.tensor(
+            [target.target_normal if target.target_normal is not None else (0.0, 0.0, 0.0) for target in targets],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
+        target_normal_present=torch.tensor([target.target_normal is not None for target in targets], dtype=torch.bool, device=resolved_device),
         device=str(resolved_device),
         carrier_parameters=carrier_parameters,
     )
@@ -560,6 +570,8 @@ def _torch_render_objective_tensor_targets(
     target_colors: Any,
     target_depths: Any,
     device: str,
+    target_normals: Any | None = None,
+    target_normal_present: Any | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
 ) -> TorchRenderObjective:
     torch = require_torch()
@@ -613,13 +625,20 @@ def _torch_render_objective_tensor_targets(
     predicted_depths = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
     image_loss = torch.mean((predicted_colors - target_colors) ** 2)
     depth_loss = torch.mean(torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths))
+    elements = tuple(scene.elements)
+    best_indices = best_index.detach().cpu().tolist()
+    hit_flags = has_hit.detach().cpu().tolist()
+    normals = tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
+    predicted_normals, predicted_normal_present = _predicted_normal_tensors(torch, normals, device=device)
+    normal_loss = torch.mean(_torch_normal_loss(torch, predicted_normals, predicted_normal_present, target_normals, target_normal_present))
     return TorchRenderObjective(
         device=device,
         frame_ids=tuple(frame_ids),
         carrier_parameters=carrier_parameters,
-        total_loss=image_loss + depth_loss,
+        total_loss=image_loss + depth_loss + normal_loss,
         image_loss=image_loss,
         depth_loss=depth_loss,
+        normal_loss=normal_loss,
     )
 
 

@@ -65,7 +65,7 @@ native representation contract pieces:
 - torch reference rendering from capture training batches via
   `torch_render_capture_training_batch`, using carrier parameter tensors;
 - live torch render objectives via `torch_render_target_objective` for
-  backpropagation through carrier parameter tensors;
+  image/depth/normal losses and backpropagation through carrier parameter tensors;
 - torch reference optimization steps via `torch_optimize_capture_batch`, using
   live render objectives for gradient updates over native carrier tensors;
 - explicit torch carrier kernel specs and autograd parameter tensors for
