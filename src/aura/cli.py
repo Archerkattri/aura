@@ -494,6 +494,14 @@ def demo_scene() -> AuraScene:
 
 def _add_reconstruction_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--color-learning-rate", type=float, default=0.35)
+    parser.add_argument(
+        "--render-backend",
+        choices=("cpu", "torch", "auto"),
+        default="cpu",
+        help="Renderer used by reconstruction iterations; torch uses the native tensor ray-query path",
+    )
+    parser.add_argument("--device", default=None, help="Torch device for --render-backend torch/auto, such as cpu or cuda")
+    parser.add_argument("--require-cuda", action="store_true", help="Fail unless reconstruction resolves to a CUDA torch device")
     parser.add_argument("--disable-adaptive-evolution", action="store_true")
     parser.add_argument("--split-image-loss-threshold", type=float, default=0.03)
     parser.add_argument("--depth-anchor-loss-threshold", type=float, default=0.10)
@@ -508,6 +516,9 @@ def _reconstruction_config_from_args(args: argparse.Namespace) -> Reconstruction
     return ReconstructionConfig(
         iterations=args.iterations,
         color_learning_rate=args.color_learning_rate,
+        render_backend=args.render_backend,
+        torch_device=args.device,
+        require_cuda=args.require_cuda,
         enable_adaptive_evolution=not args.disable_adaptive_evolution,
         split_image_loss_threshold=args.split_image_loss_threshold,
         depth_anchor_loss_threshold=args.depth_anchor_loss_threshold,

@@ -188,6 +188,9 @@ class ReconstructionConfig:
     render_width: int = 8
     render_height: int = 8
     color_learning_rate: float = 0.35
+    render_backend: str = "cpu"
+    torch_device: str | None = None
+    require_cuda: bool = False
     enable_adaptive_evolution: bool = True
     split_image_loss_threshold: float = 0.03
     depth_anchor_loss_threshold: float = 0.10
@@ -204,6 +207,10 @@ class ReconstructionConfig:
             raise ValueError("render dimensions must be positive")
         if not 0.0 < self.color_learning_rate <= 1.0:
             raise ValueError("color_learning_rate must be in (0, 1]")
+        if self.render_backend not in {"cpu", "torch", "auto"}:
+            raise ValueError("render_backend must be one of: cpu, torch, auto")
+        if self.require_cuda and self.render_backend == "cpu":
+            raise ValueError("require_cuda needs render_backend='torch' or 'auto'")
         for name in (
             "split_image_loss_threshold",
             "depth_anchor_loss_threshold",
@@ -227,6 +234,13 @@ class ReconstructionConfig:
             "demoteAfterIteration": self.demote_after_iteration,
             "demoteImageLossThreshold": self.demote_image_loss_threshold,
             "demoteDepthLossThreshold": self.demote_depth_loss_threshold,
+        }
+
+    def rendering_policy(self) -> dict:
+        return {
+            "requestedBackend": self.render_backend,
+            "requestedDevice": self.torch_device,
+            "requireCuda": self.require_cuda,
         }
 
 
@@ -279,6 +293,8 @@ class CarrierEvolutionDecision:
 @dataclass(frozen=True)
 class ReconstructionStep:
     iteration: int
+    render_backend: str
+    render_device: str | None
     image_loss: float
     depth_loss: float
     query_loss: float
@@ -291,6 +307,8 @@ class ReconstructionStep:
     def to_dict(self) -> dict:
         return {
             "iteration": self.iteration,
+            "render_backend": self.render_backend,
+            "render_device": self.render_device,
             "image_loss": self.image_loss,
             "depth_loss": self.depth_loss,
             "query_loss": self.query_loss,
@@ -312,6 +330,9 @@ class ReconstructionReport:
     native_carrier_fraction: float
     sources: tuple[str, ...]
     evolution_policy: dict
+    rendering_policy: dict
+    render_backend: str
+    render_device: str | None
 
     def to_dict(self) -> dict:
         return {
@@ -324,6 +345,9 @@ class ReconstructionReport:
             "nativeCarrierFraction": self.native_carrier_fraction,
             "sources": list(self.sources),
             "evolutionPolicy": dict(self.evolution_policy),
+            "renderingPolicy": dict(self.rendering_policy),
+            "renderBackend": self.render_backend,
+            "renderDevice": self.render_device,
         }
 
 
@@ -526,7 +550,15 @@ def reconstruct_demo_scene(
     training_targets = tuple(render_targets or ())
     _validate_render_targets(training_frames, training_targets)
     scene = decompose_evidence(_initial_evidence_from_regions(training_frames, training_regions), name=name)
-    scene, iterations = _reference_iterations(scene, training_frames, config, render_targets=training_targets or None)
+    render_backend, render_device = _resolve_reconstruction_render_backend(config)
+    scene, iterations = _reference_iterations(
+        scene,
+        training_frames,
+        config,
+        render_targets=training_targets or None,
+        render_backend=render_backend,
+        render_device=render_device,
+    )
     final_loss = iterations[-1].image_loss + iterations[-1].depth_loss + iterations[-1].query_loss + iterations[-1].normal_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
     native_fraction = 0.0 if not scene.elements else non_gaussian / len(scene.elements)
@@ -536,11 +568,11 @@ def reconstruct_demo_scene(
     )
     if training_targets:
         stages += ("capture_tensor_pixel_targets",)
-    stages += (
-        "cpu_differentiable_reference_render",
-        "adaptive_carrier_split_promote",
-        "aura_package_export_ready",
-    )
+    if render_backend == "torch":
+        stages += ("torch_native_reference_render",)
+    else:
+        stages += ("cpu_differentiable_reference_render",)
+    stages += ("adaptive_carrier_split_promote", "aura_package_export_ready")
     sources = (
         "posed_training_frames",
         "training_regions",
@@ -558,6 +590,9 @@ def reconstruct_demo_scene(
         native_carrier_fraction=native_fraction,
         sources=sources,
         evolution_policy=config.evolution_policy(),
+        rendering_policy=config.rendering_policy(),
+        render_backend=render_backend,
+        render_device=render_device,
     )
     return ReconstructionResult(scene=scene, report=report)
 
@@ -590,10 +625,18 @@ def _reference_iterations(
     config: ReconstructionConfig,
     *,
     render_targets: Sequence[RenderTarget] | None = None,
+    render_backend: str,
+    render_device: str | None,
 ) -> tuple[AuraScene, tuple[ReconstructionStep, ...]]:
     steps = []
     for index in range(config.iterations):
-        predictions = _predict_training_frames(scene, frames, render_targets=render_targets)
+        predictions = _predict_training_frames(
+            scene,
+            frames,
+            render_targets=render_targets,
+            render_backend=render_backend,
+            render_device=render_device,
+        )
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
         query_loss = sum(prediction.query_loss for prediction in predictions) / len(predictions)
@@ -602,6 +645,8 @@ def _reference_iterations(
         steps.append(
             ReconstructionStep(
                 iteration=index,
+                render_backend=render_backend,
+                render_device=render_device,
                 image_loss=image_loss,
                 depth_loss=depth_loss,
                 query_loss=query_loss,
@@ -621,6 +666,8 @@ def _predict_training_frames(
     frames: Sequence[TrainingFrame],
     *,
     render_targets: Sequence[RenderTarget] | None = None,
+    render_backend: str = "cpu",
+    render_device: str | None = None,
 ) -> tuple[FramePrediction, ...]:
     targets = tuple(render_targets) if render_targets is not None else tuple(
         RenderTarget(
@@ -632,6 +679,8 @@ def _predict_training_frames(
         )
         for frame in frames
     )
+    if render_backend == "torch":
+        return _predict_training_frames_torch(scene, frames, targets, device=render_device)
     samples = differentiate_scene_rays(scene, targets)
     predictions = []
     by_frame = {frame.id: frame for frame in frames}
@@ -669,6 +718,78 @@ def _predict_training_frames(
             )
         )
     return tuple(predictions)
+
+
+def _predict_training_frames_torch(
+    scene: AuraScene,
+    frames: Sequence[TrainingFrame],
+    targets: Sequence[RenderTarget],
+    *,
+    device: str | None,
+) -> tuple[FramePrediction, ...]:
+    from aura.torch_renderer import torch_render_targets
+
+    batch = torch_render_targets(scene, targets, device=device)
+    predictions = []
+    by_frame = {frame.id: frame for frame in frames}
+    for index, frame_id in enumerate(batch.frame_ids):
+        frame = by_frame[frame_id]
+        predicted_depth = batch.predicted_depth[index]
+        predictions.append(
+            FramePrediction(
+                frame_id=frame.id,
+                element_id=batch.element_ids[index],
+                carrier_id=batch.carrier_ids[index],
+                ray_direction=targets[index].ray.direction,
+                predicted_color=batch.predicted_color[index],
+                target_color=batch.target_color[index],
+                predicted_depth=predicted_depth,
+                target_depth=batch.target_depth[index],
+                target_semantic_id=batch.target_semantic_ids[index],
+                target_material_id=batch.target_material_ids[index],
+                target_normal=batch.target_normal[index],
+                predicted_transmittance=batch.transmittance[index],
+                predicted_opacity=batch.opacity[index],
+                predicted_confidence=batch.confidence[index],
+                predicted_normal=batch.normal[index],
+                predicted_material_id=batch.material_ids[index],
+                predicted_semantic_id=batch.semantic_ids[index],
+                predicted_residual=batch.residual[index],
+                predicted_provenance=batch.provenance[index],
+                image_loss=batch.image_loss[index],
+                depth_loss=batch.depth_loss[index],
+                query_loss=batch.query_loss[index],
+                normal_loss=batch.normal_loss[index],
+                color_jacobian=max(batch.opacity[index], 1e-4),
+                color_gradient=_color_gradient(batch.predicted_color[index], batch.target_color[index]),
+                depth_gradient=0.0 if predicted_depth is None else predicted_depth - batch.target_depth[index],
+                gradient_norm=_gradient_norm(
+                    _color_gradient(batch.predicted_color[index], batch.target_color[index]),
+                    0.0 if predicted_depth is None else predicted_depth - batch.target_depth[index],
+                ),
+            )
+        )
+    return tuple(predictions)
+
+
+def _resolve_reconstruction_render_backend(config: ReconstructionConfig) -> tuple[str, str | None]:
+    if config.render_backend == "cpu":
+        return "cpu", None
+    from aura.torch_renderer import torch_renderer_status
+
+    status = torch_renderer_status()
+    if config.render_backend == "auto" and not status.available:
+        if config.require_cuda:
+            raise RuntimeError("CUDA reconstruction was required, but torch is unavailable")
+        return "cpu", None
+    if not status.available:
+        raise RuntimeError(status.reason or "PyTorch renderer is unavailable")
+    if config.require_cuda and not status.cuda_available:
+        raise RuntimeError("CUDA reconstruction was required, but torch.cuda is unavailable")
+    device = config.torch_device or status.default_device or "cpu"
+    if config.require_cuda and not str(device).startswith("cuda"):
+        raise RuntimeError(f"CUDA reconstruction was required, but requested device is {device!r}")
+    return "torch", str(device)
 
 
 def _carrier_evolution_decisions(
@@ -933,6 +1054,14 @@ def _refined_confidence(confidence: float, prediction: FramePrediction, *, learn
 
 def _prediction_residual(prediction: FramePrediction) -> float:
     return _clamp_unit(prediction.image_loss + prediction.depth_loss * 0.25 + prediction.query_loss + prediction.normal_loss * 0.5)
+
+
+def _color_gradient(predicted: Vec3, target: Vec3) -> Vec3:
+    return tuple(float(predicted[index] - target[index]) for index in range(3))  # type: ignore[return-value]
+
+
+def _gradient_norm(color_gradient: Vec3, depth_gradient: float) -> float:
+    return sqrt(sum(axis * axis for axis in color_gradient) + depth_gradient * depth_gradient)
 
 
 def _clamp_unit(value: float) -> float:

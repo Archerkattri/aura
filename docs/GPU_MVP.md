@@ -137,6 +137,12 @@ Use the shared reconstruction flags `--split-image-loss-threshold`,
 `--disable-adaptive-evolution` on `reconstruct-demo` or
 `reconstruct-capture-manifest` to tune or freeze the adaptive carrier evolution
 policy recorded in the reconstruction report.
+Both commands also accept `--render-backend cpu|torch|auto`, `--device`, and
+`--require-cuda`. `--render-backend torch --device cuda --require-cuda` forces
+the reconstruction iterations through the native torch AURA ray-query contract
+and fails instead of silently falling back when CUDA is unavailable. `auto`
+selects torch when the optional backend is installed, otherwise records the CPU
+reference path in the report.
 Use `aura torch-optimize-capture-manifest <manifest> --device cuda
 --pixel-stride N --max-targets-per-frame M` to run the current torch reference
 optimization scaffold from the same native capture tensor batches. It writes a

@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -233,6 +234,15 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert "semantic_object_neural_residual" in chunk_by_id["residual_neural_lod1"].element_ids
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["evolutionPolicy"]["enabled"] is True
+    assert report["renderingPolicy"] == {
+        "requestedBackend": "cpu",
+        "requestedDevice": None,
+        "requireCuda": False,
+    }
+    assert report["renderBackend"] == "cpu"
+    assert report["renderDevice"] is None
+    assert report["iterations"][0]["render_backend"] == "cpu"
+    assert report["iterations"][0]["render_device"] is None
     assert report["evolutionPolicy"]["splitImageLossThreshold"] == 0.03
     assert report["evolutionPolicy"]["demoteAfterIteration"] == 3
     assert report["sources"] == ["posed_training_frames", "training_regions", "depth_targets", "semantic_labels"]
@@ -279,6 +289,29 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert any(item["target_semantic_id"] == "wall" for item in report["iterations"][0]["predictions"])
     assert any(item["predicted_provenance"] == item["element_id"] for item in report["iterations"][0]["predictions"])
     assert any(item["gradient_norm"] > 0.0 for item in report["iterations"][0]["predictions"])
+
+
+def test_reconstruct_demo_rejects_cpu_backend_when_cuda_is_required():
+    with pytest.raises(ValueError, match="require_cuda"):
+        ReconstructionConfig(render_backend="cpu", require_cuda=True)
+
+
+def test_reconstruct_demo_reports_torch_backend_when_requested_if_available():
+    if importlib.util.find_spec("torch") is None:
+        with pytest.raises(RuntimeError, match="torch"):
+            reconstruct_demo_scene(ReconstructionConfig(iterations=1, render_backend="torch", torch_device="cpu"))
+        return
+
+    result = reconstruct_demo_scene(ReconstructionConfig(iterations=1, render_backend="torch", torch_device="cpu"))
+    report = result.report.to_dict()
+
+    assert report["renderBackend"] == "torch"
+    assert report["renderDevice"] == "cpu"
+    assert report["renderingPolicy"]["requestedBackend"] == "torch"
+    assert "torch_native_reference_render" in report["stages"]
+    assert report["iterations"][0]["render_backend"] == "torch"
+    assert report["iterations"][0]["render_device"] == "cpu"
+    assert report["iterations"][0]["predictions"]
 
 
 def test_reconstruct_demo_exposes_configurable_evolution_thresholds():
@@ -387,6 +420,34 @@ def test_reconstruct_demo_cli_accepts_adaptive_policy_flags(tmp_path):
     assert report["evolutionPolicy"]["demoteAfterIteration"] == 5
     assert "soft_volume_beta_detail" not in created
     assert "semantic_object_neural_residual" not in created
+
+
+def test_reconstruct_demo_cli_records_render_backend_policy(tmp_path):
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "reconstruct-demo",
+            "--output-dir",
+            str(tmp_path),
+            "--frames",
+            str(FIXTURE_DIR / "training_frames.json"),
+            "--iterations",
+            "1",
+            "--render-backend",
+            "auto",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    report = json.loads((tmp_path / "training_report.json").read_text(encoding="utf-8"))
+
+    assert report["renderingPolicy"]["requestedBackend"] == "auto"
+    assert report["renderBackend"] in {"cpu", "torch"}
+    assert report["iterations"][0]["render_backend"] == report["renderBackend"]
 
 
 def test_reconstruct_demo_cli_can_disable_adaptive_evolution(tmp_path):
