@@ -212,6 +212,9 @@ def test_torch_render_targets_matches_native_first_hit_contract():
                 bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
                 color=(0.2, 0.4, 0.6),
                 opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                material_id="mat_surface",
+                semantic_id="panel",
             ),
         ),
     )
@@ -220,6 +223,8 @@ def test_torch_render_targets_matches_native_first_hit_contract():
         ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
         target_color=(0.2, 0.4, 0.6),
         target_depth=2.0,
+        target_semantic_id="panel",
+        target_material_id="mat_surface",
     )
 
     batch = torch_render_targets(scene, (target,), device="cpu")
@@ -228,9 +233,16 @@ def test_torch_render_targets_matches_native_first_hit_contract():
     assert batch.carrier_ids == ("surface",)
     assert batch.predicted_depth == (2.0,)
     assert batch.transmittance == (0.0,)
+    assert batch.opacity == (1.0,)
     assert batch.confidence == (1.0,)
+    assert batch.normal == ((0.0, 0.0, -1.0),)
+    assert batch.material_ids == ("mat_surface",)
     assert batch.residual == (False,)
-    assert batch.semantic_ids == (None,)
+    assert batch.semantic_ids == ("panel",)
+    assert batch.provenance == ("surface",)
+    assert batch.target_semantic_ids == ("panel",)
+    assert batch.target_material_ids == ("mat_surface",)
+    assert batch.query_loss == (0.0,)
     assert batch.image_loss[0] == pytest.approx(0.0)
     assert batch.depth_loss[0] == pytest.approx(0.0)
 
@@ -278,6 +290,37 @@ def test_torch_render_targets_reports_native_payload_semantics():
     assert batch.semantic_ids == ("object", None)
     assert batch.confidence[0] == pytest.approx(0.9)
     assert batch.residual == (False, True)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_reports_query_contract_loss():
+    scene = AuraScene(
+        name="torch_query_loss_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                semantic_id="panel",
+                material_id="mat_surface",
+            ),
+        ),
+    )
+    target = RenderTarget(
+        frame_id="frame",
+        ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+        target_color=(1.0, 1.0, 1.0),
+        target_depth=2.0,
+        target_semantic_id="other_panel",
+        target_material_id="other_material",
+    )
+
+    batch = torch_render_targets(scene, (target,), device="cpu")
+
+    assert batch.semantic_ids == ("panel",)
+    assert batch.material_ids == ("mat_surface",)
+    assert batch.query_loss == (1.0,)
+    assert batch.to_dict()["queryLoss"] == [1.0]
 
 
 def _capture_tensor_frame(

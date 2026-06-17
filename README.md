@@ -77,8 +77,8 @@ native representation contract pieces:
 - residual-driven confidence updates and confidence maps on optimized native
   carriers;
 - optional PyTorch renderer contract with batched native first-hit/depth/color,
-  transmittance, confidence, residual, and semantic tensors when installed with
-  `aura-core[gpu]`;
+  transmittance, opacity, confidence, normal, material, semantic, residual,
+  provenance, and query-loss outputs when installed with `aura-core[gpu]`;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   confidence-quality, and interaction-quality metrics;
 - ray-query correctness scoring for first-hit, carrier, depth, transmittance,

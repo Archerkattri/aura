@@ -36,13 +36,20 @@ class TorchRenderBatch:
     predicted_color: tuple[tuple[float, float, float], ...]
     predicted_depth: tuple[float | None, ...]
     transmittance: tuple[float, ...]
+    opacity: tuple[float, ...]
     confidence: tuple[float, ...]
+    normal: tuple[tuple[float, float, float] | None, ...]
+    material_ids: tuple[str | None, ...]
     residual: tuple[bool, ...]
     semantic_ids: tuple[str | None, ...]
+    provenance: tuple[str | None, ...]
     target_color: tuple[tuple[float, float, float], ...]
     target_depth: tuple[float, ...]
+    target_semantic_ids: tuple[str | None, ...]
+    target_material_ids: tuple[str | None, ...]
     image_loss: tuple[float, ...]
     depth_loss: tuple[float, ...]
+    query_loss: tuple[float, ...]
 
     def to_dict(self) -> dict:
         return {
@@ -53,13 +60,20 @@ class TorchRenderBatch:
             "predictedColor": [list(color) for color in self.predicted_color],
             "predictedDepth": list(self.predicted_depth),
             "transmittance": list(self.transmittance),
+            "opacity": list(self.opacity),
             "confidence": list(self.confidence),
+            "normal": [list(normal) if normal is not None else None for normal in self.normal],
+            "materialIds": list(self.material_ids),
             "residual": list(self.residual),
             "semanticIds": list(self.semantic_ids),
+            "provenance": list(self.provenance),
             "targetColor": [list(color) for color in self.target_color],
             "targetDepth": list(self.target_depth),
+            "targetSemanticIds": list(self.target_semantic_ids),
+            "targetMaterialIds": list(self.target_material_ids),
             "imageLoss": list(self.image_loss),
             "depthLoss": list(self.depth_loss),
+            "queryLoss": list(self.query_loss),
         }
 
 
@@ -271,6 +285,8 @@ def torch_render_capture_training_batch(
         directions=batch.ray_directions,
         target_colors=batch.target_color,
         target_depths=batch.target_depth,
+        target_semantic_ids=(None,) * len(sample_frame_ids),
+        target_material_ids=(None,) * len(sample_frame_ids),
         device=str(batch.ray_origins.device),
     )
 
@@ -307,6 +323,8 @@ def torch_render_targets(
         directions=directions,
         target_colors=target_colors,
         target_depths=target_depths,
+        target_semantic_ids=tuple(target.target_semantic_id for target in targets),
+        target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
     )
 
@@ -319,6 +337,8 @@ def _torch_render_tensor_targets(
     directions: Any,
     target_colors: Any,
     target_depths: Any,
+    target_semantic_ids: Sequence[str | None],
+    target_material_ids: Sequence[str | None],
     device: str,
 ) -> TorchRenderBatch:
     torch = require_torch()
@@ -328,6 +348,8 @@ def _torch_render_tensor_targets(
         raise ValueError("torch renderer requires at least one target")
     if int(origins.shape[0]) != len(frame_ids):
         raise ValueError("torch tensor target count must match frame ids")
+    if len(target_semantic_ids) != len(frame_ids) or len(target_material_ids) != len(frame_ids):
+        raise ValueError("torch query target counts must match frame ids")
 
     mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=device)
     maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=device)
@@ -377,6 +399,17 @@ def _torch_render_tensor_targets(
     best_indices = best_index.detach().cpu().tolist()
     hit_flags = has_hit.detach().cpu().tolist()
     elements = tuple(scene.elements)
+    semantic_ids = tuple(_semantic_id_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
+    material_ids = tuple(elements[index].material_id if hit else None for index, hit in zip(best_indices, hit_flags))
+    query_loss = tuple(
+        _query_contract_loss(predicted_semantic, target_semantic, predicted_material, target_material)
+        for predicted_semantic, target_semantic, predicted_material, target_material in zip(
+            semantic_ids,
+            target_semantic_ids,
+            material_ids,
+            target_material_ids,
+        )
+    )
     return TorchRenderBatch(
         device=device,
         frame_ids=tuple(frame_ids),
@@ -385,13 +418,20 @@ def _torch_render_tensor_targets(
         predicted_color=_tensor_vec3_tuple(predicted_colors.detach().cpu().tolist()),
         predicted_depth=tuple(float(value) if hit else None for value, hit in zip(predicted_depths.detach().cpu().tolist(), hit_flags)),
         transmittance=tuple(float(value) for value in transmittance.detach().cpu().tolist()),
+        opacity=tuple(1.0 - float(value) for value in transmittance.detach().cpu().tolist()),
         confidence=tuple(float(value) for value in confidence.detach().cpu().tolist()),
+        normal=tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags)),
+        material_ids=material_ids,
         residual=tuple(bool(value) for value in residual_flags.detach().cpu().tolist()),
-        semantic_ids=tuple(_semantic_id_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags)),
+        semantic_ids=semantic_ids,
+        provenance=tuple(elements[index].id if hit else "miss" for index, hit in zip(best_indices, hit_flags)),
         target_color=_tensor_vec3_tuple(target_colors.detach().cpu().tolist()),
         target_depth=tuple(float(value) for value in target_depths.detach().cpu().tolist()),
+        target_semantic_ids=tuple(target_semantic_ids),
+        target_material_ids=tuple(target_material_ids),
         image_loss=tuple(float(value) for value in image_loss.detach().cpu().tolist()),
         depth_loss=tuple(float(value) for value in depth_loss.detach().cpu().tolist()),
+        query_loss=query_loss,
     )
 
 
@@ -570,6 +610,32 @@ def _semantic_id_for(element: Any) -> str | None:
     if element.payload.get("type") == "semantic_feature":
         return str(element.payload.get("label", "")) or None
     return None
+
+
+def _normal_for(element: Any) -> tuple[float, float, float] | None:
+    if element.normal is not None:
+        return tuple(float(channel) for channel in element.normal)  # type: ignore[return-value]
+    payload_normal = element.payload.get("normal")
+    if isinstance(payload_normal, list | tuple) and len(payload_normal) == 3:
+        return tuple(float(channel) for channel in payload_normal)  # type: ignore[return-value]
+    return None
+
+
+def _query_contract_loss(
+    predicted_semantic_id: str | None,
+    target_semantic_id: str | None,
+    predicted_material_id: str | None,
+    target_material_id: str | None,
+) -> float:
+    misses = 0
+    total = 0
+    if target_semantic_id is not None:
+        total += 1
+        misses += predicted_semantic_id != target_semantic_id
+    if target_material_id is not None:
+        total += 1
+        misses += predicted_material_id != target_material_id
+    return 0.0 if total == 0 else misses / total
 
 
 def _tensor_vec3_tuple(values: Sequence[Sequence[float]]) -> tuple[tuple[float, float, float], ...]:

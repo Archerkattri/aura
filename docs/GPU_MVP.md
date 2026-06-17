@@ -51,8 +51,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - tensor-driven native feature proposals for image-detail and depth-edge
   regions before adaptive decomposition;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
-  transmittance, confidence, residual, and semantic tensors over `AuraScene`
-  and `RenderTarget`;
+  transmittance, opacity, confidence, normal, material, semantic, residual,
+  provenance, and query-loss outputs over `AuraScene` and `RenderTarget`;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   confidence-quality, and interaction-quality metrics;
