@@ -24,6 +24,7 @@ from aura.ingest import (
     load_capture_assets,
     load_capture_manifest,
     package_3dgs_export,
+    capture_tensors_to_training_dataset,
     supported_ingest_adapters,
     write_capture_manifest_template,
     write_colmap_capture_manifest,
@@ -256,12 +257,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "reconstruct-capture-manifest":
         manifest = load_capture_manifest(args.manifest)
-        dataset = manifest.to_training_dataset(load_assets=args.load_assets)
+        tensors = load_capture_asset_tensors(manifest) if args.load_assets else None
+        dataset = (
+            capture_tensors_to_training_dataset(manifest, tensors)
+            if tensors is not None
+            else manifest.to_training_dataset(load_assets=False)
+        )
         render_targets = None
-        if args.load_assets:
+        if tensors is not None:
             pixel_targets = capture_tensors_to_render_targets(
                 dataset.frames,
-                load_capture_asset_tensors(manifest),
+                tensors,
                 pixel_stride=args.pixel_stride,
                 max_targets_per_frame=args.max_targets_per_frame,
             )
@@ -280,8 +286,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "torch-optimize-capture-manifest":
         manifest = load_capture_manifest(args.manifest)
-        dataset = manifest.to_training_dataset(load_assets=True)
         tensors = load_capture_asset_tensors(manifest)
+        dataset = capture_tensors_to_training_dataset(manifest, tensors)
         scene = _scene_from_training_dataset(dataset, name="torch_optimize_capture")
         assets = torch_capture_asset_batch(tensors, device=args.device)
         batch = torch_capture_training_batch(

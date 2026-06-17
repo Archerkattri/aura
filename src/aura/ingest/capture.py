@@ -60,17 +60,7 @@ class CaptureManifest:
     def to_training_dataset(self, *, load_assets: bool = False) -> TrainingDataset:
         if not load_assets:
             return TrainingDataset(frames=self.frames, regions=self.regions)
-        loaded_tensors = load_capture_asset_tensors(self)
-        tensors = {item.frame_id: item for item in loaded_tensors}
-        assets = {item.frame_id: item for item in _capture_assets_from_tensors(loaded_tensors)}
-        frames = tuple(_frame_with_asset_summaries(frame, assets.get(frame.id)) for frame in self.frames)
-        regions = (
-            *self.regions,
-            *_feature_regions_from_tensors(frames, tensors, assets),
-            *_depth_regions_from_assets(frames, assets),
-            *_mask_regions_from_assets(frames, assets),
-        )
-        return TrainingDataset(frames=frames, regions=regions)
+        return capture_tensors_to_training_dataset(self, load_capture_asset_tensors(self))
 
     def to_dict(self) -> dict:
         return {
@@ -227,6 +217,25 @@ def load_capture_assets(manifest: CaptureManifest) -> tuple[CaptureFrameAssets, 
     return _capture_assets_from_tensors(load_capture_asset_tensors(manifest))
 
 
+def capture_tensors_to_training_dataset(
+    manifest: CaptureManifest,
+    tensor_frames: Sequence[CaptureFrameTensors],
+) -> TrainingDataset:
+    """Derive training frames/regions from an already loaded capture tensor batch."""
+
+    _validate_capture_tensor_frame_set(manifest, tensor_frames)
+    tensors = {item.frame_id: item for item in tensor_frames}
+    assets = {item.frame_id: item for item in _capture_assets_from_tensors(tensor_frames)}
+    frames = tuple(_frame_with_asset_summaries(frame, assets.get(frame.id)) for frame in manifest.frames)
+    regions = (
+        *manifest.regions,
+        *_feature_regions_from_tensors(frames, tensors, assets),
+        *_depth_regions_from_assets(frames, assets),
+        *_mask_regions_from_assets(frames, assets),
+    )
+    return TrainingDataset(frames=frames, regions=regions)
+
+
 def _capture_assets_from_tensors(tensor_frames: Sequence[CaptureFrameTensors]) -> tuple[CaptureFrameAssets, ...]:
     assets = []
     for tensors in tensor_frames:
@@ -255,6 +264,20 @@ def _capture_assets_from_tensors(tensor_frames: Sequence[CaptureFrameTensors]) -
             )
         )
     return tuple(assets)
+
+
+def _validate_capture_tensor_frame_set(manifest: CaptureManifest, tensor_frames: Sequence[CaptureFrameTensors]) -> None:
+    expected = tuple(frame.id for frame in manifest.frames)
+    actual = tuple(item.frame_id for item in tensor_frames)
+    duplicates = sorted({frame_id for frame_id in actual if actual.count(frame_id) > 1})
+    if duplicates:
+        raise ValueError(f"capture tensor batch contains duplicate frame ids: {', '.join(duplicates)}")
+    missing = sorted(set(expected).difference(actual))
+    if missing:
+        raise ValueError(f"capture tensor batch is missing manifest frame ids: {', '.join(missing)}")
+    unknown = sorted(set(actual).difference(expected))
+    if unknown:
+        raise ValueError(f"capture tensor batch references unknown manifest frame ids: {', '.join(unknown)}")
 
 
 def load_capture_asset_tensors(manifest: CaptureManifest) -> tuple[CaptureFrameTensors, ...]:

@@ -12,6 +12,7 @@ from aura import (
     CaptureFrameTensors,
     TrainingFrame,
     capture_tensors_to_render_targets,
+    capture_tensors_to_training_dataset,
     decompose_evidence,
     load_capture_asset_tensors,
     load_capture_assets,
@@ -233,6 +234,28 @@ def test_capture_tensors_create_masked_per_pixel_render_targets():
     assert targets[0].target_normal == (0.0, 0.0, -1.0)
     assert targets[0].render_target.ray.origin == (0.0, 0.0, -2.0)
     assert targets[0].render_target.ray.direction == (0.0, 0.0, 1.0)
+
+
+def test_capture_tensors_to_training_dataset_reuses_loaded_tensor_batch(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    tensors = load_capture_asset_tensors(manifest)
+
+    dataset = capture_tensors_to_training_dataset(manifest, tensors)
+
+    assert dataset.frames[0].target_color == (0.5, 0.25, 0.25)
+    assert dataset.frames[0].target_depth == 0.75
+    assert {region.fallback_source for region in dataset.regions}.issuperset(
+        {"capture-manifest", "capture-feature-proposal", "capture-depth-prior", "capture-mask-prior"}
+    )
+
+
+def test_capture_tensors_to_training_dataset_rejects_mismatched_tensor_batch(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    tensors = load_capture_asset_tensors(manifest)
+    mismatched = (CaptureFrameTensors(frame_id="unknown_frame", image=tensors[0].image),)
+
+    with pytest.raises(ValueError, match="missing manifest frame ids"):
+        capture_tensors_to_training_dataset(manifest, mismatched)
 
 
 def test_capture_tensors_use_frame_depth_when_pixel_depth_is_missing():
@@ -515,6 +538,39 @@ def test_inspect_capture_tensors_cli_reports_tensor_shapes(tmp_path):
     assert payload[0]["image"]["shape"] == [1, 2, 3]
     assert payload[0]["image"]["valueCount"] == 6
     assert payload[0]["depth"]["sampleValues"] == [0.5, 1.0]
+
+
+def test_reconstruct_capture_manifest_cli_reuses_single_loaded_tensor_batch(tmp_path, monkeypatch):
+    import aura.cli as cli
+
+    manifest_path = _write_asset_manifest(tmp_path)
+    original_loader = cli.load_capture_asset_tensors
+    calls = 0
+
+    def counted_loader(manifest):
+        nonlocal calls
+        calls += 1
+        return original_loader(manifest)
+
+    monkeypatch.setattr(cli, "load_capture_asset_tensors", counted_loader)
+
+    exit_code = cli.main(
+        [
+            "reconstruct-capture-manifest",
+            str(manifest_path),
+            "--load-assets",
+            "--output-dir",
+            str(tmp_path / "reconstruct.aura"),
+            "--iterations",
+            "1",
+            "--max-targets-per-frame",
+            "1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls == 1
+    assert (tmp_path / "reconstruct.aura" / "training_report.json").exists()
 
 
 def _write_asset_manifest(tmp_path):
