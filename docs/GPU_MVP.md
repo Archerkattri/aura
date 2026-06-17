@@ -8,6 +8,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - evidence-to-carrier assignment;
 - evidence-to-element adaptive decomposition;
 - package-level confidence maps and edit metadata;
+- semantic/object graph package artifact;
 - bounded local elements;
 - carrier-aware reference ray queries;
 - front-to-back compositing;
@@ -22,6 +23,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
 - strict-JSON render comparison metrics for regression checks;
+- reproducible benchmark and carrier ablation plan skeletons;
 - glTF/USD exchange-plan metadata;
 - native-first CLI fixtures.
 
@@ -38,7 +40,7 @@ The current renderer is a deterministic validation preview, not the final CUDA
 renderer. A future GPU renderer should match this package/query contract while
 replacing the reference implementation for real throughput.
 
-The first CLI smoke path is `aura write-native-demo-package`, which builds a
+The first CLI smoke path is `aura build-native-demo`, which builds a
 mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
 kept as AURA-Ingest bootstrap paths after the native package path.
 

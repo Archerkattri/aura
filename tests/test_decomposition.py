@@ -23,6 +23,7 @@ def test_native_demo_scene_is_mixed_aura_first_fixture():
     assert scene.name == "native_demo"
     assert scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
     assert all(element.payload for element in scene.elements)
+    assert {node.label for node in scene.semantic_graph.nodes} == {"wall", "fixture_object"}
 
 
 def test_decompose_evidence_produces_mixed_native_carriers(tmp_path):
@@ -88,6 +89,8 @@ def test_decompose_evidence_produces_mixed_native_carriers(tmp_path):
     assert loaded.scene.elements[0].confidence_map == {"assignment": 1.0, "geometry": 0.9, "material": 0.7}
     assert loaded.scene.elements[0].edit == {"source": "adaptive-decomposition", "editable": True, "group": "wall"}
     assert loaded.scene.chunks[0].element_ids == tuple(sample.id for sample in samples)
+    assert [node.label for node in loaded.scene.semantic_graph.nodes] == ["tooth_12"]
+    assert loaded.scene.semantic_graph.nodes[0].element_ids == ("semantic_tooth",)
 
 
 def test_inspect_package_reports_mixed_native_scene(tmp_path):
@@ -120,6 +123,7 @@ def test_inspect_package_reports_mixed_native_scene(tmp_path):
     assert payload["name"] == "inspect_mixed"
     assert payload["carriers"] == ["surface", "volume"]
     assert payload["elementCount"] == 2
+    assert payload["semanticObjectCount"] == 0
 
 
 def test_write_native_demo_cli_writes_mixed_aura_package(tmp_path):
@@ -142,6 +146,28 @@ def test_write_native_demo_cli_writes_mixed_aura_package(tmp_path):
     assert str(tmp_path) in result.stdout
     assert package.asset.name == "native_demo"
     assert package.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
+
+
+def test_build_native_demo_cli_alias_writes_mixed_aura_package(tmp_path):
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "build-native-demo",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    package = load_package(tmp_path)
+
+    assert package.asset.name == "native_demo"
+    assert len(package.scene.semantic_graph.nodes) == 2
 
 
 def test_query_demo_cli_uses_native_scene():

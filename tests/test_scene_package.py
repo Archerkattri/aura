@@ -75,6 +75,7 @@ def test_package_loader_round_trips_scene_and_manifest(tmp_path):
     assert package.asset.fallbacks["mesh"] == "fallback/preview.glb"
     assert package.scene.elements[0].id == "wall_patch"
     assert package.scene.elements[0].payload["type"] == "surface_cell"
+    assert package.scene.semantic_graph.nodes == ()
     assert package.scene.ray_query(Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0))).provenance == "wall_patch"
 
 
@@ -192,6 +193,31 @@ def test_package_loader_round_trips_confidence_map_and_edit_metadata(tmp_path):
     assert package.scene.elements[0].edit == {"editable": True, "group": "wall"}
 
 
+def test_package_loader_rejects_unknown_semantic_graph_element(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    graph_path = tmp_path / "semantic_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": "object:bad",
+                        "label": "bad",
+                        "element_ids": ["missing"],
+                        "confidence": 1.0,
+                        "attributes": {},
+                    }
+                ],
+                "edges": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="semantic node"):
+        load_package(tmp_path)
+
+
 def test_package_loader_rejects_unsupported_major_version(tmp_path):
     package_scene(demo_scene()).write(tmp_path)
     manifest_path = tmp_path / "manifest.json"
@@ -247,11 +273,12 @@ def test_inspect_package_cli_reports_stable_json_summary(tmp_path):
         "carriers": ["surface"],
         "elementCount": 1,
         "chunkCount": 1,
+        "semanticObjectCount": 0,
     }
 
 
 def test_json_schema_documents_are_parseable_and_versioned():
-    schema_names = {"manifest.schema.json", "elements.schema.json", "chunks.schema.json"}
+    schema_names = {"manifest.schema.json", "elements.schema.json", "chunks.schema.json", "semantic_graph.schema.json"}
     found = {path.name for path in SCHEMA_DIR.glob("*.schema.json")}
 
     assert found == schema_names
@@ -263,7 +290,7 @@ def test_json_schema_documents_are_parseable_and_versioned():
 
 
 def test_json_schema_documents_are_packaged_runtime_resources():
-    schema_names = {"manifest.schema.json", "elements.schema.json", "chunks.schema.json"}
+    schema_names = {"manifest.schema.json", "elements.schema.json", "chunks.schema.json", "semantic_graph.schema.json"}
     package_files = resources.files("aura.schemas")
     found = {path.name for path in package_files.iterdir() if path.name.endswith(".schema.json")}
 

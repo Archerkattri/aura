@@ -22,6 +22,7 @@ This repo contains the GPU-ready MVP contract layer:
 - evidence-to-carrier assignment;
 - evidence-to-element adaptive decomposition;
 - package-level confidence maps and edit metadata;
+- semantic/object graph package artifact;
 - bounded AURA elements and chunks;
 - carrier-aware reference ray-query response;
 - simple front-to-back scene query;
@@ -34,6 +35,7 @@ This repo contains the GPU-ready MVP contract layer:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
+- reproducible benchmark and carrier ablation plan skeletons;
 - strict-JSON render comparison metrics for regression checks;
 - glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
@@ -66,7 +68,7 @@ rendering, and ray-query adapters should target CUDA by default.
 ## Quick Smoke Commands
 
 ```bash
-aura write-native-demo-package --output-dir outputs/native-demo.aura
+aura build-native-demo --output-dir outputs/native-demo.aura
 aura validate-package outputs/native-demo.aura
 # validates mixed native carriers, typed payloads, confidence maps, edit metadata, and chunks
 aura inspect-package outputs/native-demo.aura
@@ -82,6 +84,8 @@ aura import-3dgs third_party/gaussian-splatting/output/<scene> --output-dir outp
 # imports direct PLY/JSON exports or point_cloud/iteration_*/point_cloud.ply layouts
 aura compare-renders outputs/baseline.ppm outputs/splat-demo.ppm --min-psnr 35
 # prints strict JSON MSE/PSNR metrics and exits nonzero if the threshold fails
+aura benchmark-plan
+# prints benchmark and carrier ablation plan JSON
 python -m pytest
 ```
 
@@ -166,6 +170,8 @@ src/aura/
   ray.py         ray and ray-query response contracts
   render.py      deterministic orthographic preview and image metrics
   schema.py      native package format and supported schema versions
+  semantic.py    object graph nodes and relationships
+  benchmark.py   benchmark and ablation plan contracts
   scene.py       reference scene query
   ingest/
     baselines.py  3DGS export discovery and import adapter

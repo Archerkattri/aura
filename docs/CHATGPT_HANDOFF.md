@@ -24,14 +24,16 @@ Rules:
 
 First useful tasks:
 1. run tests;
-2. expand mixed-carrier decomposition fixtures and query tests;
-3. extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures if needed;
-4. harden the splat-to-AURA scaffold reader toward real baseline exports,
+2. run `aura build-native-demo --output-dir outputs/native-demo.aura`;
+3. expand mixed-carrier decomposition fixtures, semantic graph checks, and query tests;
+4. run `aura benchmark-plan` and fill result-producing harnesses without overclaiming metrics;
+5. extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures if needed;
+6. harden the splat-to-AURA scaffold reader toward real baseline exports,
    preserving 3DGS log-scale and quaternion semantics;
-5. add more first-hit/depth/transmittance query tests;
-6. expand `.aura` package validation around migration fixtures and malformed
+7. add more first-hit/depth/transmittance query tests;
+8. expand `.aura` package validation around migration fixtures and malformed
    cross-file references;
-7. use the deterministic preview renderer and `compare-renders` as regression
+9. use the deterministic preview renderer and `compare-renders` as regression
    targets;
-8. run `aura import-3dgs` against a real CUDA-trained 3DGS baseline scene.
+10. run `aura import-3dgs` against a real CUDA-trained 3DGS baseline scene.
 ```

@@ -13,7 +13,8 @@
     "carrierIds",
     "capabilities",
     "fallbacks",
-    "chunks"
+    "chunks",
+    "semanticGraph"
   ],
   "properties": {
     "format": {
@@ -77,6 +78,9 @@
         "minLength": 1
       },
       "uniqueItems": true
+    },
+    "semanticGraph": {
+      "const": "semantic_graph.json"
     }
   }
 }

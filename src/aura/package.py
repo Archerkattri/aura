@@ -13,6 +13,7 @@ from aura.carriers import default_registry
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene
+from aura.semantic import SemanticGraph
 
 PAYLOAD_TYPE_BY_CARRIER = {
     "surface": "surface_cell",
@@ -38,6 +39,7 @@ class AuraPackage:
             "carriers": list(self.asset.carrier_ids),
             "elementCount": len(self.scene.elements),
             "chunkCount": len(self.scene.chunks),
+            "semanticObjectCount": len(self.scene.semantic_graph.nodes),
         }
 
     def manifest(self) -> dict:
@@ -52,6 +54,7 @@ class AuraPackage:
             "capabilities": self.asset.capabilities(registry),
             "fallbacks": dict(self.asset.fallbacks),
             "chunks": self.scene.chunk_ids(),
+            "semanticGraph": "semantic_graph.json",
         }
 
     def write(self, output_dir: Path | str) -> Path:
@@ -64,6 +67,10 @@ class AuraPackage:
         )
         (out / "chunks.json").write_text(
             json.dumps([chunk.to_dict() for chunk in self.scene.chunks], indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (out / "semantic_graph.json").write_text(
+            json.dumps(self.scene.semantic_graph.to_dict(), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         return out
@@ -79,12 +86,14 @@ def load_package(package_dir: Path | str) -> AuraPackage:
     manifest = _read_json_object(root / "manifest.json")
     elements_payload = _read_json_list(root / "elements.json")
     chunks_payload = _read_json_list(root / "chunks.json")
+    semantic_graph_payload = _read_json_object(root / "semantic_graph.json")
 
-    validate_package_documents(manifest, elements_payload, chunks_payload)
+    validate_package_documents(manifest, elements_payload, chunks_payload, semantic_graph_payload)
     _validate_manifest_shape(manifest)
     elements = tuple(_element_from_dict(item) for item in elements_payload)
     chunks = tuple(_chunk_from_dict(item) for item in chunks_payload)
-    scene = AuraScene(name=str(manifest["name"]), elements=elements, chunks=chunks)
+    semantic_graph = SemanticGraph.from_dict(semantic_graph_payload)
+    scene = AuraScene(name=str(manifest["name"]), elements=elements, chunks=chunks, semantic_graph=semantic_graph)
     asset = AuraAsset(
         name=str(manifest["name"]),
         carrier_ids=tuple(str(item) for item in manifest["carrierIds"]),
@@ -98,10 +107,12 @@ def load_package(package_dir: Path | str) -> AuraPackage:
     return package
 
 
-def validate_package_documents(manifest: dict, elements: list, chunks: list) -> None:
+def validate_package_documents(manifest: dict, elements: list, chunks: list, semantic_graph: dict | None = None) -> None:
     _validate_json_schema("manifest.schema.json", manifest)
     _validate_json_schema("elements.schema.json", elements)
     _validate_json_schema("chunks.schema.json", chunks)
+    if semantic_graph is not None:
+        _validate_json_schema("semantic_graph.schema.json", semantic_graph)
 
 
 def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> None:
@@ -120,11 +131,17 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
         missing = sorted(set(chunk.element_ids).difference(element_ids))
         if missing:
             raise ValueError(f"chunk {chunk.id} references unknown elements: {', '.join(missing)}")
+    for node in package.scene.semantic_graph.nodes:
+        missing = sorted(set(node.element_ids).difference(element_ids))
+        if missing:
+            raise ValueError(f"semantic node {node.id} references unknown elements: {', '.join(missing)}")
     if manifest is not None and "chunks" in manifest:
         manifest_chunks = sorted(str(item) for item in manifest["chunks"])
         scene_chunks = package.scene.chunk_ids()
         if manifest_chunks != scene_chunks:
             raise ValueError("manifest chunks do not match chunks.json")
+    if manifest is not None and manifest.get("semanticGraph") != "semantic_graph.json":
+        raise ValueError("manifest semanticGraph must reference semantic_graph.json")
 
 
 def _read_json_object(path: Path) -> dict:

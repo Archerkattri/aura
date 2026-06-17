@@ -8,6 +8,8 @@ Current schema version: `0.1`
 - `elements.schema.json`: bounded carrier element records, typed carrier
   payloads, confidence maps, and edit metadata.
 - `chunks.schema.json`: chunk and LOD records.
+- `semantic_graph.schema.json`: semantic/object nodes, element bindings, and
+  relationships.
 
 The Python loader validates these schemas at runtime, then performs cross-file
 checks such as manifest chunk IDs matching `chunks.json` and chunk element

@@ -16,6 +16,7 @@ from aura.carrier_payloads import (
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ray import Vec3
 from aura.scene import AuraScene
+from aura.semantic import SemanticGraph, SemanticNode
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,8 @@ def decompose_evidence(samples: Sequence[EvidenceSample], name: str = "aura_deco
 
     elements = tuple(_sample_to_element(sample) for sample in samples)
     chunk = AuraChunk(id="root", bounds=_union_bounds([sample.bounds for sample in samples]), element_ids=tuple(item.id for item in elements))
-    return AuraScene(name=name, elements=elements, chunks=(chunk,))
+    semantic_graph = _semantic_graph_for(samples, elements)
+    return AuraScene(name=name, elements=elements, chunks=(chunk,), semantic_graph=semantic_graph)
 
 
 def _sample_to_element(sample: EvidenceSample) -> AuraElement:
@@ -122,3 +124,25 @@ def _union_bounds(bounds: Sequence[Bounds]) -> Bounds:
     min_corner = tuple(min(item.min_corner[index] for item in bounds) for index in range(3))
     max_corner = tuple(max(item.max_corner[index] for item in bounds) for index in range(3))
     return Bounds(min_corner=min_corner, max_corner=max_corner)  # type: ignore[arg-type]
+
+
+def _semantic_graph_for(samples: Sequence[EvidenceSample], elements: Sequence[AuraElement]) -> SemanticGraph:
+    nodes = []
+    element_by_id = {element.id: element for element in elements}
+    for sample in samples:
+        label = sample.semantic_label
+        element = element_by_id[sample.id]
+        if element.carrier_id == "semantic" and label is None:
+            label = sample.id
+        if label is None:
+            continue
+        nodes.append(
+            SemanticNode(
+                id=f"object:{label}",
+                label=label,
+                element_ids=(sample.id,),
+                confidence=sample.evidence.semantic_confidence or sample.confidence,
+                attributes={"source": "evidence"},
+            )
+        )
+    return SemanticGraph(nodes=tuple(nodes))

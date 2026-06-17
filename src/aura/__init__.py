@@ -2,6 +2,7 @@
 
 from aura.asset import AuraAsset
 from aura.assignment import RegionEvidence, choose_carrier
+from aura.benchmark import AblationConfig, BenchmarkCase, BenchmarkSuite, default_benchmark_suite
 from aura.carriers import CarrierKind, CarrierSpec, default_registry
 from aura.carrier_payloads import (
     BetaKernelPayload,
@@ -29,6 +30,7 @@ from aura.ray import Ray, RayQueryResult
 from aura.render import RenderImage, compare_images, image_mse, image_psnr, read_ppm, render_orthographic
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene
+from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
 
 __all__ = [
     "AuraChunk",
@@ -36,10 +38,13 @@ __all__ = [
     "AuraPackage",
     "AuraAsset",
     "AuraScene",
+    "AblationConfig",
     "AURA_FORMAT",
     "AURA_SCHEMA_VERSION",
     "AURA_SUPPORTED_MAJOR_VERSIONS",
     "BaselineExport",
+    "BenchmarkCase",
+    "BenchmarkSuite",
     "BetaKernelPayload",
     "Bounds",
     "CarrierKind",
@@ -54,11 +59,15 @@ __all__ = [
     "RegionEvidence",
     "RenderImage",
     "SemanticFeaturePayload",
+    "SemanticEdge",
+    "SemanticGraph",
+    "SemanticNode",
     "SurfaceCellPayload",
     "VolumeCellPayload",
     "choose_carrier",
     "compare_images",
     "decompose_evidence",
+    "default_benchmark_suite",
     "default_registry",
     "discover_3dgs_export",
     "image_mse",

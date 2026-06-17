@@ -5,6 +5,7 @@ from typing import Iterable, Sequence
 
 from aura.elements import AuraChunk, AuraElement
 from aura.ray import Ray, RayQueryResult, Vec3
+from aura.semantic import SemanticGraph
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,7 @@ class AuraScene:
     name: str
     elements: Sequence[AuraElement]
     chunks: Sequence[AuraChunk] = field(default_factory=tuple)
+    semantic_graph: SemanticGraph = field(default_factory=SemanticGraph)
 
     def ray_query(self, ray: Ray) -> RayQueryResult:
         hits = [hit for element in self.elements if (hit := element.ray_query(ray)) is not None]

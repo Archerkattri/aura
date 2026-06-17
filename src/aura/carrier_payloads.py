@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from typing import Any, Mapping
 
 from aura.ray import Vec3
 
@@ -16,6 +17,11 @@ class SurfaceCellPayload:
         _unit("roughness", self.roughness)
         return {"type": "surface_cell", **asdict(self)}
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "SurfaceCellPayload":
+        _require_type(payload, "surface_cell")
+        return cls(normal=_vec3(payload["normal"]), thickness=float(payload["thickness"]), roughness=float(payload["roughness"]))
+
 
 @dataclass(frozen=True)
 class VolumeCellPayload:
@@ -27,6 +33,11 @@ class VolumeCellPayload:
         if not -1.0 <= float(self.phase_anisotropy) <= 1.0:
             raise ValueError("phase_anisotropy must be in [-1, 1]")
         return {"type": "volume_cell", **asdict(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "VolumeCellPayload":
+        _require_type(payload, "volume_cell")
+        return cls(density=float(payload["density"]), phase_anisotropy=float(payload["phase_anisotropy"]))
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,11 @@ class BetaKernelPayload:
             _positive("support_radius", item)
         return {"type": "beta_kernel", **asdict(self)}
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "BetaKernelPayload":
+        _require_type(payload, "beta_kernel")
+        return cls(alpha=float(payload["alpha"]), beta=float(payload["beta"]), support_radius=_vec3(payload["support_radius"]))
+
 
 @dataclass(frozen=True)
 class GaborFrequencyPayload:
@@ -52,6 +68,11 @@ class GaborFrequencyPayload:
     def to_dict(self) -> dict:
         _positive("bandwidth", self.bandwidth)
         return {"type": "gabor_frequency", **asdict(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "GaborFrequencyPayload":
+        _require_type(payload, "gabor_frequency")
+        return cls(frequency=_vec3(payload["frequency"]), bandwidth=float(payload["bandwidth"]), phase=float(payload["phase"]))
 
 
 @dataclass(frozen=True)
@@ -65,6 +86,12 @@ class NeuralResidualPayload:
             raise ValueError("latent_dim must be positive")
         _unit("residual_scale", self.residual_scale)
         return {"type": "neural_residual", **asdict(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "NeuralResidualPayload":
+        _require_type(payload, "neural_residual")
+        model_ref = payload.get("model_ref")
+        return cls(latent_dim=int(payload["latent_dim"]), residual_scale=float(payload["residual_scale"]), model_ref=None if model_ref is None else str(model_ref))
 
 
 @dataclass(frozen=True)
@@ -85,6 +112,12 @@ class GaussianFallbackPayload:
             "source": self.source,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "GaussianFallbackPayload":
+        _require_type(payload, "gaussian_fallback")
+        covariance = tuple(tuple(float(item) for item in row) for row in payload["covariance"])
+        return cls(mean=_vec3(payload["mean"]), covariance=covariance, source=str(payload["source"]))  # type: ignore[arg-type]
+
 
 @dataclass(frozen=True)
 class SemanticFeaturePayload:
@@ -98,6 +131,15 @@ class SemanticFeaturePayload:
         _unit("confidence", self.confidence)
         return {"type": "semantic_feature", **asdict(self)}
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "SemanticFeaturePayload":
+        _require_type(payload, "semantic_feature")
+        return cls(
+            label=str(payload["label"]),
+            confidence=float(payload["confidence"]),
+            feature_refs=tuple(str(item) for item in payload.get("feature_refs", ())),
+        )
+
 
 def _unit(name: str, value: float) -> None:
     if not 0.0 <= float(value) <= 1.0:
@@ -107,3 +149,15 @@ def _unit(name: str, value: float) -> None:
 def _positive(name: str, value: float) -> None:
     if float(value) <= 0.0:
         raise ValueError(f"{name} must be positive")
+
+
+def _require_type(payload: Mapping[str, Any], expected: str) -> None:
+    actual = payload.get("type")
+    if actual != expected:
+        raise ValueError(f"payload type must be {expected!r}, got {actual!r}")
+
+
+def _vec3(value: Any) -> Vec3:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError("vec3 payload fields must have exactly three values")
+    return (float(value[0]), float(value[1]), float(value[2]))

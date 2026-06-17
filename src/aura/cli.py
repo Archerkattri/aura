@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from aura.assignment import RegionEvidence
+from aura.benchmark import default_benchmark_suite
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export
@@ -24,6 +25,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Write a mixed-carrier native AURA package from evidence decomposition",
     )
     native_demo.add_argument("--output-dir", type=Path, default=Path("outputs/native-demo.aura"))
+
+    build_native = sub.add_parser(
+        "build-native-demo",
+        help="Build the mixed-carrier native AURA demo package without 3DGS input",
+    )
+    build_native.add_argument("--output-dir", type=Path, default=Path("outputs/native-demo.aura"))
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -63,9 +70,11 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("actual", type=Path)
     compare.add_argument("--min-psnr", type=float, default=None)
 
+    benchmark = sub.add_parser("benchmark-plan", help="Print the reproducible AURA benchmark and ablation plan as JSON")
+
     args = parser.parse_args(argv)
     native_scene = native_demo_scene()
-    if args.command == "write-native-demo-package":
+    if args.command in {"write-native-demo-package", "build-native-demo"}:
         print(package_scene(native_scene, fallbacks={"mesh": "fallback/native-preview.glb"}).write(args.output_dir))
         return 0
     if args.command == "write-demo-package":
@@ -107,6 +116,9 @@ def main(argv: list[str] | None = None) -> int:
         metrics = compare_images(read_ppm(args.expected), read_ppm(args.actual), min_psnr=args.min_psnr)
         print(json.dumps(metrics, indent=2, sort_keys=True, allow_nan=False))
         return 0 if metrics["passed"] else 1
+    if args.command == "benchmark-plan":
+        print(json.dumps(default_benchmark_suite().to_dict(), indent=2, sort_keys=True))
+        return 0
     raise ValueError(args.command)
 
 

@@ -26,7 +26,7 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 
 1. Install with `python -m pip install -e .`.
 2. Run `python -m pytest`.
-3. Run `aura write-native-demo-package --output-dir outputs/native-demo.aura`.
+3. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
 4. Extend mixed-carrier decomposition fixtures and query tests.
 5. Add more ray-query paths for first-hit/depth/transmittance.
 6. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
