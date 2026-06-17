@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aura.package import AuraPackage, package_scene
-from aura.splats import load_3dgs_scene
+from aura.ingest.splats import load_3dgs_scene
 
 
 @dataclass(frozen=True)

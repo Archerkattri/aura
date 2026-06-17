@@ -4,13 +4,13 @@ import argparse
 import json
 from pathlib import Path
 
-from aura.baselines import package_3dgs_export
 from aura.elements import AuraChunk, AuraElement, Bounds
+from aura.ingest import load_3dgs_scene, package_3dgs_export
+from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
 from aura.render import compare_images, read_ppm, render_orthographic
 from aura.scene import AuraScene
-from aura.splats import load_3dgs_scene
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,6 +111,7 @@ def demo_scene() -> AuraScene:
         normal=(0.0, 0.0, -1.0),
         material_id="mat_wall",
         semantic_id="wall",
+        payload=SurfaceCellPayload(normal=(0.0, 0.0, -1.0), thickness=0.1, roughness=0.65).to_dict(),
     )
     chunk = AuraChunk(id="root", bounds=bounds, element_ids=("wall_patch",), lod=0)
     return AuraScene(name="demo", elements=(element,), chunks=(chunk,))

@@ -42,9 +42,10 @@ third_party/
 
 ## First Data Rule
 
-Start with one small scene and a fixture export. AURA should first prove the
-contract can ingest a trained splat scene and answer ray queries before adding
-large benchmark suites.
+Start with one tiny mixed native AURA fixture, then one small trained 3DGS scene
+as an ingest evidence source. AURA should first prove that adaptive typed
+carriers can be packaged, loaded, queried, and inspected before adding large
+benchmark suites.
 
 The current scaffold accepts fixture JSON, ASCII PLY, and binary little-endian
 PLY Gaussian splat exports. PLY scale fields follow the original 3DGS log-scale

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from aura.elements import AuraChunk, AuraElement, Bounds
+from aura.carrier_payloads import GaussianFallbackPayload
 from aura.ray import Vec3
 from aura.scene import AuraScene
 
@@ -155,6 +156,7 @@ class GaussianSplatSample:
                 "covariance": json.dumps([list(row) for row in self.covariance]),
                 **self.metadata,
             },
+            payload=GaussianFallbackPayload(mean=self.mean, covariance=self.covariance, source="3dgs-ingest").to_dict(),
         )
 
 

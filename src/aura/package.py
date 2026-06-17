@@ -14,6 +14,16 @@ from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene
 
+PAYLOAD_TYPE_BY_CARRIER = {
+    "surface": "surface_cell",
+    "volume": "volume_cell",
+    "beta": "beta_kernel",
+    "gabor": "gabor_frequency",
+    "neural": "neural_residual",
+    "gaussian": "gaussian_fallback",
+    "semantic": "semantic_feature",
+}
+
 
 @dataclass(frozen=True)
 class AuraPackage:
@@ -105,6 +115,7 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
     for element in package.scene.elements:
         if element.carrier_id not in carrier_ids:
             raise ValueError(f"element {element.id} uses carrier not declared in manifest: {element.carrier_id}")
+        _validate_element_payload(element.id, element.carrier_id, element.payload)
     for chunk in package.scene.chunks:
         missing = sorted(set(chunk.element_ids).difference(element_ids))
         if missing:
@@ -160,6 +171,17 @@ def _validate_schema_version(version: str) -> None:
         raise ValueError(f"unsupported AURA major version {major}; supported major versions: {supported}")
 
 
+def _validate_element_payload(element_id: str, carrier_id: str, payload: dict) -> None:
+    if not payload:
+        return
+    expected = PAYLOAD_TYPE_BY_CARRIER.get(carrier_id)
+    actual = payload.get("type")
+    if expected is None:
+        raise ValueError(f"element {element_id} uses unknown carrier payload mapping: {carrier_id}")
+    if actual != expected:
+        raise ValueError(f"element {element_id} payload type {actual!r} does not match carrier {carrier_id!r}; expected {expected!r}")
+
+
 def _validate_json_schema(schema_name: str, payload: object) -> None:
     schema = _load_schema(schema_name)
     validator = Draft202012Validator(schema)
@@ -199,6 +221,9 @@ def _element_from_dict(payload: dict) -> AuraElement:
         lod=int(payload.get("lod", 0)),
         chunk_id=str(payload.get("chunk_id", "root")),
         metadata={str(key): str(value) for key, value in payload.get("metadata", {}).items()},
+        confidence_map={str(key): float(value) for key, value in payload.get("confidence_map", {}).items()},
+        edit=dict(payload.get("edit", {})),
+        payload=dict(payload.get("payload", {})),
     )
 
 

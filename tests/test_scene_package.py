@@ -74,6 +74,7 @@ def test_package_loader_round_trips_scene_and_manifest(tmp_path):
     assert package.asset.name == "demo"
     assert package.asset.fallbacks["mesh"] == "fallback/preview.glb"
     assert package.scene.elements[0].id == "wall_patch"
+    assert package.scene.elements[0].payload["type"] == "surface_cell"
     assert package.scene.ray_query(Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0))).provenance == "wall_patch"
 
 
@@ -95,6 +96,24 @@ def test_package_validation_rejects_unknown_chunk_element():
 
     with pytest.raises(ValueError, match="unknown elements"):
         validate_package(bad_package)
+
+
+def test_package_validation_rejects_payload_carrier_mismatch():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                payload={"type": "gaussian_fallback"},
+            ),
+        ),
+    )
+    package = package_scene(scene)
+
+    with pytest.raises(ValueError, match="payload type"):
+        validate_package(package)
 
 
 def test_package_loader_rejects_manifest_chunk_mismatch(tmp_path):
@@ -139,6 +158,38 @@ def test_package_loader_rejects_element_schema_violation(tmp_path):
 
     with pytest.raises(ValueError, match="elements.schema.json validation failed"):
         load_package(tmp_path)
+
+
+def test_package_loader_rejects_malformed_typed_payload(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    elements_path = tmp_path / "elements.json"
+    elements = json.loads(elements_path.read_text(encoding="utf-8"))
+    del elements[0]["payload"]["normal"]
+    elements_path.write_text(json.dumps(elements), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="elements.schema.json validation failed"):
+        load_package(tmp_path)
+
+
+def test_package_loader_round_trips_confidence_map_and_edit_metadata(tmp_path):
+    scene = AuraScene(
+        name="editable",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                confidence_map={"geometry": 0.9},
+                edit={"editable": True, "group": "wall"},
+            ),
+        ),
+    )
+    package_scene(scene).write(tmp_path)
+
+    package = load_package(tmp_path)
+
+    assert package.scene.elements[0].confidence_map == {"geometry": 0.9}
+    assert package.scene.elements[0].edit == {"editable": True, "group": "wall"}
 
 
 def test_package_loader_rejects_unsupported_major_version(tmp_path):

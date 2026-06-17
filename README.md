@@ -16,9 +16,14 @@ common ray-query, confidence, edit, LOD, and export interface.
 This repo contains the GPU-ready MVP contract layer:
 
 - carrier registry;
+- native carrier payload models for surface, volume, beta, gabor, neural,
+  Gaussian fallback, and semantic carriers;
+- payload/carrier consistency validation;
 - evidence-to-carrier assignment;
+- evidence-to-element adaptive decomposition;
+- package-level confidence maps and edit metadata;
 - bounded AURA elements and chunks;
-- reference ray-query response;
+- carrier-aware reference ray-query response;
 - simple front-to-back scene query;
 - tiny JSON/ASCII/binary little-endian PLY 3DGS export reader for means/opacities/covariances;
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
@@ -129,24 +134,28 @@ Recommended benchmark/baseline sources:
 
 ## Expected First GPU Milestone
 
-Do not start with full AURA. Start with:
+Do not start with full AURA. Start with native decomposition and one small
+evidence source:
 
-1. train/load one small 3DGS baseline scene;
-2. export Gaussian means/opacities/covariances;
-3. build an AURA element scaffold from those samples;
-4. preserve primary-view quality approximately;
-5. add one ray-query demo: depth/first-hit/transmittance;
-6. export a native `.aura` package and glTF/USD fallback metadata.
+1. define a tiny mixed evidence scene with surface, volume, beta, gabor,
+   neural, semantic, and gaussian fallback regions;
+2. decompose evidence into typed AURA elements with carrier payloads;
+3. validate package/load/query behavior for the mixed native scene;
+4. ingest one small 3DGS baseline scene as evidence, not as the final center;
+5. preserve primary-view quality approximately;
+6. add one GPU ray-query demo: depth/first-hit/transmittance;
+7. export a native `.aura` package and glTF/USD fallback metadata.
 
 ## Repository Map
 
 ```text
 src/aura/
-  baselines.py   3DGS export discovery and import adapter
   asset.py       manifest/capability models
   assignment.py  evidence-to-carrier selection
   carriers.py    carrier registry
+  carrier_payloads.py native carrier payload contracts
   cli.py         fixture CLI
+  decomposition.py evidence samples to mixed native AURA elements
   elements.py    bounded elements/chunks
   exchange.py    glTF/USD exchange target metadata
   package.py     native .aura package writer/loader/validator
@@ -154,11 +163,17 @@ src/aura/
   render.py      deterministic orthographic preview and image metrics
   schema.py      native package format and supported schema versions
   scene.py       reference scene query
-  splats.py      tiny JSON/ASCII/binary little-endian PLY 3DGS reader and AURA scaffold conversion
+  ingest/
+    baselines.py  3DGS export discovery and import adapter
+    splats.py     JSON/PLY 3DGS evidence reader and AURA conversion
 tests/           contract tests
 docs/            GPU handoff and dataset docs
 docs/schemas/    JSON Schemas for native .aura package files
 ```
+
+The `ingest/` package is intentionally an adapter boundary. 3DGS splats are
+treated as evidence samples that can populate AURA Gaussian fallback payloads;
+they are not the center of the native representation.
 
 ## Paper Claim Boundary
 

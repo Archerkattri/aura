@@ -18,17 +18,19 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 - Keep generated packages under ignored `outputs/`.
 - Treat this as the GPU development path and expose CUDA device 0 by default.
 - Do not reduce AURA to one new splat kernel. AURA is the asset/ray-query
-  contract over adaptive carriers.
+  contract over adaptive carriers and native carrier payloads.
+- Keep 3DGS-specific logic under `aura.ingest`; splats are evidence inputs, not
+  the native representation center.
 
 ## First Tasks On A GPU Machine
 
 1. Install with `python -m pip install -e .`.
 2. Run `python -m pytest`.
-3. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
-4. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
-5. Build richer AURA element scaffolds from splat samples.
-6. Use `aura import-3dgs` on real baseline output directories.
-7. Add more ray-query paths for first-hit/depth/transmittance.
+3. Extend mixed-carrier decomposition fixtures and query tests.
+4. Add more ray-query paths for first-hit/depth/transmittance.
+5. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
+6. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
+7. Use `aura import-3dgs` on real baseline output directories.
 
 ## Research Positioning
 

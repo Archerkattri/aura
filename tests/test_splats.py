@@ -56,6 +56,8 @@ def test_package_writer_preserves_splat_fixture_contract(tmp_path):
     assert manifest["carrierIds"] == ["gaussian"]
     assert manifest["fallbacks"]["splat"].endswith("tiny_3dgs_export.json")
     assert elements[0]["metadata"]["source"] == "3dgs-export"
+    assert elements[0]["payload"]["type"] == "gaussian_fallback"
+    assert elements[0]["payload"]["source"] == "3dgs-ingest"
 
 
 def test_load_3dgs_export_reads_ascii_ply_splats():
