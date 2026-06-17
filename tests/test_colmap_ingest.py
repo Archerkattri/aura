@@ -79,6 +79,33 @@ def test_colmap_text_model_converts_to_capture_manifest_contract(tmp_path):
     assert dataset.regions[0].semantic_label == "colmap_sparse_prior"
 
 
+def test_colmap_text_model_splits_sparse_points_into_depth_layers(tmp_path):
+    colmap_dir = _write_colmap_text_model(tmp_path)
+    (colmap_dir / "points3D.txt").write_text(
+        "\n".join(
+            [
+                "# 3D point list with one line of data per point:",
+                "1 -0.5 0.0 1.0 255 0 0 0.1 1 0",
+                "2 0.5 0.0 3.0 0 0 255 0.1 2 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manifest = colmap_text_to_capture_manifest(
+        colmap_dir,
+        root="data/custom-captures/colmap-fixture",
+        image_dir="images",
+    )
+    dataset = manifest.to_training_dataset()
+
+    assert [region.id for region in dataset.regions] == ["colmap_sparse_prior_near", "colmap_sparse_prior_far"]
+    assert dataset.regions[0].bounds.max_corner[2] < dataset.regions[1].bounds.min_corner[2]
+    assert all(region.fallback_source == "colmap-text" for region in dataset.regions)
+    assert all(region.semantic_label == "colmap_sparse_prior" for region in dataset.regions)
+
+
 def test_colmap_binary_model_converts_to_capture_manifest_contract(tmp_path):
     colmap_dir = _write_colmap_binary_model(tmp_path)
 

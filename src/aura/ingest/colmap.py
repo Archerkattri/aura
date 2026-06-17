@@ -212,7 +212,7 @@ def _colmap_to_capture_manifest(
                 "semantic_label": None,
             }
         )
-    regions = [_sparse_prior_region(frames[0]["id"], points, centroid, default_depth, source)]
+    regions = _sparse_prior_regions(frames[0]["id"], points, centroid, default_depth, source)
     payload = {"format": "AURA_CAPTURE_MANIFEST", "root": root, "frames": frames, "regions": regions}
     return CaptureManifest.from_dict(payload)
 
@@ -411,36 +411,72 @@ def _image_record_lines(path: Path) -> list[str]:
     return lines
 
 
+def _sparse_prior_regions(
+    frame_id: str,
+    points: Sequence[ColmapPoint3D],
+    centroid: Vec3 | None,
+    default_depth: float,
+    source: str,
+) -> list[dict]:
+    if not points:
+        return [_sparse_prior_region(frame_id, tuple(), centroid, default_depth, source, "colmap_sparse_prior", 0.3)]
+    layers = _sparse_depth_layers(points)
+    if len(layers) == 1:
+        return [_sparse_prior_region(frame_id, layers[0], centroid, default_depth, source, "colmap_sparse_prior", 0.65)]
+    regions = []
+    for index, layer in enumerate(layers):
+        name = "near" if index == 0 else "far"
+        confidence = min(0.9, 0.55 + 0.2 * len(layer) / len(points))
+        regions.append(_sparse_prior_region(frame_id, layer, _point_centroid(layer), default_depth, source, f"colmap_sparse_prior_{name}", confidence))
+    return regions
+
+
 def _sparse_prior_region(
     frame_id: str,
     points: Sequence[ColmapPoint3D],
     centroid: Vec3 | None,
     default_depth: float,
     source: str,
+    region_id: str,
+    confidence: float,
 ) -> dict:
     if points:
         min_corner = tuple(min(point.xyz[index] for point in points) for index in range(3))
         max_corner = tuple(max(point.xyz[index] for point in points) for index in range(3))
-        center = centroid or (0.0, 0.0, default_depth)
     else:
-        center = (0.0, 0.0, default_depth)
+        center = centroid or (0.0, 0.0, default_depth)
         min_corner = tuple(value - 0.25 for value in center)
         max_corner = tuple(value + 0.25 for value in center)
     min_corner = tuple(value - 1e-3 for value in min_corner)
     max_corner = tuple(value + 1e-3 for value in max_corner)
     return {
-        "id": "colmap_sparse_prior",
+        "id": region_id,
         "frame_id": frame_id,
         "bounds": {"min": list(min_corner), "max": list(max_corner)},
-        "evidence": {"geometry_confidence": 0.65, "ray_need": 0.6, "edit_need": 0.25},
+        "evidence": {"geometry_confidence": confidence, "ray_need": 0.6, "edit_need": 0.25},
         "color": list(_point_average_color(points) or (0.5, 0.5, 0.5)),
         "opacity": 0.45,
-        "confidence": 0.65 if points else 0.3,
+        "confidence": confidence,
         "normal": None,
         "material_id": "mat_colmap_sparse_prior",
         "semantic_label": "colmap_sparse_prior",
         "fallback_source": source,
     }
+
+
+def _sparse_depth_layers(points: Sequence[ColmapPoint3D]) -> tuple[tuple[ColmapPoint3D, ...], ...]:
+    if len(points) < 2:
+        return (tuple(points),)
+    min_z = min(point.xyz[2] for point in points)
+    max_z = max(point.xyz[2] for point in points)
+    if max_z - min_z <= max(abs(max_z) * 0.05, 1e-4):
+        return (tuple(points),)
+    midpoint = (min_z + max_z) / 2.0
+    near = tuple(point for point in points if point.xyz[2] <= midpoint)
+    far = tuple(point for point in points if point.xyz[2] > midpoint)
+    if not near or not far:
+        return (tuple(points),)
+    return near, far
 
 
 def _point_centroid(points: Sequence[ColmapPoint3D]) -> Vec3 | None:

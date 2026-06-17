@@ -17,6 +17,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - AURA-Ingest adapters that convert 3DGS, depth priors, semantic masks, and
   sparse point priors into `EvidenceSample` contracts;
 - COLMAP binary/text sparse-model conversion into native capture manifests;
+- COLMAP sparse point depth layers for native region initialization;
 - standard COLMAP dense depth-map links and deterministic summary loading;
 - loaded depth assets seed deterministic multi-region native surface priors;
 - dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed

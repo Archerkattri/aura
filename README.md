@@ -35,6 +35,7 @@ native representation contract pieces:
 - AURA-Ingest adapters that convert 3DGS, depth, semantic mask, and sparse
   point priors into `EvidenceSample` contracts;
 - COLMAP binary/text sparse-model pose/intrinsics import to `AURA_CAPTURE_MANIFEST`;
+- COLMAP sparse point depth-layer priors for native region initialization;
 - COLMAP dense depth-map links and deterministic depth summaries for capture
   manifests;
 - depth asset statistics that seed deterministic multi-region native
