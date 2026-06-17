@@ -2,12 +2,15 @@ import importlib.util
 import json
 import subprocess
 import sys
+from importlib.resources import files
 
 import pytest
 
 from aura import (
     AuraElement,
     Bounds,
+    cuda_kernel_source_report,
+    cuda_kernel_sources,
     torch_carrier_kernel_report,
     torch_carrier_kernel_specs,
     torch_carrier_parameter_tensors,
@@ -114,6 +117,45 @@ def test_torch_kernel_report_cli_prints_readiness_json():
     assert payload["nonProductionCarrierCount"] == 7
     assert payload["referenceOnlyCarrierCount"] == 0
     assert payload["autogradCarrierCount"] == 7
+
+
+def test_cuda_kernel_sources_cover_every_native_carrier_symbol():
+    sources = cuda_kernel_sources()
+    report = cuda_kernel_source_report()
+    source_text = files("aura").joinpath("cuda/aura_carriers.cu").read_text(encoding="utf-8")
+
+    assert {source.carrier_id for source in sources} == {"surface", "volume", "beta", "gabor", "neural", "semantic", "gaussian"}
+    assert {source.symbol for source in sources} == {
+        "aura_surface_forward_kernel",
+        "aura_volume_forward_kernel",
+        "aura_beta_forward_kernel",
+        "aura_gabor_forward_kernel",
+        "aura_neural_forward_kernel",
+        "aura_semantic_forward_kernel",
+        "aura_gaussian_forward_kernel",
+    }
+    assert report["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
+    assert report["sourceCount"] == 7
+    assert report["availableSourceCount"] == 7
+    for source in report["sources"]:
+        assert source["path"] == "cuda/aura_carriers.cu"
+        assert source["available"] is True
+        assert source["required"] is True
+        assert source["symbol"] in source_text
+
+
+def test_torch_kernel_report_links_cuda_source_but_keeps_production_gate_closed():
+    report = torch_carrier_kernel_report()
+
+    assert report["productionReady"] is False
+    assert report["cudaSourceCount"] == 7
+    assert report["availableCudaSourceCount"] == 7
+    for spec in report["kernelSpecs"]:
+        assert spec["cudaKernel"] is False
+        assert spec["productionReady"] is False
+        assert spec["cudaSource"]["carrierId"] == spec["carrierId"]
+        assert spec["cudaSource"]["available"] is True
+        assert spec["cudaSource"]["symbol"].startswith("aura_")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

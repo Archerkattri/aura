@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from math import pi
 from typing import Any, Sequence
 
+from aura.cuda_kernels import cuda_kernel_sources
+
 
 @dataclass(frozen=True)
 class TorchCarrierKernelSpec:
@@ -105,6 +107,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
 
 def torch_carrier_kernel_report() -> dict:
     specs = torch_carrier_kernel_specs()
+    sources_by_carrier = {source.carrier_id: source for source in cuda_kernel_sources()}
     return {
         "format": "AURA_TORCH_CARRIER_KERNEL_REPORT",
         "productionReady": all(spec.production_ready for spec in specs),
@@ -113,9 +116,17 @@ def torch_carrier_kernel_report() -> dict:
         "referenceOnlyCarrierCount": sum(1 for spec in specs if not spec.autograd_kernel and not spec.cuda_kernel),
         "autogradCarrierCount": sum(1 for spec in specs if spec.autograd_kernel),
         "cudaCarrierCount": sum(1 for spec in specs if spec.cuda_kernel),
-        "kernelSpecs": [spec.to_dict() for spec in specs],
+        "cudaSourceCount": len(sources_by_carrier),
+        "availableCudaSourceCount": sum(1 for source in sources_by_carrier.values() if source.to_dict()["available"]),
+        "kernelSpecs": [_kernel_spec_report(spec, sources_by_carrier.get(spec.carrier_id)) for spec in specs],
         "requiredNextStep": "add carrier-complete CUDA kernels for every autograd-covered carrier",
     }
+
+
+def _kernel_spec_report(spec: TorchCarrierKernelSpec, source: Any | None) -> dict:
+    payload = spec.to_dict()
+    payload["cudaSource"] = source.to_dict() if source is not None else None
+    return payload
 
 
 def torch_carrier_response_tensors(

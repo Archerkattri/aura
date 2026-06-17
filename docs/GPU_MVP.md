@@ -56,6 +56,9 @@ This package now contains the GPU-ready skeleton for AURA:
 - explicit torch carrier kernel specs and autograd parameter tensors for
   surface, volume, beta, gabor, neural residual, semantic, and Gaussian fallback
   semantics;
+- packaged CUDA carrier source symbols for surface, volume, beta, gabor, neural,
+  semantic, and Gaussian fallback carriers, still gated as non-production until
+  compiled extension tests and benchmarks exist;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - model-scored native feature proposals for image-detail and depth-edge regions
@@ -106,15 +109,16 @@ optimization scaffold from the same native capture tensor batches. It writes a
 `.aura` package plus `torch_training_report.json`; it is still a scaffold until
 the autograd carrier semantics are replaced by production CUDA kernels.
 Use `aura torch-kernel-report` to list every native carrier kernel, its current
-reference/autograd status, and the missing CUDA blockers. The surface carrier
+reference/autograd status, packaged CUDA source symbol, and missing CUDA
+blockers. The surface carrier
 has a tested torch autograd path, and the volume carrier has a differentiable
 density parameter path. The beta carrier has differentiable bounded-shape
 parameters, and the gabor carrier has differentiable frequency/phase/bandwidth
 parameters. The neural residual carrier has a differentiable residual-scale
 path, and the semantic carrier has differentiable confidence scoring;
 the Gaussian fallback carrier has differentiable fallback color/opacity/
-confidence parameters. Production readiness still requires CUDA kernels for
-every carrier.
+confidence parameters. Production readiness still requires compiling, testing,
+and benchmarking CUDA kernels for every carrier.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

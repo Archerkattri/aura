@@ -71,6 +71,8 @@ native representation contract pieces:
 - explicit torch carrier kernel specs and autograd parameter tensors for
   surface, volume, beta, gabor, neural, semantic, and Gaussian fallback
   semantics;
+- packaged CUDA carrier source entry points for every native/fallback carrier,
+  reported by `torch-kernel-report` but not yet compiled or production-ready;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
 - model-scored native feature proposals from image/depth/mask/normal tensor
@@ -98,8 +100,8 @@ native representation contract pieces:
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
 production EXR/video tensor loading, carrier-complete GPU differentiable
-optimization, CUDA kernels, production GPU BVH traversal, autograd carrier
-updates, or end-to-end benchmark results.
+optimization, compiled CUDA kernels, production GPU BVH traversal, or
+end-to-end benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.

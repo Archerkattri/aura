@@ -26,4 +26,4 @@ addopts = "-q"
 where = ["src"]
 
 [tool.setuptools.package-data]
-aura = ["schemas/*.schema.json"]
+aura = ["schemas/*.schema.json", "cuda/*.cu"]

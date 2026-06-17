@@ -45,6 +45,7 @@ from aura.core import (
     validate_training_dataset_document,
     write_synthetic_training_frames,
 )
+from aura.cuda_kernels import CudaKernelSource, cuda_kernel_source_report, cuda_kernel_sources
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
@@ -179,6 +180,7 @@ __all__ = [
     "ColmapCamera",
     "ColmapImage",
     "ColmapPoint3D",
+    "CudaKernelSource",
     "DepthEvidencePoint",
     "DifferentiableRaySample",
     "EvidenceSample",
@@ -227,6 +229,8 @@ __all__ = [
     "capture_proposal_features",
     "capture_tensors_to_render_targets",
     "choose_carrier",
+    "cuda_kernel_source_report",
+    "cuda_kernel_sources",
     "colmap_binary_to_capture_manifest",
     "colmap_text_to_capture_manifest",
     "colmap_to_capture_manifest",
