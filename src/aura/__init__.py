@@ -34,6 +34,7 @@ from aura.ingest import (
     supported_ingest_adapters,
 )
 from aura.inspection import RayInspection, inspect_ray, inspect_scene_rays, native_demo_interaction_probes
+from aura.migration import MigrationReport, migration_report
 from aura.package import AuraPackage, load_package, package_scene, validate_package, validate_package_documents
 from aura.ray import Ray, RayQueryResult
 from aura.render import RenderImage, compare_images, image_mse, image_psnr, read_ppm, render_orthographic
@@ -65,6 +66,7 @@ __all__ = [
     "GaussianSplatSample",
     "IngestAdapterSpec",
     "NeuralResidualPayload",
+    "MigrationReport",
     "Ray",
     "RayInspection",
     "RayQueryResult",
@@ -91,6 +93,7 @@ __all__ = [
     "load_3dgs_ply",
     "load_3dgs_scene",
     "load_package",
+    "migration_report",
     "package_scene",
     "package_3dgs_export",
     "read_ppm",

@@ -30,12 +30,13 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 3. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
 4. Run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`.
 5. Run `aura benchmark-reference outputs/native-demo.aura`.
-6. Run `aura ingest-adapters`.
-7. Extend mixed-carrier decomposition fixtures and query tests.
-8. Add more ray-query paths for first-hit/depth/transmittance.
-9. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
-10. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
-11. Use `aura import-3dgs` on real baseline output directories.
+6. Run `aura migration-plan outputs/native-demo.aura`.
+7. Run `aura ingest-adapters`.
+8. Extend mixed-carrier decomposition fixtures and query tests.
+9. Add more ray-query paths for first-hit/depth/transmittance.
+10. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
+11. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
+12. Use `aura import-3dgs` on real baseline output directories.
 
 ## Research Positioning
 

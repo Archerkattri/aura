@@ -15,6 +15,7 @@ def test_native_demo_interaction_probes_report_occlusion_shadow_and_reflection()
 
     assert occlusion.first_hit is True
     assert occlusion.occluded is True
+    assert occlusion.material_id == "mat_wall_plaster"
     assert occlusion.shadow_ready is True
     assert occlusion.transmittance < 1.0
     assert reflection.reflection_ready is True

@@ -303,6 +303,12 @@ def test_inspect_package_cli_reports_stable_json_summary(tmp_path):
         "chunkCount": 1,
         "semanticObjectCount": 0,
         "exchangeTargets": ["asset", "gltfFallback", "native", "usdBridge"],
+        "migration": {
+            "current_version": AURA_SCHEMA_VERSION,
+            "target_version": AURA_SCHEMA_VERSION,
+            "supported": True,
+            "actions": ["none"],
+        },
     }
 
 

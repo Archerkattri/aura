@@ -125,6 +125,7 @@ def test_inspect_package_reports_mixed_native_scene(tmp_path):
     assert payload["elementCount"] == 2
     assert payload["semanticObjectCount"] == 0
     assert payload["exchangeTargets"] == ["asset", "gltfFallback", "native", "usdBridge"]
+    assert payload["migration"]["actions"] == ["none"]
 
 
 def test_write_native_demo_cli_writes_mixed_aura_package(tmp_path):

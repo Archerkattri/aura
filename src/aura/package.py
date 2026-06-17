@@ -12,6 +12,7 @@ from aura.asset import AuraAsset
 from aura.carriers import default_registry
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.exchange import exchange_plan
+from aura.migration import migration_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
@@ -43,6 +44,7 @@ class AuraPackage:
             "chunkCount": len(self.scene.chunks),
             "semanticObjectCount": len(self.scene.semantic_graph.nodes),
             "exchangeTargets": sorted((self.exchange or exchange_plan(self.asset)).keys()),
+            "migration": migration_report(self.asset.version).to_dict(),
         }
 
     def manifest(self) -> dict:

@@ -10,6 +10,7 @@ from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
 from aura.inspection import inspect_scene_rays, native_demo_interaction_probes
+from aura.migration import migration_report
 from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
@@ -84,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     inspect_rays.add_argument("package_dir", type=Path)
     inspect_rays.add_argument("--native-demo-probes", action="store_true")
 
+    migrate = sub.add_parser("migration-plan", help="Print package schema migration status as JSON")
+    migrate.add_argument("package_dir", type=Path)
+
     args = parser.parse_args(argv)
     native_scene = native_demo_scene()
     if args.command in {"write-native-demo-package", "build-native-demo"}:
@@ -143,6 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         inspections = native_demo_interaction_probes(package.scene) if args.native_demo_probes else inspect_scene_rays(package.scene)
         print(json.dumps([inspection.to_dict() for inspection in inspections], indent=2, sort_keys=True))
         return 0
+    if args.command == "migration-plan":
+        package = load_package(args.package_dir)
+        print(json.dumps(migration_report(package.asset.version).to_dict(), indent=2, sort_keys=True))
+        return 0
     raise ValueError(args.command)
 
 
@@ -174,6 +182,7 @@ def native_demo_scene() -> AuraScene:
                 color=(0.8, 0.72, 0.62),
                 opacity=0.9,
                 normal=(0.0, 0.0, -1.0),
+                material_id="mat_wall_plaster",
                 semantic_label="wall",
                 confidence_map={"geometry": 0.9, "material": 0.75},
                 edit={"editable": True, "group": "wall"},
@@ -185,6 +194,7 @@ def native_demo_scene() -> AuraScene:
                 color=(0.55, 0.68, 0.9),
                 opacity=0.35,
                 confidence=0.72,
+                material_id="mat_soft_volume",
             ),
             EvidenceSample(
                 id="woven_frequency",
@@ -192,6 +202,7 @@ def native_demo_scene() -> AuraScene:
                 evidence=RegionEvidence(high_frequency=0.92, geometry_confidence=0.65),
                 color=(0.95, 0.85, 0.35),
                 opacity=0.75,
+                material_id="mat_woven_detail",
             ),
             EvidenceSample(
                 id="view_residual",

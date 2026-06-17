@@ -79,9 +79,11 @@ aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --
 aura query-demo --x -0.5 --y -0.5
 # queries the native mixed-carrier fixture
 aura inspect-rays outputs/native-demo.aura --native-demo-probes
-# prints occlusion/shadow/reflection-ready ray-query inspections
+# prints material-aware occlusion/shadow/reflection-ready ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
 # runs CPU reference package/query/render metrics
+aura migration-plan outputs/native-demo.aura
+# prints package schema migration status
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
