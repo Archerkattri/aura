@@ -41,8 +41,8 @@ This package now contains the GPU-ready skeleton for AURA:
   transmittance, confidence, residual, and semantic tensors over `AuraScene`
   and `RenderTarget`;
 - strict-JSON render comparison metrics for regression checks;
-- reproducible benchmark plans plus CPU reference package/query/render timing
-  and interaction-quality metrics;
+- reproducible benchmark plans plus CPU reference package/query/render timing,
+  confidence-quality, and interaction-quality metrics;
 - package-backed glTF/USD exchange-plan metadata;
 - native-first CLI fixtures.
 
@@ -68,9 +68,9 @@ Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
 query inspection. Use
 `aura benchmark-reference <package>` for CPU reference package/query/render
-timing and interaction-quality metrics, and add `--include-ablations` for
-carrier assignment ablation metrics; these are contract checks, not quality or
-production-speed claims.
+timing, confidence-quality, and interaction-quality metrics, and add
+`--include-ablations` for carrier assignment ablation metrics; these are
+contract checks, not quality or production-speed claims.
 Use `aura migration-plan <package>` to report schema migration status.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports

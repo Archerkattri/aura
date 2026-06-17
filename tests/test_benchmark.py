@@ -29,6 +29,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "package_size",
         "render_query_speed",
         "mixed_carrier_behavior",
+        "confidence_calibration",
         "aura_core_reconstruction",
     }.issubset(case_ids)
     assert {"gaussian_only", "no_neural_residual", "no_frequency_carrier", "no_semantic_graph"}.issubset(ablation_ids)
@@ -60,6 +61,9 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["elementCount"] == 7
     assert payload["semanticObjectCount"] == 2
     assert payload["nonGaussianFraction"] > 0.5
+    assert payload["confidenceQuality"]["meanElementConfidence"] > 0.0
+    assert payload["confidenceQuality"]["confidenceWithinBoundsRate"] == 1.0
+    assert payload["confidenceQuality"]["confidenceMapCoverageRate"] > 0.0
     assert payload["packageBytes"] > 0
     assert payload["rayQuery"]["probeCount"] > 0
     assert payload["rayQuery"]["querySeconds"] >= 0.0
@@ -110,6 +114,9 @@ def test_core_reconstruction_benchmark_compares_adaptive_and_static_runs():
     assert payload["adaptive"]["finalLoss"] > 0.0
     assert payload["adaptive"]["finalQueryLoss"] == 0.0
     assert payload["static"]["finalQueryLoss"] == 0.0
+    assert payload["adaptive"]["confidenceQuality"]["optimizationResidualMapRate"] > 0.0
+    assert payload["adaptive"]["confidenceQuality"]["lowResidualHighConfidenceRate"] > 0.0
+    assert payload["static"]["confidenceQuality"]["confidenceWithinBoundsRate"] == 1.0
     assert payload["adaptive"]["lossReduction"] > 0.0
     assert payload["static"]["lossReduction"] > 0.0
     assert payload["adaptive"]["evolutionActionCounts"]["split_beta_detail"] > 0
@@ -194,6 +201,7 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["asset"] == "native_demo"
+    assert payload["confidenceQuality"]["meanElementConfidence"] > 0.0
     assert payload["rayQuery"]["shadowReadyCount"] > 0
     assert payload["interactionQuality"]["shadowTransmittanceReadyRate"] == 1.0
     assert payload["rayQueryCorrectness"]["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"

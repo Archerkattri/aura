@@ -216,6 +216,7 @@ def run_reference_benchmark(
         "carrierCounts": carrier_counts,
         "carrierEntropy": _carrier_entropy(carrier_counts),
         "nonGaussianFraction": 0.0 if element_count == 0 else non_gaussian / element_count,
+        "confidenceQuality": _scene_confidence_quality(scene),
         "packageBytes": _package_size(package_dir) if package_dir is not None else None,
         "rayQuery": {
             "probeCount": len(inspections),
@@ -305,12 +306,14 @@ def run_core_reconstruction_benchmark(*, iterations: int = 6) -> dict:
             **adaptive_metrics,
             "elementCount": len(adaptive.scene.elements),
             "carrierCounts": _scene_carrier_counts(adaptive.scene),
+            "confidenceQuality": _scene_confidence_quality(adaptive.scene),
             "evolvedElementCount": sum(1 for element in adaptive.scene.elements if element.metadata.get("source") == "aura-core-adaptive-evolution"),
         },
         "static": {
             **static_metrics,
             "elementCount": len(static.scene.elements),
             "carrierCounts": _scene_carrier_counts(static.scene),
+            "confidenceQuality": _scene_confidence_quality(static.scene),
             "evolvedElementCount": sum(1 for element in static.scene.elements if element.metadata.get("source") == "aura-core-adaptive-evolution"),
         },
         "delta": {
@@ -404,6 +407,11 @@ def default_benchmark_suite() -> BenchmarkSuite:
                 metrics=("carrier_entropy", "non_gaussian_fraction", "assignment_rule_coverage"),
             ),
             BenchmarkCase(
+                id="confidence_calibration",
+                purpose="Track carrier confidence values and residual-backed confidence map coverage.",
+                metrics=("mean_element_confidence", "optimization_residual_map_rate", "low_residual_high_confidence_rate"),
+            ),
+            BenchmarkCase(
                 id="aura_core_reconstruction",
                 purpose="Measure native AURA-Core reconstruction loss and adaptive carrier evolution.",
                 metrics=("final_loss", "image_loss_delta", "depth_loss_delta", "query_loss_delta", "split_promote_merge_demote_counts"),
@@ -480,6 +488,31 @@ def _interaction_quality(inspections: Sequence[RayInspection]) -> dict:
         "reflectionHitRate": _rate(inspection.reflection_hit is True for inspection in reflections),
         "collisionProxyReadyRate": _rate(inspection.collision_proxy_ready for inspection in hits),
         "collisionDistanceReadyRate": _rate(inspection.collision_distance is not None for inspection in collisions),
+    }
+
+
+def _scene_confidence_quality(scene: AuraScene) -> dict:
+    elements = tuple(scene.elements)
+    confidences = [element.confidence for element in elements]
+    residual_elements = [
+        element
+        for element in elements
+        if "optimization_residual" in element.confidence_map
+    ]
+    return {
+        "meanElementConfidence": _mean(confidences),
+        "minElementConfidence": min(confidences) if confidences else 0.0,
+        "confidenceWithinBoundsRate": _rate(0.0 <= value <= 1.0 for value in confidences),
+        "confidenceMapCoverageRate": _rate(bool(element.confidence_map) for element in elements),
+        "optimizationResidualMapRate": _rate("optimization_residual" in element.confidence_map for element in elements),
+        "queryResidualMapRate": _rate(
+            ("optimization_query_loss" in element.confidence_map) or ("query" in element.confidence_map)
+            for element in elements
+        ),
+        "lowResidualHighConfidenceRate": _rate(
+            element.confidence >= 0.5 and element.confidence_map["optimization_residual"] <= 0.1
+            for element in residual_elements
+        ),
     }
 
 
@@ -630,6 +663,10 @@ def _rate(values) -> float:
     if not scored:
         return 1.0
     return sum(1 for value in scored if value) / len(scored)
+
+
+def _mean(values: Sequence[float]) -> float:
+    return 0.0 if not values else sum(values) / len(values)
 
 
 def _percentile_ms(values: Sequence[float], fraction: float) -> float:
