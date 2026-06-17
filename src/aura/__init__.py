@@ -135,6 +135,7 @@ from aura.torch_renderer import (
 )
 from aura.torch_kernels import (
     TorchCarrierKernelSpec,
+    torch_carrier_kernel_report,
     torch_carrier_kernel_specs,
     torch_carrier_response_tensors,
 )
@@ -276,6 +277,7 @@ __all__ = [
     "synthetic_training_regions",
     "torch_capture_asset_batch",
     "torch_capture_training_batch",
+    "torch_carrier_kernel_report",
     "torch_carrier_kernel_specs",
     "torch_carrier_response_tensors",
     "torch_optimize_capture_batch",

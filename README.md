@@ -140,6 +140,8 @@ aura inspect-package outputs/native-demo.aura
 # prints the native package summary as stable JSON
 aura export-report outputs/native-demo.aura
 # reports native AURA preservation versus glTF/USD fallback losses for runtime engine workflows
+aura torch-kernel-report
+# reports which native carrier kernels are still reference-only versus autograd/CUDA-ready
 aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --width 128 --height 128
 # writes a deterministic PPM preview for package validation
 aura query-demo --x -0.5 --y -0.5

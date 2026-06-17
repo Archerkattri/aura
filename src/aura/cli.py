@@ -37,6 +37,7 @@ from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batch
 from aura.torch_renderer import torch_capture_asset_batch, torch_capture_training_batch, torch_renderer_status
+from aura.torch_kernels import torch_carrier_kernel_report
 from aura.training_targets import capture_tensors_to_render_targets
 
 
@@ -205,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
 
     torch_status = sub.add_parser("torch-renderer-status", help="Print optional PyTorch/CUDA renderer availability as JSON")
 
+    sub.add_parser("torch-kernel-report", help="Print native carrier torch/CUDA kernel readiness as JSON")
+
     inspect_rays = sub.add_parser("inspect-rays", help="Inspect reference ray-query outputs for a .aura package")
     inspect_rays.add_argument("package_dir", type=Path)
     inspect_rays.add_argument("--native-demo-probes", action="store_true")
@@ -364,6 +367,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "torch-renderer-status":
         print(json.dumps(torch_renderer_status().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "torch-kernel-report":
+        print(json.dumps(torch_carrier_kernel_report(), indent=2, sort_keys=True))
         return 0
     if args.command == "benchmark-core":
         print(json.dumps(run_core_reconstruction_benchmark(iterations=args.iterations), indent=2, sort_keys=True))

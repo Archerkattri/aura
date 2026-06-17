@@ -1,8 +1,11 @@
 import importlib.util
+import json
+import subprocess
+import sys
 
 import pytest
 
-from aura import AuraElement, Bounds, torch_carrier_kernel_specs, torch_carrier_response_tensors
+from aura import AuraElement, Bounds, torch_carrier_kernel_report, torch_carrier_kernel_specs, torch_carrier_response_tensors
 
 
 def test_torch_carrier_kernel_specs_cover_native_payloads_without_torch():
@@ -21,6 +24,38 @@ def test_torch_carrier_kernel_specs_cover_native_payloads_without_torch():
     assert by_payload["gaussian_fallback"].carrier_id == "gaussian"
     assert "opacity" in by_payload["surface_cell"].differentiable_fields
     assert by_payload["volume_cell"].to_dict()["payloadType"] == "volume_cell"
+    assert by_payload["surface_cell"].to_dict()["implementationStage"] == "reference_torch_payload_kernel"
+    assert by_payload["surface_cell"].production_ready is False
+    assert by_payload["surface_cell"].blockers == ("missing_autograd_kernel", "missing_cuda_kernel")
+
+
+def test_torch_carrier_kernel_report_is_a_production_readiness_gate():
+    report = torch_carrier_kernel_report()
+
+    assert report["format"] == "AURA_TORCH_CARRIER_KERNEL_REPORT"
+    assert report["productionReady"] is False
+    assert report["carrierCount"] == 7
+    assert report["referenceOnlyCarrierCount"] == 7
+    by_carrier = {item["carrierId"]: item for item in report["kernelSpecs"]}
+    assert set(by_carrier) == {"surface", "volume", "beta", "gabor", "neural", "semantic", "gaussian"}
+    assert by_carrier["gaussian"]["productionReady"] is False
+    assert by_carrier["gaussian"]["blockers"] == ["missing_autograd_kernel", "missing_cuda_kernel"]
+    assert "autograd/CUDA" in report["requiredNextStep"]
+
+
+def test_torch_kernel_report_cli_prints_readiness_json():
+    result = subprocess.run(
+        [sys.executable, "-m", "aura.cli", "torch-kernel-report"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_TORCH_CARRIER_KERNEL_REPORT"
+    assert payload["productionReady"] is False
+    assert payload["carrierCount"] == 7
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

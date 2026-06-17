@@ -11,6 +11,9 @@ class TorchCarrierKernelSpec:
     carrier_id: str
     differentiable_fields: tuple[str, ...]
     description: str
+    implementation_stage: str = "reference_torch_payload_kernel"
+    autograd_kernel: bool = False
+    cuda_kernel: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -18,7 +21,25 @@ class TorchCarrierKernelSpec:
             "carrierId": self.carrier_id,
             "differentiableFields": list(self.differentiable_fields),
             "description": self.description,
+            "implementationStage": self.implementation_stage,
+            "autogradKernel": self.autograd_kernel,
+            "cudaKernel": self.cuda_kernel,
+            "productionReady": self.production_ready,
+            "blockers": list(self.blockers),
         }
+
+    @property
+    def production_ready(self) -> bool:
+        return self.autograd_kernel and self.cuda_kernel
+
+    @property
+    def blockers(self) -> tuple[str, ...]:
+        blockers = []
+        if not self.autograd_kernel:
+            blockers.append("missing_autograd_kernel")
+        if not self.cuda_kernel:
+            blockers.append("missing_cuda_kernel")
+        return tuple(blockers)
 
 
 def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
@@ -66,6 +87,18 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             description="Gaussian fallback path for evidence that does not justify a native carrier.",
         ),
     )
+
+
+def torch_carrier_kernel_report() -> dict:
+    specs = torch_carrier_kernel_specs()
+    return {
+        "format": "AURA_TORCH_CARRIER_KERNEL_REPORT",
+        "productionReady": all(spec.production_ready for spec in specs),
+        "carrierCount": len(specs),
+        "referenceOnlyCarrierCount": sum(1 for spec in specs if not spec.production_ready),
+        "kernelSpecs": [spec.to_dict() for spec in specs],
+        "requiredNextStep": "replace reference torch payload kernels with carrier-complete autograd/CUDA kernels",
+    }
 
 
 def torch_carrier_response_tensors(

@@ -99,6 +99,8 @@ Use `aura torch-optimize-capture-manifest <manifest> --device cuda
 optimization scaffold from the same native capture tensor batches. It writes a
 `.aura` package plus `torch_training_report.json`; it is still a scaffold until
 the reference carrier semantics are replaced by autograd/CUDA kernels.
+Use `aura torch-kernel-report` to list every native carrier kernel, its current
+reference-only status, and the missing autograd/CUDA blockers.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

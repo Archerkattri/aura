@@ -25,6 +25,7 @@ aura capture-manifest-to-training outputs/capture-manifest.json --output outputs
 aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
 aura validate-package outputs/reconstruct-capture.aura
 aura inspect-package outputs/reconstruct-capture.aura
+aura torch-kernel-report
 ```
 
 For manifests whose `image_path`, `depth_path`, `mask_path`, and `normal_path`
@@ -93,7 +94,8 @@ AURA_CAPTURE_MANIFEST
    tensors.
 4. Replace the reference `torch_kernels` carrier specs with real differentiable
    surface, volume, beta, gabor, neural residual, semantic, and Gaussian
-   fallback CUDA/autograd kernels.
+   fallback CUDA/autograd kernels. `aura torch-kernel-report` must report
+   `productionReady: true` before claiming this is complete.
 5. Replace the current reference chunk traversal with a production BVH/GPU
    traversal path for secondary rays.
 6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
