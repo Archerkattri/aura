@@ -68,12 +68,14 @@ def test_torch_capture_asset_batch_stacks_manifest_tensors_on_device():
                 image_values=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
                 depth_values=(0.25, 0.75),
                 mask_values=(1.0, 0.0),
+                normal_values=(0.0, 0.0, -1.0, 0.0, 1.0, 0.0),
             ),
             _capture_tensor_frame(
                 frame_id="frame_b",
                 image_values=(0.0, 0.0, 1.0, 1.0, 1.0, 1.0),
                 depth_values=None,
                 mask_values=(0.0, 1.0),
+                normal_values=None,
             ),
         ),
         device="cpu",
@@ -85,8 +87,10 @@ def test_torch_capture_asset_batch_stacks_manifest_tensors_on_device():
     assert tuple(batch.depth.shape) == (2, 1, 2, 1)
     assert tuple(batch.depth_present.tolist()) == (True, False)
     assert tuple(batch.mask_present.tolist()) == (True, True)
+    assert tuple(batch.normal_present.tolist()) == (True, False)
     assert payload["image"]["shape"] == [2, 1, 2, 3]
     assert payload["depthPresent"]["dtype"] == "torch.bool"
+    assert payload["normal"]["shape"] == [2, 1, 2, 3]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -106,6 +110,7 @@ def test_torch_capture_training_batch_samples_per_pixel_targets():
                 image_values=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
                 depth_values=(0.25, 0.0),
                 mask_values=(1.0, 0.0),
+                normal_values=(0.0, 0.0, -1.0, 0.0, 1.0, 0.0),
             ),
         ),
         device="cpu",
@@ -119,8 +124,11 @@ def test_torch_capture_training_batch_samples_per_pixel_targets():
     assert batch.target_color.tolist() == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
     assert batch.target_depth.tolist() == [0.25, 2.0]
     assert batch.target_mask.tolist() == [1.0, 0.0]
+    assert batch.target_normal.tolist() == [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]
+    assert batch.target_normal_present.tolist() == [True, True]
     assert batch.ray_directions.tolist()[0] == [0.0, 0.0, 1.0]
     assert payload["targetColor"]["shape"] == [2, 3]
+    assert payload["targetNormalPresent"]["shape"] == [2]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -134,6 +142,7 @@ def test_torch_render_capture_training_batch_matches_render_target_path():
                 bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
                 color=(1.0, 0.0, 0.0),
                 opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
             ),
         ),
     )
@@ -152,6 +161,7 @@ def test_torch_render_capture_training_batch_matches_render_target_path():
                 image_values=(1.0, 0.0, 0.0),
                 depth_values=(2.0,),
                 mask_values=None,
+                normal_values=(0.0, 0.0, -1.0),
                 width=1,
                 height=1,
             ),
@@ -167,6 +177,7 @@ def test_torch_render_capture_training_batch_matches_render_target_path():
                 ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
                 target_color=(1.0, 0.0, 0.0),
                 target_depth=2.0,
+                target_normal=(0.0, 0.0, -1.0),
             ),
         ),
         device="cpu",
@@ -180,6 +191,8 @@ def test_torch_render_capture_training_batch_matches_render_target_path():
     assert rendered.predicted_depth == direct_batch.predicted_depth
     assert rendered.image_loss == direct_batch.image_loss
     assert rendered.depth_loss == direct_batch.depth_loss
+    assert rendered.target_normal == direct_batch.target_normal
+    assert rendered.normal_loss == direct_batch.normal_loss
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -225,6 +238,7 @@ def test_torch_render_targets_matches_native_first_hit_contract():
         target_depth=2.0,
         target_semantic_id="panel",
         target_material_id="mat_surface",
+        target_normal=(0.0, 0.0, -1.0),
     )
 
     batch = torch_render_targets(scene, (target,), device="cpu")
@@ -242,7 +256,9 @@ def test_torch_render_targets_matches_native_first_hit_contract():
     assert batch.provenance == ("surface",)
     assert batch.target_semantic_ids == ("panel",)
     assert batch.target_material_ids == ("mat_surface",)
+    assert batch.target_normal == ((0.0, 0.0, -1.0),)
     assert batch.query_loss == (0.0,)
+    assert batch.normal_loss == (0.0,)
     assert batch.image_loss[0] == pytest.approx(0.0)
     assert batch.depth_loss[0] == pytest.approx(0.0)
 
@@ -323,12 +339,76 @@ def test_torch_render_targets_reports_query_contract_loss():
     assert batch.to_dict()["queryLoss"] == [1.0]
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_reports_normal_target_loss():
+    scene = AuraScene(
+        name="torch_normal_loss_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                normal=(0.0, 0.0, -1.0),
+            ),
+            AuraElement(
+                id="missing_normal",
+                carrier_id="volume",
+                bounds=Bounds((1.0, -0.5, 0.0), (2.0, 0.5, 0.1)),
+            ),
+        ),
+    )
+    targets = (
+        RenderTarget(
+            frame_id="aligned",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 1.0, 1.0),
+            target_depth=2.0,
+            target_normal=(0.0, 0.0, -1.0),
+        ),
+        RenderTarget(
+            frame_id="opposed",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 1.0, 1.0),
+            target_depth=2.0,
+            target_normal=(0.0, 0.0, 1.0),
+        ),
+        RenderTarget(
+            frame_id="unsupervised",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 1.0, 1.0),
+            target_depth=2.0,
+        ),
+        RenderTarget(
+            frame_id="missing_prediction",
+            ray=Ray(origin=(1.5, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 1.0, 1.0),
+            target_depth=2.0,
+            target_normal=(0.0, 0.0, -1.0),
+        ),
+    )
+
+    batch = torch_render_targets(scene, targets, device="cpu")
+
+    assert batch.target_normal == (
+        (0.0, 0.0, -1.0),
+        (0.0, 0.0, 1.0),
+        None,
+        (0.0, 0.0, -1.0),
+    )
+    assert batch.normal_loss[0] == pytest.approx(0.0)
+    assert batch.normal_loss[1] == pytest.approx(1.0)
+    assert batch.normal_loss[2] == pytest.approx(0.0)
+    assert batch.normal_loss[3] == pytest.approx(1.0)
+    assert batch.to_dict()["normalLoss"][1] == pytest.approx(1.0)
+
+
 def _capture_tensor_frame(
     *,
     frame_id: str = "frame",
     image_values=(1.0, 0.0, 0.0, 0.0, 0.5, 0.5),
     depth_values=(0.5, 1.0),
     mask_values=(1.0, 0.0),
+    normal_values=None,
     width: int = 2,
     height: int = 1,
 ) -> CaptureFrameTensors:
@@ -364,6 +444,17 @@ def _capture_tensor_frame(
             values=tuple(mask_values),
         )
         if mask_values is not None
+        else None,
+        normal=CaptureTensor(
+            path=f"{frame_id}_normal.ppm",
+            format="Netpbm",
+            backend="stdlib",
+            width=width,
+            height=height,
+            channels=3,
+            values=tuple(normal_values),
+        )
+        if normal_values is not None
         else None,
     )
 

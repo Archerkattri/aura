@@ -45,10 +45,12 @@ class TorchRenderBatch:
     provenance: tuple[str | None, ...]
     target_color: tuple[tuple[float, float, float], ...]
     target_depth: tuple[float, ...]
+    target_normal: tuple[tuple[float, float, float] | None, ...]
     target_semantic_ids: tuple[str | None, ...]
     target_material_ids: tuple[str | None, ...]
     image_loss: tuple[float, ...]
     depth_loss: tuple[float, ...]
+    normal_loss: tuple[float, ...]
     query_loss: tuple[float, ...]
 
     def to_dict(self) -> dict:
@@ -69,10 +71,12 @@ class TorchRenderBatch:
             "provenance": list(self.provenance),
             "targetColor": [list(color) for color in self.target_color],
             "targetDepth": list(self.target_depth),
+            "targetNormal": [list(normal) if normal is not None else None for normal in self.target_normal],
             "targetSemanticIds": list(self.target_semantic_ids),
             "targetMaterialIds": list(self.target_material_ids),
             "imageLoss": list(self.image_loss),
             "depthLoss": list(self.depth_loss),
+            "normalLoss": list(self.normal_loss),
             "queryLoss": list(self.query_loss),
         }
 
@@ -115,6 +119,7 @@ class TorchCaptureTrainingBatch:
     target_depth: Any
     target_mask: Any | None
     target_normal: Any | None
+    target_normal_present: Any | None
 
     def to_dict(self) -> dict:
         return {
@@ -128,6 +133,7 @@ class TorchCaptureTrainingBatch:
             "targetDepth": _torch_tensor_metadata(self.target_depth),
             "targetMask": _torch_tensor_metadata(self.target_mask),
             "targetNormal": _torch_tensor_metadata(self.target_normal),
+            "targetNormalPresent": _torch_tensor_metadata(self.target_normal_present),
         }
 
 
@@ -253,6 +259,7 @@ def torch_capture_training_batch(
         target_depth = frame_depths[index_tensor]
     target_mask = assets.mask[index_tensor, y_index, x_index, 0] if assets.mask is not None else None
     target_normal = assets.normal[index_tensor, y_index, x_index, :3] if assets.normal is not None else None
+    target_normal_present = assets.normal_present[index_tensor] if assets.normal_present is not None else None
     return TorchCaptureTrainingBatch(
         device=str(device),
         frame_ids=tuple(assets.frame_ids),
@@ -264,6 +271,7 @@ def torch_capture_training_batch(
         target_depth=target_depth,
         target_mask=target_mask,
         target_normal=target_normal,
+        target_normal_present=target_normal_present,
     )
 
 
@@ -285,6 +293,8 @@ def torch_render_capture_training_batch(
         directions=batch.ray_directions,
         target_colors=batch.target_color,
         target_depths=batch.target_depth,
+        target_normals=batch.target_normal,
+        target_normal_present=batch.target_normal_present,
         target_semantic_ids=(None,) * len(sample_frame_ids),
         target_material_ids=(None,) * len(sample_frame_ids),
         device=str(batch.ray_origins.device),
@@ -316,6 +326,12 @@ def torch_render_targets(
     directions = torch.tensor([target.ray.direction for target in targets], dtype=torch.float32, device=resolved_device)
     target_colors = torch.tensor([target.target_color for target in targets], dtype=torch.float32, device=resolved_device)
     target_depths = torch.tensor([target.target_depth for target in targets], dtype=torch.float32, device=resolved_device)
+    target_normals = torch.tensor(
+        [target.target_normal if target.target_normal is not None else (0.0, 0.0, 0.0) for target in targets],
+        dtype=torch.float32,
+        device=resolved_device,
+    )
+    target_normal_present = torch.tensor([target.target_normal is not None for target in targets], dtype=torch.bool, device=resolved_device)
     return _torch_render_tensor_targets(
         scene,
         frame_ids=tuple(target.frame_id for target in targets),
@@ -323,6 +339,8 @@ def torch_render_targets(
         directions=directions,
         target_colors=target_colors,
         target_depths=target_depths,
+        target_normals=target_normals,
+        target_normal_present=target_normal_present,
         target_semantic_ids=tuple(target.target_semantic_id for target in targets),
         target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
@@ -337,6 +355,8 @@ def _torch_render_tensor_targets(
     directions: Any,
     target_colors: Any,
     target_depths: Any,
+    target_normals: Any | None,
+    target_normal_present: Any | None,
     target_semantic_ids: Sequence[str | None],
     target_material_ids: Sequence[str | None],
     device: str,
@@ -350,6 +370,14 @@ def _torch_render_tensor_targets(
         raise ValueError("torch tensor target count must match frame ids")
     if len(target_semantic_ids) != len(frame_ids) or len(target_material_ids) != len(frame_ids):
         raise ValueError("torch query target counts must match frame ids")
+    if target_normals is not None and int(target_normals.shape[0]) != len(frame_ids):
+        raise ValueError("torch target normal count must match frame ids")
+    if target_normal_present is not None and int(target_normal_present.shape[0]) != len(frame_ids):
+        raise ValueError("torch target normal presence count must match frame ids")
+    if target_normals is None:
+        target_normals = torch.zeros((len(frame_ids), 3), dtype=torch.float32, device=device)
+    if target_normal_present is None:
+        target_normal_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
     mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=device)
     maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=device)
@@ -399,6 +427,9 @@ def _torch_render_tensor_targets(
     best_indices = best_index.detach().cpu().tolist()
     hit_flags = has_hit.detach().cpu().tolist()
     elements = tuple(scene.elements)
+    normals = tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
+    predicted_normals, predicted_normal_present = _predicted_normal_tensors(torch, normals, device=device)
+    normal_loss = _torch_normal_loss(torch, predicted_normals, predicted_normal_present, target_normals, target_normal_present)
     semantic_ids = tuple(_semantic_id_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
     material_ids = tuple(elements[index].material_id if hit else None for index, hit in zip(best_indices, hit_flags))
     query_loss = tuple(
@@ -420,17 +451,19 @@ def _torch_render_tensor_targets(
         transmittance=tuple(float(value) for value in transmittance.detach().cpu().tolist()),
         opacity=tuple(1.0 - float(value) for value in transmittance.detach().cpu().tolist()),
         confidence=tuple(float(value) for value in confidence.detach().cpu().tolist()),
-        normal=tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags)),
+        normal=normals,
         material_ids=material_ids,
         residual=tuple(bool(value) for value in residual_flags.detach().cpu().tolist()),
         semantic_ids=semantic_ids,
         provenance=tuple(elements[index].id if hit else "miss" for index, hit in zip(best_indices, hit_flags)),
         target_color=_tensor_vec3_tuple(target_colors.detach().cpu().tolist()),
         target_depth=tuple(float(value) for value in target_depths.detach().cpu().tolist()),
+        target_normal=_optional_target_normal_tuple(target_normals, target_normal_present),
         target_semantic_ids=tuple(target_semantic_ids),
         target_material_ids=tuple(target_material_ids),
         image_loss=tuple(float(value) for value in image_loss.detach().cpu().tolist()),
         depth_loss=tuple(float(value) for value in depth_loss.detach().cpu().tolist()),
+        normal_loss=tuple(float(value) for value in normal_loss.detach().cpu().tolist()),
         query_loss=query_loss,
     )
 
@@ -619,6 +652,43 @@ def _normal_for(element: Any) -> tuple[float, float, float] | None:
     if isinstance(payload_normal, list | tuple) and len(payload_normal) == 3:
         return tuple(float(channel) for channel in payload_normal)  # type: ignore[return-value]
     return None
+
+
+def _predicted_normal_tensors(torch: Any, normals: Sequence[tuple[float, float, float] | None], *, device: str) -> tuple[Any, Any]:
+    values = [normal if normal is not None else (0.0, 0.0, 0.0) for normal in normals]
+    present = [normal is not None for normal in normals]
+    return (
+        torch.tensor(values, dtype=torch.float32, device=device),
+        torch.tensor(present, dtype=torch.bool, device=device),
+    )
+
+
+def _torch_normal_loss(
+    torch: Any,
+    predicted_normals: Any,
+    predicted_normal_present: Any,
+    target_normals: Any | None,
+    target_normal_present: Any | None,
+) -> Any:
+    sample_count = int(predicted_normals.shape[0])
+    if target_normals is None or target_normal_present is None:
+        return torch.zeros(sample_count, dtype=torch.float32, device=predicted_normals.device)
+    predicted_norm = torch.linalg.norm(predicted_normals, dim=1)
+    target_norm = torch.linalg.norm(target_normals, dim=1)
+    valid = target_normal_present & predicted_normal_present & (predicted_norm > 1e-8) & (target_norm > 1e-8)
+    cosine = torch.sum(predicted_normals * target_normals, dim=1) / torch.clamp(predicted_norm * target_norm, min=1e-8)
+    cosine_loss = torch.clamp((1.0 - cosine) * 0.5, min=0.0, max=1.0)
+    missing_loss = torch.ones_like(cosine_loss)
+    supervised_loss = torch.where(valid, cosine_loss, missing_loss)
+    return torch.where(target_normal_present, supervised_loss, torch.zeros_like(supervised_loss))
+
+
+def _optional_target_normal_tuple(target_normals: Any | None, target_normal_present: Any | None) -> tuple[tuple[float, float, float] | None, ...]:
+    if target_normals is None or target_normal_present is None:
+        return ()
+    values = target_normals.detach().cpu().tolist()
+    present = target_normal_present.detach().cpu().tolist()
+    return tuple(tuple(float(channel) for channel in value) if is_present else None for value, is_present in zip(values, present))  # type: ignore[return-value]
 
 
 def _query_contract_loss(
