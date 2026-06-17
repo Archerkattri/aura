@@ -113,6 +113,12 @@ from aura.torch_renderer import (
     torch_render_targets,
     torch_renderer_status,
 )
+from aura.torch_optimizer import (
+    TorchOptimizationConfig,
+    TorchOptimizationResult,
+    TorchOptimizationStep,
+    torch_optimize_capture_batch,
+)
 
 __all__ = [
     "AuraChunk",
@@ -175,6 +181,9 @@ __all__ = [
     "TorchRenderBatch",
     "TorchCaptureAssetBatch",
     "TorchCaptureTrainingBatch",
+    "TorchOptimizationConfig",
+    "TorchOptimizationResult",
+    "TorchOptimizationStep",
     "TorchRendererStatus",
     "VolumeCellPayload",
     "apply_ablation",
@@ -229,6 +238,7 @@ __all__ = [
     "synthetic_training_regions",
     "torch_capture_asset_batch",
     "torch_capture_training_batch",
+    "torch_optimize_capture_batch",
     "torch_render_capture_training_batch",
     "torch_render_targets",
     "torch_renderer_status",

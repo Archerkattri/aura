@@ -46,6 +46,9 @@ This package now contains the GPU-ready skeleton for AURA:
   `capture_tensors_to_render_targets` and `torch_capture_training_batch`;
 - torch reference rendering directly from capture training batches through
   `torch_render_capture_training_batch`;
+- torch reference optimization steps through `torch_optimize_capture_batch`,
+  which runs repeated batched AURA forward passes and records image/depth/query/
+  normal losses while applying bounded native carrier color updates;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - tensor-driven native feature proposals for image-detail and depth-edge
@@ -59,7 +62,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - package-backed glTF/USD exchange-plan metadata;
 - native-first CLI fixtures.
 
-It is not yet a renderer, trainer, CUDA kernel, or research benchmark result. The first
+It is not yet a production renderer, trainer, CUDA kernel, autograd carrier
+optimizer, or research benchmark result. The first
 3DGS bridge is a fixture-sized parser that converts exported Gaussian
 means/opacities/covariances from JSON or ASCII/binary little-endian PLY into
 AURA Gaussian fallback elements. PLY `scale_*` fields are interpreted as 3DGS

@@ -63,6 +63,9 @@ native representation contract pieces:
   `torch_capture_training_batch`;
 - torch reference rendering from capture training batches via
   `torch_render_capture_training_batch`;
+- torch reference optimization steps via `torch_optimize_capture_batch`, using
+  the batched native AURA forward contract for loss reporting and bounded
+  carrier color updates;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
 - tensor-driven native feature proposals from image contrast and depth
@@ -89,7 +92,8 @@ native representation contract pieces:
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
 production EXR/video tensor loading, carrier-complete GPU differentiable
-optimization, CUDA kernels, BVH, or end-to-end benchmark results.
+optimization, CUDA kernels, BVH, autograd carrier updates, or end-to-end
+benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.
