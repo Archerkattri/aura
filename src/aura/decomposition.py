@@ -57,7 +57,7 @@ def decompose_evidence(samples: Sequence[EvidenceSample], name: str = "aura_deco
 def _sample_to_element(sample: EvidenceSample) -> AuraElement:
     carrier = choose_carrier(sample.evidence)
     payload = _payload_for(sample, carrier.id)
-    semantic_id = sample.semantic_label if carrier.id == "semantic" else None
+    semantic_id = sample.semantic_label
     return AuraElement(
         id=sample.id,
         carrier_id=carrier.id,

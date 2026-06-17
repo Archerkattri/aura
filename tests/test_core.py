@@ -150,6 +150,8 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert report["iterations"][-1]["image_loss"] < report["iterations"][0]["image_loss"]
     assert report["iterations"][-1]["depth_loss"] < report["iterations"][0]["depth_loss"]
     assert report["iterations"][-1]["total_loss"] < report["iterations"][0]["total_loss"]
+    assert report["iterations"][0]["query_loss"] == 0.0
+    assert report["iterations"][-1]["query_loss"] == 0.0
     assert len(report["iterations"][0]["predictions"]) == len(report["frames"])
     assert {item["carrier_id"] for item in report["iterations"][0]["predictions"]} >= {"surface", "volume", "gabor", "semantic"}
     assert {item["action"] for item in report["iterations"][0]["carrier_evolution"]} >= {
@@ -171,10 +173,15 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert all("predicted_semantic_id" in item for item in report["iterations"][0]["predictions"])
     assert all("predicted_residual" in item for item in report["iterations"][0]["predictions"])
     assert all("predicted_provenance" in item for item in report["iterations"][0]["predictions"])
+    assert all("target_semantic_id" in item for item in report["iterations"][0]["predictions"])
+    assert all("target_material_id" in item for item in report["iterations"][0]["predictions"])
+    assert all("query_loss" in item for item in report["iterations"][0]["predictions"])
     assert all(0.0 <= item["predicted_transmittance"] <= 1.0 for item in report["iterations"][0]["predictions"])
     assert all(0.0 <= item["predicted_opacity"] <= 1.0 for item in report["iterations"][0]["predictions"])
     assert any(item["predicted_material_id"] == "mat_wall_plaster" for item in report["iterations"][0]["predictions"])
+    assert any(item["predicted_semantic_id"] == "wall" for item in report["iterations"][0]["predictions"])
     assert any(item["predicted_semantic_id"] == "fixture_object" for item in report["iterations"][0]["predictions"])
+    assert any(item["target_semantic_id"] == "wall" for item in report["iterations"][0]["predictions"])
     assert any(item["predicted_provenance"] == item["element_id"] for item in report["iterations"][0]["predictions"])
     assert any(item["gradient_norm"] > 0.0 for item in report["iterations"][0]["predictions"])
 

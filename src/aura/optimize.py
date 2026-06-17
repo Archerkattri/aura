@@ -15,6 +15,8 @@ class RenderTarget:
     ray: Ray
     target_color: Vec3
     target_depth: float
+    target_semantic_id: str | None = None
+    target_material_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.frame_id:
@@ -33,6 +35,8 @@ class DifferentiableRaySample:
     target_color: Vec3
     predicted_depth: float | None
     target_depth: float
+    target_semantic_id: str | None
+    target_material_id: str | None
     predicted_transmittance: float
     predicted_opacity: float
     predicted_confidence: float
@@ -43,6 +47,7 @@ class DifferentiableRaySample:
     predicted_provenance: str | None
     image_loss: float
     depth_loss: float
+    query_loss: float
     color_jacobian: float
     color_gradient: Vec3
     depth_gradient: float
@@ -77,6 +82,12 @@ def _differentiate_target(
     element = element_by_id.get(element_id or "")
     image_loss = _color_mse(result.color, target.target_color)
     depth_loss = abs((result.depth or 0.0) - target.target_depth) if result.depth is not None else target.target_depth
+    query_loss = _query_contract_loss(
+        predicted_semantic_id=result.semantic_id,
+        target_semantic_id=target.target_semantic_id,
+        predicted_material_id=result.material_id,
+        target_material_id=target.target_material_id,
+    )
     color_jacobian = _color_jacobian(element, result.color)
     color_gradient = tuple(
         (2.0 / 3.0) * color_jacobian * (predicted - expected)
@@ -95,6 +106,8 @@ def _differentiate_target(
         target_color=target.target_color,
         predicted_depth=result.depth,
         target_depth=target.target_depth,
+        target_semantic_id=target.target_semantic_id,
+        target_material_id=target.target_material_id,
         predicted_transmittance=result.transmittance,
         predicted_opacity=result.opacity,
         predicted_confidence=result.confidence,
@@ -105,6 +118,7 @@ def _differentiate_target(
         predicted_provenance=result.provenance,
         image_loss=image_loss,
         depth_loss=depth_loss,
+        query_loss=query_loss,
         color_jacobian=color_jacobian,
         color_gradient=color_gradient,  # type: ignore[arg-type]
         depth_gradient=depth_gradient,
@@ -146,6 +160,21 @@ def _color_jacobian(element: AuraElement | None, predicted_color: Vec3) -> float
 
 def _color_mse(left: Vec3, right: Vec3) -> float:
     return sum((left_channel - right_channel) ** 2 for left_channel, right_channel in zip(left, right)) / 3.0
+
+
+def _query_contract_loss(
+    *,
+    predicted_semantic_id: str | None,
+    target_semantic_id: str | None,
+    predicted_material_id: str | None,
+    target_material_id: str | None,
+) -> float:
+    losses = []
+    if target_semantic_id is not None:
+        losses.append(0.0 if predicted_semantic_id == target_semantic_id else 1.0)
+    if target_material_id is not None:
+        losses.append(0.0 if predicted_material_id == target_material_id else 1.0)
+    return 0.0 if not losses else sum(losses) / len(losses)
 
 
 def _clamp_unit(value: float) -> float:

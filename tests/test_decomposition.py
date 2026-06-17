@@ -23,6 +23,7 @@ def test_native_demo_scene_is_mixed_aura_first_fixture():
     assert scene.name == "native_demo"
     assert scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
     assert all(element.payload for element in scene.elements)
+    assert {element.id: element.semantic_id for element in scene.elements}["surface_wall"] == "wall"
     assert {node.label for node in scene.semantic_graph.nodes} == {"wall", "fixture_object"}
 
 

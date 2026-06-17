@@ -57,8 +57,9 @@ native representation contract pieces:
 - dependency-free PNG, PPM/PGM, COLMAP depth-map, and COLMAP normal-map capture
   asset summaries for manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
-- CPU differentiable reference ray samples with color/depth gradients and
-  ray-query contract outputs for native AURA-Core fixture optimization;
+- CPU differentiable reference ray samples with image/depth/query losses,
+  color/depth gradients, and ray-query contract outputs for native AURA-Core
+  fixture optimization;
 - optional PyTorch renderer contract with batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors when installed with
   `aura-core[gpu]`;
@@ -131,7 +132,7 @@ aura migration-plan outputs/native-demo.aura
 aura write-training-frames-demo --output outputs/training-frames.json
 # writes posed color/depth/semantic frames plus native evidence regions
 aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6
-# runs posed-ray losses and adaptive split/promote/merge/demote carriers, without 3DGS
+# runs posed image/depth/query losses and adaptive split/promote/merge/demote carriers, without 3DGS
 
 # Real-capture manifest path:
 aura write-capture-manifest-template --output outputs/capture-manifest.json

@@ -209,6 +209,8 @@ class FramePrediction:
     target_color: Vec3
     predicted_depth: float | None
     target_depth: float
+    target_semantic_id: str | None
+    target_material_id: str | None
     predicted_transmittance: float
     predicted_opacity: float
     predicted_confidence: float
@@ -219,6 +221,7 @@ class FramePrediction:
     predicted_provenance: str | None
     image_loss: float
     depth_loss: float
+    query_loss: float
     color_jacobian: float = 0.0
     color_gradient: Vec3 = (0.0, 0.0, 0.0)
     depth_gradient: float = 0.0
@@ -245,6 +248,7 @@ class ReconstructionStep:
     iteration: int
     image_loss: float
     depth_loss: float
+    query_loss: float
     carrier_counts: dict[str, int]
     total_loss: float
     predictions: tuple[FramePrediction, ...]
@@ -255,6 +259,7 @@ class ReconstructionStep:
             "iteration": self.iteration,
             "image_loss": self.image_loss,
             "depth_loss": self.depth_loss,
+            "query_loss": self.query_loss,
             "total_loss": self.total_loss,
             "carrier_counts": dict(self.carrier_counts),
             "predictions": [prediction.to_dict() for prediction in self.predictions],
@@ -482,7 +487,7 @@ def reconstruct_demo_scene(
     training_regions = tuple(regions or synthetic_training_regions())
     scene = decompose_evidence(_initial_evidence_from_regions(training_frames, training_regions), name=name)
     scene, iterations = _reference_iterations(scene, training_frames, config)
-    final_loss = iterations[-1].image_loss + iterations[-1].depth_loss
+    final_loss = iterations[-1].image_loss + iterations[-1].depth_loss + iterations[-1].query_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
     native_fraction = 0.0 if not scene.elements else non_gaussian / len(scene.elements)
     report = ReconstructionReport(
@@ -528,13 +533,15 @@ def _reference_iterations(
         predictions = _predict_training_frames(scene, frames)
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
+        query_loss = sum(prediction.query_loss for prediction in predictions) / len(predictions)
         evolution = _carrier_evolution_decisions(predictions, scene, iteration=index) if config.enable_adaptive_evolution else tuple()
         steps.append(
             ReconstructionStep(
                 iteration=index,
                 image_loss=image_loss,
                 depth_loss=depth_loss,
-                total_loss=image_loss + depth_loss,
+                query_loss=query_loss,
+                total_loss=image_loss + depth_loss + query_loss,
                 carrier_counts=_carrier_counts(scene),
                 predictions=predictions,
                 carrier_evolution=evolution,
@@ -551,6 +558,7 @@ def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) 
             ray=Ray(origin=frame.camera_origin, direction=_normalized_direction(frame.camera_origin, frame.look_at)),
             target_color=frame.target_color,
             target_depth=frame.target_depth,
+            target_semantic_id=frame.semantic_label,
         )
         for frame in frames
     )
@@ -569,6 +577,8 @@ def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) 
                 target_color=sample.target_color,
                 predicted_depth=sample.predicted_depth,
                 target_depth=sample.target_depth,
+                target_semantic_id=sample.target_semantic_id,
+                target_material_id=sample.target_material_id,
                 predicted_transmittance=sample.predicted_transmittance,
                 predicted_opacity=sample.predicted_opacity,
                 predicted_confidence=sample.predicted_confidence,
@@ -579,6 +589,7 @@ def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) 
                 predicted_provenance=sample.predicted_provenance,
                 image_loss=sample.image_loss,
                 depth_loss=sample.depth_loss,
+                query_loss=sample.query_loss,
                 color_jacobian=sample.color_jacobian,
                 color_gradient=sample.color_gradient,
                 depth_gradient=sample.depth_gradient,
