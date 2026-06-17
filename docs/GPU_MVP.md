@@ -33,8 +33,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
 - deterministic orthographic package preview rendering and image metrics;
-- CPU differentiable reference ray samples that preserve image/depth/query
-  losses and ray-query contract outputs in reconstruction reports;
+- CPU differentiable reference ray samples that preserve image/depth/normal/
+  query losses and ray-query contract outputs in reconstruction reports;
 - residual-driven confidence updates and confidence maps on optimized native
   carriers;
 - per-pixel capture asset tensors for PNG, PPM/PGM, COLMAP dense maps, and

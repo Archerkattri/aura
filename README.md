@@ -72,8 +72,8 @@ native representation contract pieces:
   manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples with image/depth/query losses,
-  color/depth gradients, and ray-query contract outputs for native AURA-Core
-  fixture optimization;
+  normal-target/query losses, color/depth gradients, and ray-query contract
+  outputs for native AURA-Core fixture optimization;
 - residual-driven confidence updates and confidence maps on optimized native
   carriers;
 - optional PyTorch renderer contract with batched native first-hit/depth/color,

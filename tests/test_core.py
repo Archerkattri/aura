@@ -146,6 +146,7 @@ def test_reconstruct_demo_uses_explicit_capture_pixel_targets():
             bounds=Bounds((-0.25, -0.25, 0.0), (0.25, 0.25, 0.1)),
             evidence=RegionEvidence(geometry_confidence=0.9, edit_need=0.6),
             opacity=1.0,
+            normal=(0.0, 0.0, -1.0),
         ),
     )
     render_targets = (
@@ -154,6 +155,7 @@ def test_reconstruct_demo_uses_explicit_capture_pixel_targets():
             ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
             target_color=(1.0, 0.0, 0.0),
             target_depth=2.0,
+            target_normal=(0.0, 0.0, -1.0),
         ),
         RenderTarget(
             frame_id="capture_a",
@@ -175,10 +177,13 @@ def test_reconstruct_demo_uses_explicit_capture_pixel_targets():
     assert "capture_tensor_pixel_targets" in report["stages"]
     assert "capture_tensor_pixels" in report["sources"]
     assert len(report["iterations"][0]["predictions"]) == 2
+    assert report["iterations"][0]["normal_loss"] == 0.0
     assert [item["target_color"] for item in report["iterations"][0]["predictions"]] == [
         (1.0, 0.0, 0.0),
         (0.0, 1.0, 0.0),
     ]
+    assert report["iterations"][0]["predictions"][0]["target_normal"] == (0.0, 0.0, -1.0)
+    assert report["iterations"][0]["predictions"][0]["normal_loss"] == 0.0
 
 
 def test_reconstruct_demo_rejects_render_targets_for_unknown_frames():
@@ -256,6 +261,8 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert all("target_semantic_id" in item for item in report["iterations"][0]["predictions"])
     assert all("target_material_id" in item for item in report["iterations"][0]["predictions"])
     assert all("query_loss" in item for item in report["iterations"][0]["predictions"])
+    assert all("target_normal" in item for item in report["iterations"][0]["predictions"])
+    assert all("normal_loss" in item for item in report["iterations"][0]["predictions"])
     assert all(0.0 <= item["predicted_transmittance"] <= 1.0 for item in report["iterations"][0]["predictions"])
     assert all(0.0 <= item["predicted_opacity"] <= 1.0 for item in report["iterations"][0]["predictions"])
     assert any(item["predicted_material_id"] == "mat_wall_plaster" for item in report["iterations"][0]["predictions"])

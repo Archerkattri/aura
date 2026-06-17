@@ -65,6 +65,7 @@ def capture_tensors_to_render_targets(
                     target_color=color,
                     target_depth=depth if depth is not None and depth > 0.0 else frame.target_depth,
                     target_semantic_id=frame.semantic_label,
+                    target_normal=normal,
                 )
                 targets.append(
                     CapturePixelTarget(

@@ -202,6 +202,7 @@ def test_capture_tensors_create_masked_per_pixel_render_targets():
     assert targets[0].render_target.target_color == (1.0, 0.0, 0.0)
     assert targets[0].render_target.target_depth == 0.25
     assert targets[0].render_target.target_semantic_id == "fixture"
+    assert targets[0].render_target.target_normal == (0.0, 0.0, -1.0)
     assert targets[0].mask_value == 1.0
     assert targets[0].target_normal == (0.0, 0.0, -1.0)
     assert targets[0].render_target.ray.origin == (0.0, 0.0, -2.0)

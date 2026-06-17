@@ -17,6 +17,7 @@ class RenderTarget:
     target_depth: float
     target_semantic_id: str | None = None
     target_material_id: str | None = None
+    target_normal: Vec3 | None = None
 
     def __post_init__(self) -> None:
         if not self.frame_id:
@@ -37,6 +38,7 @@ class DifferentiableRaySample:
     target_depth: float
     target_semantic_id: str | None
     target_material_id: str | None
+    target_normal: Vec3 | None
     predicted_transmittance: float
     predicted_opacity: float
     predicted_confidence: float
@@ -48,6 +50,7 @@ class DifferentiableRaySample:
     image_loss: float
     depth_loss: float
     query_loss: float
+    normal_loss: float
     color_jacobian: float
     color_gradient: Vec3
     depth_gradient: float
@@ -88,6 +91,7 @@ def _differentiate_target(
         predicted_material_id=result.material_id,
         target_material_id=target.target_material_id,
     )
+    normal_loss = _normal_loss(result.normal, target.target_normal)
     color_jacobian = _color_jacobian(element, result.color)
     color_gradient = tuple(
         (2.0 / 3.0) * color_jacobian * (predicted - expected)
@@ -108,6 +112,7 @@ def _differentiate_target(
         target_depth=target.target_depth,
         target_semantic_id=target.target_semantic_id,
         target_material_id=target.target_material_id,
+        target_normal=target.target_normal,
         predicted_transmittance=result.transmittance,
         predicted_opacity=result.opacity,
         predicted_confidence=result.confidence,
@@ -119,6 +124,7 @@ def _differentiate_target(
         image_loss=image_loss,
         depth_loss=depth_loss,
         query_loss=query_loss,
+        normal_loss=normal_loss,
         color_jacobian=color_jacobian,
         color_gradient=color_gradient,  # type: ignore[arg-type]
         depth_gradient=depth_gradient,
@@ -175,6 +181,26 @@ def _query_contract_loss(
     if target_material_id is not None:
         losses.append(0.0 if predicted_material_id == target_material_id else 1.0)
     return 0.0 if not losses else sum(losses) / len(losses)
+
+
+def _normal_loss(predicted: Vec3 | None, target: Vec3 | None) -> float:
+    if target is None:
+        return 0.0
+    if predicted is None:
+        return 1.0
+    predicted_norm = _normalize(predicted)
+    target_norm = _normalize(target)
+    if predicted_norm is None or target_norm is None:
+        return 1.0
+    cosine = sum(left * right for left, right in zip(predicted_norm, target_norm))
+    return max(0.0, min(1.0, (1.0 - cosine) / 2.0))
+
+
+def _normalize(vector: Vec3) -> Vec3 | None:
+    norm = sqrt(sum(axis * axis for axis in vector))
+    if norm <= 1e-12:
+        return None
+    return tuple(axis / norm for axis in vector)  # type: ignore[return-value]
 
 
 def _clamp_unit(value: float) -> float:

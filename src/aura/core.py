@@ -211,6 +211,7 @@ class FramePrediction:
     target_depth: float
     target_semantic_id: str | None
     target_material_id: str | None
+    target_normal: Vec3 | None
     predicted_transmittance: float
     predicted_opacity: float
     predicted_confidence: float
@@ -222,6 +223,7 @@ class FramePrediction:
     image_loss: float
     depth_loss: float
     query_loss: float
+    normal_loss: float
     color_jacobian: float = 0.0
     color_gradient: Vec3 = (0.0, 0.0, 0.0)
     depth_gradient: float = 0.0
@@ -249,6 +251,7 @@ class ReconstructionStep:
     image_loss: float
     depth_loss: float
     query_loss: float
+    normal_loss: float
     carrier_counts: dict[str, int]
     total_loss: float
     predictions: tuple[FramePrediction, ...]
@@ -260,6 +263,7 @@ class ReconstructionStep:
             "image_loss": self.image_loss,
             "depth_loss": self.depth_loss,
             "query_loss": self.query_loss,
+            "normal_loss": self.normal_loss,
             "total_loss": self.total_loss,
             "carrier_counts": dict(self.carrier_counts),
             "predictions": [prediction.to_dict() for prediction in self.predictions],
@@ -490,7 +494,7 @@ def reconstruct_demo_scene(
     _validate_render_targets(training_frames, training_targets)
     scene = decompose_evidence(_initial_evidence_from_regions(training_frames, training_regions), name=name)
     scene, iterations = _reference_iterations(scene, training_frames, config, render_targets=training_targets or None)
-    final_loss = iterations[-1].image_loss + iterations[-1].depth_loss + iterations[-1].query_loss
+    final_loss = iterations[-1].image_loss + iterations[-1].depth_loss + iterations[-1].query_loss + iterations[-1].normal_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
     native_fraction = 0.0 if not scene.elements else non_gaussian / len(scene.elements)
     stages = (
@@ -559,6 +563,7 @@ def _reference_iterations(
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
         query_loss = sum(prediction.query_loss for prediction in predictions) / len(predictions)
+        normal_loss = sum(prediction.normal_loss for prediction in predictions) / len(predictions)
         evolution = _carrier_evolution_decisions(predictions, scene, iteration=index) if config.enable_adaptive_evolution else tuple()
         steps.append(
             ReconstructionStep(
@@ -566,7 +571,8 @@ def _reference_iterations(
                 image_loss=image_loss,
                 depth_loss=depth_loss,
                 query_loss=query_loss,
-                total_loss=image_loss + depth_loss + query_loss,
+                normal_loss=normal_loss,
+                total_loss=image_loss + depth_loss + query_loss + normal_loss,
                 carrier_counts=_carrier_counts(scene),
                 predictions=predictions,
                 carrier_evolution=evolution,
@@ -609,6 +615,7 @@ def _predict_training_frames(
                 target_depth=sample.target_depth,
                 target_semantic_id=sample.target_semantic_id,
                 target_material_id=sample.target_material_id,
+                target_normal=sample.target_normal,
                 predicted_transmittance=sample.predicted_transmittance,
                 predicted_opacity=sample.predicted_opacity,
                 predicted_confidence=sample.predicted_confidence,
@@ -620,6 +627,7 @@ def _predict_training_frames(
                 image_loss=sample.image_loss,
                 depth_loss=sample.depth_loss,
                 query_loss=sample.query_loss,
+                normal_loss=sample.normal_loss,
                 color_jacobian=sample.color_jacobian,
                 color_gradient=sample.color_gradient,
                 depth_gradient=sample.depth_gradient,
@@ -868,6 +876,7 @@ def _updated_confidence_map(element: AuraElement, prediction: FramePrediction) -
         "optimization_image_loss": _clamp_unit(prediction.image_loss),
         "optimization_depth_loss": _clamp_unit(prediction.depth_loss),
         "optimization_query_loss": _clamp_unit(prediction.query_loss),
+        "optimization_normal_loss": _clamp_unit(prediction.normal_loss),
         "optimization_residual": _prediction_residual(prediction),
     }
 
@@ -877,6 +886,7 @@ def _evolved_confidence_map(prediction: FramePrediction) -> dict[str, float]:
         "residual": _clamp_unit(prediction.image_loss),
         "depth": _clamp_unit(prediction.depth_loss),
         "query": _clamp_unit(prediction.query_loss),
+        "normal": _clamp_unit(prediction.normal_loss),
         "optimization_residual": _prediction_residual(prediction),
     }
 
@@ -888,7 +898,7 @@ def _refined_confidence(confidence: float, prediction: FramePrediction, *, learn
 
 
 def _prediction_residual(prediction: FramePrediction) -> float:
-    return _clamp_unit(prediction.image_loss + prediction.depth_loss * 0.25 + prediction.query_loss)
+    return _clamp_unit(prediction.image_loss + prediction.depth_loss * 0.25 + prediction.query_loss + prediction.normal_loss * 0.5)
 
 
 def _clamp_unit(value: float) -> float:
