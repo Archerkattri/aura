@@ -119,7 +119,9 @@ without relying on summary-only statistics.
 Use `aura plan-capture-sampling <manifest> --tile-size N --pixel-stride S
 --max-targets-per-frame M` to emit the deterministic tile schedule and sampled
 pixel counts that future tiled, memory-mapped, or GPU-native loaders should
-match before materializing render targets.
+match before materializing render targets. CPU and torch capture target builders
+use the same mask-aware sampling semantics, skipping pixels whose mask value is
+zero or negative.
 Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
 N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
 sampled per-pixel capture tensor targets before moving the same target batches

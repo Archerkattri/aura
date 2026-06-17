@@ -154,16 +154,43 @@ def test_torch_capture_training_batch_samples_per_pixel_targets():
     batch = torch_capture_training_batch((frame,), assets)
     payload = batch.to_dict()
 
-    assert tuple(batch.frame_indices.tolist()) == (0, 0)
-    assert batch.pixel_xy.tolist() == [[0, 0], [1, 0]]
-    assert batch.target_color.tolist() == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
-    assert batch.target_depth.tolist() == [0.25, 2.0]
-    assert batch.target_mask.tolist() == [1.0, 0.0]
-    assert batch.target_normal.tolist() == [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]
-    assert batch.target_normal_present.tolist() == [True, True]
+    assert tuple(batch.frame_indices.tolist()) == (0,)
+    assert batch.pixel_xy.tolist() == [[0, 0]]
+    assert batch.target_color.tolist() == [[1.0, 0.0, 0.0]]
+    assert batch.target_depth.tolist() == [0.25]
+    assert batch.target_mask.tolist() == [1.0]
+    assert batch.target_normal.tolist() == [[0.0, 0.0, -1.0]]
+    assert batch.target_normal_present.tolist() == [True]
     assert batch.ray_directions.tolist()[0] == [0.0, 0.0, 1.0]
-    assert payload["targetColor"]["shape"] == [2, 3]
-    assert payload["targetNormalPresent"]["shape"] == [2]
+    assert payload["targetColor"]["shape"] == [1, 3]
+    assert payload["targetNormalPresent"]["shape"] == [1]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_rejects_fully_masked_targets():
+    frame = TrainingFrame(
+        id="frame_a",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                image_values=(1.0, 0.0, 0.0),
+                mask_values=(0.0,),
+                width=1,
+                height=1,
+            ),
+        ),
+        device="cpu",
+    )
+
+    with pytest.raises(ValueError, match="no sampled pixels"):
+        torch_capture_training_batch((frame,), assets)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

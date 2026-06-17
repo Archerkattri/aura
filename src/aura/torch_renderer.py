@@ -258,9 +258,14 @@ def torch_capture_training_batch(
     directions: list[tuple[float, float, float]] = []
     for frame_index, frame_id in enumerate(assets.frame_ids):
         frame = by_frame[frame_id]
+        has_mask = assets.mask is not None and (
+            assets.mask_present is None or bool(assets.mask_present[frame_index].detach().cpu().item())
+        )
         produced = 0
         for y in range(0, height, pixel_stride):
             for x in range(0, width, pixel_stride):
+                if has_mask and float(assets.mask[frame_index, y, x, 0].detach().cpu().item()) <= 0.0:
+                    continue
                 frame_indices.append(frame_index)
                 pixels.append((x, y))
                 origins.append(frame.camera_origin)
@@ -270,6 +275,8 @@ def torch_capture_training_batch(
                     break
             if max_targets_per_frame is not None and produced >= max_targets_per_frame:
                 break
+    if not frame_indices:
+        raise ValueError("torch capture training batch produced no sampled pixels")
     index_tensor = torch.tensor(frame_indices, dtype=torch.long, device=device)
     pixel_tensor = torch.tensor(pixels, dtype=torch.long, device=device)
     y_index = pixel_tensor[:, 1]
