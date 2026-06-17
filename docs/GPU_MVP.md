@@ -42,6 +42,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - torch/CUDA capture asset batching through `torch_capture_asset_batch`, which
   stacks manifest image/depth/mask/normal tensors and presence masks on the
   selected device;
+- per-pixel capture training target generation through
+  `capture_tensors_to_render_targets` and `torch_capture_training_batch`;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors over `AuraScene`
   and `RenderTarget`;

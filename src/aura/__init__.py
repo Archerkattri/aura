@@ -100,12 +100,15 @@ from aura.render import RenderImage, compare_images, image_mse, image_psnr, read
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
+from aura.training_targets import CapturePixelTarget, capture_tensors_to_render_targets
 from aura.torch_renderer import (
     TorchCaptureAssetBatch,
+    TorchCaptureTrainingBatch,
     TorchRenderBatch,
     TorchRendererStatus,
     require_torch,
     torch_capture_asset_batch,
+    torch_capture_training_batch,
     torch_render_targets,
     torch_renderer_status,
 )
@@ -128,6 +131,7 @@ __all__ = [
     "CaptureFrameAssets",
     "CaptureFrameTensors",
     "CaptureManifest",
+    "CapturePixelTarget",
     "CaptureTensor",
     "CarrierKind",
     "CarrierSpec",
@@ -169,10 +173,12 @@ __all__ = [
     "TrainingRegion",
     "TorchRenderBatch",
     "TorchCaptureAssetBatch",
+    "TorchCaptureTrainingBatch",
     "TorchRendererStatus",
     "VolumeCellPayload",
     "apply_ablation",
     "capture_manifest_template",
+    "capture_tensors_to_render_targets",
     "choose_carrier",
     "colmap_binary_to_capture_manifest",
     "colmap_text_to_capture_manifest",
@@ -221,6 +227,7 @@ __all__ = [
     "synthetic_training_dataset",
     "synthetic_training_regions",
     "torch_capture_asset_batch",
+    "torch_capture_training_batch",
     "torch_render_targets",
     "torch_renderer_status",
     "require_torch",

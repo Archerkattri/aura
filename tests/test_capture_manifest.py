@@ -5,6 +5,10 @@ import sys
 import zlib
 
 from aura import (
+    CaptureTensor,
+    CaptureFrameTensors,
+    TrainingFrame,
+    capture_tensors_to_render_targets,
     decompose_evidence,
     load_capture_asset_tensors,
     load_capture_assets,
@@ -138,6 +142,57 @@ def test_capture_manifest_loads_per_pixel_asset_tensors(tmp_path):
     assert tensors[0].mask.values == (1.0, 0.0)
     assert tensors[0].normal.shape == (1, 2, 3)
     assert tensors[0].normal.values == (0.0, 0.0, -1.0, 0.0, 0.0, -1.0)
+
+
+def test_capture_tensors_create_masked_per_pixel_render_targets():
+    frame = TrainingFrame(
+        id="frame_000001",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.1, 0.1, 0.1),
+        target_depth=2.0,
+        semantic_label="fixture",
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+    tensors = CaptureFrameTensors(
+        frame_id="frame_000001",
+        image=CaptureTensor("image.ppm", "Netpbm", "stdlib", 2, 1, 3, (1.0, 0.0, 0.0, 0.0, 0.5, 0.5)),
+        depth=CaptureTensor("depth.pgm", "Netpbm", "stdlib", 2, 1, 1, (0.25, 0.75)),
+        mask=CaptureTensor("mask.pgm", "Netpbm", "stdlib", 2, 1, 1, (1.0, 0.0)),
+        normal=CaptureTensor("normal.bin", "COLMAP_DENSE_MAP", "stdlib", 2, 1, 3, (0.0, 0.0, -1.0, 0.0, 1.0, 0.0)),
+    )
+
+    targets = capture_tensors_to_render_targets((frame,), (tensors,))
+
+    assert len(targets) == 1
+    assert targets[0].pixel == (0, 0)
+    assert targets[0].render_target.target_color == (1.0, 0.0, 0.0)
+    assert targets[0].render_target.target_depth == 0.25
+    assert targets[0].render_target.target_semantic_id == "fixture"
+    assert targets[0].mask_value == 1.0
+    assert targets[0].target_normal == (0.0, 0.0, -1.0)
+    assert targets[0].render_target.ray.origin == (0.0, 0.0, -2.0)
+    assert targets[0].render_target.ray.direction == (0.0, 0.0, 1.0)
+
+
+def test_capture_tensors_use_frame_depth_when_pixel_depth_is_missing():
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.1, 0.1, 0.1),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    tensors = CaptureFrameTensors(
+        frame_id="frame",
+        image=CaptureTensor("image.ppm", "Netpbm", "stdlib", 1, 1, 3, (0.25, 0.5, 0.75)),
+        depth=CaptureTensor("depth.pgm", "Netpbm", "stdlib", 1, 1, 1, (0.0,)),
+    )
+
+    targets = capture_tensors_to_render_targets((frame,), (tensors,))
+
+    assert targets[0].render_target.target_depth == 2.0
 
 
 def test_capture_manifest_loads_png_asset_summaries(tmp_path):

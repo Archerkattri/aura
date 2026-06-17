@@ -58,6 +58,9 @@ native representation contract pieces:
   normal maps, and optional `imageio` EXR/HDR/video backends;
 - torch/CUDA capture asset batching for manifest image/depth/mask/normal tensors
   via `torch_capture_asset_batch`;
+- per-pixel capture training target generation from image/depth/mask/normal
+  tensors via `capture_tensors_to_render_targets` and
+  `torch_capture_training_batch`;
 - deterministic capture asset summaries built from the same tensor path for
   manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;

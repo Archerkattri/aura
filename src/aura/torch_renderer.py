@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 from aura.ingest.capture import CaptureFrameTensors, CaptureTensor
 from aura.optimize import RenderTarget
+from aura.core import TrainingFrame
 from aura.scene import AuraScene
 
 
@@ -88,6 +89,34 @@ class TorchCaptureAssetBatch:
         }
 
 
+@dataclass(frozen=True)
+class TorchCaptureTrainingBatch:
+    device: str
+    frame_ids: tuple[str, ...]
+    frame_indices: Any
+    pixel_xy: Any
+    ray_origins: Any
+    ray_directions: Any
+    target_color: Any
+    target_depth: Any
+    target_mask: Any | None
+    target_normal: Any | None
+
+    def to_dict(self) -> dict:
+        return {
+            "device": self.device,
+            "frameIds": list(self.frame_ids),
+            "frameIndices": _torch_tensor_metadata(self.frame_indices),
+            "pixelXY": _torch_tensor_metadata(self.pixel_xy),
+            "rayOrigins": _torch_tensor_metadata(self.ray_origins),
+            "rayDirections": _torch_tensor_metadata(self.ray_directions),
+            "targetColor": _torch_tensor_metadata(self.target_color),
+            "targetDepth": _torch_tensor_metadata(self.target_depth),
+            "targetMask": _torch_tensor_metadata(self.target_mask),
+            "targetNormal": _torch_tensor_metadata(self.target_normal),
+        }
+
+
 def torch_renderer_status() -> TorchRendererStatus:
     if find_spec("torch") is None:
         return TorchRendererStatus(
@@ -153,6 +182,74 @@ def torch_capture_asset_batch(
         mask_present=mask_present,
         normal=normal,
         normal_present=normal_present,
+    )
+
+
+def torch_capture_training_batch(
+    frames: Sequence[TrainingFrame],
+    assets: TorchCaptureAssetBatch,
+    *,
+    pixel_stride: int = 1,
+    max_targets_per_frame: int | None = None,
+) -> TorchCaptureTrainingBatch:
+    """Create per-pixel torch training rays and targets from capture assets."""
+
+    if pixel_stride <= 0:
+        raise ValueError("pixel_stride must be positive")
+    if not assets.frame_ids:
+        raise ValueError("capture asset batch is empty")
+    by_frame = {frame.id: frame for frame in frames}
+    missing = [frame_id for frame_id in assets.frame_ids if frame_id not in by_frame]
+    if missing:
+        raise ValueError(f"capture asset batch references unknown training frames: {', '.join(missing)}")
+    torch = require_torch()
+    device = assets.image.device
+    height = int(assets.image.shape[1])
+    width = int(assets.image.shape[2])
+    frame_indices: list[int] = []
+    pixels: list[tuple[int, int]] = []
+    origins: list[tuple[float, float, float]] = []
+    directions: list[tuple[float, float, float]] = []
+    for frame_index, frame_id in enumerate(assets.frame_ids):
+        frame = by_frame[frame_id]
+        produced = 0
+        for y in range(0, height, pixel_stride):
+            for x in range(0, width, pixel_stride):
+                frame_indices.append(frame_index)
+                pixels.append((x, y))
+                origins.append(frame.camera_origin)
+                directions.append(_pixel_ray_direction(frame, x, y))
+                produced += 1
+                if max_targets_per_frame is not None and produced >= max_targets_per_frame:
+                    break
+            if max_targets_per_frame is not None and produced >= max_targets_per_frame:
+                break
+    index_tensor = torch.tensor(frame_indices, dtype=torch.long, device=device)
+    pixel_tensor = torch.tensor(pixels, dtype=torch.long, device=device)
+    y_index = pixel_tensor[:, 1]
+    x_index = pixel_tensor[:, 0]
+    target_color = assets.image[index_tensor, y_index, x_index, :3]
+    if assets.depth is not None:
+        sampled_depth = assets.depth[index_tensor, y_index, x_index, 0]
+        frame_depths = torch.tensor([by_frame[frame_id].target_depth for frame_id in assets.frame_ids], dtype=torch.float32, device=device)
+        fallback_depth = frame_depths[index_tensor]
+        target_depth = torch.where(sampled_depth > 0.0, sampled_depth, fallback_depth)
+    else:
+        frame_depths = torch.tensor([by_frame[frame_id].target_depth for frame_id in assets.frame_ids], dtype=torch.float32, device=device)
+        target_depth = frame_depths[index_tensor]
+    target_mask = assets.mask[index_tensor, y_index, x_index, 0] if assets.mask is not None else None
+    target_normal = assets.normal[index_tensor, y_index, x_index, :3] if assets.normal is not None else None
+    return TorchCaptureTrainingBatch(
+        device=str(device),
+        frame_ids=tuple(assets.frame_ids),
+        frame_indices=index_tensor,
+        pixel_xy=pixel_tensor,
+        ray_origins=torch.tensor(origins, dtype=torch.float32, device=device),
+        ray_directions=torch.tensor(directions, dtype=torch.float32, device=device),
+        target_color=target_color,
+        target_depth=target_depth,
+        target_mask=target_mask,
+        target_normal=target_normal,
     )
 
 
@@ -309,6 +406,49 @@ def _torch_tensor_metadata(tensor: Any | None) -> dict | None:
         "dtype": str(tensor.dtype),
         "device": str(tensor.device),
     }
+
+
+def _pixel_ray_direction(frame: TrainingFrame, x: int, y: int) -> tuple[float, float, float]:
+    forward = _normalize(tuple(frame.look_at[index] - frame.camera_origin[index] for index in range(3)))
+    if frame.intrinsics is None:
+        return forward
+    fx = max(frame.intrinsics["fx"], 1e-6)
+    fy = max(frame.intrinsics["fy"], 1e-6)
+    cx = frame.intrinsics["cx"]
+    cy = frame.intrinsics["cy"]
+    right_raw = _cross(forward, (0.0, 1.0, 0.0))
+    if _norm(right_raw) <= 1e-12:
+        right_raw = _cross(forward, (1.0, 0.0, 0.0))
+    right = _normalize(right_raw)
+    up = _normalize(_cross(right, forward))
+    px = ((x + 0.5) - cx) / fx
+    py = ((y + 0.5) - cy) / fy
+    return _normalize(
+        (
+            forward[0] + right[0] * px - up[0] * py,
+            forward[1] + right[1] * px - up[1] * py,
+            forward[2] + right[2] * px - up[2] * py,
+        )
+    )
+
+
+def _cross(left: tuple[float, float, float], right: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _normalize(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    norm = _norm(vector)
+    if norm <= 1e-12:
+        raise ValueError("cannot normalize zero vector")
+    return (vector[0] / norm, vector[1] / norm, vector[2] / norm)
+
+
+def _norm(vector: tuple[float, float, float]) -> float:
+    return sum(axis * axis for axis in vector) ** 0.5
 
 
 def _carrier_response_tensors(
