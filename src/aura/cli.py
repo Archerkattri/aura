@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     reconstruct_demo.add_argument("--output-dir", type=Path, default=Path("outputs/reconstruct-demo.aura"))
     reconstruct_demo.add_argument("--iterations", type=int, default=4)
     reconstruct_demo.add_argument("--frames", type=Path, default=None, help="JSON posed training frames for AURA-Core")
+    _add_reconstruction_config_args(reconstruct_demo)
 
     frames_demo = sub.add_parser("write-training-frames-demo", help="Write a JSON posed-frame fixture for AURA-Core")
     frames_demo.add_argument("--output", type=Path, default=Path("outputs/training-frames.json"))
@@ -101,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     reconstruct_capture.add_argument("--pixel-stride", type=int, default=1)
     reconstruct_capture.add_argument("--max-targets-per-frame", type=int, default=256)
+    _add_reconstruction_config_args(reconstruct_capture)
 
     torch_optimize_capture = sub.add_parser(
         "torch-optimize-capture-manifest",
@@ -227,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "reconstruct-demo":
         dataset = load_training_dataset(args.frames) if args.frames is not None else None
         result = reconstruct_demo_scene(
-            ReconstructionConfig(iterations=args.iterations),
+            _reconstruction_config_from_args(args),
             frames=dataset.frames if dataset is not None else None,
             regions=dataset.regions if dataset is not None else None,
         )
@@ -265,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             render_targets = tuple(target.render_target for target in pixel_targets)
         result = reconstruct_demo_scene(
-            ReconstructionConfig(iterations=args.iterations),
+            _reconstruction_config_from_args(args),
             frames=dataset.frames,
             regions=dataset.regions,
             render_targets=render_targets,
@@ -439,6 +441,33 @@ def demo_scene() -> AuraScene:
     )
     chunk = AuraChunk(id="root", bounds=bounds, element_ids=("wall_patch",), lod=0)
     return AuraScene(name="demo", elements=(element,), chunks=(chunk,))
+
+
+def _add_reconstruction_config_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--color-learning-rate", type=float, default=0.35)
+    parser.add_argument("--disable-adaptive-evolution", action="store_true")
+    parser.add_argument("--split-image-loss-threshold", type=float, default=0.03)
+    parser.add_argument("--depth-anchor-loss-threshold", type=float, default=0.10)
+    parser.add_argument("--merge-image-loss-threshold", type=float, default=0.025)
+    parser.add_argument("--merge-depth-loss-threshold", type=float, default=0.04)
+    parser.add_argument("--demote-after-iteration", type=int, default=3)
+    parser.add_argument("--demote-image-loss-threshold", type=float, default=0.045)
+    parser.add_argument("--demote-depth-loss-threshold", type=float, default=0.02)
+
+
+def _reconstruction_config_from_args(args: argparse.Namespace) -> ReconstructionConfig:
+    return ReconstructionConfig(
+        iterations=args.iterations,
+        color_learning_rate=args.color_learning_rate,
+        enable_adaptive_evolution=not args.disable_adaptive_evolution,
+        split_image_loss_threshold=args.split_image_loss_threshold,
+        depth_anchor_loss_threshold=args.depth_anchor_loss_threshold,
+        merge_image_loss_threshold=args.merge_image_loss_threshold,
+        merge_depth_loss_threshold=args.merge_depth_loss_threshold,
+        demote_after_iteration=args.demote_after_iteration,
+        demote_image_loss_threshold=args.demote_image_loss_threshold,
+        demote_depth_loss_threshold=args.demote_depth_loss_threshold,
+    )
 
 
 def _scene_from_training_dataset(dataset, *, name: str) -> AuraScene:

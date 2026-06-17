@@ -352,6 +352,69 @@ def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):
     assert report["iterations"][0]["carrier_evolution"]
 
 
+def test_reconstruct_demo_cli_accepts_adaptive_policy_flags(tmp_path):
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "reconstruct-demo",
+            "--output-dir",
+            str(tmp_path),
+            "--frames",
+            str(FIXTURE_DIR / "training_frames.json"),
+            "--iterations",
+            "2",
+            "--split-image-loss-threshold",
+            "1.0",
+            "--demote-after-iteration",
+            "5",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    report = json.loads((tmp_path / "training_report.json").read_text(encoding="utf-8"))
+    created = {
+        item["created_element_id"]
+        for step in report["iterations"]
+        for item in step["carrier_evolution"]
+        if item["created_element_id"] is not None
+    }
+
+    assert report["evolutionPolicy"]["splitImageLossThreshold"] == 1.0
+    assert report["evolutionPolicy"]["demoteAfterIteration"] == 5
+    assert "soft_volume_beta_detail" not in created
+    assert "semantic_object_neural_residual" not in created
+
+
+def test_reconstruct_demo_cli_can_disable_adaptive_evolution(tmp_path):
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "reconstruct-demo",
+            "--output-dir",
+            str(tmp_path),
+            "--frames",
+            str(FIXTURE_DIR / "training_frames.json"),
+            "--iterations",
+            "2",
+            "--disable-adaptive-evolution",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    report = json.loads((tmp_path / "training_report.json").read_text(encoding="utf-8"))
+
+    assert report["evolutionPolicy"]["enabled"] is False
+    assert all(not step["carrier_evolution"] for step in report["iterations"])
+
+
 def test_write_training_frames_demo_cli_outputs_reconstructable_frames(tmp_path):
     frames_path = tmp_path / "frames.json"
     package_dir = tmp_path / "package.aura"

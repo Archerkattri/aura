@@ -185,6 +185,8 @@ aura write-training-frames-demo --output outputs/training-frames.json
 # writes posed color/depth/semantic frames plus native evidence regions
 aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6
 # runs posed image/depth/query losses and adaptive split/promote/merge/demote carriers, without 3DGS
+aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6 --split-image-loss-threshold 0.04 --demote-after-iteration 4
+# tunes the adaptive evolution policy written into training_report.json
 
 # Real-capture manifest path:
 aura write-capture-manifest-template --output outputs/capture-manifest.json
@@ -193,6 +195,8 @@ aura capture-manifest-to-training outputs/capture-manifest.json --output outputs
 # validates the manifest and converts it to the AURA-Core training dataset contract
 aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
 # runs the current CPU reference reconstruction path from a real-capture manifest
+aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture-static.aura --iterations 6 --disable-adaptive-evolution
+# runs the same path with carrier split/promote/merge/demote decisions disabled
 
 # Asset-backed fixture captures:
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json

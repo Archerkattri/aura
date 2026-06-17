@@ -120,6 +120,12 @@ sampled per-pixel capture tensor targets before moving the same target batches
 to CUDA. Manifest-to-training conversion derives summaries, feature proposals,
 depth priors, and mask priors from one loaded tensor batch to avoid duplicate
 asset decode work in the reference path.
+Use the shared reconstruction flags `--split-image-loss-threshold`,
+`--depth-anchor-loss-threshold`, `--merge-image-loss-threshold`,
+`--merge-depth-loss-threshold`, `--demote-after-iteration`, and
+`--disable-adaptive-evolution` on `reconstruct-demo` or
+`reconstruct-capture-manifest` to tune or freeze the adaptive carrier evolution
+policy recorded in the reconstruction report.
 Use `aura torch-optimize-capture-manifest <manifest> --device cuda
 --pixel-stride N --max-targets-per-frame M` to run the current torch reference
 optimization scaffold from the same native capture tensor batches. It writes a
