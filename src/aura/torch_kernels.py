@@ -96,7 +96,9 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
             payload_type="gaussian_fallback",
             carrier_id="gaussian",
             differentiable_fields=("color", "opacity", "confidence"),
-            description="Gaussian fallback path for evidence that does not justify a native carrier.",
+            description="Gaussian fallback torch autograd kernel for evidence that does not justify a native carrier; CUDA production kernel is still required.",
+            implementation_stage="torch_autograd_gaussian_fallback_kernel",
+            autograd_kernel=True,
         ),
     )
 
@@ -112,7 +114,7 @@ def torch_carrier_kernel_report() -> dict:
         "autogradCarrierCount": sum(1 for spec in specs if spec.autograd_kernel),
         "cudaCarrierCount": sum(1 for spec in specs if spec.cuda_kernel),
         "kernelSpecs": [spec.to_dict() for spec in specs],
-        "requiredNextStep": "complete remaining carrier autograd paths and add carrier-complete CUDA kernels",
+        "requiredNextStep": "add carrier-complete CUDA kernels for every autograd-covered carrier",
     }
 
 
@@ -190,6 +192,21 @@ def torch_carrier_response_tensors(
                 default=element.payload.get("confidence", element.confidence),
             )
             confidence[mask] = torch.clamp(semantic_confidence, min=0.0, max=1.0)
+        elif payload_type == "gaussian_fallback":
+            gaussian_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
+            gaussian_opacity = torch.clamp(
+                _carrier_parameter(torch, element, "opacity", carrier_parameters, device, default=element.opacity),
+                min=0.0,
+                max=1.0,
+            )
+            gaussian_confidence = torch.clamp(
+                _carrier_parameter(torch, element, "confidence", carrier_parameters, device, default=element.confidence),
+                min=0.0,
+                max=1.0,
+            )
+            carrier_colors[mask] = torch.clamp(gaussian_color, min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - gaussian_opacity, min=0.0, max=1.0)
+            confidence[mask] = gaussian_confidence
 
     return carrier_colors, transmittance, confidence, residual
 
@@ -266,6 +283,27 @@ def torch_carrier_parameter_tensors(
                     device=device,
                     requires_grad=requires_grad,
                 )
+            }
+        elif payload_type == "gaussian_fallback":
+            parameters[element.id] = {
+                "color": torch.tensor(
+                    tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "opacity": torch.tensor(
+                    float(element.payload.get("opacity", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
             }
     return parameters
 

@@ -106,8 +106,9 @@ density parameter path. The beta carrier has differentiable bounded-shape
 parameters, and the gabor carrier has differentiable frequency/phase/bandwidth
 parameters. The neural residual carrier has a differentiable residual-scale
 path, and the semantic carrier has differentiable confidence scoring;
-production readiness still requires CUDA kernels and the remaining Gaussian
-fallback autograd path.
+the Gaussian fallback carrier has differentiable fallback color/opacity/
+confidence parameters. Production readiness still requires CUDA kernels for
+every carrier.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
