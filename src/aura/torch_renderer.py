@@ -5,6 +5,7 @@ from importlib.util import find_spec
 from math import pi
 from typing import Any, Sequence
 
+from aura.ingest.capture import CaptureFrameTensors, CaptureTensor
 from aura.optimize import RenderTarget
 from aura.scene import AuraScene
 
@@ -61,6 +62,32 @@ class TorchRenderBatch:
         }
 
 
+@dataclass(frozen=True)
+class TorchCaptureAssetBatch:
+    device: str
+    frame_ids: tuple[str, ...]
+    image: Any
+    depth: Any | None
+    depth_present: Any | None
+    mask: Any | None
+    mask_present: Any | None
+    normal: Any | None
+    normal_present: Any | None
+
+    def to_dict(self) -> dict:
+        return {
+            "device": self.device,
+            "frameIds": list(self.frame_ids),
+            "image": _torch_tensor_metadata(self.image),
+            "depth": _torch_tensor_metadata(self.depth),
+            "depthPresent": _torch_tensor_metadata(self.depth_present),
+            "mask": _torch_tensor_metadata(self.mask),
+            "maskPresent": _torch_tensor_metadata(self.mask_present),
+            "normal": _torch_tensor_metadata(self.normal),
+            "normalPresent": _torch_tensor_metadata(self.normal_present),
+        }
+
+
 def torch_renderer_status() -> TorchRendererStatus:
     if find_spec("torch") is None:
         return TorchRendererStatus(
@@ -83,6 +110,50 @@ def require_torch() -> Any:
     if not status.available:
         raise RuntimeError(status.reason or "PyTorch renderer is unavailable")
     return _import_torch()
+
+
+def torch_capture_asset_batch(
+    frames: Sequence[CaptureFrameTensors],
+    *,
+    device: str | None = None,
+) -> TorchCaptureAssetBatch:
+    """Move capture-manifest image/depth/mask/normal tensors into torch batches."""
+
+    if not frames:
+        raise ValueError("torch capture asset batching requires at least one frame")
+    torch = require_torch()
+    status = torch_renderer_status()
+    resolved_device = device or status.default_device or "cpu"
+    image = _stack_required_capture_tensors(torch, tuple(frame.image for frame in frames), device=resolved_device, name="image")
+    depth, depth_present = _stack_optional_capture_tensors(
+        torch,
+        tuple(frame.depth for frame in frames),
+        device=resolved_device,
+        name="depth",
+    )
+    mask, mask_present = _stack_optional_capture_tensors(
+        torch,
+        tuple(frame.mask for frame in frames),
+        device=resolved_device,
+        name="mask",
+    )
+    normal, normal_present = _stack_optional_capture_tensors(
+        torch,
+        tuple(frame.normal for frame in frames),
+        device=resolved_device,
+        name="normal",
+    )
+    return TorchCaptureAssetBatch(
+        device=str(resolved_device),
+        frame_ids=tuple(frame.frame_id for frame in frames),
+        image=image,
+        depth=depth,
+        depth_present=depth_present,
+        mask=mask,
+        mask_present=mask_present,
+        normal=normal,
+        normal_present=normal_present,
+    )
 
 
 def torch_render_targets(
@@ -182,6 +253,62 @@ def _import_torch() -> Any:
     import torch
 
     return torch
+
+
+def _stack_required_capture_tensors(torch: Any, tensors: Sequence[CaptureTensor], *, device: str, name: str) -> Any:
+    if any(tensor is None for tensor in tensors):
+        raise ValueError(f"{name} tensors are required for every frame")
+    shape = _shared_capture_tensor_shape(tensors, name=name)
+    values = [list(tensor.values) for tensor in tensors]
+    return torch.tensor(values, dtype=torch.float32, device=device).reshape((len(tensors), *shape))
+
+
+def _stack_optional_capture_tensors(
+    torch: Any,
+    tensors: Sequence[CaptureTensor | None],
+    *,
+    device: str,
+    name: str,
+) -> tuple[Any | None, Any | None]:
+    if not any(tensor is not None for tensor in tensors):
+        return None, None
+    present_items = tuple(tensor for tensor in tensors if tensor is not None)
+    shape = _shared_capture_tensor_shape(present_items, name=name)
+    values = []
+    present = []
+    zero_values = [0.0] * (shape[0] * shape[1] * shape[2])
+    for tensor in tensors:
+        if tensor is None:
+            values.append(zero_values)
+            present.append(False)
+            continue
+        if tensor.shape != shape:
+            raise ValueError(f"{name} tensor shapes must match within a batch")
+        values.append(list(tensor.values))
+        present.append(True)
+    batch = torch.tensor(values, dtype=torch.float32, device=device).reshape((len(tensors), *shape))
+    present_tensor = torch.tensor(present, dtype=torch.bool, device=device)
+    return batch, present_tensor
+
+
+def _shared_capture_tensor_shape(tensors: Sequence[CaptureTensor], *, name: str) -> tuple[int, int, int]:
+    if not tensors:
+        raise ValueError(f"{name} tensor batch is empty")
+    shape = tensors[0].shape
+    mismatched = [tensor.shape for tensor in tensors if tensor.shape != shape]
+    if mismatched:
+        raise ValueError(f"{name} tensor shapes must match within a batch")
+    return shape
+
+
+def _torch_tensor_metadata(tensor: Any | None) -> dict | None:
+    if tensor is None:
+        return None
+    return {
+        "shape": list(tensor.shape),
+        "dtype": str(tensor.dtype),
+        "device": str(tensor.device),
+    }
 
 
 def _carrier_response_tensors(

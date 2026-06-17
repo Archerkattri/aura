@@ -83,9 +83,9 @@ AURA_CAPTURE_MANIFEST
 1. Replace the optional payload-aware PyTorch AABB reference path and CPU
    differentiable reference renderer with a carrier-complete PyTorch/CUDA
    renderer over the same `TrainingFrame` and `TrainingRegion` contracts.
-2. Extend the new `CaptureFrameTensors` path from PNG/PPM/PGM/COLMAP dense
-   maps and optional `imageio` EXR/HDR/video loading into direct torch/CUDA
-   batches for manifest image/depth/mask/normal assets.
+2. Feed `torch_capture_asset_batch` outputs directly into training ray/sample
+   generation, replacing summary-only target colors/depths with per-pixel
+   image/depth/mask/normal tensors.
 3. Harden COLMAP import beyond deterministic sparse/depth/mask/normal prior
    regions, including learned region proposal generation.
 4. Replace the reference Torch payload semantics with real differentiable

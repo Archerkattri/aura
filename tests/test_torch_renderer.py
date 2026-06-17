@@ -6,9 +6,12 @@ from aura import (
     AuraElement,
     AuraScene,
     Bounds,
+    CaptureFrameTensors,
+    CaptureTensor,
     Ray,
     RenderTarget,
     require_torch,
+    torch_capture_asset_batch,
     torch_render_targets,
     torch_renderer_status,
 )
@@ -31,6 +34,63 @@ def test_require_torch_reports_install_hint_when_unavailable():
 
     with pytest.raises(RuntimeError, match="torch"):
         require_torch()
+
+
+def test_torch_capture_asset_batch_reports_install_hint_when_unavailable():
+    if importlib.util.find_spec("torch") is not None:
+        pytest.skip("torch is installed in this environment")
+
+    with pytest.raises(RuntimeError, match="torch"):
+        torch_capture_asset_batch((_capture_tensor_frame(),), device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_asset_batch_stacks_manifest_tensors_on_device():
+    batch = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                image_values=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+                depth_values=(0.25, 0.75),
+                mask_values=(1.0, 0.0),
+            ),
+            _capture_tensor_frame(
+                frame_id="frame_b",
+                image_values=(0.0, 0.0, 1.0, 1.0, 1.0, 1.0),
+                depth_values=None,
+                mask_values=(0.0, 1.0),
+            ),
+        ),
+        device="cpu",
+    )
+    payload = batch.to_dict()
+
+    assert batch.frame_ids == ("frame_a", "frame_b")
+    assert tuple(batch.image.shape) == (2, 1, 2, 3)
+    assert tuple(batch.depth.shape) == (2, 1, 2, 1)
+    assert tuple(batch.depth_present.tolist()) == (True, False)
+    assert tuple(batch.mask_present.tolist()) == (True, True)
+    assert payload["image"]["shape"] == [2, 1, 2, 3]
+    assert payload["depthPresent"]["dtype"] == "torch.bool"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_asset_batch_rejects_mismatched_shapes():
+    bad_frame = CaptureFrameTensors(
+        frame_id="bad",
+        image=CaptureTensor(
+            path="bad.ppm",
+            format="Netpbm",
+            backend="stdlib",
+            width=1,
+            height=1,
+            channels=3,
+            values=(1.0, 0.0, 0.0),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="image tensor shapes"):
+        torch_capture_asset_batch((_capture_tensor_frame(), bad_frame), device="cpu")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -110,3 +170,46 @@ def test_torch_render_targets_reports_native_payload_semantics():
     assert batch.semantic_ids == ("object", None)
     assert batch.confidence[0] == pytest.approx(0.9)
     assert batch.residual == (False, True)
+
+
+def _capture_tensor_frame(
+    *,
+    frame_id: str = "frame",
+    image_values=(1.0, 0.0, 0.0, 0.0, 0.5, 0.5),
+    depth_values=(0.5, 1.0),
+    mask_values=(1.0, 0.0),
+) -> CaptureFrameTensors:
+    return CaptureFrameTensors(
+        frame_id=frame_id,
+        image=CaptureTensor(
+            path=f"{frame_id}.ppm",
+            format="Netpbm",
+            backend="stdlib",
+            width=2,
+            height=1,
+            channels=3,
+            values=tuple(image_values),
+        ),
+        depth=CaptureTensor(
+            path=f"{frame_id}.pgm",
+            format="Netpbm",
+            backend="stdlib",
+            width=2,
+            height=1,
+            channels=1,
+            values=tuple(depth_values),
+        )
+        if depth_values is not None
+        else None,
+        mask=CaptureTensor(
+            path=f"{frame_id}_mask.pgm",
+            format="Netpbm",
+            backend="stdlib",
+            width=2,
+            height=1,
+            channels=1,
+            values=tuple(mask_values),
+        )
+        if mask_values is not None
+        else None,
+    )
