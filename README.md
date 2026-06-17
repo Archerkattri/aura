@@ -60,6 +60,8 @@ native representation contract pieces:
 - CPU differentiable reference ray samples with image/depth/query losses,
   color/depth gradients, and ray-query contract outputs for native AURA-Core
   fixture optimization;
+- residual-driven confidence updates and confidence maps on optimized native
+  carriers;
 - optional PyTorch renderer contract with batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors when installed with
   `aura-core[gpu]`;

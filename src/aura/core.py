@@ -714,14 +714,18 @@ def _refine_scene_from_predictions(
             depth_delta = -prediction.depth_gradient * prediction.depth_loss * config.color_learning_rate
             bounds = _shift_bounds_along_ray(element.bounds, prediction.ray_direction, depth_delta)
         decision = decision_by_element.get(element.id)
+        confidence_map = _updated_confidence_map(element, prediction)
         elements.append(
             replace(
                 element,
                 bounds=bounds,
                 color=color,  # type: ignore[arg-type]
+                confidence=_refined_confidence(element.confidence, prediction, learning_rate=config.color_learning_rate),
+                confidence_map=confidence_map,
                 metadata={
                     **element.metadata,
                     "optimized_by": "aura-core-differentiable-reference",
+                    "confidence_updated_by": "aura-core-residual-confidence",
                     **_simplification_metadata(decision),
                 },
             )
@@ -757,7 +761,7 @@ def _evolved_element_for(
                 "parent": element.id,
                 "evolution": decision.action,
             },
-            confidence_map={"residual": prediction.image_loss, "depth": prediction.depth_loss},
+            confidence_map=_evolved_confidence_map(prediction),
             edit={"source": "adaptive-carrier-evolution", "parent": element.id},
             payload=BetaKernelPayload(alpha=3.0, beta=3.0, support_radius=_half_extent(bounds)).to_dict(),
         )
@@ -778,7 +782,7 @@ def _evolved_element_for(
                 "parent": element.id,
                 "evolution": decision.action,
             },
-            confidence_map={"residual": prediction.image_loss, "depth": prediction.depth_loss},
+            confidence_map=_evolved_confidence_map(prediction),
             edit={"source": "adaptive-carrier-evolution", "parent": element.id},
             payload=NeuralResidualPayload(latent_dim=16, residual_scale=min(1.0, prediction.image_loss * 4.0)).to_dict(),
         )
@@ -826,6 +830,39 @@ def _simplification_metadata(decision: CarrierEvolutionDecision | None) -> dict[
         "simplified_child": decision.created_element_id or "",
         "simplification": decision.action,
     }
+
+
+def _updated_confidence_map(element: AuraElement, prediction: FramePrediction) -> dict[str, float]:
+    return {
+        **element.confidence_map,
+        "optimization_image_loss": _clamp_unit(prediction.image_loss),
+        "optimization_depth_loss": _clamp_unit(prediction.depth_loss),
+        "optimization_query_loss": _clamp_unit(prediction.query_loss),
+        "optimization_residual": _prediction_residual(prediction),
+    }
+
+
+def _evolved_confidence_map(prediction: FramePrediction) -> dict[str, float]:
+    return {
+        "residual": _clamp_unit(prediction.image_loss),
+        "depth": _clamp_unit(prediction.depth_loss),
+        "query": _clamp_unit(prediction.query_loss),
+        "optimization_residual": _prediction_residual(prediction),
+    }
+
+
+def _refined_confidence(confidence: float, prediction: FramePrediction, *, learning_rate: float) -> float:
+    residual = _prediction_residual(prediction)
+    target = 1.0 - residual
+    return _clamp_unit(confidence + (target - confidence) * min(1.0, learning_rate))
+
+
+def _prediction_residual(prediction: FramePrediction) -> float:
+    return _clamp_unit(prediction.image_loss + prediction.depth_loss * 0.25 + prediction.query_loss)
+
+
+def _clamp_unit(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
 
 
 def _shrink_bounds(bounds: Bounds, *, scale: float) -> Bounds:

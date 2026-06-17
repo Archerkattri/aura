@@ -134,12 +134,21 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert result.scene.carrier_ids() == ["beta", "gabor", "gaussian", "neural", "semantic", "surface", "volume"]
     by_id = {element.id: element for element in result.scene.elements}
     assert by_id["surface_wall"].metadata["source"] == "aura-core-training-region"
+    assert by_id["surface_wall"].metadata["confidence_updated_by"] == "aura-core-residual-confidence"
+    assert by_id["surface_wall"].confidence <= 1.0
+    assert by_id["surface_wall"].confidence_map["optimization_image_loss"] >= 0.0
+    assert by_id["surface_wall"].confidence_map["optimization_depth_loss"] >= 0.0
+    assert by_id["surface_wall"].confidence_map["optimization_query_loss"] == 0.0
+    assert 0.0 <= by_id["surface_wall"].confidence_map["optimization_residual"] <= 1.0
     assert by_id["soft_volume_beta_detail"].metadata["source"] == "aura-core-adaptive-evolution"
     assert by_id["soft_volume_beta_detail"].carrier_id == "beta"
     assert by_id["soft_volume_beta_detail"].payload["type"] == "beta_kernel"
+    assert by_id["soft_volume_beta_detail"].confidence_map["query"] == 0.0
+    assert "optimization_residual" in by_id["soft_volume_beta_detail"].confidence_map
     assert by_id["semantic_object_neural_residual"].metadata["source"] == "aura-core-adaptive-evolution"
     assert by_id["semantic_object_neural_residual"].carrier_id == "neural"
     assert by_id["semantic_object_neural_residual"].payload["type"] == "neural_residual"
+    assert by_id["semantic_object_neural_residual"].confidence_map["query"] == 0.0
     assert set(result.scene.chunks[0].element_ids) == set(by_id)
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["sources"] == ["posed_training_frames", "training_regions", "depth_targets", "semantic_labels"]

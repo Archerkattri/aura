@@ -35,6 +35,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - deterministic orthographic package preview rendering and image metrics;
 - CPU differentiable reference ray samples that preserve image/depth/query
   losses and ray-query contract outputs in reconstruction reports;
+- residual-driven confidence updates and confidence maps on optimized native
+  carriers;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors over `AuraScene`
   and `RenderTarget`;
