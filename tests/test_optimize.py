@@ -22,6 +22,10 @@ def test_differentiable_scene_rays_report_loss_and_gradients():
                 bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
                 color=(0.2, 0.2, 0.2),
                 opacity=1.0,
+                confidence=0.85,
+                normal=(0.0, 0.0, -1.0),
+                material_id="mat_surface",
+                semantic_id="panel",
             ),
         ),
     )
@@ -37,6 +41,14 @@ def test_differentiable_scene_rays_report_loss_and_gradients():
     assert sample.element_id == "surface"
     assert sample.carrier_id == "surface"
     assert sample.predicted_color == (0.2, 0.2, 0.2)
+    assert sample.predicted_transmittance == 0.0
+    assert sample.predicted_opacity == 1.0
+    assert sample.predicted_confidence == 0.85
+    assert sample.predicted_normal == (0.0, 0.0, -1.0)
+    assert sample.predicted_material_id == "mat_surface"
+    assert sample.predicted_semantic_id == "panel"
+    assert sample.predicted_residual is False
+    assert sample.predicted_provenance == "surface"
     assert sample.image_loss == pytest.approx(0.12)
     assert sample.depth_loss == 0.0
     assert sample.color_jacobian == 1.0

@@ -163,6 +163,19 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     }
     assert all("ray_direction" in item for item in report["iterations"][0]["predictions"])
     assert all("color_gradient" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_transmittance" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_opacity" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_confidence" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_normal" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_material_id" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_semantic_id" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_residual" in item for item in report["iterations"][0]["predictions"])
+    assert all("predicted_provenance" in item for item in report["iterations"][0]["predictions"])
+    assert all(0.0 <= item["predicted_transmittance"] <= 1.0 for item in report["iterations"][0]["predictions"])
+    assert all(0.0 <= item["predicted_opacity"] <= 1.0 for item in report["iterations"][0]["predictions"])
+    assert any(item["predicted_material_id"] == "mat_wall_plaster" for item in report["iterations"][0]["predictions"])
+    assert any(item["predicted_semantic_id"] == "fixture_object" for item in report["iterations"][0]["predictions"])
+    assert any(item["predicted_provenance"] == item["element_id"] for item in report["iterations"][0]["predictions"])
     assert any(item["gradient_norm"] > 0.0 for item in report["iterations"][0]["predictions"])
 
 

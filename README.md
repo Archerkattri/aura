@@ -55,8 +55,8 @@ native representation contract pieces:
 - dependency-free PNG, PPM/PGM, COLMAP depth-map, and COLMAP normal-map capture
   asset summaries for manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
-- CPU differentiable reference ray samples with color/depth gradients for
-  native AURA-Core fixture optimization;
+- CPU differentiable reference ray samples with color/depth gradients and
+  ray-query contract outputs for native AURA-Core fixture optimization;
 - optional PyTorch renderer contract with batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors when installed with
   `aura-core[gpu]`;

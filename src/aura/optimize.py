@@ -33,6 +33,14 @@ class DifferentiableRaySample:
     target_color: Vec3
     predicted_depth: float | None
     target_depth: float
+    predicted_transmittance: float
+    predicted_opacity: float
+    predicted_confidence: float
+    predicted_normal: Vec3 | None
+    predicted_material_id: str | None
+    predicted_semantic_id: str | None
+    predicted_residual: bool
+    predicted_provenance: str | None
     image_loss: float
     depth_loss: float
     color_jacobian: float
@@ -87,6 +95,14 @@ def _differentiate_target(
         target_color=target.target_color,
         predicted_depth=result.depth,
         target_depth=target.target_depth,
+        predicted_transmittance=result.transmittance,
+        predicted_opacity=result.opacity,
+        predicted_confidence=result.confidence,
+        predicted_normal=result.normal,
+        predicted_material_id=result.material_id,
+        predicted_semantic_id=result.semantic_id,
+        predicted_residual=result.residual,
+        predicted_provenance=result.provenance,
         image_loss=image_loss,
         depth_loss=depth_loss,
         color_jacobian=color_jacobian,

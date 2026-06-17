@@ -209,6 +209,14 @@ class FramePrediction:
     target_color: Vec3
     predicted_depth: float | None
     target_depth: float
+    predicted_transmittance: float
+    predicted_opacity: float
+    predicted_confidence: float
+    predicted_normal: Vec3 | None
+    predicted_material_id: str | None
+    predicted_semantic_id: str | None
+    predicted_residual: bool
+    predicted_provenance: str | None
     image_loss: float
     depth_loss: float
     color_jacobian: float = 0.0
@@ -561,6 +569,14 @@ def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) 
                 target_color=sample.target_color,
                 predicted_depth=sample.predicted_depth,
                 target_depth=sample.target_depth,
+                predicted_transmittance=sample.predicted_transmittance,
+                predicted_opacity=sample.predicted_opacity,
+                predicted_confidence=sample.predicted_confidence,
+                predicted_normal=sample.predicted_normal,
+                predicted_material_id=sample.predicted_material_id,
+                predicted_semantic_id=sample.predicted_semantic_id,
+                predicted_residual=sample.predicted_residual,
+                predicted_provenance=sample.predicted_provenance,
                 image_loss=sample.image_loss,
                 depth_loss=sample.depth_loss,
                 color_jacobian=sample.color_jacobian,
