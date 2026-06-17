@@ -320,6 +320,7 @@ def test_json_schema_documents_are_parseable_and_versioned():
         "semantic_graph.schema.json",
         "exchange.schema.json",
         "training_dataset.schema.json",
+        "capture_manifest.schema.json",
     }
     found = {path.name for path in SCHEMA_DIR.glob("*.schema.json")}
 
@@ -339,6 +340,7 @@ def test_json_schema_documents_are_packaged_runtime_resources():
         "semantic_graph.schema.json",
         "exchange.schema.json",
         "training_dataset.schema.json",
+        "capture_manifest.schema.json",
     }
     package_files = resources.files("aura.schemas")
     found = {path.name for path in package_files.iterdir() if path.name.endswith(".schema.json")}

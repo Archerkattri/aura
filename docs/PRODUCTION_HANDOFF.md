@@ -26,6 +26,14 @@ aura validate-package outputs/reconstruct-capture.aura
 aura inspect-package outputs/reconstruct-capture.aura
 ```
 
+For manifests whose `image_path`, `depth_path`, and `mask_path` files exist as
+PPM/PGM fixtures, also run:
+
+```bash
+aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
+aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
+```
+
 ## Real Data Layout
 
 Do not commit data, third-party repos, checkpoints, outputs, or secrets.
@@ -67,7 +75,8 @@ AURA_CAPTURE_MANIFEST
 1. Replace the fixture prediction loop in `src/aura/core.py` with a real
    differentiable renderer over the same `TrainingFrame` and `TrainingRegion`
    contracts.
-2. Add image/depth loading for manifest `image_path`, `depth_path`, and
+2. Replace the current dependency-free PPM/PGM fixture asset loader with real
+   PNG/EXR/video tensor loading for manifest `image_path`, `depth_path`, and
    `mask_path`.
 3. Add COLMAP pose/intrinsics import that writes `AURA_CAPTURE_MANIFEST`.
 4. Add GPU kernels or a PyTorch prototype for surface, volume, beta, gabor,

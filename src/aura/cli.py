@@ -18,6 +18,7 @@ from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
     load_3dgs_scene,
+    load_capture_assets,
     load_capture_manifest,
     package_3dgs_export,
     supported_ingest_adapters,
@@ -71,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     capture_to_training.add_argument("manifest", type=Path)
     capture_to_training.add_argument("--output", type=Path, default=Path("outputs/training-from-capture.json"))
+    capture_to_training.add_argument(
+        "--load-assets",
+        action="store_true",
+        help="Read fixture PPM/PGM image/depth/mask assets and replace target summaries",
+    )
 
     reconstruct_capture = sub.add_parser(
         "reconstruct-capture-manifest",
@@ -79,6 +85,17 @@ def main(argv: list[str] | None = None) -> int:
     reconstruct_capture.add_argument("manifest", type=Path)
     reconstruct_capture.add_argument("--output-dir", type=Path, default=Path("outputs/reconstruct-capture.aura"))
     reconstruct_capture.add_argument("--iterations", type=int, default=4)
+    reconstruct_capture.add_argument(
+        "--load-assets",
+        action="store_true",
+        help="Read fixture PPM/PGM image/depth/mask assets before reconstruction",
+    )
+
+    inspect_capture_assets = sub.add_parser(
+        "inspect-capture-assets",
+        help="Load capture-manifest PPM/PGM assets and print deterministic summaries as JSON",
+    )
+    inspect_capture_assets.add_argument("manifest", type=Path)
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -173,12 +190,15 @@ def main(argv: list[str] | None = None) -> int:
         manifest = load_capture_manifest(args.manifest)
         out = args.output
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(manifest.to_training_dataset().to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        out.write_text(
+            json.dumps(manifest.to_training_dataset(load_assets=args.load_assets).to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         print(out)
         return 0
     if args.command == "reconstruct-capture-manifest":
         manifest = load_capture_manifest(args.manifest)
-        dataset = manifest.to_training_dataset()
+        dataset = manifest.to_training_dataset(load_assets=args.load_assets)
         result = reconstruct_demo_scene(
             ReconstructionConfig(iterations=args.iterations),
             frames=dataset.frames,
@@ -189,6 +209,10 @@ def main(argv: list[str] | None = None) -> int:
         report_path = package_dir / "training_report.json"
         report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(package_dir)
+        return 0
+    if args.command == "inspect-capture-assets":
+        manifest = load_capture_manifest(args.manifest)
+        print(json.dumps([item.to_dict() for item in load_capture_assets(manifest)], indent=2, sort_keys=True))
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))

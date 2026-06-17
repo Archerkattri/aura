@@ -48,10 +48,10 @@ native representation contract pieces:
 - package-backed glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
 
-It does **not** yet contain the full AURA-Core reconstruction engine: image/video
-data loading, pose/depth bootstrapping, differentiable carrier optimization,
-adaptive split/merge/promote training, CUDA kernels, BVH, or end-to-end
-benchmark results.
+It does **not** yet contain the full AURA-Core reconstruction engine:
+production PNG/EXR/video tensor loading, pose/depth bootstrapping,
+differentiable carrier optimization, adaptive split/merge/promote training,
+CUDA kernels, BVH, or end-to-end benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.
@@ -116,6 +116,12 @@ aura capture-manifest-to-training outputs/capture-manifest.json --output outputs
 # validates the manifest and converts it to the AURA-Core training dataset contract
 aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
 # runs the current CPU reference reconstruction path from a real-capture manifest
+
+# Asset-backed fixture captures:
+aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
+# loads existing fixture PPM/PGM image/depth/mask assets and prints deterministic summaries
+aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
+# replaces target color/depth summaries from fixture PPM/PGM assets
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura

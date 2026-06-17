@@ -48,6 +48,7 @@ from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
     BaselineExport,
+    CaptureFrameAssets,
     CaptureManifest,
     DepthEvidencePoint,
     GaussianSplatSample,
@@ -60,6 +61,7 @@ from aura.ingest import (
     load_3dgs_export,
     load_3dgs_ply,
     load_3dgs_scene,
+    load_capture_assets,
     load_capture_manifest,
     package_3dgs_export,
     semantic_masks_to_evidence,
@@ -93,6 +95,7 @@ __all__ = [
     "BenchmarkSuite",
     "BetaKernelPayload",
     "Bounds",
+    "CaptureFrameAssets",
     "CaptureManifest",
     "CarrierKind",
     "CarrierSpec",
@@ -141,6 +144,7 @@ __all__ = [
     "load_3dgs_export",
     "load_3dgs_ply",
     "load_3dgs_scene",
+    "load_capture_assets",
     "load_capture_manifest",
     "load_package",
     "load_training_dataset",
