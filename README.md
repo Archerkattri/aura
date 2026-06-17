@@ -76,6 +76,8 @@ native representation contract pieces:
   image/depth/normal/mask losses and backpropagation through carrier parameter tensors;
 - torch reference optimization steps via `torch_optimize_capture_batch`, using
   live render objectives for gradient updates over native carrier tensors;
+- configurable adaptive carrier evolution thresholds for split/promote/merge/
+  demote actions, emitted in reconstruction reports;
 - explicit torch carrier kernel specs and autograd parameter tensors for
   surface, volume, beta, gabor, neural, semantic, and Gaussian fallback
   semantics;

@@ -189,6 +189,13 @@ class ReconstructionConfig:
     render_height: int = 8
     color_learning_rate: float = 0.35
     enable_adaptive_evolution: bool = True
+    split_image_loss_threshold: float = 0.03
+    depth_anchor_loss_threshold: float = 0.10
+    merge_image_loss_threshold: float = 0.025
+    merge_depth_loss_threshold: float = 0.04
+    demote_after_iteration: int = 3
+    demote_image_loss_threshold: float = 0.045
+    demote_depth_loss_threshold: float = 0.02
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -197,6 +204,30 @@ class ReconstructionConfig:
             raise ValueError("render dimensions must be positive")
         if not 0.0 < self.color_learning_rate <= 1.0:
             raise ValueError("color_learning_rate must be in (0, 1]")
+        for name in (
+            "split_image_loss_threshold",
+            "depth_anchor_loss_threshold",
+            "merge_image_loss_threshold",
+            "merge_depth_loss_threshold",
+            "demote_image_loss_threshold",
+            "demote_depth_loss_threshold",
+        ):
+            if getattr(self, name) < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if self.demote_after_iteration < 0:
+            raise ValueError("demote_after_iteration must be non-negative")
+
+    def evolution_policy(self) -> dict:
+        return {
+            "enabled": self.enable_adaptive_evolution,
+            "splitImageLossThreshold": self.split_image_loss_threshold,
+            "depthAnchorLossThreshold": self.depth_anchor_loss_threshold,
+            "mergeImageLossThreshold": self.merge_image_loss_threshold,
+            "mergeDepthLossThreshold": self.merge_depth_loss_threshold,
+            "demoteAfterIteration": self.demote_after_iteration,
+            "demoteImageLossThreshold": self.demote_image_loss_threshold,
+            "demoteDepthLossThreshold": self.demote_depth_loss_threshold,
+        }
 
 
 @dataclass(frozen=True)
@@ -280,6 +311,7 @@ class ReconstructionReport:
     final_loss: float
     native_carrier_fraction: float
     sources: tuple[str, ...]
+    evolution_policy: dict
 
     def to_dict(self) -> dict:
         return {
@@ -291,6 +323,7 @@ class ReconstructionReport:
             "finalLoss": self.final_loss,
             "nativeCarrierFraction": self.native_carrier_fraction,
             "sources": list(self.sources),
+            "evolutionPolicy": dict(self.evolution_policy),
         }
 
 
@@ -524,6 +557,7 @@ def reconstruct_demo_scene(
         final_loss=final_loss,
         native_carrier_fraction=native_fraction,
         sources=sources,
+        evolution_policy=config.evolution_policy(),
     )
     return ReconstructionResult(scene=scene, report=report)
 
@@ -564,7 +598,7 @@ def _reference_iterations(
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
         query_loss = sum(prediction.query_loss for prediction in predictions) / len(predictions)
         normal_loss = sum(prediction.normal_loss for prediction in predictions) / len(predictions)
-        evolution = _carrier_evolution_decisions(predictions, scene, iteration=index) if config.enable_adaptive_evolution else tuple()
+        evolution = _carrier_evolution_decisions(predictions, scene, config=config, iteration=index) if config.enable_adaptive_evolution else tuple()
         steps.append(
             ReconstructionStep(
                 iteration=index,
@@ -641,6 +675,7 @@ def _carrier_evolution_decisions(
     predictions: Sequence[FramePrediction],
     scene: AuraScene,
     *,
+    config: ReconstructionConfig,
     iteration: int,
 ) -> tuple[CarrierEvolutionDecision, ...]:
     decisions = []
@@ -660,21 +695,21 @@ def _carrier_evolution_decisions(
         if (
             prediction.carrier_id == "volume"
             and beta_child_id in element_ids
-            and prediction.image_loss < 0.025
-            and prediction.depth_loss < 0.04
+            and prediction.image_loss < config.merge_image_loss_threshold
+            and prediction.depth_loss < config.merge_depth_loss_threshold
         ):
             action = "merge_beta_detail"
             reason = "volume parent residual fell below split-detail threshold"
         elif (
             prediction.carrier_id == "semantic"
             and neural_child_id in element_ids
-            and iteration >= 3
-            and prediction.image_loss < 0.045
-            and prediction.depth_loss < 0.02
+            and iteration >= config.demote_after_iteration
+            and prediction.image_loss < config.demote_image_loss_threshold
+            and prediction.depth_loss < config.demote_depth_loss_threshold
         ):
             action = "demote_neural_residual"
             reason = "semantic residual no longer needs a neural child"
-        elif prediction.image_loss > 0.03 and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
+        elif prediction.image_loss > config.split_image_loss_threshold and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
             if prediction.carrier_id == "volume":
                 if element.metadata.get("simplified_child") == beta_child_id:
                     action = "retain_carrier"
@@ -692,7 +727,7 @@ def _carrier_evolution_decisions(
             else:
                 action = "refine_radiance"
                 reason = "photometric residual above native carrier threshold"
-        elif prediction.depth_loss > 0.10 and prediction.carrier_id in {"surface", "volume", "semantic"}:
+        elif prediction.depth_loss > config.depth_anchor_loss_threshold and prediction.carrier_id in {"surface", "volume", "semantic"}:
             action = "anchor_carrier_depth"
             reason = "depth residual exceeds reference tolerance"
         elif prediction.carrier_id == "gabor":

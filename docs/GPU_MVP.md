@@ -61,6 +61,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - torch reference optimization steps through `torch_optimize_capture_batch`,
   which runs repeated batched AURA forward passes, records image/depth/query/
   normal losses, and applies gradient updates to native carrier tensors;
+- configurable adaptive carrier evolution thresholds for split/promote/merge/
+  demote actions, emitted in reconstruction reports;
 - explicit torch carrier kernel specs and autograd parameter tensors for
   surface, volume, beta, gabor, neural residual, semantic, and Gaussian fallback
   semantics;

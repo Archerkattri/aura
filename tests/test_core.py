@@ -232,6 +232,9 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert "soft_volume_beta_detail" in chunk_by_id["detail_beta_lod1"].element_ids
     assert "semantic_object_neural_residual" in chunk_by_id["residual_neural_lod1"].element_ids
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
+    assert report["evolutionPolicy"]["enabled"] is True
+    assert report["evolutionPolicy"]["splitImageLossThreshold"] == 0.03
+    assert report["evolutionPolicy"]["demoteAfterIteration"] == 3
     assert report["sources"] == ["posed_training_frames", "training_regions", "depth_targets", "semantic_labels"]
     assert "native_evidence_initialization" in report["stages"]
     assert "cpu_differentiable_reference_render" in report["stages"]
@@ -276,6 +279,29 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert any(item["target_semantic_id"] == "wall" for item in report["iterations"][0]["predictions"])
     assert any(item["predicted_provenance"] == item["element_id"] for item in report["iterations"][0]["predictions"])
     assert any(item["gradient_norm"] > 0.0 for item in report["iterations"][0]["predictions"])
+
+
+def test_reconstruct_demo_exposes_configurable_evolution_thresholds():
+    config = ReconstructionConfig(iterations=2, split_image_loss_threshold=1.0)
+    result = reconstruct_demo_scene(config)
+    report = result.report.to_dict()
+    created = {
+        item["created_element_id"]
+        for step in report["iterations"]
+        for item in step["carrier_evolution"]
+        if item["created_element_id"] is not None
+    }
+
+    assert report["evolutionPolicy"]["splitImageLossThreshold"] == 1.0
+    assert "soft_volume_beta_detail" not in created
+    assert "semantic_object_neural_residual" not in created
+
+
+def test_reconstruction_config_rejects_invalid_evolution_thresholds():
+    with pytest.raises(ValueError, match="split_image_loss_threshold"):
+        ReconstructionConfig(split_image_loss_threshold=-0.1)
+    with pytest.raises(ValueError, match="demote_after_iteration"):
+        ReconstructionConfig(demote_after_iteration=-1)
 
 
 def test_reconstruct_demo_merges_and_demotes_converged_adaptive_children():
