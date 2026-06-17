@@ -33,6 +33,7 @@ class TorchRenderBatch:
     frame_ids: tuple[str, ...]
     element_ids: tuple[str | None, ...]
     carrier_ids: tuple[str | None, ...]
+    ordered_hits: tuple[tuple[dict[str, object], ...], ...]
     predicted_color: tuple[tuple[float, float, float], ...]
     predicted_depth: tuple[float | None, ...]
     transmittance: tuple[float, ...]
@@ -59,6 +60,7 @@ class TorchRenderBatch:
             "frameIds": list(self.frame_ids),
             "elementIds": list(self.element_ids),
             "carrierIds": list(self.carrier_ids),
+            "orderedHits": [[dict(hit) for hit in ray_hits] for ray_hits in self.ordered_hits],
             "predictedColor": [list(color) for color in self.predicted_color],
             "predictedDepth": list(self.predicted_depth),
             "transmittance": list(self.transmittance),
@@ -525,6 +527,12 @@ def _torch_render_tensor_targets(
         frame_ids=tuple(frame_ids),
         element_ids=tuple(elements[index].id if hit else None for index, hit in zip(best_indices, hit_flags)),
         carrier_ids=tuple(elements[index].carrier_id if hit else None for index, hit in zip(best_indices, hit_flags)),
+        ordered_hits=_torch_ordered_hit_traces(
+            elements,
+            composited["hit_indices"],
+            composited["hit_depths"],
+            composited["hit_transmittance"],
+        ),
         predicted_color=_tensor_vec3_tuple(predicted_colors.detach().cpu().tolist()),
         predicted_depth=tuple(float(value) if hit else None for value, hit in zip(predicted_depths.detach().cpu().tolist(), hit_flags)),
         transmittance=tuple(float(value) for value in transmittance.detach().cpu().tolist()),
@@ -682,8 +690,10 @@ def _torch_composite_carrier_hits(
         residual = residual | (active & residual_flags)
 
     hit_indices = []
+    hit_depths = []
     for indices, depths in zip(sorted_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
         hit_indices.append(tuple(int(index) for index, depth in zip(indices, depths) if depth != float("inf")))
+        hit_depths.append(tuple(float(depth) for depth in depths if depth != float("inf")))
 
     confidence = torch.where(confidence_den > 0.0, confidence_num / torch.clamp(confidence_den, min=1e-8), torch.zeros_like(confidence_den))
     return {
@@ -695,7 +705,98 @@ def _torch_composite_carrier_hits(
         "first_index": first_index,
         "has_hit": has_hit,
         "hit_indices": tuple(hit_indices),
+        "hit_depths": tuple(hit_depths),
+        "hit_transmittance": _torch_hit_transmittance_traces(
+            sorted_indices,
+            sorted_depths,
+            elements,
+            torch,
+            origins,
+            directions,
+            exit_depth,
+            colors,
+            opacities,
+            confidences,
+            mins,
+            maxs,
+            device,
+            carrier_parameters,
+        ),
     }
+
+
+def _torch_hit_transmittance_traces(
+    sorted_indices: Any,
+    sorted_depths: Any,
+    elements: Sequence[Any],
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    exit_depth: Any,
+    colors: Any,
+    opacities: Any,
+    confidences: Any,
+    mins: Any,
+    maxs: Any,
+    device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+) -> tuple[tuple[float, ...], ...]:
+    traces: list[list[float]] = [[] for _index in range(int(origins.shape[0]))]
+    for order in range(len(elements)):
+        current_index = sorted_indices[:, order]
+        current_depth = sorted_depths[:, order]
+        active = torch.isfinite(current_depth)
+        if not bool(torch.any(active)):
+            continue
+        safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
+        hit_points = origins + directions * safe_depth.unsqueeze(1)
+        _carrier_colors, transmittance, _confidence, _residual_flags = torch_carrier_response_tensors(
+            torch,
+            elements,
+            current_index,
+            safe_depth,
+            exit_depth,
+            hit_points,
+            colors,
+            opacities,
+            confidences,
+            mins,
+            maxs,
+            device,
+            carrier_parameters=carrier_parameters,
+        )
+        transmittance = torch.clamp(transmittance, min=0.0, max=1.0)
+        for ray_index, (is_active, value) in enumerate(
+            zip(active.detach().cpu().tolist(), transmittance.detach().cpu().tolist())
+        ):
+            if is_active:
+                traces[ray_index].append(float(value))
+    return tuple(tuple(ray_trace) for ray_trace in traces)
+
+
+def _torch_ordered_hit_traces(
+    elements: Sequence[Any],
+    hit_indices: Sequence[Sequence[int]],
+    hit_depths: Sequence[Sequence[float]],
+    hit_transmittance: Sequence[Sequence[float]],
+) -> tuple[tuple[dict[str, object], ...], ...]:
+    traces = []
+    for ray_indices, ray_depths, ray_transmittance in zip(hit_indices, hit_depths, hit_transmittance):
+        ray_trace = []
+        for index, depth, transmittance in zip(ray_indices, ray_depths, ray_transmittance):
+            element = elements[index]
+            ray_trace.append(
+                {
+                    "elementId": element.id,
+                    "carrierId": element.carrier_id,
+                    "depth": float(depth),
+                    "transmittance": float(transmittance),
+                    "opacity": 1.0 - float(transmittance),
+                    "provenance": element.id,
+                }
+            )
+        traces.append(tuple(ray_trace))
+    return tuple(traces)
 
 
 def _torch_hit_provenance(elements: Sequence[Any], indices: Sequence[int]) -> str:

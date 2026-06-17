@@ -375,9 +375,22 @@ def test_torch_render_targets_composites_ordered_carrier_hits():
         ),
         device="cpu",
     )
+    payload = batch.to_dict()
 
     assert batch.element_ids == ("front_surface",)
     assert batch.provenance == ("front_surface,back_surface",)
+    assert batch.ordered_hits[0][0]["elementId"] == "front_surface"
+    assert batch.ordered_hits[0][0]["carrierId"] == "surface"
+    assert batch.ordered_hits[0][0]["depth"] == pytest.approx(2.0)
+    assert batch.ordered_hits[0][0]["transmittance"] == pytest.approx(0.5)
+    assert batch.ordered_hits[0][0]["opacity"] == pytest.approx(0.5)
+    assert batch.ordered_hits[0][1]["elementId"] == "back_surface"
+    assert batch.ordered_hits[0][1]["carrierId"] == "surface"
+    assert batch.ordered_hits[0][1]["depth"] == pytest.approx(2.2)
+    assert batch.ordered_hits[0][1]["transmittance"] == pytest.approx(0.5)
+    assert batch.ordered_hits[0][1]["opacity"] == pytest.approx(0.5)
+    assert payload["orderedHits"][0][0]["elementId"] == "front_surface"
+    assert payload["orderedHits"][0][1]["carrierId"] == "surface"
     assert batch.predicted_depth == pytest.approx((2.0,))
     assert batch.predicted_color[0] == pytest.approx((0.5, 0.0, 0.25))
     assert batch.transmittance == pytest.approx((0.25,))
@@ -621,6 +634,8 @@ def test_torch_render_targets_matches_native_first_hit_contract():
 
     assert batch.element_ids == ("surface",)
     assert batch.carrier_ids == ("surface",)
+    assert batch.ordered_hits[0][0]["elementId"] == "surface"
+    assert batch.to_dict()["orderedHits"][0][0]["depth"] == 2.0
     assert batch.predicted_depth == (2.0,)
     assert batch.transmittance == (0.0,)
     assert batch.opacity == (1.0,)

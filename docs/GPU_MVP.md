@@ -79,6 +79,8 @@ This package now contains the GPU-ready skeleton for AURA:
   first-hit depth/normal/material/semantic metadata, transmittance, opacity,
   confidence, residual, provenance, ordered per-carrier hit traces, and
   query-loss outputs over `AuraScene` and `RenderTarget`;
+- `TorchRenderBatch.orderedHits` serialization for checking torch/CUDA ray
+  outputs against the CPU `RayTraversal.orderedHits` contract;
 - cached reference chunk BVH traversal metrics for native ray-query probes,
   including traversal mode and tested node counts;
 - strict-JSON render comparison metrics for regression checks;
