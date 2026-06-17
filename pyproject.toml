@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aura-contract"
 version = "0.1.0"
-description = "GPU-ready AURA representation contract scaffold"
+description = "AURA-Core native adaptive radiance reconstruction scaffold"
 requires-python = ">=3.11"
 dependencies = ["jsonschema>=4"]
 

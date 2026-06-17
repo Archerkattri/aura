@@ -21,6 +21,15 @@ from aura.carrier_payloads import (
     SurfaceCellPayload,
     VolumeCellPayload,
 )
+from aura.core import (
+    ReconstructionConfig,
+    ReconstructionReport,
+    ReconstructionResult,
+    ReconstructionStep,
+    TrainingFrame,
+    reconstruct_demo_scene,
+    synthetic_training_frames,
+)
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
@@ -79,6 +88,10 @@ __all__ = [
     "RayInspection",
     "RayQueryResult",
     "RegionEvidence",
+    "ReconstructionConfig",
+    "ReconstructionReport",
+    "ReconstructionResult",
+    "ReconstructionStep",
     "RenderImage",
     "SemanticFeaturePayload",
     "SemanticEdge",
@@ -87,6 +100,7 @@ __all__ = [
     "SemanticMaskRegion",
     "SparsePointPrior",
     "SurfaceCellPayload",
+    "TrainingFrame",
     "VolumeCellPayload",
     "apply_ablation",
     "choose_carrier",
@@ -107,6 +121,7 @@ __all__ = [
     "package_3dgs_export",
     "read_ppm",
     "render_orthographic",
+    "reconstruct_demo_scene",
     "run_ablation_benchmarks",
     "run_reference_benchmark",
     "inspect_ray",
@@ -115,6 +130,7 @@ __all__ = [
     "splats_to_scene",
     "sparse_points_to_evidence",
     "supported_ingest_adapters",
+    "synthetic_training_frames",
     "native_demo_interaction_probes",
     "validate_package",
     "validate_package_documents",

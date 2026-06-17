@@ -6,6 +6,7 @@ from pathlib import Path
 
 from aura.assignment import RegionEvidence
 from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_reference_benchmark
+from aura.core import ReconstructionConfig, reconstruct_demo_scene
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
@@ -33,6 +34,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Build the mixed-carrier native AURA demo package without 3DGS input",
     )
     build_native.add_argument("--output-dir", type=Path, default=Path("outputs/native-demo.aura"))
+
+    reconstruct_demo = sub.add_parser(
+        "reconstruct-demo",
+        help="Run the native AURA-Core posed fixture reconstruction path without 3DGS input",
+    )
+    reconstruct_demo.add_argument("--output-dir", type=Path, default=Path("outputs/reconstruct-demo.aura"))
+    reconstruct_demo.add_argument("--iterations", type=int, default=4)
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -93,6 +101,13 @@ def main(argv: list[str] | None = None) -> int:
     native_scene = native_demo_scene()
     if args.command in {"write-native-demo-package", "build-native-demo"}:
         print(package_scene(native_scene, fallbacks={"mesh": "fallback/native-preview.glb"}).write(args.output_dir))
+        return 0
+    if args.command == "reconstruct-demo":
+        result = reconstruct_demo_scene(ReconstructionConfig(iterations=args.iterations))
+        package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/reconstruct-preview.glb"}).write(args.output_dir)
+        report_path = package_dir / "training_report.json"
+        report_path.write_text(json.dumps(result.report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(package_dir)
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))

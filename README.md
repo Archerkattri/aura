@@ -2,18 +2,22 @@
 
 AURA means **Adaptive Unified Radiance Asset**.
 
-This repo is the GPU-ready contract scaffold for a post-3DGS captured-scene
-representation:
+This repo is being developed into **AURA-Core**, an end-to-end native
+reconstruction engine for the post-3DGS captured-scene representation:
 
 > Photogrammetry -> NeRF -> 3D Gaussian Splatting -> AURA
 
-AURA is not "Gaussian splatting but certified." It is a proposed asset contract
-where a captured scene is represented by adaptive local carriers that expose a
-common ray-query, confidence, edit, LOD, and export interface.
+AURA is not "Gaussian splatting but certified" and not a 3DGS package wrapper.
+The target is a reconstruction system that trains adaptive local radiance
+carriers directly from images, video, poses, depth, and priors. Each region
+should become the simplest bounded carrier that explains its geometry,
+appearance, uncertainty, semantics, and interaction needs while exposing one
+ray-query, editing, confidence, LOD, and export contract.
 
 ## Current Status
 
-This repo contains the GPU-ready MVP contract layer:
+Current code is still an early AURA-Core scaffold. It already contains the
+native representation contract pieces:
 
 - carrier registry;
 - native carrier payload models for surface, volume, beta, gabor, neural,
@@ -41,8 +45,13 @@ This repo contains the GPU-ready MVP contract layer:
 - package-backed glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
 
-It does **not** contain a real renderer, trainer, CUDA kernel, BVH, 3DGS
-bootstrap, radiance-cell optimizer, or research benchmark result yet.
+It does **not** yet contain the full AURA-Core reconstruction engine: image/video
+data loading, pose/depth bootstrapping, differentiable carrier optimization,
+adaptive split/merge/promote training, CUDA kernels, BVH, or end-to-end
+benchmark results.
+
+See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
+next milestone must be native reconstruction rather than more package polish.
 
 ## Install
 
@@ -86,6 +95,10 @@ aura benchmark-reference outputs/native-demo.aura --include-ablations
 # runs carrier assignment ablation metrics
 aura migration-plan outputs/native-demo.aura
 # prints package schema migration status
+
+# AURA-Core reconstruction path, to be built next:
+# aura reconstruct-demo --output-dir outputs/reconstruct-demo.aura
+# trains native adaptive carriers from a posed synthetic fixture, without 3DGS
 
 # AURA-Ingest bootstrap path for 3DGS evidence:
 aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
@@ -151,19 +164,18 @@ Recommended benchmark/baseline sources:
 | 3DGRT / EVER / Volumetric 3DGS papers | ray-query and volumetric correctness baselines |
 | Beta/Gabor/Splat-the-Net/Radiance Meshes papers | carrier registry competitors/substrates |
 
-## Expected First GPU Milestone
+## Expected AURA-Core Milestone
 
-Do not start with full AURA. Start with native decomposition and one small
-evidence source:
+Do not add more 3DGS convenience before the native engine exists. The next
+milestone is a small end-to-end AURA-Core reconstruction fixture:
 
-1. define a tiny mixed evidence scene with surface, volume, beta, gabor,
-   neural, semantic, and gaussian fallback regions;
-2. decompose evidence into typed AURA elements with carrier payloads;
-3. validate package/load/query behavior for the mixed native scene;
-4. ingest one small 3DGS baseline scene as evidence, not as the final center;
-5. preserve primary-view quality approximately;
-6. add one GPU ray-query demo: depth/first-hit/transmittance;
-7. export a native `.aura` package and glTF/USD fallback metadata.
+1. load or synthesize posed training images, depth, and masks;
+2. initialize native AURA evidence cells without 3DGS;
+3. render a CPU reference prediction and compute image/depth/ray-query losses;
+4. adaptively promote/split/merge carriers based on residuals and confidence;
+5. optimize native carrier parameters for a few deterministic fixture steps;
+6. export a native `.aura` package and training report;
+7. compare the result against COLMAP/NeRF/3DGS-style baselines.
 
 ## Repository Map
 
@@ -183,6 +195,7 @@ src/aura/
   schema.py      native package format and supported schema versions
   semantic.py    object graph nodes and relationships
   benchmark.py   benchmark and ablation plan contracts
+  core.py        AURA-Core reconstruction engine contracts
   scene.py       reference scene query
   ingest/
     baselines.py  3DGS export discovery and import adapter
