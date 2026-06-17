@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from aura import Ray, load_3dgs_export, load_3dgs_scene, package_scene
+from aura.decomposition import EvidenceSample
 
 
 JSON_FIXTURE = Path(__file__).parent / "fixtures" / "tiny_3dgs_export.json"
@@ -22,6 +23,18 @@ def test_load_3dgs_export_reads_means_covariances_and_opacities():
     assert samples[0].opacity == pytest.approx(0.65)
 
 
+def test_3dgs_splat_exports_evidence_before_aura_decomposition():
+    sample = load_3dgs_export(JSON_FIXTURE)[0]
+
+    evidence = sample.to_evidence_sample(radius_sigma=2.0)
+
+    assert isinstance(evidence, EvidenceSample)
+    assert evidence.metadata["source"] == "3dgs-export"
+    assert evidence.edit["source"] == "aura-ingest:3dgs"
+    assert evidence.fallback_source == "3dgs-ingest"
+    assert evidence.gaussian_covariance == sample.covariance
+
+
 def test_load_3dgs_scene_builds_gaussian_aura_elements_with_bounds():
     scene = load_3dgs_scene(JSON_FIXTURE, radius_sigma=2.0)
 
@@ -32,6 +45,8 @@ def test_load_3dgs_scene_builds_gaussian_aura_elements_with_bounds():
     assert scene.elements[0].bounds.min_corner == pytest.approx((-0.2, -0.2, -0.1))
     assert scene.elements[0].bounds.max_corner == pytest.approx((0.2, 0.2, 0.1))
     assert scene.chunks[0].element_ids == ("red_front", "blue_back")
+    assert scene.elements[0].metadata["decomposition"] == "evidence-v0"
+    assert scene.elements[0].metadata["source"] == "3dgs-export"
 
 
 def test_splat_scene_ray_query_reports_first_hit_depth_and_transmittance():

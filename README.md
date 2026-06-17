@@ -28,7 +28,8 @@ This repo contains the GPU-ready MVP contract layer:
 - simple front-to-back scene query;
 - tiny JSON/ASCII/binary little-endian PLY 3DGS export reader for means/opacities/covariances;
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
-- direct 3DGS export/directory import adapter;
+- AURA-Ingest adapters that convert 3DGS, depth, semantic mask, and sparse
+  point priors into `EvidenceSample` contracts;
 - `.aura` package writer;
 - `.aura` package loader/validator;
 - explicit `.aura` format/version compatibility checks;
@@ -86,6 +87,8 @@ aura compare-renders outputs/baseline.ppm outputs/splat-demo.ppm --min-psnr 35
 # prints strict JSON MSE/PSNR metrics and exits nonzero if the threshold fails
 aura benchmark-plan
 # prints benchmark and carrier ablation plan JSON
+aura ingest-adapters
+# prints AURA-Ingest sources and their EvidenceSample contracts
 python -m pytest
 ```
 
@@ -182,8 +185,11 @@ docs/schemas/    JSON Schemas for native .aura package files
 ```
 
 The `ingest/` package is intentionally an adapter boundary. 3DGS splats are
-treated as evidence samples that can populate AURA Gaussian fallback payloads;
-they are not the center of the native representation.
+converted to `EvidenceSample` records before decomposition, then become
+Gaussian fallback carriers only when the evidence does not justify a stronger
+native carrier. Depth priors, semantic masks, COLMAP sparse points, and future
+PixelSplat/IDESplat adapters are also represented as evidence contracts rather
+than direct renderer-specific elements.
 
 ## Paper Claim Boundary
 

@@ -7,7 +7,9 @@ from math import exp, sqrt
 from pathlib import Path
 from typing import Sequence
 
-from aura.elements import AuraChunk, AuraElement, Bounds
+from aura.assignment import RegionEvidence
+from aura.decomposition import EvidenceSample, decompose_evidence
+from aura.elements import AuraElement, Bounds
 from aura.carrier_payloads import GaussianFallbackPayload
 from aura.ray import Vec3
 from aura.scene import AuraScene
@@ -122,6 +124,30 @@ class GaussianSplatSample:
         )
 
     def to_element(self, *, radius_sigma: float = 2.0, chunk_id: str = "root") -> AuraElement:
+        """Build a compatibility Gaussian element directly from a splat sample.
+
+        New scene-level ingest should prefer ``to_evidence_sample`` followed by
+        adaptive decomposition.
+        """
+
+        evidence = self.to_evidence_sample(radius_sigma=radius_sigma)
+        bounds = evidence.bounds
+        payload = GaussianFallbackPayload(mean=self.mean, covariance=self.covariance, source="3dgs-ingest").to_dict()
+        return AuraElement(
+            id=self.id,
+            carrier_id="gaussian",
+            bounds=bounds,
+            color=self.color,
+            opacity=self.opacity,
+            confidence=self.confidence,
+            chunk_id=chunk_id,
+            metadata=dict(evidence.metadata),
+            confidence_map=dict(evidence.confidence_map),
+            edit=dict(evidence.edit),
+            payload=payload,
+        )
+
+    def to_evidence_sample(self, *, radius_sigma: float = 2.0) -> EvidenceSample:
         if radius_sigma <= 0.0:
             raise ValueError("radius_sigma must be positive")
         sigma = (
@@ -142,21 +168,30 @@ class GaussianSplatSample:
                 self.mean[2] + radius[2],
             ),
         )
-        return AuraElement(
+        return EvidenceSample(
             id=self.id,
-            carrier_id="gaussian",
             bounds=bounds,
+            evidence=RegionEvidence(
+                image_error=0.05,
+                geometry_confidence=0.35,
+                material_confidence=0.35,
+                ray_need=0.2,
+                edit_need=0.1,
+            ),
             color=self.color,
             opacity=self.opacity,
             confidence=self.confidence,
-            chunk_id=chunk_id,
             metadata={
                 "source": "3dgs-export",
                 "mean": json.dumps(list(self.mean)),
                 "covariance": json.dumps([list(row) for row in self.covariance]),
                 **self.metadata,
             },
-            payload=GaussianFallbackPayload(mean=self.mean, covariance=self.covariance, source="3dgs-ingest").to_dict(),
+            confidence_map={"splat": self.confidence},
+            edit={"source": "aura-ingest:3dgs"},
+            gaussian_mean=self.mean,
+            gaussian_covariance=self.covariance,
+            fallback_source="3dgs-ingest",
         )
 
 
@@ -387,10 +422,8 @@ def splats_to_scene(
 ) -> AuraScene:
     if not samples:
         raise ValueError("samples must be non-empty")
-    elements = tuple(sample.to_element(radius_sigma=radius_sigma) for sample in samples)
-    scene_bounds = _union_bounds([element.bounds for element in elements])
-    chunk = AuraChunk(id="root", bounds=scene_bounds, element_ids=tuple(element.id for element in elements), lod=0)
-    return AuraScene(name=name, elements=elements, chunks=(chunk,))
+    evidence = tuple(sample.to_evidence_sample(radius_sigma=radius_sigma) for sample in samples)
+    return decompose_evidence(evidence, name=name)
 
 
 def load_3dgs_scene(path: Path | str, *, name: str | None = None, radius_sigma: float = 2.0) -> AuraScene:

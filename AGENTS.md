@@ -21,17 +21,19 @@ You are working on AURA, Adaptive Unified Radiance Asset.
   contract over adaptive carriers and native carrier payloads.
 - Keep 3DGS-specific logic under `aura.ingest`; splats are evidence inputs, not
   the native representation center.
+- New ingest sources must produce `EvidenceSample` records before decomposition.
 
 ## First Tasks On A GPU Machine
 
 1. Install with `python -m pip install -e .`.
 2. Run `python -m pytest`.
 3. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
-4. Extend mixed-carrier decomposition fixtures and query tests.
-5. Add more ray-query paths for first-hit/depth/transmittance.
-6. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
-7. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
-8. Use `aura import-3dgs` on real baseline output directories.
+4. Run `aura ingest-adapters`.
+5. Extend mixed-carrier decomposition fixtures and query tests.
+6. Add more ray-query paths for first-hit/depth/transmittance.
+7. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
+8. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
+9. Use `aura import-3dgs` on real baseline output directories.
 
 ## Research Positioning
 

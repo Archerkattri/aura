@@ -18,6 +18,8 @@ from aura.ray import Vec3
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph, SemanticNode
 
+Matrix3 = tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
+
 
 @dataclass(frozen=True)
 class EvidenceSample:
@@ -32,6 +34,9 @@ class EvidenceSample:
     normal: Vec3 | None = None
     material_id: str | None = None
     semantic_label: str | None = None
+    gaussian_mean: Vec3 | None = None
+    gaussian_covariance: Matrix3 | None = None
+    fallback_source: str = "adaptive-decomposition"
     confidence_map: Mapping[str, float] = field(default_factory=dict)
     edit: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, str] = field(default_factory=dict)
@@ -101,14 +106,15 @@ def _payload_for(sample: EvidenceSample, carrier_id: str) -> dict:
         label = sample.semantic_label or sample.id
         return SemanticFeaturePayload(label=label, confidence=evidence.semantic_confidence).to_dict()
 
+    covariance = sample.gaussian_covariance or (
+        (max(half_extent[0] ** 2, 1e-6), 0.0, 0.0),
+        (0.0, max(half_extent[1] ** 2, 1e-6), 0.0),
+        (0.0, 0.0, max(half_extent[2] ** 2, 1e-6)),
+    )
     return GaussianFallbackPayload(
-        mean=_center(sample.bounds),
-        covariance=(
-            (max(half_extent[0] ** 2, 1e-6), 0.0, 0.0),
-            (0.0, max(half_extent[1] ** 2, 1e-6), 0.0),
-            (0.0, 0.0, max(half_extent[2] ** 2, 1e-6)),
-        ),
-        source="adaptive-decomposition",
+        mean=sample.gaussian_mean or _center(sample.bounds),
+        covariance=covariance,
+        source=sample.fallback_source,
     ).to_dict()
 
 

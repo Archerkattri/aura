@@ -8,7 +8,7 @@ from aura.assignment import RegionEvidence
 from aura.benchmark import default_benchmark_suite
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
-from aura.ingest import load_3dgs_scene, package_3dgs_export
+from aura.ingest import load_3dgs_scene, package_3dgs_export, supported_ingest_adapters
 from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
@@ -72,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
 
     benchmark = sub.add_parser("benchmark-plan", help="Print the reproducible AURA benchmark and ablation plan as JSON")
 
+    ingest = sub.add_parser("ingest-adapters", help="Print AURA-Ingest adapters and their EvidenceSample contracts as JSON")
+
     args = parser.parse_args(argv)
     native_scene = native_demo_scene()
     if args.command in {"write-native-demo-package", "build-native-demo"}:
@@ -118,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if metrics["passed"] else 1
     if args.command == "benchmark-plan":
         print(json.dumps(default_benchmark_suite().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "ingest-adapters":
+        print(json.dumps([adapter.to_dict() for adapter in supported_ingest_adapters()], indent=2, sort_keys=True))
         return 0
     raise ValueError(args.command)
 

@@ -14,7 +14,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - front-to-back compositing;
 - tiny JSON/ASCII/binary little-endian PLY 3DGS export fixture reading;
 - quaternion-aware PLY covariance conversion from 3DGS log-scales;
-- direct 3DGS export/directory import adapter;
+- AURA-Ingest adapters that convert 3DGS, depth priors, semantic masks, and
+  sparse point priors into `EvidenceSample` contracts;
 - chunk and LOD metadata;
 - native `.aura` package writer;
 - native `.aura` package loader/validator;
@@ -45,8 +46,10 @@ mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
 kept as AURA-Ingest bootstrap paths after the native package path.
 
 3DGS-specific code lives under `aura.ingest`. That adapter converts splat exports
-into AURA elements with Gaussian fallback payloads. Core AURA code should remain
-carrier- and package-centered rather than becoming a 3DGS wrapper.
+into `EvidenceSample` records first, then the adaptive decomposition path emits
+Gaussian fallback payloads only when the evidence does not justify a stronger
+carrier. Core AURA code should remain carrier- and package-centered rather than
+becoming a 3DGS wrapper.
 
 The first GPU milestone should extend the native `decompose_evidence` path and
 then connect 3DGS ingest as one evidence source. Gaussian splats are allowed as
