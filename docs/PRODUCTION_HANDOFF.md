@@ -106,6 +106,11 @@ smoke outputs are blocked from production interpretation while CUDA renderer
 readiness is unavailable, the visual score is a self-reference comparison, or
 the benchmark package has not exercised native AURA carrier families beyond
 Gaussian fallback.
+The report intentionally separates the legacy `cuda_kernels` metadata-only
+renderer report from the callable `aura.cuda_renderer` boundary. A callable CPU
+or torch fallback proves the launch/output contract can be exercised; it is not
+CUDA acceleration and keeps production CUDA claims blocked until compiled CUDA
+dispatch is available, parity-tested, and benchmarked.
 
 1. Replace the optional payload-aware PyTorch ordered-compositing reference path
    and CPU differentiable reference renderer with a carrier-complete

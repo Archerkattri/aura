@@ -125,6 +125,107 @@ def cuda_renderer_launch_config(
     )
 
 
+def cuda_renderer_boundary_report(
+    scene: AuraScene | None = None,
+    *,
+    probe_ray_origin: Sequence[float] = (0.0, 0.0, -1.0),
+    probe_ray_direction: Sequence[float] = (0.0, 0.0, 1.0),
+    fallback_backend: CudaFallbackBackend = "cpu",
+    max_hits: int = 8,
+) -> dict[str, object]:
+    """Report callable CUDA renderer boundary readiness without claiming CUDA.
+
+    When a scene is supplied, the report executes one fallback ray through the
+    same public ``cuda_render_rays`` function used by integration callers. This
+    proves the Python boundary can return the AURA ray-query output fields even
+    before the compiled CUDA dispatch exists.
+    """
+
+    extension = cuda_kernel_extension_status(build=False)
+    report: dict[str, object] = {
+        "format": "AURA_CUDA_RENDERER_BOUNDARY_REPORT",
+        "apiName": "aura.cuda_renderer.cuda_render_rays",
+        "callableBoundaryAvailable": True,
+        "available": bool(extension.available),
+        "productionReady": False,
+        "extension": extension.to_dict(),
+        "fallbackBackends": ["cpu", "torch", "auto", "none"],
+        "fallbackContractFields": [
+            "elementIds",
+            "carrierIds",
+            "color",
+            "opacity",
+            "transmittance",
+            "depth",
+            "normal",
+            "confidence",
+            "residual",
+            "materialIds",
+            "semanticIds",
+            "provenance",
+            "orderedHits",
+            "orderedHitOverflow",
+        ],
+        "productionBlockers": [
+            "compiled_cuda_renderer_dispatch_missing",
+            "cuda_renderer_parity_benchmarks_missing",
+            "cuda_renderer_speed_benchmarks_missing",
+        ],
+        "notes": (
+            "This is the callable renderer boundary and fallback contract. It is "
+            "not production CUDA acceleration until a compiled dispatch is "
+            "available, parity-tested, and benchmarked."
+        ),
+    }
+    if scene is None:
+        report["fallbackProbe"] = None
+        return report
+    try:
+        batch = cuda_render_rays(
+            scene,
+            ray_origins=(tuple(float(value) for value in probe_ray_origin),),
+            ray_directions=(tuple(float(value) for value in probe_ray_direction),),
+            fallback_backend=fallback_backend,
+            max_hits=max_hits,
+        )
+    except Exception as exc:
+        report["fallbackProbe"] = {
+            "executed": False,
+            "error": str(exc),
+        }
+        return report
+    payload = batch.to_dict()
+    report["fallbackProbe"] = {
+        "executed": True,
+        "backend": payload["backend"],
+        "reason": payload["reason"],
+        "rayCount": payload["launchConfig"]["rayCount"],
+        "maxHits": payload["launchConfig"]["maxHits"],
+        "outputFields": [
+            key
+            for key in (
+                "elementIds",
+                "carrierIds",
+                "color",
+                "opacity",
+                "transmittance",
+                "depth",
+                "normal",
+                "confidence",
+                "residual",
+                "materialIds",
+                "semanticIds",
+                "provenance",
+                "orderedHits",
+                "orderedHitOverflow",
+            )
+            if key in payload
+        ],
+        "orderedHitOverflow": payload["orderedHitOverflow"],
+    }
+    return report
+
+
 def cuda_render_rays(
     scene: AuraScene,
     ray_origins: Sequence[Sequence[float]] | Any,

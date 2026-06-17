@@ -28,12 +28,24 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert by_id["package_validation"]["productionReady"] is True
     assert by_id["cuda_backend"]["productionReady"] is False
     assert "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready" in by_id["cuda_backend"]["gaps"]
+    assert "callable cuda_renderer fallback is not CUDA acceleration" in by_id["cuda_backend"]["gaps"]
     assert by_id["renderer_trainer"]["productionReady"] is False
     assert "renderer is not production real-time" in by_id["renderer_trainer"]["gaps"]
     assert by_id["benchmarks"]["productionReady"] is False
     assert any("3DGS" in gap for gap in by_id["benchmarks"]["gaps"])
     assert payload["torchCarrierKernels"]["productionReady"] is False
     assert payload["cudaKernelSources"]["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
+    assert payload["legacyCudaRenderer"]["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
+    assert payload["legacyCudaRenderer"]["available"] is False
+    assert payload["legacyCudaRenderer"]["productionReady"] is False
+    assert payload["cudaRendererCallableBoundary"]["format"] == "AURA_CUDA_RENDERER_CALLABLE_BOUNDARY"
+    assert payload["cudaRendererCallableBoundary"]["reportKind"] == "callable_cuda_renderer_fallback_boundary"
+    assert payload["cudaRendererCallableBoundary"]["callableBoundaryReady"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackContractReady"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackBackend"] == "cpu"
+    assert payload["cudaRendererCallableBoundary"]["compiledCudaAvailable"] is False
+    assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     assert payload["backendReadiness"]["format"] == "AURA_BACKEND_READINESS_EVALUATION"
     assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0
     assert payload["backendReadiness"]["productionCudaReady"] is False
@@ -76,6 +88,8 @@ def test_readiness_report_cli_prints_json():
     assert payload["format"] == "AURA_PRODUCTION_READINESS_REPORT"
     assert payload["productionReady"] is False
     assert payload["backendReadiness"]["requiresTorchImport"] is False
+    assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
+    assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     assert {pillar["id"] for pillar in payload["missingOrIncomplete"]}.issuperset(
         {"native_carriers", "cuda_backend", "renderer_trainer", "benchmarks"}
     )

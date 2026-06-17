@@ -110,6 +110,14 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
     assert payload["cudaRenderer"]["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
     assert payload["cudaRenderer"]["available"] is False
+    assert payload["cudaRendererCallableBoundary"]["format"] == "AURA_CUDA_RENDERER_CALLABLE_BOUNDARY"
+    assert payload["cudaRendererCallableBoundary"]["callableBoundaryReady"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackContractReady"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackBackend"] == "cpu"
+    assert payload["cudaRendererCallableBoundary"]["compiledCudaAvailable"] is False
+    assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
+    assert "orderedHits" in payload["cudaRendererCallableBoundary"]["outputFields"]
     assert payload["nativeCarrierCoverage"]["format"] == "AURA_NATIVE_CARRIER_COVERAGE"
     assert payload["nativeCarrierCoverage"]["auraFirstCoverageReady"] is True
     assert payload["nativeCarrierCoverage"]["requiredNativeCarrierCoverageRate"] == 1.0
@@ -120,10 +128,17 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["productionGate"]["cudaRendererReady"] is False
     assert payload["productionGate"]["cudaRendererAvailable"] is False
     assert payload["productionGate"]["cudaRendererProductionReady"] is False
+    assert payload["productionGate"]["cudaRendererReportKind"] == "legacy_cuda_kernels_metadata_report"
+    assert payload["productionGate"]["cudaRendererCallableBoundaryReady"] is True
+    assert payload["productionGate"]["cudaRendererCallableFallbackAvailable"] is True
+    assert payload["productionGate"]["cudaRendererCallableFallbackBackend"] == "cpu"
+    assert payload["productionGate"]["cudaRendererCallableFallbackOnly"] is True
+    assert payload["productionGate"]["cudaRendererCallableProductionReady"] is False
     assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
     assert payload["productionGate"]["requiredNativeCarrierCoverageRate"] == 1.0
     assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
     assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
+    assert "cuda_renderer_callable_fallback_only" in payload["productionGate"]["productionBlockers"]
     assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
@@ -157,8 +172,11 @@ def test_visual_quality_benchmark_compares_package_render_to_reference():
     assert payload["productionGate"]["productionReady"] is False
     assert payload["productionGate"]["blocksProductionClaim"] is True
     assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
+    assert payload["productionGate"]["cudaRendererCallableBoundaryReady"] is True
+    assert payload["productionGate"]["cudaRendererCallableFallbackOnly"] is True
     assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
     assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
+    assert "cuda_renderer_callable_fallback_only" in payload["productionGate"]["productionBlockers"]
     assert "learned LPIPS" in payload["metricNotes"]["lpipsProxy"]
 
     relabeled_payload = run_visual_quality_benchmark(package, reference, baseline_label="teacher")
@@ -341,13 +359,22 @@ def test_production_gate_report_surfaces_cuda_visual_and_native_carrier_gates(tm
     assert payload["claimBoundary"]["productionClaimAllowed"] is False
     assert "native adaptive radiance reconstruction engine" in payload["claimBoundary"]["safeCurrentClaim"]
     assert payload["cudaRenderer"]["available"] is False
+    assert payload["cudaRendererCallableBoundary"]["callableBoundaryReady"] is True
+    assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
+    assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     assert payload["visualClaimBoundary"]["selfReference"] is True
     assert payload["nativeCarrierCoverage"]["auraFirstCoverageReady"] is True
     assert gate["productionReady"] is False
     assert gate["cudaRendererAvailable"] is False
+    assert gate["cudaRendererReportKind"] == "legacy_cuda_kernels_metadata_report"
+    assert gate["cudaRendererCallableBoundaryReady"] is True
+    assert gate["cudaRendererCallableFallbackAvailable"] is True
+    assert gate["cudaRendererCallableFallbackOnly"] is True
+    assert gate["cudaRendererCallableProductionReady"] is False
     assert gate["visualBenchmarkSelfReference"] is True
     assert gate["nativeCarrierCoverageReady"] is True
     assert "cuda_renderer_unavailable" in gate["productionBlockers"]
+    assert "cuda_renderer_callable_fallback_only" in gate["productionBlockers"]
     assert "visual_benchmark_self_reference" in gate["productionBlockers"]
 
 
@@ -427,6 +454,8 @@ def test_production_gate_report_cli_prints_native_gate_json(tmp_path):
     assert payload["format"] == "AURA_PRODUCTION_GATE_REPORT"
     assert payload["productionGate"]["productionReady"] is False
     assert payload["productionGate"]["cudaRendererAvailable"] is False
+    assert payload["productionGate"]["cudaRendererCallableBoundaryReady"] is True
+    assert payload["productionGate"]["cudaRendererCallableFallbackOnly"] is True
     assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
     assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
 

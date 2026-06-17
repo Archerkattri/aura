@@ -16,10 +16,27 @@ from aura.runtime_export import runtime_export_report
 from aura.scene import BVH_CHUNK_THRESHOLD, AuraScene
 from aura.semantic import SemanticGraph
 from aura.cuda_kernels import cuda_renderer_report
+from aura.cuda_renderer import cuda_renderer_boundary_report
 from aura.torch_kernels import torch_carrier_kernel_specs
 
 
 NATIVE_PRODUCTION_CARRIER_IDS = ("surface", "volume", "beta", "gabor", "neural", "semantic")
+CALLABLE_CUDA_RENDERER_OUTPUT_FIELDS = (
+    "elementIds",
+    "carrierIds",
+    "color",
+    "opacity",
+    "transmittance",
+    "depth",
+    "normal",
+    "confidence",
+    "residual",
+    "materialIds",
+    "semanticIds",
+    "provenance",
+    "orderedHits",
+    "orderedHitOverflow",
+)
 
 
 @dataclass(frozen=True)
@@ -224,6 +241,7 @@ def run_reference_benchmark(
     backend_readiness = evaluate_backend_readiness(scene, runtime_export, traversals)
     native_carrier_coverage = evaluate_native_carrier_coverage(scene)
     cuda_renderer = cuda_renderer_report()
+    cuda_renderer_callable_boundary = cuda_renderer_callable_boundary_report(scene)
     preview_visual_claim = _visual_claim_boundary(
         baseline_label="reference_preview_self",
         self_reference=True,
@@ -268,11 +286,13 @@ def run_reference_benchmark(
         "backendReadiness": backend_readiness,
         "nativeCarrierCoverage": native_carrier_coverage,
         "cudaRenderer": cuda_renderer,
+        "cudaRendererCallableBoundary": cuda_renderer_callable_boundary,
         "productionGate": _benchmark_production_gate(
             backend_readiness=backend_readiness,
             visual_claims=(preview_visual_claim,),
             native_carrier_coverage=native_carrier_coverage,
             cuda_renderer=cuda_renderer,
+            cuda_renderer_callable_boundary=cuda_renderer_callable_boundary,
         ),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
@@ -309,6 +329,7 @@ def run_visual_quality_benchmark(
     backend_readiness = evaluate_backend_readiness(package.scene)
     native_carrier_coverage = evaluate_native_carrier_coverage(package.scene)
     cuda_renderer = cuda_renderer_report()
+    cuda_renderer_callable_boundary = cuda_renderer_callable_boundary_report(package.scene)
     visual_claim = _visual_claim_boundary(
         baseline_label=baseline_label,
         self_reference=_is_self_reference_visual(baseline_label, metrics),
@@ -331,11 +352,13 @@ def run_visual_quality_benchmark(
         "backendReadiness": backend_readiness,
         "nativeCarrierCoverage": native_carrier_coverage,
         "cudaRenderer": cuda_renderer,
+        "cudaRendererCallableBoundary": cuda_renderer_callable_boundary,
         "productionGate": _benchmark_production_gate(
             backend_readiness=backend_readiness,
             visual_claims=(visual_claim,),
             native_carrier_coverage=native_carrier_coverage,
             cuda_renderer=cuda_renderer,
+            cuda_renderer_callable_boundary=cuda_renderer_callable_boundary,
         ),
         "visualClaimBoundary": visual_claim,
         "metricNotes": {
@@ -357,6 +380,7 @@ def run_production_gate_report(
     backend_readiness = evaluate_backend_readiness(scene, runtime_export, traversals)
     native_carrier_coverage = evaluate_native_carrier_coverage(scene)
     cuda_renderer = cuda_renderer_report()
+    cuda_renderer_callable_boundary = cuda_renderer_callable_boundary_report(scene)
     visual_claim = _visual_claim_boundary(
         baseline_label=visual_baseline_label,
         self_reference=visual_self_reference or _is_self_reference_baseline(visual_baseline_label),
@@ -367,12 +391,14 @@ def run_production_gate_report(
         visual_claims=(visual_claim,),
         native_carrier_coverage=native_carrier_coverage,
         cuda_renderer=cuda_renderer,
+        cuda_renderer_callable_boundary=cuda_renderer_callable_boundary,
     )
     return {
         "format": "AURA_PRODUCTION_GATE_REPORT",
         "asset": package.asset.name,
         "productionGate": production_gate,
         "cudaRenderer": cuda_renderer,
+        "cudaRendererCallableBoundary": cuda_renderer_callable_boundary,
         "backendReadiness": backend_readiness,
         "nativeCarrierCoverage": native_carrier_coverage,
         "visualClaimBoundary": visual_claim,
@@ -709,12 +735,56 @@ def evaluate_native_carrier_coverage(
     }
 
 
+def cuda_renderer_callable_boundary_report(scene: AuraScene) -> dict:
+    boundary = cuda_renderer_boundary_report(
+        scene,
+        probe_ray_origin=(0.0, 0.0, -2.0),
+        probe_ray_direction=(0.0, 0.0, 1.0),
+        fallback_backend="cpu",
+        max_hits=4,
+    )
+    fallback_probe = boundary.get("fallbackProbe")
+    fallback_probe = fallback_probe if isinstance(fallback_probe, dict) else {}
+    output_fields = tuple(str(field) for field in fallback_probe.get("outputFields", ()))
+    missing_output_fields = [field for field in CALLABLE_CUDA_RENDERER_OUTPUT_FIELDS if field not in output_fields]
+    fallback_backend = fallback_probe.get("backend")
+    fallback_available = bool(fallback_probe.get("executed")) and fallback_backend in {"cpu", "torch"}
+    return {
+        "format": "AURA_CUDA_RENDERER_CALLABLE_BOUNDARY",
+        "reportKind": "callable_cuda_renderer_fallback_boundary",
+        "apiName": boundary.get("apiName"),
+        "callableBoundaryReady": bool(boundary.get("callableBoundaryAvailable")) and bool(fallback_probe.get("executed")),
+        "fallbackContractReady": not missing_output_fields,
+        "fallbackAvailable": fallback_available,
+        "fallbackBackend": fallback_backend,
+        "compiledCudaAvailable": bool(boundary.get("available")),
+        "productionReady": bool(boundary.get("productionReady")),
+        "reason": fallback_probe.get("reason") or fallback_probe.get("error"),
+        "missingOutputFields": missing_output_fields,
+        "outputFields": [field for field in CALLABLE_CUDA_RENDERER_OUTPUT_FIELDS if field in output_fields],
+        "launchConfig": {
+            "rayCount": fallback_probe.get("rayCount"),
+            "maxHits": fallback_probe.get("maxHits"),
+        }
+        if fallback_probe
+        else None,
+        "extension": boundary.get("extension"),
+        "boundaryReport": boundary,
+        "notes": (
+            "This probes aura.cuda_renderer.cuda_render_rays, the callable launch boundary. "
+            "A CPU or torch fallback proves the ray-query output contract is callable, "
+            "not that CUDA acceleration exists."
+        ),
+    }
+
+
 def _benchmark_production_gate(
     *,
     backend_readiness: dict[str, Any],
     visual_claims: Sequence[dict[str, Any]] = (),
     native_carrier_coverage: dict[str, Any] | None = None,
     cuda_renderer: dict[str, Any] | None = None,
+    cuda_renderer_callable_boundary: dict[str, Any] | None = None,
 ) -> dict:
     blockers = list(backend_readiness.get("productionBlockers", ()))
     if not backend_readiness.get("productionCudaReady", False):
@@ -723,6 +793,14 @@ def _benchmark_production_gate(
         cuda_renderer.get("available", False) and cuda_renderer.get("productionReady", False)
     ):
         _append_unique(blockers, "cuda_renderer_unavailable")
+    if cuda_renderer_callable_boundary is not None:
+        if not cuda_renderer_callable_boundary.get("callableBoundaryReady", False):
+            _append_unique(blockers, "cuda_renderer_callable_boundary_unavailable")
+        if (
+            cuda_renderer_callable_boundary.get("fallbackAvailable", False)
+            and not cuda_renderer_callable_boundary.get("productionReady", False)
+        ):
+            _append_unique(blockers, "cuda_renderer_callable_fallback_only")
     if native_carrier_coverage is not None:
         for blocker in native_carrier_coverage.get("productionBlockers", ()):
             _append_unique(blockers, str(blocker))
@@ -732,6 +810,9 @@ def _benchmark_production_gate(
     cuda_renderer_ready = bool(backend_readiness.get("productionCudaReady")) and (
         cuda_renderer is None or bool(cuda_renderer.get("productionReady"))
     )
+    callable_fallback_available = bool(
+        cuda_renderer_callable_boundary and cuda_renderer_callable_boundary.get("fallbackAvailable")
+    )
     return {
         "format": "AURA_BENCHMARK_PRODUCTION_GATE",
         "productionReady": not blockers,
@@ -739,6 +820,25 @@ def _benchmark_production_gate(
         "cudaRendererReady": cuda_renderer_ready,
         "cudaRendererAvailable": bool(cuda_renderer and cuda_renderer.get("available")),
         "cudaRendererProductionReady": bool(cuda_renderer and cuda_renderer.get("productionReady")),
+        "cudaRendererReportKind": (
+            None if cuda_renderer is None else "legacy_cuda_kernels_metadata_report"
+        ),
+        "cudaRendererCallableBoundaryReady": bool(
+            cuda_renderer_callable_boundary
+            and cuda_renderer_callable_boundary.get("callableBoundaryReady")
+        ),
+        "cudaRendererCallableFallbackAvailable": callable_fallback_available,
+        "cudaRendererCallableFallbackBackend": (
+            None
+            if cuda_renderer_callable_boundary is None
+            else cuda_renderer_callable_boundary.get("fallbackBackend")
+        ),
+        "cudaRendererCallableFallbackOnly": callable_fallback_available
+        and not bool(cuda_renderer_callable_boundary and cuda_renderer_callable_boundary.get("productionReady")),
+        "cudaRendererCallableProductionReady": bool(
+            cuda_renderer_callable_boundary
+            and cuda_renderer_callable_boundary.get("productionReady")
+        ),
         "nativeCarrierCoverageReady": bool(
             native_carrier_coverage and native_carrier_coverage.get("auraFirstCoverageReady")
         ),
@@ -757,6 +857,7 @@ def _benchmark_production_gate(
         "productionBlockers": blockers,
         "claimRequirements": [
             "production CUDA renderer is compiled, loadable, parity-tested, and benchmarked",
+            "callable cuda_renderer fallback is replaced by real CUDA dispatch before production CUDA claims",
             "visual quality is measured against external teacher or baseline renders",
             "benchmark package exercises native AURA carrier families instead of Gaussian fallback only",
         ],

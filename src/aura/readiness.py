@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aura.benchmark import evaluate_backend_readiness
+from aura.benchmark import cuda_renderer_callable_boundary_report, evaluate_backend_readiness
 from aura.core import synthetic_training_frames, synthetic_training_regions
-from aura.cuda_kernels import cuda_kernel_source_report
+from aura.cuda_kernels import cuda_kernel_source_report, cuda_renderer_report
 from aura.decomposition import decompose_evidence
 from aura.torch_kernels import torch_carrier_kernel_report
 from aura.torch_renderer import torch_renderer_status
@@ -38,6 +38,8 @@ class ProductionReadinessReport:
     torch_renderer: dict
     torch_carrier_kernels: dict
     cuda_kernel_sources: dict
+    legacy_cuda_renderer: dict
+    cuda_renderer_callable_boundary: dict
     backend_readiness: dict
 
     @property
@@ -66,6 +68,8 @@ class ProductionReadinessReport:
             "torchRenderer": self.torch_renderer,
             "torchCarrierKernels": self.torch_carrier_kernels,
             "cudaKernelSources": self.cuda_kernel_sources,
+            "legacyCudaRenderer": self.legacy_cuda_renderer,
+            "cudaRendererCallableBoundary": self.cuda_renderer_callable_boundary,
             "backendReadiness": self.backend_readiness,
             "summary": _summary(self.pillars),
         }
@@ -75,7 +79,10 @@ def production_readiness_report() -> ProductionReadinessReport:
     torch_status = torch_renderer_status().to_dict()
     kernel_report = torch_carrier_kernel_report()
     cuda_sources = cuda_kernel_source_report()
-    backend_readiness = evaluate_backend_readiness(_readiness_scene())
+    readiness_scene = _readiness_scene()
+    legacy_cuda_renderer = cuda_renderer_report()
+    cuda_callable_boundary = cuda_renderer_callable_boundary_report(readiness_scene)
+    backend_readiness = evaluate_backend_readiness(readiness_scene)
     pillars = (
         ReadinessPillar(
             id="native_carriers",
@@ -142,11 +149,14 @@ def production_readiness_report() -> ProductionReadinessReport:
             production_ready=False,
             evidence=(
                 "CUDA source stubs are packaged and discoverable",
+                "legacy cuda_kernels cuda-renderer-report remains a metadata-only launch contract",
+                "callable aura.cuda_renderer boundary validates launch shape and returns an explicit CPU fallback batch",
                 "aura cuda-kernel-build-report can probe extension build/load status",
                 f"backend readiness reports {backend_readiness['sceneCarrierCudaCoverageRate']:.0%} scene-carrier CUDA production coverage",
             ),
             gaps=(
                 "CUDA extension build is not attempted by this readiness report",
+                "callable cuda_renderer fallback is not CUDA acceleration",
                 "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready",
                 "GPU traversal and production kernel dispatch are missing",
             ),
@@ -200,6 +210,8 @@ def production_readiness_report() -> ProductionReadinessReport:
         torch_renderer=torch_status,
         torch_carrier_kernels=kernel_report,
         cuda_kernel_sources=cuda_sources,
+        legacy_cuda_renderer=legacy_cuda_renderer,
+        cuda_renderer_callable_boundary=cuda_callable_boundary,
         backend_readiness=backend_readiness,
     )
 

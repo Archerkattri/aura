@@ -60,6 +60,7 @@ from aura.cuda_kernels import (
 from aura.cuda_renderer import (
     CudaRendererBatch,
     CudaRendererLaunchConfig,
+    cuda_renderer_boundary_report,
     cuda_render_rays as cuda_renderer_render_rays,
     cuda_renderer_launch_config,
 )
@@ -281,6 +282,7 @@ __all__ = [
     "cuda_kernel_sources",
     "cuda_render_rays",
     "cuda_renderer_api_contract",
+    "cuda_renderer_boundary_report",
     "cuda_renderer_launch_config",
     "cuda_renderer_render_rays",
     "cuda_renderer_report",
