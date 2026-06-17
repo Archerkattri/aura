@@ -48,6 +48,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - torch reference rendering directly from capture training batches through
   `torch_render_capture_training_batch`, using carrier parameter tensors for
   every supported native/fallback carrier;
+- live torch render objectives through `torch_render_target_objective`, exposing
+  differentiable image/depth losses over carrier parameter tensors;
 - torch reference optimization steps through `torch_optimize_capture_batch`,
   which runs repeated batched AURA forward passes and records image/depth/query/
   normal losses while applying bounded native carrier color updates;
@@ -82,7 +84,9 @@ fixture.
 The current renderer is a deterministic validation preview, and the optional
 PyTorch path is a payload-aware reference contract rather than the final CUDA
 renderer. A future GPU renderer should match this package/query contract while
-replacing the reference implementation for real throughput.
+replacing the reference implementation for real throughput. The live
+`torch_render_target_objective` path is the current autograd bridge for turning
+carrier parameter tensors into real GPU optimization losses.
 
 The first CLI smoke path is `aura build-native-demo`, which builds a
 mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are

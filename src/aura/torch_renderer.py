@@ -82,6 +82,26 @@ class TorchRenderBatch:
 
 
 @dataclass(frozen=True)
+class TorchRenderObjective:
+    device: str
+    frame_ids: tuple[str, ...]
+    carrier_parameters: dict[str, dict[str, Any]]
+    total_loss: Any
+    image_loss: Any
+    depth_loss: Any
+
+    def to_dict(self) -> dict:
+        return {
+            "device": self.device,
+            "frameIds": list(self.frame_ids),
+            "totalLoss": float(self.total_loss.detach().cpu().item()),
+            "imageLoss": float(self.image_loss.detach().cpu().item()),
+            "depthLoss": float(self.depth_loss.detach().cpu().item()),
+            "carrierParameterIds": sorted(self.carrier_parameters),
+        }
+
+
+@dataclass(frozen=True)
 class TorchCaptureAssetBatch:
     device: str
     frame_ids: tuple[str, ...]
@@ -352,6 +372,35 @@ def torch_render_targets(
     )
 
 
+def torch_render_target_objective(
+    scene: AuraScene,
+    targets: Sequence[RenderTarget],
+    *,
+    device: str | None = None,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+) -> TorchRenderObjective:
+    """Return a live torch loss over native AURA carrier parameters."""
+
+    if not targets:
+        raise ValueError("torch renderer requires at least one target")
+    if not scene.elements:
+        raise ValueError("torch renderer requires at least one scene element")
+
+    status = torch_renderer_status()
+    resolved_device = device or status.default_device or "cpu"
+    torch = require_torch()
+    return _torch_render_objective_tensor_targets(
+        scene,
+        frame_ids=tuple(target.frame_id for target in targets),
+        origins=torch.tensor([target.ray.origin for target in targets], dtype=torch.float32, device=resolved_device),
+        directions=torch.tensor([target.ray.direction for target in targets], dtype=torch.float32, device=resolved_device),
+        target_colors=torch.tensor([target.target_color for target in targets], dtype=torch.float32, device=resolved_device),
+        target_depths=torch.tensor([target.target_depth for target in targets], dtype=torch.float32, device=resolved_device),
+        device=str(resolved_device),
+        carrier_parameters=carrier_parameters,
+    )
+
+
 def _torch_render_tensor_targets(
     scene: AuraScene,
     *,
@@ -407,7 +456,8 @@ def _torch_render_tensor_targets(
     best_depth, best_index = torch.min(hit_depths, dim=1)
     has_hit = torch.isfinite(best_depth)
 
-    hit_points = origins + directions * best_depth.unsqueeze(1)
+    safe_best_depth = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
+    hit_points = origins + directions * safe_best_depth.unsqueeze(1)
     carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors(
         torch,
         tuple(scene.elements),
@@ -473,6 +523,78 @@ def _torch_render_tensor_targets(
         depth_loss=tuple(float(value) for value in depth_loss.detach().cpu().tolist()),
         normal_loss=tuple(float(value) for value in normal_loss.detach().cpu().tolist()),
         query_loss=query_loss,
+    )
+
+
+def _torch_render_objective_tensor_targets(
+    scene: AuraScene,
+    *,
+    frame_ids: Sequence[str],
+    origins: Any,
+    directions: Any,
+    target_colors: Any,
+    target_depths: Any,
+    device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+) -> TorchRenderObjective:
+    torch = require_torch()
+    if int(origins.shape[0]) != len(frame_ids):
+        raise ValueError("torch tensor target count must match frame ids")
+
+    mins = torch.tensor([element.bounds.min_corner for element in scene.elements], dtype=torch.float32, device=device)
+    maxs = torch.tensor([element.bounds.max_corner for element in scene.elements], dtype=torch.float32, device=device)
+    colors = torch.tensor([element.color for element in scene.elements], dtype=torch.float32, device=device)
+    opacities = torch.tensor([element.opacity for element in scene.elements], dtype=torch.float32, device=device)
+    confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
+    carrier_parameters = carrier_parameters or torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=device)
+
+    safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
+    t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
+    t1 = (maxs[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
+    lower = torch.minimum(t0, t1)
+    upper = torch.maximum(t0, t1)
+    parallel_outside = (directions.abs()[:, None, :] < 1e-8) & (
+        (origins[:, None, :] < mins[None, :, :]) | (origins[:, None, :] > maxs[None, :, :])
+    )
+    entry = torch.clamp(torch.max(lower, dim=2).values, min=0.0)
+    exit_depth = torch.min(upper, dim=2).values
+    hits = (exit_depth >= entry) & (~torch.any(parallel_outside, dim=2))
+    hit_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
+    best_depth, best_index = torch.min(hit_depths, dim=1)
+    has_hit = torch.isfinite(best_depth)
+
+    safe_best_depth = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
+    hit_points = origins + directions * safe_best_depth.unsqueeze(1)
+    carrier_colors, transmittance, _confidence, _residual_flags = torch_carrier_response_tensors(
+        torch,
+        tuple(scene.elements),
+        best_index,
+        best_depth,
+        exit_depth,
+        hit_points,
+        colors,
+        opacities,
+        confidences,
+        mins,
+        maxs,
+        device,
+        carrier_parameters=carrier_parameters,
+    )
+    predicted_colors = torch.where(
+        has_hit.unsqueeze(1),
+        carrier_colors * (1.0 - transmittance).unsqueeze(1),
+        torch.zeros_like(carrier_colors),
+    )
+    predicted_depths = torch.where(has_hit, best_depth, torch.zeros_like(best_depth))
+    image_loss = torch.mean((predicted_colors - target_colors) ** 2)
+    depth_loss = torch.mean(torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths))
+    return TorchRenderObjective(
+        device=device,
+        frame_ids=tuple(frame_ids),
+        carrier_parameters=carrier_parameters,
+        total_loss=image_loss + depth_loss,
+        image_loss=image_loss,
+        depth_loss=depth_loss,
     )
 
 

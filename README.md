@@ -64,6 +64,8 @@ native representation contract pieces:
   `torch_capture_training_batch`;
 - torch reference rendering from capture training batches via
   `torch_render_capture_training_batch`, using carrier parameter tensors;
+- live torch render objectives via `torch_render_target_objective` for
+  backpropagation through carrier parameter tensors;
 - torch reference optimization steps via `torch_optimize_capture_batch`, using
   the batched native AURA forward contract for loss reporting and bounded
   carrier color updates;
