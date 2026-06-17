@@ -57,6 +57,8 @@ native representation contract pieces:
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
 - per-pixel capture asset tensors for PNG, PPM/PGM, COLMAP depth maps, COLMAP
   normal maps, and optional `imageio` EXR/HDR/video backends;
+- packed host float buffers for loaded capture tensor payloads instead of
+  Python tuple payloads;
 - torch/CUDA capture asset batching for manifest image/depth/mask/normal tensors
   via `torch_capture_asset_batch`;
 - per-pixel capture training target generation from image/depth/mask/normal

@@ -40,6 +40,8 @@ This package now contains the GPU-ready skeleton for AURA:
   carriers;
 - per-pixel capture asset tensors for PNG, PPM/PGM, COLMAP dense maps, and
   optional `imageio` EXR/HDR/video assets;
+- packed host float buffers for capture tensor payloads, avoiding Python tuple
+  payloads during manifest asset loading;
 - torch/CUDA capture asset batching through `torch_capture_asset_batch`, which
   stacks manifest image/depth/mask/normal tensors and presence masks on the
   selected device;

@@ -90,19 +90,21 @@ AURA_CAPTURE_MANIFEST
 2. Replace the CPU reference optimization loop with a GPU loop that uses
    `torch_capture_training_batch` and `torch_render_capture_training_batch` for
    forward passes, gradients, and carrier updates.
-3. Replace the current reference-weight `CaptureProposalModel` with learned
+3. Replace the packed host capture tensor buffers with tiled, memory-mapped, or
+   GPU-native asset loading for full-resolution image/video datasets.
+4. Replace the current reference-weight `CaptureProposalModel` with learned
    region proposal generation for COLMAP/capture image, depth, mask, and normal
    tensors.
-4. Replace the torch autograd carrier specs with CUDA kernels for every carrier.
+5. Replace the torch autograd carrier specs with CUDA kernels for every carrier.
    Surface, volume, beta, gabor, neural residual, semantic, and Gaussian
    fallback carriers have tested torch autograd paths only; `aura
    torch-kernel-report` must report `productionReady: true` before claiming
    this is complete.
-5. Replace the cached CPU reference chunk BVH with a production BVH/GPU
+6. Replace the cached CPU reference chunk BVH with a production BVH/GPU
    traversal path for secondary rays.
-6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
+7. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
    2DGS, ray-traced GS, and radiance-mesh/neural-primitive baselines.
-7. Replace the current deterministic LPIPS-proxy metric with a learned LPIPS
+8. Replace the current deterministic LPIPS-proxy metric with a learned LPIPS
    backend and report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene
    behavior: ray-query correctness, collision proxy quality, editing, relighting
    confidence, semantic grouping, runtime export, and engine workflow.

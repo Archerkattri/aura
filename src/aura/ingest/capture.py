@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from array import array
+from collections.abc import Iterable as IterableABC
+from collections.abc import Sequence as SequenceABC
 import json
 import struct
 import zlib
@@ -16,6 +19,34 @@ from aura.core import TrainingDataset, TrainingFrame, TrainingRegion
 from aura.elements import Bounds
 from aura.proposals import propose_training_regions_from_tensors
 from aura.ray import Vec3
+
+
+class PackedFloatBuffer(Sequence[float]):
+    """Packed float sequence for dense capture tensors without Python-float tuples."""
+
+    def __init__(self, values: IterableABC[object] = ()) -> None:
+        self._values = array("d", (float(value) for value in values))
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return tuple(self._values[index])
+        return self._values[index]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PackedFloatBuffer):
+            return self._values == other._values
+        if isinstance(other, SequenceABC):
+            return tuple(self._values) == tuple(other)
+        return False
+
+    def sample(self, limit: int) -> tuple[float, ...]:
+        return tuple(self._values[: max(0, limit)])
 
 
 @dataclass(frozen=True)
@@ -112,9 +143,11 @@ class CaptureTensor:
     width: int
     height: int
     channels: int
-    values: tuple[float, ...]
+    values: Sequence[float]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.values, PackedFloatBuffer):
+            object.__setattr__(self, "values", PackedFloatBuffer(self.values))
         if self.width <= 0 or self.height <= 0:
             raise ValueError(f"{self.path} tensor dimensions must be positive")
         if self.channels <= 0:
@@ -127,7 +160,9 @@ class CaptureTensor:
         return (self.height, self.width, self.channels)
 
     def sample_values(self, limit: int = 12) -> tuple[float, ...]:
-        return self.values[: max(0, limit)]
+        if isinstance(self.values, PackedFloatBuffer):
+            return self.values.sample(limit)
+        return tuple(self.values[: max(0, limit)])
 
     def to_dict(self) -> dict:
         return {
@@ -375,9 +410,11 @@ class _RasterImage:
     width: int
     height: int
     channels: int
-    values: tuple[float, ...]
+    values: Sequence[float]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.values, PackedFloatBuffer):
+            object.__setattr__(self, "values", PackedFloatBuffer(self.values))
         if self.width <= 0 or self.height <= 0:
             raise ValueError(f"{self.format} dimensions must be positive")
         if len(self.values) != self.width * self.height * self.channels:
@@ -680,14 +717,14 @@ def _read_imageio_tensor(path: Path) -> CaptureTensor:
     if len(shape) == 2:
         height, width = shape
         channels = 1
-        flat = array.reshape(-1).tolist()
+        flat = array.reshape(-1)
     elif len(shape) == 3:
         height, width, channels = shape
-        flat = array.reshape(-1).tolist()
+        flat = array.reshape(-1)
     elif len(shape) == 4:
         _frames, height, width, channels = shape
         first_frame = array[0]
-        flat = first_frame.reshape(-1).tolist()
+        flat = first_frame.reshape(-1)
     else:
         raise ValueError(f"{path} tensor backend returned unsupported shape {shape!r}")
     values = _normalize_tensor_values(flat, dtype=str(getattr(array, "dtype", "")))
@@ -702,13 +739,12 @@ def _read_imageio_tensor(path: Path) -> CaptureTensor:
     )
 
 
-def _normalize_tensor_values(values: Sequence[object], *, dtype: str) -> tuple[float, ...]:
-    floats = tuple(float(value) for value in values)
+def _normalize_tensor_values(values: IterableABC[object], *, dtype: str) -> PackedFloatBuffer:
     if dtype.startswith("uint8"):
-        return tuple(value / 255.0 for value in floats)
+        return PackedFloatBuffer(float(value) / 255.0 for value in values)
     if dtype.startswith("uint16"):
-        return tuple(value / 65535.0 for value in floats)
-    return floats
+        return PackedFloatBuffer(float(value) / 65535.0 for value in values)
+    return PackedFloatBuffer(values)
 
 
 def _read_netpbm(path: Path) -> _RasterImage:

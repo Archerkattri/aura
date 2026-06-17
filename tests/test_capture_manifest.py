@@ -20,6 +20,7 @@ from aura import (
     validate_capture_manifest_document,
     write_capture_manifest_template,
 )
+from aura.ingest.capture import PackedFloatBuffer
 
 
 def test_capture_manifest_template_loads_as_training_dataset(tmp_path):
@@ -193,6 +194,7 @@ def test_capture_manifest_loads_per_pixel_asset_tensors(tmp_path):
     assert tensors[0].frame_id == "frame_000001"
     assert tensors[0].image.shape == (1, 2, 3)
     assert tensors[0].image.backend == "stdlib"
+    assert isinstance(tensors[0].image.values, PackedFloatBuffer)
     assert tensors[0].image.sample_values() == (1.0, 0.0, 0.0, 0.0, 0.5, 0.5)
     assert tensors[0].depth.shape == (1, 2, 1)
     assert tensors[0].depth.values == (0.5, 1.0)
