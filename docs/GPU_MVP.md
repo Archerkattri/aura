@@ -20,6 +20,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - COLMAP sparse point depth layers for native region initialization;
 - standard COLMAP dense depth-map links and deterministic summary loading;
 - loaded depth assets seed deterministic multi-region native surface priors;
+- loaded mask assets seed native semantic/object priors;
 - dependency-free PNG and PPM/PGM capture asset summaries for manifest-backed
   native training fixtures;
 - chunk and LOD metadata;

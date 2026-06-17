@@ -106,9 +106,15 @@ def test_capture_manifest_loads_ppm_pgm_asset_summaries(tmp_path):
     assert assets[0].mask_coverage == 0.5
     assert dataset.frames[0].target_color == (0.5, 0.25, 0.25)
     assert dataset.frames[0].target_depth == 0.75
-    assert [region.id for region in dataset.regions[-2:]] == ["frame_000001_depth_prior_0", "frame_000001_depth_prior_1"]
-    assert all(region.fallback_source == "capture-depth-prior" for region in dataset.regions[-2:])
-    assert all(region.evidence.geometry_confidence == 0.75 for region in dataset.regions[-2:])
+    assert [region.id for region in dataset.regions[-3:]] == [
+        "frame_000001_depth_prior_0",
+        "frame_000001_depth_prior_1",
+        "frame_000001_mask_semantic",
+    ]
+    assert all(region.fallback_source == "capture-depth-prior" for region in dataset.regions[-3:-1])
+    assert all(region.evidence.geometry_confidence == 0.75 for region in dataset.regions[-3:-1])
+    assert dataset.regions[-1].fallback_source == "capture-mask-prior"
+    assert dataset.regions[-1].evidence.semantic_confidence == 0.825
 
 
 def test_capture_manifest_loads_png_asset_summaries(tmp_path):
@@ -148,7 +154,23 @@ def test_capture_manifest_depth_asset_regions_become_native_surface_evidence(tmp
     assert scene.semantic_graph.nodes[0].element_ids == (
         "frame_000001_depth_prior_0",
         "frame_000001_depth_prior_1",
+        "frame_000001_mask_semantic",
     )
+
+
+def test_capture_manifest_mask_asset_regions_become_native_semantic_evidence(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+    dataset = manifest.to_training_dataset(load_assets=True)
+    frame_by_id = {frame.id: frame for frame in dataset.frames}
+    samples = tuple(region.to_evidence_sample(frame_by_id[region.frame_id]) for region in dataset.regions)
+
+    scene = decompose_evidence(samples)
+    by_id = {element.id: element for element in scene.elements}
+
+    assert by_id["frame_000001_mask_semantic"].carrier_id == "semantic"
+    assert by_id["frame_000001_mask_semantic"].semantic_id == "fixture"
+    assert by_id["frame_000001_mask_semantic"].payload["type"] == "semantic_feature"
+    assert scene.semantic_graph.nodes[0].label == "fixture"
 
 
 def test_capture_manifest_loads_colmap_depth_map_summary(tmp_path):

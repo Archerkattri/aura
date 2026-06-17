@@ -30,7 +30,7 @@ class CaptureManifest:
             return TrainingDataset(frames=self.frames, regions=self.regions)
         assets = {item.frame_id: item for item in load_capture_assets(self)}
         frames = tuple(_frame_with_asset_summaries(frame, assets.get(frame.id)) for frame in self.frames)
-        regions = (*self.regions, *_depth_regions_from_assets(frames, assets))
+        regions = (*self.regions, *_depth_regions_from_assets(frames, assets), *_mask_regions_from_assets(frames, assets))
         return TrainingDataset(frames=frames, regions=regions)
 
     def to_dict(self) -> dict:
@@ -377,6 +377,45 @@ def _depth_region_half_extent(frame: TrainingFrame, depth: float) -> float:
     half_x = depth * width / (2.0 * fx)
     half_y = depth * height / (2.0 * fy)
     return max(0.05, min(half_x, half_y))
+
+
+def _mask_regions_from_assets(
+    frames: tuple[TrainingFrame, ...],
+    assets: dict[str, CaptureFrameAssets],
+) -> tuple[TrainingRegion, ...]:
+    regions = []
+    for frame in frames:
+        asset = assets.get(frame.id)
+        if asset is None or asset.mask_coverage is None or asset.mask_coverage <= 0.0:
+            continue
+        depth = asset.average_depth if asset.average_depth is not None else frame.target_depth
+        half_width = _depth_region_half_extent(frame, depth) * max(0.25, min(1.0, asset.mask_coverage * 2.0))
+        label = frame.semantic_label or f"{frame.id}_mask"
+        semantic_confidence = min(1.0, 0.65 + 0.35 * asset.mask_coverage)
+        regions.append(
+            TrainingRegion(
+                id=f"{frame.id}_mask_semantic",
+                frame_id=frame.id,
+                bounds=Bounds(
+                    min_corner=(-half_width, -half_width, max(depth - max(depth * 0.02, 1e-3), 1e-6)),
+                    max_corner=(half_width, half_width, depth + max(depth * 0.02, 1e-3)),
+                ),
+                evidence=RegionEvidence(
+                    semantic_confidence=semantic_confidence,
+                    geometry_confidence=min(0.75, 0.35 + 0.4 * asset.mask_coverage),
+                    ray_need=0.65,
+                    edit_need=0.6,
+                ),
+                color=frame.target_color,
+                opacity=min(0.9, max(0.25, asset.mask_coverage)),
+                confidence=semantic_confidence,
+                normal=None,
+                material_id="mat_mask_semantic",
+                semantic_label=label,
+                fallback_source="capture-mask-prior",
+            )
+        )
+    return tuple(regions)
 
 
 def _resolve_capture_path(root: Path, value: str | Path) -> Path:

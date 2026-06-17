@@ -84,9 +84,8 @@ AURA_CAPTURE_MANIFEST
 2. Replace the current dependency-free PNG/PPM/PGM/COLMAP-depth summary loader
    with real EXR/video tensor loading for manifest `image_path`, `depth_path`,
    and `mask_path`.
-3. Harden COLMAP import beyond deterministic sparse/depth two-bin regions,
-   including image-space masks, normal-aware regions, and learned region
-   proposal generation.
+3. Harden COLMAP import beyond deterministic sparse/depth/mask prior regions,
+   including normal-aware regions and learned region proposal generation.
 4. Extend the PyTorch/CUDA path from AABB first-hit/depth/color tensors to real
    surface, volume, beta, gabor, neural residual, semantic, and Gaussian
    fallback carrier behavior.

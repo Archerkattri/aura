@@ -41,6 +41,8 @@ native representation contract pieces:
 - depth asset statistics that seed deterministic multi-region native
   surface-prior `TrainingRegion` evidence during manifest-to-training
   conversion;
+- mask asset coverage that seeds native semantic/object `TrainingRegion`
+  evidence during manifest-to-training conversion;
 - semantic graph aggregation across multiple regions with the same object label;
 - `.aura` package writer;
 - `.aura` package loader/validator;
