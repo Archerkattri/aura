@@ -59,6 +59,134 @@ class BenchmarkSuite:
         }
 
 
+@dataclass(frozen=True)
+class RayQueryExpectation:
+    label: str
+    ray: Ray
+    expected_first_hit: bool
+    expected_element_id: str | None = None
+    expected_carrier_id: str | None = None
+    expected_depth: float | None = None
+    depth_tolerance: float = 1e-6
+    transmittance_min: float | None = None
+    transmittance_max: float | None = None
+    expected_semantic_id: str | None = None
+    expected_material_id: str | None = None
+    expected_residual: bool | None = None
+    require_normal: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.label:
+            raise ValueError("ray expectation label is required")
+        if self.depth_tolerance < 0.0:
+            raise ValueError("depth_tolerance must be non-negative")
+        if self.transmittance_min is not None and not 0.0 <= self.transmittance_min <= 1.0:
+            raise ValueError("transmittance_min must be in [0, 1]")
+        if self.transmittance_max is not None and not 0.0 <= self.transmittance_max <= 1.0:
+            raise ValueError("transmittance_max must be in [0, 1]")
+
+    def to_dict(self) -> dict:
+        return {
+            "label": self.label,
+            "ray": {"origin": list(self.ray.origin), "direction": list(self.ray.direction)},
+            "expectedFirstHit": self.expected_first_hit,
+            "expectedElementId": self.expected_element_id,
+            "expectedCarrierId": self.expected_carrier_id,
+            "expectedDepth": self.expected_depth,
+            "depthTolerance": self.depth_tolerance,
+            "transmittanceMin": self.transmittance_min,
+            "transmittanceMax": self.transmittance_max,
+            "expectedSemanticId": self.expected_semantic_id,
+            "expectedMaterialId": self.expected_material_id,
+            "expectedResidual": self.expected_residual,
+            "requireNormal": self.require_normal,
+        }
+
+
+def native_demo_ray_query_expectations() -> tuple[RayQueryExpectation, ...]:
+    return (
+        RayQueryExpectation(
+            label="surface_first_hit",
+            ray=Ray(origin=(-0.5, -0.5, -2.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            expected_element_id="surface_wall",
+            expected_carrier_id="surface",
+            expected_depth=2.0,
+            transmittance_min=0.09,
+            transmittance_max=0.11,
+            expected_material_id="mat_wall_plaster",
+            require_normal=True,
+        ),
+        RayQueryExpectation(
+            label="volume_transmittance",
+            ray=Ray(origin=(0.1, -0.45, -2.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            expected_element_id="soft_volume",
+            expected_carrier_id="volume",
+            expected_depth=2.0,
+            transmittance_min=0.50,
+            transmittance_max=0.51,
+            expected_material_id="mat_soft_volume",
+        ),
+        RayQueryExpectation(
+            label="semantic_object",
+            ray=Ray(origin=(0.125, 0.275, -2.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            expected_element_id="semantic_object",
+            expected_carrier_id="semantic",
+            expected_depth=2.0,
+            transmittance_min=0.54,
+            transmittance_max=0.56,
+            expected_semantic_id="fixture_object",
+        ),
+        RayQueryExpectation(
+            label="neural_residual",
+            ray=Ray(origin=(-0.5, 0.3, -2.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            expected_element_id="view_residual",
+            expected_carrier_id="neural",
+            expected_depth=2.0,
+            transmittance_min=0.39,
+            transmittance_max=0.41,
+            expected_residual=True,
+        ),
+        RayQueryExpectation(
+            label="empty_space_control",
+            ray=Ray(origin=(2.0, 2.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=False,
+            transmittance_min=1.0,
+            transmittance_max=1.0,
+        ),
+    )
+
+
+def run_ray_query_correctness_benchmark(
+    scene: AuraScene,
+    expectations: Sequence[RayQueryExpectation],
+) -> dict:
+    if not expectations:
+        raise ValueError("ray query correctness benchmark requires expectations")
+    element_by_id = {element.id: element for element in scene.elements}
+    probes = tuple(_score_ray_query_expectation(scene, element_by_id, expectation) for expectation in expectations)
+    return {
+        "format": "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK",
+        "scene": scene.name,
+        "probeCount": len(probes),
+        "passed": all(probe["passed"] for probe in probes),
+        "passRate": _rate(probe["passed"] for probe in probes),
+        "firstHitAccuracy": _rate(probe["checks"]["firstHit"]["passed"] for probe in probes),
+        "elementAccuracy": _rate(_optional_check_passed(probe, "elementId") for probe in probes),
+        "carrierAccuracy": _rate(_optional_check_passed(probe, "carrierId") for probe in probes),
+        "depthWithinToleranceRate": _rate(_optional_check_passed(probe, "depth") for probe in probes),
+        "transmittanceWithinBoundsRate": _rate(_optional_check_passed(probe, "transmittance") for probe in probes),
+        "semanticAccuracy": _rate(_optional_check_passed(probe, "semanticId") for probe in probes),
+        "materialAccuracy": _rate(_optional_check_passed(probe, "materialId") for probe in probes),
+        "normalReadyRate": _rate(_optional_check_passed(probe, "normal") for probe in probes),
+        "residualAccuracy": _rate(_optional_check_passed(probe, "residual") for probe in probes),
+        "probes": list(probes),
+    }
+
+
 def run_reference_benchmark(
     package: AuraPackage,
     *,
@@ -101,6 +229,10 @@ def run_reference_benchmark(
             "queryP95Ms": _percentile_ms(query_timings, 0.95),
             "probes": [inspection.to_dict() for inspection in inspections],
         },
+        "rayQueryCorrectness": run_ray_query_correctness_benchmark(
+            scene,
+            _scene_center_expectations(scene),
+        ),
         "previewRender": {
             "width": image.width,
             "height": image.height,
@@ -333,6 +465,121 @@ def _timed_scene_ray_inspections(scene: AuraScene) -> tuple[tuple[RayInspection,
         inspections.append(inspect_ray(scene, ray, label=element.id))
         timings.append(perf_counter() - start)
     return tuple(inspections), tuple(timings)
+
+
+def _scene_center_expectations(scene: AuraScene) -> tuple[RayQueryExpectation, ...]:
+    if not scene.elements:
+        return tuple()
+    camera_z = min(element.bounds.min_corner[2] for element in scene.elements) - 2.0
+    expectations = []
+    for element in scene.elements[:8]:
+        center = tuple((lo + hi) / 2.0 for lo, hi in zip(element.bounds.min_corner, element.bounds.max_corner))
+        expectations.append(
+            RayQueryExpectation(
+                label=element.id,
+                ray=Ray(origin=(center[0], center[1], camera_z), direction=(0.0, 0.0, 1.0)),
+                expected_first_hit=True,
+                expected_element_id=element.id,
+                expected_carrier_id=element.carrier_id,
+                expected_depth=element.bounds.min_corner[2] - camera_z,
+                depth_tolerance=1e-6,
+                transmittance_min=0.0,
+                transmittance_max=1.0,
+                expected_semantic_id=element.semantic_id,
+                expected_material_id=element.material_id,
+                expected_residual=element.residual,
+                require_normal=element.normal is not None or element.payload.get("type") == "surface_cell",
+            )
+        )
+    return tuple(expectations)
+
+
+def _score_ray_query_expectation(
+    scene: AuraScene,
+    element_by_id: dict[str, object],
+    expectation: RayQueryExpectation,
+) -> dict:
+    result = scene.ray_query(expectation.ray)
+    first_hit = result.provenance != "miss"
+    first_element_id = result.provenance.split(",", 1)[0] if first_hit and result.provenance else None
+    element = element_by_id.get(first_element_id or "")
+    actual_carrier_id = getattr(element, "carrier_id", None)
+    checks = {
+        "firstHit": _check(expectation.expected_first_hit, first_hit),
+    }
+    if expectation.expected_element_id is not None:
+        checks["elementId"] = _check(expectation.expected_element_id, first_element_id)
+    if expectation.expected_carrier_id is not None:
+        checks["carrierId"] = _check(expectation.expected_carrier_id, actual_carrier_id)
+    if expectation.expected_depth is not None:
+        checks["depth"] = _check_range(
+            result.depth,
+            expectation.expected_depth - expectation.depth_tolerance,
+            expectation.expected_depth + expectation.depth_tolerance,
+        )
+    if expectation.transmittance_min is not None or expectation.transmittance_max is not None:
+        checks["transmittance"] = _check_range(
+            result.transmittance,
+            expectation.transmittance_min if expectation.transmittance_min is not None else 0.0,
+            expectation.transmittance_max if expectation.transmittance_max is not None else 1.0,
+        )
+    if expectation.expected_semantic_id is not None:
+        checks["semanticId"] = _check(expectation.expected_semantic_id, result.semantic_id)
+    if expectation.expected_material_id is not None:
+        checks["materialId"] = _check(expectation.expected_material_id, result.material_id)
+    if expectation.expected_residual is not None:
+        checks["residual"] = _check(expectation.expected_residual, result.residual)
+    if expectation.require_normal:
+        checks["normal"] = _check(True, result.normal is not None)
+    return {
+        "label": expectation.label,
+        "passed": all(item["passed"] for item in checks.values()),
+        "expected": expectation.to_dict(),
+        "actual": {
+            "firstHit": first_hit,
+            "elementId": first_element_id,
+            "carrierId": actual_carrier_id,
+            "depth": result.depth,
+            "transmittance": result.transmittance,
+            "opacity": result.opacity,
+            "semanticId": result.semantic_id,
+            "materialId": result.material_id,
+            "confidence": result.confidence,
+            "residual": result.residual,
+            "normal": list(result.normal) if result.normal is not None else None,
+            "provenance": result.provenance,
+        },
+        "checks": checks,
+    }
+
+
+def _check(expected: object, actual: object) -> dict:
+    return {
+        "expected": expected,
+        "actual": actual,
+        "passed": actual == expected,
+    }
+
+
+def _check_range(actual: float | None, minimum: float, maximum: float) -> dict:
+    return {
+        "min": minimum,
+        "max": maximum,
+        "actual": actual,
+        "passed": actual is not None and minimum <= actual <= maximum,
+    }
+
+
+def _optional_check_passed(probe: dict, name: str) -> bool | None:
+    check = probe["checks"].get(name)
+    return None if check is None else bool(check["passed"])
+
+
+def _rate(values) -> float:
+    scored = [bool(value) for value in values if value is not None]
+    if not scored:
+        return 1.0
+    return sum(1 for value in scored if value) / len(scored)
 
 
 def _percentile_ms(values: Sequence[float], fraction: float) -> float:

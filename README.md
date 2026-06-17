@@ -42,6 +42,8 @@ native representation contract pieces:
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
 - deterministic orthographic package preview rendering and image metrics;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
+- ray-query correctness scoring for first-hit, carrier, depth, transmittance,
+  semantic, material, normal, and residual contract checks;
 - strict-JSON render comparison metrics for regression checks;
 - package-backed glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
@@ -94,6 +96,8 @@ aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
 # runs CPU reference package/query/render timing metrics
 aura benchmark-reference outputs/native-demo.aura --include-ablations
 # runs carrier assignment ablation metrics
+aura benchmark-ray-query outputs/native-demo.aura --native-demo-expectations
+# scores native ray-query correctness against expected first-hit/depth/material/semantic probes
 aura benchmark-core --iterations 6
 # compares AURA-Core adaptive reconstruction against a static-carrier fixture run
 aura migration-plan outputs/native-demo.aura

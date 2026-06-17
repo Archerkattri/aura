@@ -6,9 +6,11 @@ from aura import (
     apply_ablation,
     default_benchmark_suite,
     load_package,
+    native_demo_ray_query_expectations,
     package_scene,
     run_ablation_benchmarks,
     run_core_reconstruction_benchmark,
+    run_ray_query_correctness_benchmark,
     run_reference_benchmark,
 )
 from aura.cli import native_demo_scene
@@ -63,6 +65,8 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["rayQuery"]["queryP50Ms"] >= 0.0
     assert payload["rayQuery"]["queryP95Ms"] >= payload["rayQuery"]["queryP50Ms"]
+    assert payload["rayQueryCorrectness"]["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
+    assert payload["rayQueryCorrectness"]["firstHitAccuracy"] > 0.0
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
     assert payload["previewRender"]["renderSeconds"] >= 0.0
@@ -109,6 +113,26 @@ def test_core_reconstruction_benchmark_compares_adaptive_and_static_runs():
     assert payload["delta"]["adaptiveEvolutionActions"] == payload["adaptive"]["evolutionActionCounts"]
 
 
+def test_ray_query_correctness_benchmark_scores_native_demo_contract():
+    payload = run_ray_query_correctness_benchmark(native_demo_scene(), native_demo_ray_query_expectations())
+    by_label = {probe["label"]: probe for probe in payload["probes"]}
+
+    assert payload["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
+    assert payload["scene"] == "native_demo"
+    assert payload["passed"] is True
+    assert payload["passRate"] == 1.0
+    assert payload["firstHitAccuracy"] == 1.0
+    assert payload["carrierAccuracy"] == 1.0
+    assert payload["depthWithinToleranceRate"] == 1.0
+    assert payload["transmittanceWithinBoundsRate"] == 1.0
+    assert by_label["surface_first_hit"]["actual"]["carrierId"] == "surface"
+    assert by_label["surface_first_hit"]["actual"]["materialId"] == "mat_wall_plaster"
+    assert by_label["surface_first_hit"]["checks"]["normal"]["passed"] is True
+    assert by_label["semantic_object"]["actual"]["semanticId"] == "fixture_object"
+    assert by_label["neural_residual"]["actual"]["residual"] is True
+    assert by_label["empty_space_control"]["actual"]["firstHit"] is False
+
+
 def test_core_benchmark_cli_prints_reconstruction_metrics():
     result = subprocess.run(
         [sys.executable, "-m", "aura.cli", "benchmark-core", "--iterations", "6"],
@@ -122,6 +146,30 @@ def test_core_benchmark_cli_prints_reconstruction_metrics():
     assert payload["format"] == "AURA_CORE_RECONSTRUCTION_BENCHMARK"
     assert payload["adaptive"]["nativeCarrierFraction"] > 0.8
     assert payload["static"]["nativeCarrierFraction"] > 0.8
+
+
+def test_ray_query_benchmark_cli_prints_correctness_json(tmp_path):
+    package_scene(native_demo_scene()).write(tmp_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "benchmark-ray-query",
+            str(tmp_path),
+            "--native-demo-expectations",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
+    assert payload["passed"] is True
+    assert payload["carrierAccuracy"] == 1.0
 
 
 def test_reference_benchmark_cli_prints_result_json(tmp_path):
@@ -138,6 +186,7 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
 
     assert payload["asset"] == "native_demo"
     assert payload["rayQuery"]["shadowReadyCount"] > 0
+    assert payload["rayQueryCorrectness"]["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
     assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["previewRender"]["width"] == 8
     assert payload["previewRender"]["renderSeconds"] >= 0.0

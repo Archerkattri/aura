@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 
 from aura.assignment import RegionEvidence
-from aura.benchmark import default_benchmark_suite, run_ablation_benchmarks, run_core_reconstruction_benchmark, run_reference_benchmark
+from aura.benchmark import (
+    native_demo_ray_query_expectations,
+    run_ablation_benchmarks,
+    run_core_reconstruction_benchmark,
+    run_ray_query_correctness_benchmark,
+    run_reference_benchmark,
+    default_benchmark_suite,
+)
 from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_demo_scene, write_synthetic_training_frames
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
@@ -95,6 +102,14 @@ def main(argv: list[str] | None = None) -> int:
     reference_benchmark.add_argument("--height", type=int, default=16)
     reference_benchmark.add_argument("--include-ablations", action="store_true")
 
+    ray_benchmark = sub.add_parser("benchmark-ray-query", help="Score ray-query correctness for a .aura package")
+    ray_benchmark.add_argument("package_dir", type=Path)
+    ray_benchmark.add_argument(
+        "--native-demo-expectations",
+        action="store_true",
+        help="Use the native demo first-hit/depth/transmittance/semantic/material expectation set",
+    )
+
     ingest = sub.add_parser("ingest-adapters", help="Print AURA-Ingest adapters and their EvidenceSample contracts as JSON")
 
     inspect_rays = sub.add_parser("inspect-rays", help="Inspect reference ray-query outputs for a .aura package")
@@ -175,6 +190,13 @@ def main(argv: list[str] | None = None) -> int:
             payload = run_ablation_benchmarks(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
         else:
             payload = run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "benchmark-ray-query":
+        package = load_package(args.package_dir)
+        if not args.native_demo_expectations:
+            raise ValueError("benchmark-ray-query currently requires --native-demo-expectations")
+        payload = run_ray_query_correctness_benchmark(package.scene, native_demo_ray_query_expectations())
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     if args.command == "ingest-adapters":

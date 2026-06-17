@@ -95,7 +95,8 @@ The repo should move toward these milestones, in this order:
    carriers, promote semantic residuals into neural residual carriers, and
    merge/demote those children when measured residuals converge.
 4. Ray-query correctness: first hit, depth, normal, transmittance, material,
-   confidence, provenance, shadow/reflection/collision readiness.
+   confidence, provenance, shadow/reflection/collision readiness, and scored
+   expected-probe benchmarks.
 5. Reconstruction benchmarks: compare adaptive carrier evolution against static
    carriers with measured image/depth loss, action counts, and final package
    carrier counts.
