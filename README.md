@@ -28,8 +28,8 @@ native representation contract pieces:
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
 - bounded AURA elements and chunks;
-- carrier-aware reference ray-query response with linear chunk and BVH
-  traversal metrics;
+- carrier-aware reference ray-query response with linear chunk traversal and
+  cached BVH traversal metrics;
 - CPU reference interaction probes for hit points, shadow transmittance,
   reflection directions, and collision proxy distances;
 - simple front-to-back scene query;

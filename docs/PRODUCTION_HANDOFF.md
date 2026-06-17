@@ -98,7 +98,7 @@ AURA_CAPTURE_MANIFEST
    fallback carriers have tested torch autograd paths only; `aura
    torch-kernel-report` must report `productionReady: true` before claiming
    this is complete.
-5. Replace the current reference chunk traversal with a production BVH/GPU
+5. Replace the cached CPU reference chunk BVH with a production BVH/GPU
    traversal path for secondary rays.
 6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
    2DGS, ray-traced GS, and radiance-mesh/neural-primitive baselines.

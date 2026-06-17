@@ -1,3 +1,4 @@
+import aura.scene as scene_module
 from aura import AuraChunk, AuraElement, AuraScene, Bounds, Ray, RayTraversal, package_scene, run_reference_benchmark
 
 
@@ -74,6 +75,30 @@ def test_scene_bvh_traversal_miss_reports_node_visits_without_element_tests():
     assert traversal.tested_chunk_ids == ()
     assert traversal.tested_element_ids == ()
     assert traversal.skipped_element_count == 4
+
+
+def test_scene_bvh_is_cached_across_repeated_queries(monkeypatch):
+    scene = _four_chunk_scene()
+    build_count = 0
+    original_build_bvh = scene_module._build_bvh
+
+    def counting_build_bvh(chunks):
+        nonlocal build_count
+        build_count += 1
+        return original_build_bvh(chunks)
+
+    monkeypatch.setattr(scene_module, "_build_bvh", counting_build_bvh)
+
+    traversal = scene.traverse_ray(Ray(origin=(3.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
+    assert traversal.result.provenance == "surface_3"
+    first_query_build_count = build_count
+    assert first_query_build_count > 0
+
+    for _index in range(2):
+        traversal = scene.traverse_ray(Ray(origin=(3.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
+        assert traversal.result.provenance == "surface_3"
+
+    assert build_count == first_query_build_count
 
 
 def test_reference_benchmark_reports_chunk_traversal_metrics():

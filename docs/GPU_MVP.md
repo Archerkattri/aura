@@ -68,8 +68,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, opacity, confidence, normal, material, semantic, residual,
   provenance, and query-loss outputs over `AuraScene` and `RenderTarget`;
-- reference chunk BVH traversal metrics for native ray-query probes, including
-  traversal mode and tested node counts;
+- cached reference chunk BVH traversal metrics for native ray-query probes,
+  including traversal mode and tested node counts;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   confidence-quality, and interaction-quality metrics;

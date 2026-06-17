@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Iterable, Sequence
 
 from aura.elements import AuraChunk, AuraElement, Bounds
@@ -23,7 +24,7 @@ class AuraScene:
     def traverse_ray(self, ray: Ray) -> "RayTraversal":
         element_by_id = {element.id: element for element in self.elements}
         chunks = tuple(self.chunks)
-        candidate_chunks, traversal_mode, tested_bvh_node_count = _candidate_chunks(ray, chunks)
+        candidate_chunks, traversal_mode, tested_bvh_node_count = _candidate_chunks(ray, chunks, self._chunk_bvh)
         if chunks:
             chunked_ids = {element_id for chunk in chunks for element_id in chunk.element_ids}
             candidate_ids = []
@@ -62,6 +63,13 @@ class AuraScene:
 
     def chunk_ids(self) -> list[str]:
         return sorted({element.chunk_id for element in self.elements})
+
+    @cached_property
+    def _chunk_bvh(self) -> "_BvhNode | None":
+        chunks = tuple(self.chunks)
+        if len(chunks) < 3:
+            return None
+        return _build_bvh(chunks)
 
 
 @dataclass(frozen=True)
@@ -152,9 +160,14 @@ class _BvhNode:
         return self.left is None and self.right is None
 
 
-def _candidate_chunks(ray: Ray, chunks: Sequence[AuraChunk]) -> tuple[tuple[AuraChunk, ...], str, int]:
+def _candidate_chunks(
+    ray: Ray,
+    chunks: Sequence[AuraChunk],
+    bvh_root: "_BvhNode | None" = None,
+) -> tuple[tuple[AuraChunk, ...], str, int]:
     if len(chunks) >= 3:
-        candidates, tested_nodes = _candidate_chunks_bvh(ray, tuple(chunks))
+        root = bvh_root if bvh_root is not None else _build_bvh(tuple(chunks))
+        candidates, tested_nodes = _candidate_chunks_bvh(ray, root)
         return candidates, "bvh", tested_nodes
     candidates = []
     for chunk in chunks:
@@ -165,8 +178,7 @@ def _candidate_chunks(ray: Ray, chunks: Sequence[AuraChunk]) -> tuple[tuple[Aura
     return tuple(chunk for _depth, chunk in candidates), "chunk_linear", 0
 
 
-def _candidate_chunks_bvh(ray: Ray, chunks: tuple[AuraChunk, ...]) -> tuple[tuple[AuraChunk, ...], int]:
-    root = _build_bvh(chunks)
+def _candidate_chunks_bvh(ray: Ray, root: _BvhNode) -> tuple[tuple[AuraChunk, ...], int]:
     stack = [(0.0, root)]
     candidates: list[tuple[float, AuraChunk]] = []
     tested_nodes = 0
