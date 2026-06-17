@@ -16,7 +16,12 @@ from aura.runtime_export import runtime_export_report
 from aura.scene import BVH_CHUNK_THRESHOLD, AuraScene
 from aura.semantic import SemanticGraph
 from aura.cuda_kernels import cuda_renderer_report
-from aura.cuda_renderer import cuda_renderer_boundary_report
+from aura.cuda_renderer import (
+    cuda_renderer_boundary_report,
+    cuda_renderer_kernel_inputs,
+    cuda_renderer_reference_first_hit_indices,
+    simulate_cuda_renderer_kernel,
+)
 from aura.torch_kernels import torch_carrier_kernel_specs
 
 
@@ -216,6 +221,89 @@ def run_ray_query_correctness_benchmark(
     }
 
 
+def run_cuda_renderer_abi_parity_benchmark(
+    scene: AuraScene,
+    expectations: Sequence[RayQueryExpectation],
+    *,
+    max_hits: int = 4,
+) -> dict:
+    if not expectations:
+        raise ValueError("CUDA renderer ABI parity benchmark requires expectations")
+    rays = tuple(expectation.ray for expectation in expectations)
+    element_ids = tuple(element.id for element in scene.elements)
+    try:
+        inputs = cuda_renderer_kernel_inputs(
+            scene,
+            ray_origins=tuple(ray.origin for ray in rays),
+            ray_directions=tuple(ray.direction for ray in rays),
+            max_hits=max_hits,
+        )
+        simulation = simulate_cuda_renderer_kernel(inputs)
+    except Exception as exc:
+        return {
+            "format": "AURA_CUDA_RENDERER_ABI_PARITY",
+            "scene": scene.name,
+            "passed": False,
+            "parityReady": False,
+            "productionReady": False,
+            "probeCount": len(expectations),
+            "firstHitIndexAccuracy": 0.0,
+            "error": f"{type(exc).__name__}: {exc}",
+            "probes": [],
+            "notes": (
+                "This CPU-only parity benchmark validates the packaged CUDA renderer ABI inputs and outputs. "
+                "Failure here blocks future CUDA dispatch parity, but success is not production CUDA readiness."
+            ),
+        }
+    expected_indices = cuda_renderer_reference_first_hit_indices(scene, rays)
+    simulated_indices = simulation.first_hit_indices
+    probes = []
+    for index, expectation in enumerate(expectations):
+        expected_index = expected_indices[index]
+        simulated_index = simulated_indices[index]
+        expected_element_id = element_ids[expected_index] if expected_index >= 0 else None
+        simulated_element_id = element_ids[simulated_index] if simulated_index >= 0 else None
+        probes.append(
+            {
+                "label": expectation.label,
+                "expectedFirstHitIndex": expected_index,
+                "simulatedFirstHitIndex": simulated_index,
+                "expectedElementId": expected_element_id,
+                "simulatedElementId": simulated_element_id,
+                "passed": expected_index == simulated_index,
+            }
+        )
+    passed = all(probe["passed"] for probe in probes)
+    return {
+        "format": "AURA_CUDA_RENDERER_ABI_PARITY",
+        "scene": scene.name,
+        "passed": passed,
+        "parityReady": passed,
+        "productionReady": False,
+        "probeCount": len(probes),
+        "firstHitIndexAccuracy": _rate(probe["passed"] for probe in probes),
+        "kernelSymbol": "aura_render_rays_kernel",
+        "kernelInput": {
+            "rayCount": inputs.ray_count,
+            "elementCount": inputs.element_count,
+            "maxHits": inputs.max_hits,
+            "outputBufferShapes": {name: list(shape) for name, shape in inputs.output_buffer_shapes().items()},
+        },
+        "simulation": {
+            "firstHitIndices": list(simulated_indices),
+            "outDepth": list(simulation.out_depth),
+            "outMaterialId": list(simulation.out_material_id),
+            "outSemanticId": list(simulation.out_semantic_id),
+            "outResidual": list(simulation.out_residual),
+        },
+        "probes": probes,
+        "notes": (
+            "This is a CPU oracle for the packaged CUDA renderer ABI. It validates deterministic flat-buffer "
+            "first-hit parity against AuraScene.traverse_ray and does not compile or launch CUDA."
+        ),
+    }
+
+
 def run_reference_benchmark(
     package: AuraPackage,
     *,
@@ -242,6 +330,7 @@ def run_reference_benchmark(
     native_carrier_coverage = evaluate_native_carrier_coverage(scene)
     cuda_renderer = cuda_renderer_report()
     cuda_renderer_callable_boundary = cuda_renderer_callable_boundary_report(scene)
+    cuda_renderer_abi_parity = run_cuda_renderer_abi_parity_benchmark(scene, _scene_center_expectations(scene))
     preview_visual_claim = _visual_claim_boundary(
         baseline_label="reference_preview_self",
         self_reference=True,
@@ -287,12 +376,14 @@ def run_reference_benchmark(
         "nativeCarrierCoverage": native_carrier_coverage,
         "cudaRenderer": cuda_renderer,
         "cudaRendererCallableBoundary": cuda_renderer_callable_boundary,
+        "cudaRendererAbiParity": cuda_renderer_abi_parity,
         "productionGate": _benchmark_production_gate(
             backend_readiness=backend_readiness,
             visual_claims=(preview_visual_claim,),
             native_carrier_coverage=native_carrier_coverage,
             cuda_renderer=cuda_renderer,
             cuda_renderer_callable_boundary=cuda_renderer_callable_boundary,
+            cuda_renderer_abi_parity=cuda_renderer_abi_parity,
         ),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
@@ -381,6 +472,7 @@ def run_production_gate_report(
     native_carrier_coverage = evaluate_native_carrier_coverage(scene)
     cuda_renderer = cuda_renderer_report()
     cuda_renderer_callable_boundary = cuda_renderer_callable_boundary_report(scene)
+    cuda_renderer_abi_parity = run_cuda_renderer_abi_parity_benchmark(scene, _scene_center_expectations(scene))
     visual_claim = _visual_claim_boundary(
         baseline_label=visual_baseline_label,
         self_reference=visual_self_reference or _is_self_reference_baseline(visual_baseline_label),
@@ -392,6 +484,7 @@ def run_production_gate_report(
         native_carrier_coverage=native_carrier_coverage,
         cuda_renderer=cuda_renderer,
         cuda_renderer_callable_boundary=cuda_renderer_callable_boundary,
+        cuda_renderer_abi_parity=cuda_renderer_abi_parity,
     )
     return {
         "format": "AURA_PRODUCTION_GATE_REPORT",
@@ -399,6 +492,7 @@ def run_production_gate_report(
         "productionGate": production_gate,
         "cudaRenderer": cuda_renderer,
         "cudaRendererCallableBoundary": cuda_renderer_callable_boundary,
+        "cudaRendererAbiParity": cuda_renderer_abi_parity,
         "backendReadiness": backend_readiness,
         "nativeCarrierCoverage": native_carrier_coverage,
         "visualClaimBoundary": visual_claim,
@@ -606,6 +700,11 @@ def default_benchmark_suite() -> BenchmarkSuite:
                 ),
             ),
             BenchmarkCase(
+                id="cuda_renderer_abi_parity",
+                purpose="Validate packaged CUDA renderer flat-buffer inputs and first-hit outputs against the CPU ray-query oracle.",
+                metrics=("first_hit_index_accuracy", "ray_count", "element_count", "ordered_hit_shape", "production_ready_false"),
+            ),
+            BenchmarkCase(
                 id="production_gate_contract",
                 purpose="Block production claims on CUDA renderer availability, self-reference visual scores, and native carrier coverage.",
                 metrics=(
@@ -785,6 +884,7 @@ def _benchmark_production_gate(
     native_carrier_coverage: dict[str, Any] | None = None,
     cuda_renderer: dict[str, Any] | None = None,
     cuda_renderer_callable_boundary: dict[str, Any] | None = None,
+    cuda_renderer_abi_parity: dict[str, Any] | None = None,
 ) -> dict:
     blockers = list(backend_readiness.get("productionBlockers", ()))
     if not backend_readiness.get("productionCudaReady", False):
@@ -801,6 +901,11 @@ def _benchmark_production_gate(
             and not cuda_renderer_callable_boundary.get("productionReady", False)
         ):
             _append_unique(blockers, "cuda_renderer_callable_fallback_only")
+    if cuda_renderer_abi_parity is not None:
+        if not cuda_renderer_abi_parity.get("passed", False):
+            _append_unique(blockers, "cuda_renderer_abi_parity_failed")
+        if not cuda_renderer_abi_parity.get("productionReady", False):
+            _append_unique(blockers, "cuda_renderer_abi_parity_cpu_oracle_only")
     if native_carrier_coverage is not None:
         for blocker in native_carrier_coverage.get("productionBlockers", ()):
             _append_unique(blockers, str(blocker))
@@ -839,6 +944,19 @@ def _benchmark_production_gate(
             cuda_renderer_callable_boundary
             and cuda_renderer_callable_boundary.get("productionReady")
         ),
+        "cudaRendererAbiParityReady": bool(
+            cuda_renderer_abi_parity
+            and cuda_renderer_abi_parity.get("parityReady")
+        ),
+        "cudaRendererAbiParityProductionReady": bool(
+            cuda_renderer_abi_parity
+            and cuda_renderer_abi_parity.get("productionReady")
+        ),
+        "cudaRendererAbiParityProbeCount": (
+            None
+            if cuda_renderer_abi_parity is None
+            else cuda_renderer_abi_parity.get("probeCount")
+        ),
         "nativeCarrierCoverageReady": bool(
             native_carrier_coverage and native_carrier_coverage.get("auraFirstCoverageReady")
         ),
@@ -858,6 +976,7 @@ def _benchmark_production_gate(
         "claimRequirements": [
             "production CUDA renderer is compiled, loadable, parity-tested, and benchmarked",
             "callable cuda_renderer fallback is replaced by real CUDA dispatch before production CUDA claims",
+            "cudaRendererAbiParity productionReady is true for compiled CUDA dispatch, not just the CPU oracle",
             "visual quality is measured against external teacher or baseline renders",
             "benchmark package exercises native AURA carrier families instead of Gaussian fallback only",
         ],

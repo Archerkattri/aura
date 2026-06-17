@@ -117,6 +117,26 @@ def test_package_writer_outputs_manifest(tmp_path):
     assert exchange["usdBridge"]["supports_typed_carriers"] is True
 
 
+def test_package_writer_lists_chunk_documents_not_element_defaults(tmp_path):
+    scene = AuraScene(
+        name="unchunked",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+            ),
+        ),
+    )
+    package_scene(scene).write(tmp_path)
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    package = load_package(tmp_path)
+
+    assert manifest["chunks"] == []
+    assert package.scene.chunks == ()
+
+
 def test_package_loader_round_trips_scene_and_manifest(tmp_path):
     package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb"}).write(tmp_path)
 
@@ -219,6 +239,44 @@ def test_package_validation_rejects_duplicate_chunk_ids():
     )
 
     with pytest.raises(ValueError, match="duplicate chunk ids"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_rejects_duplicate_chunk_element_ids():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                chunk_id="root",
+            ),
+        ),
+        chunks=(AuraChunk(id="root", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("surface", "surface")),),
+    )
+
+    with pytest.raises(ValueError, match="duplicate elements: surface"):
+        validate_package(package_scene(scene))
+
+
+def test_package_validation_rejects_chunk_lod_mismatch():
+    scene = AuraScene(
+        name="bad",
+        elements=(
+            AuraElement(
+                id="detail",
+                carrier_id="beta",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+                lod=1,
+                chunk_id="detail",
+                payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [1.0, 1.0, 1.0]},
+            ),
+        ),
+        chunks=(AuraChunk(id="detail", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("detail",), lod=0),),
+    )
+
+    with pytest.raises(ValueError, match="lod 0 does not match member element lod 1"):
         validate_package(package_scene(scene))
 
 
@@ -370,6 +428,24 @@ def test_package_loader_rejects_manifest_chunk_mismatch(tmp_path):
         load_package(tmp_path)
 
 
+def test_package_loader_rejects_unmanifested_chunk_document(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    chunks_path = tmp_path / "chunks.json"
+    chunks = json.loads(chunks_path.read_text(encoding="utf-8"))
+    chunks.append(
+        {
+            "id": "ghost",
+            "bounds": {"min": [2.0, 2.0, 2.0], "max": [3.0, 3.0, 3.0]},
+            "element_ids": [],
+            "lod": 0,
+        }
+    )
+    chunks_path.write_text(json.dumps(chunks), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest chunks"):
+        load_package(tmp_path)
+
+
 def test_package_loader_rejects_missing_manifest_keys(tmp_path):
     package_scene(demo_scene()).write(tmp_path)
     manifest_path = tmp_path / "manifest.json"
@@ -389,6 +465,25 @@ def test_package_loader_rejects_malformed_manifest_version(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="manifest.schema.json validation failed at version"):
+        load_package(tmp_path)
+
+
+def test_package_loader_rejects_corrupted_json_document(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    (tmp_path / "elements.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="elements.json must contain valid JSON"):
+        load_package(tmp_path)
+
+
+def test_package_loader_rejects_corrupted_manifest_capabilities(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["capabilities"]["rayQuery"] = False
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest capabilities"):
         load_package(tmp_path)
 
 
@@ -518,6 +613,17 @@ def test_package_loader_rejects_malformed_exchange_metadata(tmp_path):
     exchange_path.write_text(json.dumps(exchange), encoding="utf-8")
 
     with pytest.raises(ValueError, match="exchange.schema.json validation failed"):
+        load_package(tmp_path)
+
+
+def test_package_loader_rejects_exchange_asset_mismatch(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    exchange_path = tmp_path / "exchange.json"
+    exchange = json.loads(exchange_path.read_text(encoding="utf-8"))
+    exchange["asset"] = "other"
+    exchange_path.write_text(json.dumps(exchange), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="exchange asset"):
         load_package(tmp_path)
 
 

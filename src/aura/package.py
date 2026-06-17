@@ -22,7 +22,12 @@ from aura.carriers import default_registry
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.exchange import exchange_plan
 from aura.migration import migration_report
-from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
+from aura.schema import (
+    AURA_FORMAT,
+    AURA_SCHEMA_VERSION,
+    AURA_SUPPORTED_MAJOR_VERSIONS,
+    parse_aura_schema_version,
+)
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
 
@@ -77,7 +82,7 @@ class AuraPackage:
             "carrierIds": list(self.asset.carrier_ids),
             "capabilities": self.asset.capabilities(registry),
             "fallbacks": dict(self.asset.fallbacks),
-            "chunks": self.scene.chunk_ids(),
+            "chunks": [chunk.id for chunk in self.scene.chunks],
             "semanticGraph": "semantic_graph.json",
             "exchange": "exchange.json",
         }
@@ -156,7 +161,13 @@ def validate_package_documents(
 def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> None:
     _validate_schema_version(package.asset.version)
     registry = default_registry()
-    package.asset.capabilities(registry)
+    expected_capabilities = package.asset.capabilities(registry)
+    if manifest is not None and manifest.get("capabilities") != expected_capabilities:
+        raise ValueError("manifest capabilities do not match declared carrierIds")
+    if package.exchange:
+        exchange_asset = package.exchange.get("asset")
+        if exchange_asset is not None and exchange_asset != package.asset.name:
+            raise ValueError(f"exchange asset {exchange_asset!r} does not match manifest name {package.asset.name!r}")
     carrier_ids = set(package.asset.carrier_ids)
     scene_carrier_ids = set(package.scene.carrier_ids())
     if carrier_ids != scene_carrier_ids:
@@ -182,23 +193,32 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
             raise ValueError(f"element {element.id} references unknown chunk: {element.chunk_id}")
         _validate_element_payload(element.id, element.carrier_id, element.payload)
     for chunk in package.scene.chunks:
-        missing = sorted(set(chunk.element_ids).difference(element_ids))
+        chunk_element_ids = tuple(str(element_id) for element_id in chunk.element_ids)
+        duplicates = sorted(_duplicate_values(chunk_element_ids))
+        if duplicates:
+            raise ValueError(f"chunk {chunk.id} contains duplicate elements: {', '.join(duplicates)}")
+        missing = sorted(set(chunk_element_ids).difference(element_ids))
         if missing:
             raise ValueError(f"chunk {chunk.id} references unknown elements: {', '.join(missing)}")
         mismatched = sorted(
             element_id
-            for element_id in chunk.element_ids
+            for element_id in chunk_element_ids
             if elements_by_id[element_id].chunk_id != chunk.id
         )
         if mismatched:
             raise ValueError(f"chunk {chunk.id} contains elements assigned to other chunks: {', '.join(mismatched)}")
         assigned = sorted(element.id for element in package.scene.elements if element.chunk_id == chunk.id)
-        omitted = sorted(set(assigned).difference(chunk.element_ids))
+        omitted = sorted(set(assigned).difference(chunk_element_ids))
         if omitted:
             raise ValueError(f"chunk {chunk.id} omits assigned elements: {', '.join(omitted)}")
+        member_lods = sorted({elements_by_id[element_id].lod for element_id in chunk_element_ids})
+        if len(member_lods) > 1:
+            raise ValueError(f"chunk {chunk.id} mixes element lods: {', '.join(str(lod) for lod in member_lods)}")
+        if member_lods and chunk.lod != member_lods[0]:
+            raise ValueError(f"chunk {chunk.id} lod {chunk.lod} does not match member element lod {member_lods[0]}")
         outside = sorted(
             element_id
-            for element_id in chunk.element_ids
+            for element_id in chunk_element_ids
             if not _bounds_contain(chunk.bounds, elements_by_id[element_id].bounds)
         )
         if outside:
@@ -228,8 +248,8 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
             semantic_element_owners[element_id] = node.id
     if manifest is not None and "chunks" in manifest:
         manifest_chunks = sorted(str(item) for item in manifest["chunks"])
-        scene_chunks = package.scene.chunk_ids()
-        if manifest_chunks != scene_chunks:
+        chunk_document_ids = sorted(chunk.id for chunk in package.scene.chunks)
+        if manifest_chunks != chunk_document_ids:
             raise ValueError("manifest chunks do not match chunks.json")
     if manifest is not None and manifest.get("semanticGraph") != "semantic_graph.json":
         raise ValueError("manifest semanticGraph must reference semantic_graph.json")
@@ -240,7 +260,7 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
 def _read_json_object(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _read_json(path)
     if not isinstance(payload, dict):
         raise ValueError(f"{path.name} must contain a JSON object")
     return payload
@@ -249,10 +269,17 @@ def _read_json_object(path: Path) -> dict:
 def _read_json_list(path: Path) -> list:
     if not path.exists():
         raise FileNotFoundError(path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _read_json(path)
     if not isinstance(payload, list):
         raise ValueError(f"{path.name} must contain a JSON array")
     return payload
+
+
+def _read_json(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path.name} must contain valid JSON: {exc.msg}") from exc
 
 
 def _validate_manifest_shape(manifest: dict) -> None:
@@ -272,10 +299,7 @@ def _validate_manifest_shape(manifest: dict) -> None:
 
 
 def _validate_schema_version(version: str) -> None:
-    parts = version.split(".")
-    if len(parts) != 2 or not all(part.isdigit() for part in parts):
-        raise ValueError(f"manifest version must use major.minor format: {version}")
-    major = int(parts[0])
+    major = parse_aura_schema_version(version, label="manifest version").major
     if major not in AURA_SUPPORTED_MAJOR_VERSIONS:
         supported = ", ".join(str(item) for item in sorted(AURA_SUPPORTED_MAJOR_VERSIONS))
         raise ValueError(f"unsupported AURA major version {major}; supported major versions: {supported}")

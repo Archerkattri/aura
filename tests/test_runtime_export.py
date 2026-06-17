@@ -44,8 +44,20 @@ def test_runtime_export_report_separates_native_contract_from_fallbacks(tmp_path
     assert report["rayQueryContract"]["supportsCompositing"] is True
     assert report["accelerationContract"]["bvhChunkThreshold"] == 3
     assert report["accelerationContract"]["activeTraversalMode"] == "bvh"
+    assert report["accelerationContract"]["elementCount"] == 7
+    assert report["accelerationContract"]["chunkCount"] == 7
+    assert report["accelerationContract"]["chunkedElementCount"] == 7
+    assert report["accelerationContract"]["orphanElementCount"] == 0
+    assert report["accelerationContract"]["chunkedElementCoverageRate"] == 1.0
     assert report["accelerationContract"]["supportsCachedBvh"] is True
     assert report["accelerationContract"]["supportsOrderedFrontToBackCandidates"] is True
+    assert report["accelerationContract"]["supportsUnchunkedElementFallback"] is True
+    assert report["accelerationContract"]["candidateOrdering"] == "front_to_back_chunks_then_unchunked_elements"
+    assert report["accelerationContract"]["bvhNodeCount"] > 0
+    assert report["accelerationContract"]["bvhLeafCount"] > 0
+    assert report["accelerationContract"]["bvhMaxDepth"] > 0
+    assert report["accelerationContract"]["bvhLeafChunkCounts"]
+    assert report["accelerationContract"]["serializedAccelerationMetadataReady"] is True
     assert report["accelerationContract"]["productionGpuTraversalReady"] is False
     assert report["semanticObjectContract"]["objectCount"] == 2
     assert report["semanticObjectContract"]["ownedElementCount"] == 2
@@ -89,8 +101,16 @@ def test_runtime_export_report_marks_unchunked_linear_traversal():
     report = runtime_export_report(package_scene(scene)).to_dict()
 
     assert report["accelerationContract"]["activeTraversalMode"] == "element_linear"
+    assert report["accelerationContract"]["elementCount"] == 1
+    assert report["accelerationContract"]["chunkCount"] == 0
+    assert report["accelerationContract"]["chunkedElementCount"] == 0
+    assert report["accelerationContract"]["orphanElementCount"] == 1
+    assert report["accelerationContract"]["chunkedElementCoverageRate"] == 0.0
     assert report["accelerationContract"]["supportsChunkCulling"] is False
     assert report["accelerationContract"]["supportsCachedBvh"] is False
+    assert report["accelerationContract"]["bvhNodeCount"] == 0
+    assert report["accelerationContract"]["bvhLeafCount"] == 0
+    assert report["accelerationContract"]["bvhMaxDepth"] == 0
 
 
 def test_export_report_cli_prints_runtime_export_json(tmp_path):

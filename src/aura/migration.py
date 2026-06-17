@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from aura.schema import AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
+from aura.schema import AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS, parse_aura_schema_version
 
 
 @dataclass(frozen=True)
@@ -19,8 +19,8 @@ class MigrationReport:
 
 
 def migration_report(current_version: str, *, target_version: str = AURA_SCHEMA_VERSION) -> MigrationReport:
-    current_major = _major(current_version)
-    target_major = _major(target_version)
+    current_major = parse_aura_schema_version(current_version).major
+    target_major = parse_aura_schema_version(target_version, label="target version").major
     supported = current_major in AURA_SUPPORTED_MAJOR_VERSIONS and target_major in AURA_SUPPORTED_MAJOR_VERSIONS
     if not supported:
         return MigrationReport(
@@ -42,10 +42,3 @@ def migration_report(current_version: str, *, target_version: str = AURA_SCHEMA_
         supported=True,
         actions=(f"rewrite manifest version to {target_version}", "revalidate package schemas"),
     )
-
-
-def _major(version: str) -> int:
-    parts = version.split(".")
-    if len(parts) != 2 or not all(part.isdigit() for part in parts):
-        raise ValueError(f"version must use major.minor format: {version}")
-    return int(parts[0])

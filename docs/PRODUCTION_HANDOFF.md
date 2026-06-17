@@ -114,6 +114,13 @@ dispatch is available, parity-tested, and benchmarked.
 The packaged `aura_render_rays_kernel` renderer source symbol is the ABI target
 for that future dispatch, but source availability alone must not clear any
 production gate.
+`benchmark-reference` and `production-gate-report` also emit
+`cudaRendererAbiParity`, a CPU oracle that packs native scene/ray buffers for
+the packaged renderer ABI and compares first-hit indices against
+`AuraScene.traverse_ray`. Passing this parity check means the flat-buffer ABI is
+deterministic enough for compiled CUDA parity tests; its own
+`productionReady: false` value remains a production-gate blocker until the
+compiled CUDA renderer dispatch is available and benchmarked.
 
 1. Replace the optional payload-aware PyTorch ordered-compositing reference path
    and CPU differentiable reference renderer with a carrier-complete
@@ -136,6 +143,8 @@ production gate.
    traversal path for secondary rays.
 7. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
    2DGS, ray-traced GS, and radiance-mesh/neural-primitive baselines.
+   Start with dataset manifests under `data/` and third-party baselines under
+   `third_party/`; benchmark outputs belong under ignored `outputs/`.
 8. Replace the current deterministic LPIPS-proxy metric with a learned LPIPS
    backend and report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene
    behavior: ray-query correctness, collision proxy quality, editing, relighting

@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
-from aura.cuda_kernels import CudaExtensionStatus, cuda_kernel_extension_status, cuda_renderer_source_report
+from aura.cuda_kernels import (
+    CUDA_RENDERER_KERNEL_SYMBOL,
+    CUDA_RENDERER_LAUNCHER_SYMBOL,
+    CudaExtensionStatus,
+    cuda_kernel_extension_status,
+    cuda_renderer_source_report,
+)
 from aura.optimize import RenderTarget
 from aura.ray import Ray
 from aura.scene import AuraScene, RayTraversal
@@ -221,6 +227,54 @@ class CudaRendererKernelSimulation:
 
 
 @dataclass(frozen=True)
+class CudaRendererDispatchContract:
+    """Host-side contract for the compiled renderer launch boundary."""
+
+    inputs: CudaRendererKernelInputBuffers
+    launch_config: CudaRendererLaunchConfig
+    extension: CudaExtensionStatus
+
+    @property
+    def dispatch_ready(self) -> bool:
+        return False
+
+    @property
+    def reason(self) -> str:
+        if not self.extension.available:
+            return f"compiled_cuda_renderer_extension_unavailable: {self.extension.reason or 'not_available'}"
+        return "python_cuda_renderer_binding_missing"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "format": "AURA_CUDA_RENDERER_DISPATCH_CONTRACT",
+            "kernelSymbol": CUDA_RENDERER_KERNEL_SYMBOL,
+            "launcherSymbol": CUDA_RENDERER_LAUNCHER_SYMBOL,
+            "productionReady": False,
+            "dispatchReady": self.dispatch_ready,
+            "reason": self.reason,
+            "compiledExtensionAvailable": self.extension.available,
+            "pythonBindingAvailable": False,
+            "launchConfig": self.launch_config.to_dict(),
+            "extension": self.extension.to_dict(),
+            "rayCount": self.inputs.ray_count,
+            "elementCount": self.inputs.element_count,
+            "maxHits": self.inputs.max_hits,
+            "kernelArgs": {
+                name: _kernel_arg_summary(value)
+                for name, value in self.inputs.to_kernel_args().items()
+            },
+            "outputBufferShapes": {name: list(shape) for name, shape in self.inputs.output_buffer_shapes().items()},
+            "parityOracle": "simulate_cuda_renderer_kernel",
+            "missingDispatchWork": [
+                "verify launcher symbol in the loaded extension",
+                "bind launcher to Python tensor inputs",
+                "run CPU oracle versus compiled CUDA parity tests",
+                "add renderer speed benchmarks before production claims",
+            ],
+        }
+
+
+@dataclass(frozen=True)
 class CudaRendererLaunchConfig:
     """Validated launch shape for the future CUDA renderer boundary."""
 
@@ -382,6 +436,39 @@ def cuda_renderer_reference_first_hit_indices(scene: AuraScene, rays: Sequence[R
     return tuple(indices)
 
 
+def cuda_renderer_dispatch_contract(
+    scene: AuraScene,
+    ray_origins: Sequence[Sequence[float]] | Any,
+    ray_directions: Sequence[Sequence[float]] | Any,
+    *,
+    threads_per_block: int = 128,
+    max_hits: int = 8,
+    fallback_backend: CudaFallbackBackend = "cpu",
+    device: str | None = None,
+    require_cuda: bool = False,
+) -> CudaRendererDispatchContract:
+    rays = _validated_rays(ray_origins, ray_directions)
+    launch_config = cuda_renderer_launch_config(
+        len(rays),
+        threads_per_block=threads_per_block,
+        max_hits=max_hits,
+        fallback_backend=fallback_backend,
+        device=device,
+        require_cuda=require_cuda,
+    )
+    inputs = CudaRendererKernelInputBuffers(
+        scene=cuda_renderer_scene_buffers(scene),
+        ray_origins=tuple(value for ray in rays for value in ray.origin),
+        ray_directions=tuple(value for ray in rays for value in ray.direction),
+        max_hits=max_hits,
+    )
+    return CudaRendererDispatchContract(
+        inputs=inputs,
+        launch_config=launch_config,
+        extension=cuda_kernel_extension_status(build=False),
+    )
+
+
 def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> CudaRendererKernelSimulation:
     """Run the packaged CUDA renderer ABI on CPU for parity tests."""
 
@@ -514,12 +601,20 @@ def cuda_renderer_boundary_report(
     if scene is None:
         report["fallbackProbe"] = None
         report["kernelInputProbe"] = None
+        report["dispatchContractProbe"] = None
         return report
     try:
         kernel_inputs = cuda_renderer_kernel_inputs(
             scene,
             ray_origins=(tuple(float(value) for value in probe_ray_origin),),
             ray_directions=(tuple(float(value) for value in probe_ray_direction),),
+            max_hits=max_hits,
+        )
+        dispatch_contract = cuda_renderer_dispatch_contract(
+            scene,
+            ray_origins=(tuple(float(value) for value in probe_ray_origin),),
+            ray_directions=(tuple(float(value) for value in probe_ray_direction),),
+            fallback_backend=fallback_backend,
             max_hits=max_hits,
         )
         batch = cuda_render_rays(
@@ -535,6 +630,7 @@ def cuda_renderer_boundary_report(
             "error": str(exc),
         }
         report["kernelInputProbe"] = None
+        report["dispatchContractProbe"] = None
         return report
     payload = batch.to_dict()
     report["fallbackProbe"] = {
@@ -567,11 +663,23 @@ def cuda_renderer_boundary_report(
     }
     report["kernelInputProbe"] = {
         "format": "AURA_CUDA_RENDERER_KERNEL_INPUT_PROBE",
-        "kernelSymbol": "aura_render_rays_kernel",
+        "kernelSymbol": CUDA_RENDERER_KERNEL_SYMBOL,
         "rayCount": kernel_inputs.ray_count,
         "elementCount": kernel_inputs.element_count,
         "maxHits": kernel_inputs.max_hits,
         "outputBufferShapes": {name: list(shape) for name, shape in kernel_inputs.output_buffer_shapes().items()},
+    }
+    dispatch_payload = dispatch_contract.to_dict()
+    report["dispatchContractProbe"] = {
+        "format": dispatch_payload["format"],
+        "kernelSymbol": dispatch_payload["kernelSymbol"],
+        "launcherSymbol": dispatch_payload["launcherSymbol"],
+        "dispatchReady": dispatch_payload["dispatchReady"],
+        "productionReady": dispatch_payload["productionReady"],
+        "reason": dispatch_payload["reason"],
+        "compiledExtensionAvailable": dispatch_payload["compiledExtensionAvailable"],
+        "pythonBindingAvailable": dispatch_payload["pythonBindingAvailable"],
+        "outputBufferShapes": dispatch_payload["outputBufferShapes"],
     }
     return report
 
@@ -605,7 +713,7 @@ def cuda_render_rays(
     )
     extension = cuda_kernel_extension_status(build=False)
     if extension.available:
-        raise NotImplementedError("compiled CUDA renderer dispatch is not implemented in this Python boundary")
+        raise NotImplementedError("compiled CUDA renderer launcher is available, but Python tensor dispatch is not implemented")
     if require_cuda or fallback_backend == "none":
         raise RuntimeError(f"CUDA renderer extension is unavailable: {extension.reason or 'not_available'}")
 

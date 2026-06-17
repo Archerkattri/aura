@@ -53,15 +53,25 @@ def test_scene_traversal_uses_bvh_for_multi_chunk_scenes():
     scene = _four_chunk_scene()
 
     traversal = scene.traverse_ray(Ray(origin=(3.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
+    acceleration = scene.traversal_acceleration().to_dict()
 
     assert traversal.result.provenance == "surface_3"
     assert traversal.traversal_mode == "bvh"
     assert traversal.tested_bvh_node_count > 0
+    assert traversal.tested_bvh_leaf_count == 1
+    assert traversal.tested_bvh_chunk_bounds_count == 1
     assert traversal.tested_chunk_ids == ("chunk_3",)
     assert traversal.tested_element_ids == ("surface_3",)
     assert traversal.skipped_element_count == 3
     assert traversal.to_dict()["traversalMode"] == "bvh"
     assert traversal.to_dict()["testedBvhNodeCount"] == traversal.tested_bvh_node_count
+    assert traversal.to_dict()["acceleration"]["bvh"]["testedLeafCount"] == 1
+    assert acceleration["activeTraversalMode"] == "bvh"
+    assert acceleration["chunkedElementCoverageRate"] == 1.0
+    assert acceleration["bvhNodeCount"] == 7
+    assert acceleration["bvhLeafCount"] == 4
+    assert acceleration["bvhMaxDepth"] == 3
+    assert acceleration["bvhLeafChunkCounts"] == [1, 1, 1, 1]
 
 
 def test_scene_bvh_traversal_miss_reports_node_visits_without_element_tests():
@@ -72,9 +82,38 @@ def test_scene_bvh_traversal_miss_reports_node_visits_without_element_tests():
     assert traversal.result.provenance == "miss"
     assert traversal.traversal_mode == "bvh"
     assert traversal.tested_bvh_node_count == 1
+    assert traversal.tested_bvh_leaf_count == 0
+    assert traversal.tested_bvh_chunk_bounds_count == 0
     assert traversal.tested_chunk_ids == ()
     assert traversal.tested_element_ids == ()
     assert traversal.skipped_element_count == 4
+
+
+def test_scene_chunk_traversal_deduplicates_overlapping_candidate_elements():
+    bounds = Bounds((0.0, -0.5, 0.0), (1.0, 0.5, 0.1))
+    element = AuraElement(
+        id="shared_surface",
+        carrier_id="surface",
+        bounds=bounds,
+        color=(1.0, 0.0, 0.0),
+        opacity=0.5,
+        chunk_id="near",
+    )
+    scene = AuraScene(
+        name="overlap",
+        elements=(element,),
+        chunks=(
+            AuraChunk(id="near", bounds=bounds, element_ids=("shared_surface",)),
+            AuraChunk(id="far", bounds=bounds, element_ids=("shared_surface",)),
+        ),
+    )
+
+    traversal = scene.traverse_ray(Ray(origin=(0.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
+
+    assert traversal.tested_chunk_ids == ("near", "far")
+    assert traversal.tested_element_ids == ("shared_surface",)
+    assert traversal.hit_count == 1
+    assert traversal.ordered_hits[0].element_id == "shared_surface"
 
 
 def test_scene_bvh_is_cached_across_repeated_queries(monkeypatch):

@@ -194,15 +194,35 @@ def test_capture_manifest_loads_per_pixel_asset_tensors(tmp_path):
 
     assert len(tensors) == 1
     assert tensors[0].frame_id == "frame_000001"
+    assert tensors[0].byte_count == 128
+    assert tensors[0].to_dict()["loadedBytes"] == 128
     assert tensors[0].image.shape == (1, 2, 3)
     assert tensors[0].image.backend == "stdlib"
     assert isinstance(tensors[0].image.values, PackedFloatBuffer)
+    assert tensors[0].image.byte_count == 48
+    assert tensors[0].image.to_dict()["loadedBytes"] == 48
+    assert tensors[0].image.to_dict()["storageDtype"] == "float64"
     assert tensors[0].image.sample_values() == (1.0, 0.0, 0.0, 0.0, 0.5, 0.5)
     assert tensors[0].depth.shape == (1, 2, 1)
     assert tensors[0].depth.values == (0.5, 1.0)
     assert tensors[0].mask.values == (1.0, 0.0)
     assert tensors[0].normal.shape == (1, 2, 3)
     assert tensors[0].normal.values == (0.0, 0.0, -1.0, 0.0, 0.0, -1.0)
+
+
+def test_capture_manifest_tensor_loader_enforces_memory_budgets(tmp_path):
+    manifest = load_capture_manifest(_write_asset_manifest(tmp_path))
+
+    with pytest.raises(ValueError, match="max_loaded_bytes=127"):
+        load_capture_asset_tensors(manifest, max_loaded_bytes=127)
+    with pytest.raises(ValueError, match="max_frame_bytes=63"):
+        load_capture_asset_tensors(manifest, max_frame_bytes=63)
+    with pytest.raises(ValueError, match="max_loaded_bytes must be positive"):
+        load_capture_asset_tensors(manifest, max_loaded_bytes=0)
+
+    tensors = load_capture_asset_tensors(manifest, max_loaded_bytes=128, max_frame_bytes=128)
+
+    assert tensors[0].byte_count == 128
 
 
 def test_capture_tensors_create_masked_per_pixel_render_targets():

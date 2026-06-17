@@ -158,12 +158,13 @@ CUDA rendering or production GPU BVH traversal.
 
 ```bash
 aura build-native-demo --output-dir outputs/native-demo.aura
+# writes a native mixed-carrier demo with carrier role metadata, semantic object links, confidence/edit maps, and fallback export references
 aura validate-package outputs/native-demo.aura
-# validates mixed native carriers, typed payloads, confidence maps, edit metadata, and chunks
+# validates mixed native carriers, typed payloads, confidence maps, edit metadata, semantic graph links, and chunks
 aura inspect-package outputs/native-demo.aura
 # prints the native package summary as stable JSON
 aura export-report outputs/native-demo.aura
-# reports native AURA preservation versus glTF/USD fallback losses for runtime engine workflows
+# reports native AURA preservation versus glTF/USD fallback losses, object metadata, and chunk/export readiness
 aura torch-kernel-report
 # reports native carrier autograd/CUDA readiness; all carriers have autograd paths, CUDA is still required
 aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --width 128 --height 128
@@ -171,7 +172,7 @@ aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --
 aura query-demo --x -0.5 --y -0.5
 # queries the native mixed-carrier fixture
 aura inspect-rays outputs/native-demo.aura --native-demo-probes
-# prints material-aware occlusion, shadow, reflection, and collision ray-query inspections
+# prints material-aware occlusion, semantic-object, shadow, reflection, and collision ray-query inspections
 aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
 # runs CPU reference package/query/render timing, runtime export, confidence, and interaction metrics
 aura benchmark-visual outputs/native-demo.aura outputs/native-reference.ppm --baseline-label native_self --min-psnr 40
@@ -234,8 +235,11 @@ aura ingest-adapters
 python -m pytest
 ```
 
-The native demo package is a schema/contract fixture, not a renderable research
-result.
+The native demo package is a schema/contract fixture. It intentionally exercises
+surface, volume, beta, gabor, neural residual, semantic, and Gaussian fallback
+carriers with typed payloads, confidence/edit metadata, semantic object
+relationships, interaction probes, and glTF/USD fallback metadata. It is not a
+renderable research result or a production quality claim.
 
 ## What AURA Is
 

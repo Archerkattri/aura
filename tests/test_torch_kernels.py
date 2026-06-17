@@ -163,13 +163,18 @@ def test_cuda_renderer_source_report_declares_native_ray_query_kernel():
 
     assert report["format"] == "AURA_CUDA_RENDERER_SOURCE_REPORT"
     assert report["symbol"] == "aura_render_rays_kernel"
+    assert report["launcherSymbol"] == "aura_render_rays_launcher"
     assert report["available"] is True
     assert report["sourceSymbolAvailable"] is True
     assert report["contractComplete"] is True
     assert report["missingSourceFragments"] == []
     assert report["productionReady"] is False
+    assert report["extensionSymbols"] == ["aura_render_rays_kernel", "aura_render_rays_launcher"]
+    assert report["dispatchBindingAvailable"] is False
+    assert report["pythonBindingAvailable"] is False
     assert "python binding dispatch missing" in report["productionBlockers"]
     assert "AABB first-hit traversal over native element bounds" in report["implementedSemantics"]
+    assert "compiled host launcher ABI that computes a grid and launches aura_render_rays_kernel" in report["implementedSemantics"]
     assert set(report["contractOutputs"]) == {
         "out_color",
         "out_alpha",
@@ -192,6 +197,8 @@ def test_cuda_renderer_source_report_declares_native_ray_query_kernel():
     for fragment in (
         "aura_ray_aabb_intersect",
         "ordered_hits[ray_i * max_hits + hit_i] = -1",
+        "extern \"C\" void aura_render_rays_launcher",
+        "aura_render_rays_kernel<<<block_count, threads>>>",
         "out_material_id[ray_i]",
         "out_semantic_id[ray_i]",
         "out_residual[ray_i]",
@@ -298,9 +305,12 @@ def test_cuda_kernel_extension_status_does_not_build_by_default():
     assert status.reason == "build_not_attempted"
     assert status.module_name == "aura_cuda_carriers"
     assert status.source_paths == ("cuda/aura_carriers.cu",)
-    assert len(status.symbols) == 7
+    assert len(status.symbols) == 9
+    assert status.symbols[-2:] == ("aura_render_rays_kernel", "aura_render_rays_launcher")
     assert report["format"] == "AURA_CUDA_EXTENSION_REPORT"
     assert report["productionReady"] is False
+    assert report["carrierSymbolCount"] == 7
+    assert report["rendererSymbolCount"] == 2
     assert report["buildAttempted"] is False
 
 
@@ -315,6 +325,11 @@ def test_cuda_renderer_api_contract_declares_batched_ray_outputs_without_cuda():
     assert contract["rendererSourceReport"]["format"] == "AURA_CUDA_RENDERER_SOURCE_REPORT"
     assert contract["rendererSourceReport"]["sourceSymbolAvailable"] is True
     assert contract["rendererSourceReport"]["productionReady"] is False
+    assert contract["rendererBinding"]["kernelSymbol"] == "aura_render_rays_kernel"
+    assert contract["rendererBinding"]["launcherSymbol"] == "aura_render_rays_launcher"
+    assert contract["rendererBinding"]["compiledLauncherContract"] is True
+    assert contract["rendererBinding"]["dispatchImplemented"] is False
+    assert contract["rendererBinding"]["pythonBindingAvailable"] is False
     inputs = {item["name"]: item for item in contract["inputTensors"]}
     outputs = {item["name"]: item for item in contract["outputTensors"]}
 
@@ -326,6 +341,7 @@ def test_cuda_renderer_api_contract_declares_batched_ray_outputs_without_cuda():
     assert outputs["out_depth"]["shape"] == "rayCount"
     assert outputs["out_normal"]["shape"] == "rayCount x 3"
     assert outputs["ordered_hits"]["shape"] == "rayCount x maxHits"
+    assert any("renderer launcher symbol is verified" in item for item in contract["unavailableUntil"])
     assert any("renderer binding dispatches cuda_render_rays" in item for item in contract["unavailableUntil"])
 
 

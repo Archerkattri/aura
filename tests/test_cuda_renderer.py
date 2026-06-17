@@ -5,6 +5,7 @@ import pytest
 from aura import AuraElement, AuraScene, Bounds, Ray
 from aura.cuda_renderer import (
     cuda_render_rays,
+    cuda_renderer_dispatch_contract,
     cuda_renderer_boundary_report,
     cuda_renderer_kernel_inputs,
     cuda_renderer_launch_config,
@@ -198,6 +199,50 @@ def test_cuda_renderer_kernel_simulation_matches_flat_abi_first_hit_outputs():
     assert payload["orderedHits"]["shape"] == [3, 2]
 
 
+def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
+    scene = AuraScene(
+        name="cuda_dispatch_contract_test",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                color=(0.9, 0.2, 0.1),
+                opacity=0.75,
+                confidence=0.8,
+                material_id="paint",
+                semantic_id="front",
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    contract = cuda_renderer_dispatch_contract(
+        scene,
+        ray_origins=((0.0, 0.0, -1.0),),
+        ray_directions=((0.0, 0.0, 1.0),),
+        threads_per_block=64,
+        max_hits=2,
+        fallback_backend="cpu",
+    )
+    payload = contract.to_dict()
+
+    assert payload["format"] == "AURA_CUDA_RENDERER_DISPATCH_CONTRACT"
+    assert payload["kernelSymbol"] == "aura_render_rays_kernel"
+    assert payload["launcherSymbol"] == "aura_render_rays_launcher"
+    assert payload["productionReady"] is False
+    assert payload["dispatchReady"] is False
+    assert payload["compiledExtensionAvailable"] is False
+    assert payload["pythonBindingAvailable"] is False
+    assert payload["reason"] == "compiled_cuda_renderer_extension_unavailable: build_not_attempted"
+    assert payload["launchConfig"]["threadsPerBlock"] == 64
+    assert payload["launchConfig"]["blockCount"] == 1
+    assert payload["kernelArgs"]["ray_count"] == 1
+    assert payload["kernelArgs"]["element_count"] == 1
+    assert payload["outputBufferShapes"]["ordered_hits"] == [1, 2]
+    assert "bind launcher to Python tensor inputs" in payload["missingDispatchWork"]
+
+
 def test_cuda_renderer_scene_buffers_reject_unknown_carrier_for_kernel_abi():
     scene = AuraScene(
         name="unsupported_cuda_carrier",
@@ -325,6 +370,10 @@ def test_cuda_renderer_boundary_report_distinguishes_callable_fallback_from_prod
     assert report["kernelInputProbe"]["rayCount"] == 1
     assert report["kernelInputProbe"]["elementCount"] == 1
     assert report["kernelInputProbe"]["outputBufferShapes"]["ordered_hits"] == [1, 4]
+    assert report["dispatchContractProbe"]["format"] == "AURA_CUDA_RENDERER_DISPATCH_CONTRACT"
+    assert report["dispatchContractProbe"]["launcherSymbol"] == "aura_render_rays_launcher"
+    assert report["dispatchContractProbe"]["dispatchReady"] is False
+    assert report["dispatchContractProbe"]["pythonBindingAvailable"] is False
     assert set(report["fallbackProbe"]["outputFields"]).issuperset(
         {"color", "transmittance", "depth", "normal", "confidence", "orderedHits"}
     )
@@ -339,6 +388,7 @@ def test_cuda_renderer_boundary_report_without_scene_is_metadata_only():
     assert report["productionReady"] is False
     assert report["fallbackProbe"] is None
     assert report["kernelInputProbe"] is None
+    assert report["dispatchContractProbe"] is None
 
 
 def test_cuda_render_rays_rejects_invalid_ray_batches_before_fallback():

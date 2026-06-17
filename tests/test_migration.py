@@ -28,6 +28,11 @@ def test_migration_report_rejects_malformed_versions():
         migration_report("dev")
 
 
+def test_migration_report_rejects_malformed_target_versions():
+    with pytest.raises(ValueError, match="target version must use major.minor"):
+        migration_report(AURA_SCHEMA_VERSION, target_version="next")
+
+
 def test_migration_plan_cli_reports_loaded_package_status(tmp_path):
     package_scene(native_demo_scene()).write(tmp_path)
 

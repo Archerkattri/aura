@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from typing import Sequence
 
 from aura.elements import AuraElement
@@ -22,8 +22,47 @@ class RenderTarget:
     def __post_init__(self) -> None:
         if not self.frame_id:
             raise ValueError("render target frame_id is required")
-        if self.target_depth <= 0.0:
+        _validate_vec3(self.target_color, "render target color")
+        if not isfinite(self.target_depth) or self.target_depth <= 0.0:
             raise ValueError("render target depth must be positive")
+        if self.target_normal is not None:
+            _validate_vec3(self.target_normal, "render target normal")
+
+
+@dataclass(frozen=True)
+class TrainingLossWeights:
+    image: float = 1.0
+    depth: float = 1.0
+    query: float = 1.0
+    normal: float = 1.0
+    mask: float = 1.0
+
+    def __post_init__(self) -> None:
+        for name, value in asdict(self).items():
+            if not isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} loss weight must be finite and non-negative")
+        if self.image + self.depth + self.query + self.normal + self.mask <= 0.0:
+            raise ValueError("at least one training loss weight must be positive")
+
+    def total(
+        self,
+        *,
+        image_loss: float,
+        depth_loss: float,
+        query_loss: float,
+        normal_loss: float,
+        mask_loss: float = 0.0,
+    ) -> float:
+        return (
+            self.image * image_loss
+            + self.depth * depth_loss
+            + self.query * query_loss
+            + self.normal * normal_loss
+            + self.mask * mask_loss
+        )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -51,6 +90,9 @@ class DifferentiableRaySample:
     depth_loss: float
     query_loss: float
     normal_loss: float
+    mask_loss: float
+    total_loss: float
+    loss_weights: dict[str, float]
     color_jacobian: float
     color_gradient: Vec3
     depth_gradient: float
@@ -60,7 +102,12 @@ class DifferentiableRaySample:
         return asdict(self)
 
 
-def differentiate_scene_rays(scene: AuraScene, targets: Sequence[RenderTarget]) -> tuple[DifferentiableRaySample, ...]:
+def differentiate_scene_rays(
+    scene: AuraScene,
+    targets: Sequence[RenderTarget],
+    *,
+    loss_weights: TrainingLossWeights | None = None,
+) -> tuple[DifferentiableRaySample, ...]:
     """Evaluate differentiable CPU reference samples for posed training rays.
 
     This is intentionally small and deterministic. It exposes gradients through
@@ -71,14 +118,19 @@ def differentiate_scene_rays(scene: AuraScene, targets: Sequence[RenderTarget]) 
 
     if not targets:
         raise ValueError("differentiable renderer requires at least one target")
+    loss_weights = loss_weights or TrainingLossWeights()
     element_by_id = {element.id: element for element in scene.elements}
-    return tuple(_differentiate_target(scene, element_by_id, target) for target in targets)
+    return tuple(
+        _differentiate_target(scene, element_by_id, target, loss_weights)
+        for target in targets
+    )
 
 
 def _differentiate_target(
     scene: AuraScene,
     element_by_id: dict[str, AuraElement],
     target: RenderTarget,
+    loss_weights: TrainingLossWeights,
 ) -> DifferentiableRaySample:
     result = scene.ray_query(target.ray)
     element_id = result.provenance.split(",", 1)[0] if result.provenance and result.provenance != "miss" else None
@@ -92,6 +144,14 @@ def _differentiate_target(
         target_material_id=target.target_material_id,
     )
     normal_loss = _normal_loss(result.normal, target.target_normal)
+    mask_loss = 0.0
+    total_loss = loss_weights.total(
+        image_loss=image_loss,
+        depth_loss=depth_loss,
+        query_loss=query_loss,
+        normal_loss=normal_loss,
+        mask_loss=mask_loss,
+    )
     color_jacobian = _color_jacobian(element, result.color)
     color_gradient = tuple(
         (2.0 / 3.0) * color_jacobian * (predicted - expected)
@@ -125,6 +185,9 @@ def _differentiate_target(
         depth_loss=depth_loss,
         query_loss=query_loss,
         normal_loss=normal_loss,
+        mask_loss=mask_loss,
+        total_loss=total_loss,
+        loss_weights=loss_weights.to_dict(),
         color_jacobian=color_jacobian,
         color_gradient=color_gradient,  # type: ignore[arg-type]
         depth_gradient=depth_gradient,
@@ -201,6 +264,13 @@ def _normalize(vector: Vec3) -> Vec3 | None:
     if norm <= 1e-12:
         return None
     return tuple(axis / norm for axis in vector)  # type: ignore[return-value]
+
+
+def _validate_vec3(vector: Vec3, name: str) -> None:
+    if len(vector) != 3:
+        raise ValueError(f"{name} must contain exactly three values")
+    if any(not isfinite(axis) for axis in vector):
+        raise ValueError(f"{name} values must be finite")
 
 
 def _clamp_unit(value: float) -> float:

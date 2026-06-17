@@ -827,7 +827,16 @@ def _torch_composite_carrier_hits(
         if not bool(torch.any(active)):
             continue
         safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
-        hit_points = origins + directions * safe_depth.unsqueeze(1)
+        hit_points = _torch_carrier_sample_points(
+            torch,
+            elements,
+            current_index,
+            safe_depth,
+            exit_depth,
+            origins,
+            directions,
+            device=device,
+        )
         carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors(
             torch,
             elements,
@@ -904,6 +913,36 @@ def _torch_aabb_hits(torch: Any, origins: Any, directions: Any, mins: Any, maxs:
     return entry, exit_depth, hits
 
 
+def _torch_carrier_sample_points(
+    torch: Any,
+    elements: Sequence[Any],
+    current_index: Any,
+    entry_depth: Any,
+    exit_depth: Any,
+    origins: Any,
+    directions: Any,
+    *,
+    device: str,
+) -> Any:
+    points = origins + directions * entry_depth.unsqueeze(1)
+    for element_index, element in enumerate(elements):
+        if element.payload.get("type") != "gaussian_fallback":
+            continue
+        mean = element.payload.get("mean")
+        if not isinstance(mean, (list, tuple)) or len(mean) != 3:
+            continue
+        mask = current_index == element_index
+        if not bool(torch.any(mask)):
+            continue
+        mean_tensor = torch.tensor(tuple(float(value) for value in mean), dtype=torch.float32, device=device)
+        ray_to_mean = mean_tensor.unsqueeze(0) - origins[mask]
+        direction_norm = torch.sum(directions[mask] * directions[mask], dim=1)
+        projected_depth = torch.sum(ray_to_mean * directions[mask], dim=1) / torch.clamp(direction_norm, min=1e-8)
+        sample_depth = torch.maximum(entry_depth[mask], torch.minimum(exit_depth[mask, element_index], projected_depth))
+        points[mask] = origins[mask] + directions[mask] * sample_depth.unsqueeze(1)
+    return points
+
+
 def _torch_hit_transmittance_traces(
     sorted_indices: Any,
     sorted_depths: Any,
@@ -928,7 +967,16 @@ def _torch_hit_transmittance_traces(
         if not bool(torch.any(active)):
             continue
         safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
-        hit_points = origins + directions * safe_depth.unsqueeze(1)
+        hit_points = _torch_carrier_sample_points(
+            torch,
+            elements,
+            current_index,
+            safe_depth,
+            exit_depth,
+            origins,
+            directions,
+            device=device,
+        )
         _carrier_colors, transmittance, _confidence, _residual_flags = torch_carrier_response_tensors(
             torch,
             elements,

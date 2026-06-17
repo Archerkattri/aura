@@ -266,6 +266,16 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
         "soft_volume_beta_detail",
         "semantic_object_neural_residual",
     }
+    assert report["iterations"][0]["carrier_evolution_report"]["actionCounts"]["split_beta_detail"] == 1
+    assert report["iterations"][0]["carrier_evolution_report"]["actionCounts"]["promote_neural_residual"] == 1
+    assert set(report["iterations"][0]["carrier_evolution_report"]["createdElementIds"]) >= {
+        "soft_volume_beta_detail",
+        "semantic_object_neural_residual",
+    }
+    split_decision = next(
+        item for item in report["iterations"][0]["carrier_evolution"] if item["action"] == "split_beta_detail"
+    )
+    assert split_decision["metrics"]["imageLoss"] > split_decision["thresholds"]["splitImageLossThreshold"]
     assert all("ray_direction" in item for item in report["iterations"][0]["predictions"])
     assert all("color_gradient" in item for item in report["iterations"][0]["predictions"])
     assert all("predicted_transmittance" in item for item in report["iterations"][0]["predictions"])
@@ -350,6 +360,9 @@ def test_reconstruct_demo_merges_and_demotes_converged_adaptive_children():
     assert by_id["semantic_object"].metadata["simplified_child"] == "semantic_object_neural_residual"
     assert "merge_beta_detail" in actions
     assert "demote_neural_residual" in actions
+    reports = [step["carrier_evolution_report"] for step in result.report.to_dict()["iterations"]]
+    assert any("soft_volume_beta_detail" in report["removedElementIds"] for report in reports)
+    assert any("semantic_object_neural_residual" in report["removedElementIds"] for report in reports)
 
 
 def test_reconstruct_demo_cli_writes_package_and_training_report(tmp_path):

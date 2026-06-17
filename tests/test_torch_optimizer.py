@@ -14,6 +14,7 @@ from aura import (
     torch_capture_training_batch,
     torch_optimize_capture_batch,
 )
+from aura.optimize import TrainingLossWeights
 
 
 def test_torch_optimize_capture_batch_reports_install_hint_when_unavailable():
@@ -35,6 +36,12 @@ def test_torch_optimization_config_validates_bounds():
 
     with pytest.raises(ValueError, match="color_learning_rate"):
         TorchOptimizationConfig(color_learning_rate=0.0)
+
+    with pytest.raises(ValueError, match="gradient_clip_norm"):
+        TorchOptimizationConfig(gradient_clip_norm=0.0)
+
+    with pytest.raises(ValueError, match="max_samples_per_batch"):
+        TorchOptimizationConfig(max_samples_per_batch=0)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -100,17 +107,90 @@ def test_torch_optimize_capture_batch_updates_native_carrier_color():
     result = torch_optimize_capture_batch(
         scene,
         batch,
-        TorchOptimizationConfig(iterations=2, color_learning_rate=0.5),
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.5,
+            loss_weights=TrainingLossWeights(image=1.0, depth=1.0, query=0.0, normal=1.0, mask=1.0),
+            gradient_clip_norm=10.0,
+            max_samples_per_batch=1,
+        ),
     )
 
     assert result.steps[0].sample_count == 1
     assert result.steps[0].device == "cpu"
     assert result.steps[0].carrier_counts == {"surface": 1}
+    assert result.steps[0].loss_weights["image"] == 1.0
+    assert result.steps[0].loss_weights["query"] == 0.0
+    assert result.steps[0].optimizer == "sgd"
+    assert result.steps[0].gradient_norm > 0.0
+    assert result.steps[0].applied_gradient_norm <= result.steps[0].gradient_norm
+    assert result.steps[0].gradient_clip_norm == 10.0
+    assert result.steps[0].updated_parameter_count > 0
+    assert result.steps[0].max_samples_per_batch == 1
+    assert result.steps[0].mask_loss == pytest.approx(0.0)
     assert result.steps[0].image_loss > result.steps[1].image_loss
     assert result.steps[0].normal_loss == pytest.approx(0.0)
     assert result.scene.elements[0].color[0] > scene.elements[0].color[0]
     assert result.scene.elements[0].metadata["optimized_by"] == "aura-core-torch-autograd-reference"
     assert result.to_dict()["finalLoss"] == result.steps[-1].total_loss
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_enforces_sample_cap():
+    scene = AuraScene(
+        name="torch_optimizer_cap_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=2,
+                    height=1,
+                    channels=3,
+                    values=(1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+                ),
+                depth=CaptureTensor(
+                    path="frame.pgm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=2,
+                    height=1,
+                    channels=1,
+                    values=(2.0, 2.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    with pytest.raises(ValueError, match="max_samples_per_batch"):
+        torch_optimize_capture_batch(
+            scene,
+            batch,
+            TorchOptimizationConfig(iterations=1, max_samples_per_batch=1),
+        )
 
 
 def _fake_capture_training_batch():

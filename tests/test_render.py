@@ -49,6 +49,32 @@ def test_render_orthographic_respects_scene_bounds():
     assert all(pixel == (1.0, 0.0, 0.0) for pixel in image.pixels)
 
 
+def test_render_orthographic_uses_ordered_native_compositing():
+    scene = AuraScene(
+        name="composited",
+        elements=(
+            AuraElement(
+                id="front",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.5,
+            ),
+            AuraElement(
+                id="back",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.2), (0.5, 0.5, 0.3)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.5,
+            ),
+        ),
+    )
+
+    image = render_orthographic(scene, width=1, height=1)
+
+    assert image.pixel(0, 0) == pytest.approx((0.5, 0.0, 0.25))
+
+
 def test_render_image_writes_ascii_ppm(tmp_path):
     image = RenderImage(width=2, height=1, pixels=((1.0, 0.0, 0.0), (0.0, 0.5, 1.0)))
 

@@ -45,6 +45,10 @@ class PackedFloatBuffer(Sequence[float]):
             return tuple(self._values) == tuple(other)
         return False
 
+    @property
+    def byte_count(self) -> int:
+        return len(self._values) * self._values.itemsize
+
     def sample(self, limit: int) -> tuple[float, ...]:
         return tuple(self._values[: max(0, limit)])
 
@@ -149,6 +153,12 @@ class CaptureTensor:
     def shape(self) -> tuple[int, int, int]:
         return (self.height, self.width, self.channels)
 
+    @property
+    def byte_count(self) -> int:
+        if isinstance(self.values, PackedFloatBuffer):
+            return self.values.byte_count
+        return len(self.values) * 8
+
     def sample_values(self, limit: int = 12) -> tuple[float, ...]:
         if isinstance(self.values, PackedFloatBuffer):
             return self.values.sample(limit)
@@ -164,6 +174,8 @@ class CaptureTensor:
             "channels": self.channels,
             "shape": list(self.shape),
             "valueCount": len(self.values),
+            "storageDtype": "float64",
+            "loadedBytes": self.byte_count,
             "sampleValues": list(self.sample_values()),
         }
 
@@ -178,9 +190,18 @@ class CaptureFrameTensors:
     mask: CaptureTensor | None = None
     normal: CaptureTensor | None = None
 
+    @property
+    def byte_count(self) -> int:
+        return sum(
+            tensor.byte_count
+            for tensor in (self.image, self.depth, self.mask, self.normal)
+            if tensor is not None
+        )
+
     def to_dict(self) -> dict:
         return {
             "frameId": self.frame_id,
+            "loadedBytes": self.byte_count,
             "image": self.image.to_dict(),
             "depth": self.depth.to_dict() if self.depth is not None else None,
             "mask": self.mask.to_dict() if self.mask is not None else None,
@@ -280,31 +301,84 @@ def _validate_capture_tensor_frame_set(manifest: CaptureManifest, tensor_frames:
         raise ValueError(f"capture tensor batch references unknown manifest frame ids: {', '.join(unknown)}")
 
 
-def load_capture_asset_tensors(manifest: CaptureManifest) -> tuple[CaptureFrameTensors, ...]:
-    """Load manifest image/depth/mask/normal assets as per-pixel tensors."""
+def load_capture_asset_tensors(
+    manifest: CaptureManifest,
+    *,
+    max_loaded_bytes: int | None = None,
+    max_frame_bytes: int | None = None,
+) -> tuple[CaptureFrameTensors, ...]:
+    """Load manifest image/depth/mask/normal assets as per-pixel tensors.
+
+    ``max_loaded_bytes`` bounds the decoded in-memory tensor payload for the
+    entire manifest. ``max_frame_bytes`` bounds one frame's decoded payload.
+    The stdlib loaders still decode one asset at a time, but these limits make
+    the contract explicit for production callers and stop multi-frame captures
+    from silently materializing unbounded host buffers.
+    """
+
+    _validate_byte_limit(max_loaded_bytes, "max_loaded_bytes")
+    _validate_byte_limit(max_frame_bytes, "max_frame_bytes")
 
     root = Path(manifest.root)
     frames = []
+    loaded_bytes = 0
     for frame in manifest.frames:
         if frame.image_path is None:
             raise ValueError(f"capture frame {frame.id} is missing image_path")
+        frame_bytes = 0
         image_path = _resolve_capture_path(root, frame.image_path)
         image = _read_capture_tensor(image_path)
+        frame_bytes = _account_capture_tensor_bytes(
+            frame_id=frame.id,
+            tensor=image,
+            frame_bytes=frame_bytes,
+            loaded_bytes=loaded_bytes,
+            max_frame_bytes=max_frame_bytes,
+            max_loaded_bytes=max_loaded_bytes,
+        )
         if image.channels < 3:
             raise ValueError(f"capture frame {frame.id} image_path must reference an RGB/RGBA image")
         depth_path = _resolve_capture_path(root, frame.depth_path) if frame.depth_path is not None else None
         depth = _read_capture_tensor(depth_path) if depth_path is not None else None
+        if depth is not None:
+            frame_bytes = _account_capture_tensor_bytes(
+                frame_id=frame.id,
+                tensor=depth,
+                frame_bytes=frame_bytes,
+                loaded_bytes=loaded_bytes,
+                max_frame_bytes=max_frame_bytes,
+                max_loaded_bytes=max_loaded_bytes,
+            )
         if depth is not None and depth.channels != 1:
             raise ValueError(f"capture frame {frame.id} depth_path must reference a single-channel image")
         mask_path = _resolve_capture_path(root, frame.mask_path) if frame.mask_path is not None else None
         mask = _read_capture_tensor(mask_path) if mask_path is not None else None
+        if mask is not None:
+            frame_bytes = _account_capture_tensor_bytes(
+                frame_id=frame.id,
+                tensor=mask,
+                frame_bytes=frame_bytes,
+                loaded_bytes=loaded_bytes,
+                max_frame_bytes=max_frame_bytes,
+                max_loaded_bytes=max_loaded_bytes,
+            )
         if mask is not None and mask.channels != 1:
             raise ValueError(f"capture frame {frame.id} mask_path must reference a single-channel image")
         normal_path = _resolve_capture_path(root, frame.normal_path) if frame.normal_path is not None else None
         normal = _read_capture_tensor(normal_path) if normal_path is not None else None
+        if normal is not None:
+            frame_bytes = _account_capture_tensor_bytes(
+                frame_id=frame.id,
+                tensor=normal,
+                frame_bytes=frame_bytes,
+                loaded_bytes=loaded_bytes,
+                max_frame_bytes=max_frame_bytes,
+                max_loaded_bytes=max_loaded_bytes,
+            )
         if normal is not None and normal.channels != 3:
             raise ValueError(f"capture frame {frame.id} normal_path must reference a 3-channel normal map")
         frames.append(CaptureFrameTensors(frame_id=frame.id, image=image, depth=depth, mask=mask, normal=normal))
+        loaded_bytes += frame_bytes
     return tuple(frames)
 
 
@@ -589,6 +663,35 @@ def _resolve_capture_path(root: Path, value: str | Path) -> Path:
     if path.is_absolute():
         return path
     return root / path
+
+
+def _validate_byte_limit(value: int | None, name: str) -> None:
+    if value is not None and value <= 0:
+        raise ValueError(f"{name} must be positive when provided")
+
+
+def _account_capture_tensor_bytes(
+    *,
+    frame_id: str,
+    tensor: CaptureTensor,
+    frame_bytes: int,
+    loaded_bytes: int,
+    max_frame_bytes: int | None,
+    max_loaded_bytes: int | None,
+) -> int:
+    next_frame_bytes = frame_bytes + tensor.byte_count
+    if max_frame_bytes is not None and next_frame_bytes > max_frame_bytes:
+        raise ValueError(
+            f"capture frame {frame_id} decoded tensors use {next_frame_bytes} bytes, "
+            f"exceeding max_frame_bytes={max_frame_bytes} after {tensor.path}"
+        )
+    next_loaded_bytes = loaded_bytes + next_frame_bytes
+    if max_loaded_bytes is not None and next_loaded_bytes > max_loaded_bytes:
+        raise ValueError(
+            f"capture tensor batch decoded tensors use {next_loaded_bytes} bytes, "
+            f"exceeding max_loaded_bytes={max_loaded_bytes} after {tensor.path}"
+        )
+    return next_frame_bytes
 
 
 def _average_rgb(image: _RasterImage) -> Vec3:

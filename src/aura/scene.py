@@ -25,16 +25,27 @@ class AuraScene:
         return self.traverse_ray(ray).result
 
     def traverse_ray(self, ray: Ray) -> "RayTraversal":
-        element_by_id = {element.id: element for element in self.elements}
-        chunks = tuple(self.chunks)
-        candidate_chunks, traversal_mode, tested_bvh_node_count = _candidate_chunks(ray, chunks, self._chunk_bvh)
-        if chunks:
-            chunked_ids = {element_id for chunk in chunks for element_id in chunk.element_ids}
-            candidate_ids = []
+        traversal_index = self._traversal_index
+        candidate_chunks, traversal_mode, bvh_stats = _candidate_chunks(ray, traversal_index.chunks, traversal_index.bvh_root)
+        if traversal_index.chunks:
+            candidate_ids: list[str] = []
+            seen_candidate_ids: set[str] = set()
             for chunk in candidate_chunks:
-                candidate_ids.extend(chunk.element_ids)
-            chunk_candidates = tuple(element_by_id[element_id] for element_id in candidate_ids if element_id in element_by_id)
-            orphan_candidates = tuple(element for element in self.elements if element.id not in chunked_ids)
+                for element_id in chunk.element_ids:
+                    if element_id in seen_candidate_ids:
+                        continue
+                    seen_candidate_ids.add(element_id)
+                    candidate_ids.append(element_id)
+            chunk_candidates = tuple(
+                traversal_index.element_by_id[element_id]
+                for element_id in candidate_ids
+                if element_id in traversal_index.element_by_id
+            )
+            orphan_candidates = tuple(
+                traversal_index.element_by_id[element_id]
+                for element_id in traversal_index.orphan_element_ids
+                if element_id in traversal_index.element_by_id
+            )
             candidates = (*chunk_candidates, *orphan_candidates)
         else:
             candidates = tuple(self.elements)
@@ -53,7 +64,9 @@ class AuraScene:
                 total_element_count=len(self.elements),
                 hit_count=0,
                 traversal_mode=traversal_mode,
-                tested_bvh_node_count=tested_bvh_node_count,
+                tested_bvh_node_count=bvh_stats.tested_node_count,
+                tested_bvh_leaf_count=bvh_stats.tested_leaf_count,
+                tested_bvh_chunk_bounds_count=bvh_stats.tested_chunk_bounds_count,
             )
         ordered_hits = tuple(sorted(hits, key=lambda item: item.depth if item.depth is not None else float("inf")))
         return RayTraversal(
@@ -64,7 +77,9 @@ class AuraScene:
             total_element_count=len(self.elements),
             hit_count=len(hits),
             traversal_mode=traversal_mode,
-            tested_bvh_node_count=tested_bvh_node_count,
+            tested_bvh_node_count=bvh_stats.tested_node_count,
+            tested_bvh_leaf_count=bvh_stats.tested_leaf_count,
+            tested_bvh_chunk_bounds_count=bvh_stats.tested_chunk_bounds_count,
         )
 
     def carrier_ids(self) -> list[str]:
@@ -75,10 +90,16 @@ class AuraScene:
 
     @cached_property
     def _chunk_bvh(self) -> "_BvhNode | None":
-        chunks = tuple(self.chunks)
-        if len(chunks) < BVH_CHUNK_THRESHOLD:
-            return None
-        return _build_bvh(chunks)
+        return self._traversal_index.bvh_root
+
+    @cached_property
+    def _traversal_index(self) -> "_SceneTraversalIndex":
+        return _prepare_traversal_index(self)
+
+    def traversal_acceleration(self) -> "SceneAccelerationMetadata":
+        """Return cached, serializable acceleration metadata for runtime reports."""
+
+        return self._traversal_index.metadata
 
 
 @dataclass(frozen=True)
@@ -120,6 +141,8 @@ class RayTraversal:
     hit_count: int
     traversal_mode: str = "linear"
     tested_bvh_node_count: int = 0
+    tested_bvh_leaf_count: int = 0
+    tested_bvh_chunk_bounds_count: int = 0
 
     @property
     def skipped_element_count(self) -> int:
@@ -153,6 +176,59 @@ class RayTraversal:
             "hitCount": self.hit_count,
             "traversalMode": self.traversal_mode,
             "testedBvhNodeCount": self.tested_bvh_node_count,
+            "testedBvhLeafCount": self.tested_bvh_leaf_count,
+            "testedBvhChunkBoundsCount": self.tested_bvh_chunk_bounds_count,
+            "acceleration": {
+                "mode": self.traversal_mode,
+                "candidateChunkCount": len(self.tested_chunk_ids),
+                "candidateElementCount": len(self.tested_element_ids),
+                "skippedElementCount": self.skipped_element_count,
+                "bvh": {
+                    "testedNodeCount": self.tested_bvh_node_count,
+                    "testedLeafCount": self.tested_bvh_leaf_count,
+                    "testedChunkBoundsCount": self.tested_bvh_chunk_bounds_count,
+                },
+            },
+        }
+
+
+@dataclass(frozen=True)
+class SceneAccelerationMetadata:
+    element_count: int
+    chunk_count: int
+    chunked_element_count: int
+    orphan_element_count: int
+    active_traversal_mode: str
+    bvh_chunk_threshold: int
+    bvh_node_count: int
+    bvh_leaf_count: int
+    bvh_max_depth: int
+    bvh_leaf_chunk_counts: tuple[int, ...]
+
+    @property
+    def chunked_element_coverage_rate(self) -> float:
+        if self.element_count == 0:
+            return 1.0
+        return self.chunked_element_count / self.element_count
+
+    def to_dict(self) -> dict:
+        return {
+            "elementCount": self.element_count,
+            "chunkCount": self.chunk_count,
+            "chunkedElementCount": self.chunked_element_count,
+            "orphanElementCount": self.orphan_element_count,
+            "chunkedElementCoverageRate": self.chunked_element_coverage_rate,
+            "activeTraversalMode": self.active_traversal_mode,
+            "bvhChunkThreshold": self.bvh_chunk_threshold,
+            "supportsChunkCulling": self.chunk_count > 0,
+            "supportsCachedBvh": self.bvh_node_count > 0,
+            "bvhNodeCount": self.bvh_node_count,
+            "bvhLeafCount": self.bvh_leaf_count,
+            "bvhMaxDepth": self.bvh_max_depth,
+            "bvhLeafChunkCounts": list(self.bvh_leaf_chunk_counts),
+            "supportsOrderedFrontToBackCandidates": True,
+            "supportsUnchunkedElementFallback": True,
+            "candidateOrdering": "front_to_back_chunks_then_unchunked_elements",
         }
 
 
@@ -205,36 +281,118 @@ class _BvhNode:
         return self.left is None and self.right is None
 
 
+@dataclass(frozen=True)
+class _BvhTraversalStats:
+    tested_node_count: int = 0
+    tested_leaf_count: int = 0
+    tested_chunk_bounds_count: int = 0
+
+
+@dataclass(frozen=True)
+class _SceneTraversalIndex:
+    chunks: tuple[AuraChunk, ...]
+    element_by_id: dict[str, AuraElement]
+    orphan_element_ids: tuple[str, ...]
+    bvh_root: _BvhNode | None
+    metadata: SceneAccelerationMetadata
+
+
+def _prepare_traversal_index(scene: AuraScene) -> _SceneTraversalIndex:
+    chunks = tuple(scene.chunks)
+    element_by_id = {element.id: element for element in scene.elements}
+    chunked_element_ids = {element_id for chunk in chunks for element_id in chunk.element_ids if element_id in element_by_id}
+    orphan_element_ids = tuple(element.id for element in scene.elements if element.id not in chunked_element_ids)
+    bvh_root = _build_bvh(chunks) if len(chunks) >= BVH_CHUNK_THRESHOLD else None
+    bvh_node_count, bvh_leaf_count, bvh_max_depth, bvh_leaf_chunk_counts = _bvh_metadata(bvh_root)
+    metadata = SceneAccelerationMetadata(
+        element_count=len(scene.elements),
+        chunk_count=len(chunks),
+        chunked_element_count=len(chunked_element_ids),
+        orphan_element_count=len(orphan_element_ids),
+        active_traversal_mode=_active_traversal_mode(chunks),
+        bvh_chunk_threshold=BVH_CHUNK_THRESHOLD,
+        bvh_node_count=bvh_node_count,
+        bvh_leaf_count=bvh_leaf_count,
+        bvh_max_depth=bvh_max_depth,
+        bvh_leaf_chunk_counts=bvh_leaf_chunk_counts,
+    )
+    return _SceneTraversalIndex(
+        chunks=chunks,
+        element_by_id=element_by_id,
+        orphan_element_ids=orphan_element_ids,
+        bvh_root=bvh_root,
+        metadata=metadata,
+    )
+
+
+def _active_traversal_mode(chunks: Sequence[AuraChunk]) -> str:
+    if not chunks:
+        return "element_linear"
+    if len(chunks) >= BVH_CHUNK_THRESHOLD:
+        return "bvh"
+    return "chunk_linear"
+
+
+def _bvh_metadata(root: _BvhNode | None) -> tuple[int, int, int, tuple[int, ...]]:
+    if root is None:
+        return 0, 0, 0, tuple()
+    node_count = 0
+    leaf_count = 0
+    max_depth = 0
+    leaf_chunk_counts = []
+    stack = [(root, 1)]
+    while stack:
+        node, depth = stack.pop()
+        node_count += 1
+        max_depth = max(max_depth, depth)
+        if node.is_leaf:
+            leaf_count += 1
+            leaf_chunk_counts.append(len(node.chunks))
+            continue
+        for child in (node.left, node.right):
+            if child is not None:
+                stack.append((child, depth + 1))
+    return node_count, leaf_count, max_depth, tuple(leaf_chunk_counts)
+
+
 def _candidate_chunks(
     ray: Ray,
     chunks: Sequence[AuraChunk],
     bvh_root: "_BvhNode | None" = None,
-) -> tuple[tuple[AuraChunk, ...], str, int]:
+) -> tuple[tuple[AuraChunk, ...], str, _BvhTraversalStats]:
     if len(chunks) >= BVH_CHUNK_THRESHOLD:
         root = bvh_root if bvh_root is not None else _build_bvh(tuple(chunks))
-        candidates, tested_nodes = _candidate_chunks_bvh(ray, root)
-        return candidates, "bvh", tested_nodes
+        candidates, stats = _candidate_chunks_bvh(ray, root)
+        return candidates, "bvh", stats
     candidates = []
     for chunk in chunks:
         hit = chunk.bounds.intersect_ray(ray)
         if hit is not None:
             candidates.append((hit[0], chunk))
     candidates.sort(key=lambda item: item[0])
-    return tuple(chunk for _depth, chunk in candidates), "chunk_linear", 0
+    mode = "chunk_linear" if chunks else "element_linear"
+    return (
+        tuple(chunk for _depth, chunk in candidates),
+        mode,
+        _BvhTraversalStats(tested_chunk_bounds_count=len(chunks)),
+    )
 
 
-def _candidate_chunks_bvh(ray: Ray, root: _BvhNode) -> tuple[tuple[AuraChunk, ...], int]:
-    stack = [(0.0, root)]
+def _candidate_chunks_bvh(ray: Ray, root: _BvhNode) -> tuple[tuple[AuraChunk, ...], _BvhTraversalStats]:
+    root_hit = root.bounds.intersect_ray(ray)
+    tested_nodes = 1
+    if root_hit is None:
+        return tuple(), _BvhTraversalStats(tested_node_count=tested_nodes)
+    stack = [(root_hit[0], root)]
     candidates: list[tuple[float, AuraChunk]] = []
-    tested_nodes = 0
+    tested_leaf_count = 0
+    tested_chunk_bounds_count = 0
     while stack:
         _entry, node = stack.pop()
-        tested_nodes += 1
-        node_hit = node.bounds.intersect_ray(ray)
-        if node_hit is None:
-            continue
         if node.is_leaf:
+            tested_leaf_count += 1
             for chunk in node.chunks:
+                tested_chunk_bounds_count += 1
                 chunk_hit = chunk.bounds.intersect_ray(ray)
                 if chunk_hit is not None:
                     candidates.append((chunk_hit[0], chunk))
@@ -243,13 +401,21 @@ def _candidate_chunks_bvh(ray: Ray, root: _BvhNode) -> tuple[tuple[AuraChunk, ..
         for child in (node.left, node.right):
             if child is None:
                 continue
+            tested_nodes += 1
             child_hit = child.bounds.intersect_ray(ray)
             if child_hit is not None:
                 children.append((child_hit[0], child))
         children.sort(key=lambda item: item[0], reverse=True)
         stack.extend(children)
     candidates.sort(key=lambda item: item[0])
-    return tuple(chunk for _depth, chunk in candidates), tested_nodes
+    return (
+        tuple(chunk for _depth, chunk in candidates),
+        _BvhTraversalStats(
+            tested_node_count=tested_nodes,
+            tested_leaf_count=tested_leaf_count,
+            tested_chunk_bounds_count=tested_chunk_bounds_count,
+        ),
+    )
 
 
 def _build_bvh(chunks: tuple[AuraChunk, ...]) -> _BvhNode:

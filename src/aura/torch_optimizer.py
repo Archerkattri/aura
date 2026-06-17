@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from math import isfinite, sqrt
 from typing import Any, Sequence
 
 from aura.elements import AuraElement
+from aura.optimize import TrainingLossWeights
 from aura.scene import AuraScene
 from aura.torch_renderer import (
     TorchCaptureTrainingBatch,
@@ -19,12 +21,23 @@ from aura.torch_renderer import (
 class TorchOptimizationConfig:
     iterations: int = 1
     color_learning_rate: float = 0.25
+    loss_weights: TrainingLossWeights = TrainingLossWeights()
+    gradient_clip_norm: float | None = None
+    max_samples_per_batch: int | None = None
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
             raise ValueError("torch optimization iterations must be positive")
         if not 0.0 < self.color_learning_rate <= 1.0:
             raise ValueError("torch color_learning_rate must be in (0, 1]")
+        if not isinstance(self.loss_weights, TrainingLossWeights):
+            raise TypeError("torch loss_weights must be a TrainingLossWeights instance")
+        if self.gradient_clip_norm is not None and (
+            not isfinite(self.gradient_clip_norm) or self.gradient_clip_norm <= 0.0
+        ):
+            raise ValueError("torch gradient_clip_norm must be positive when set")
+        if self.max_samples_per_batch is not None and self.max_samples_per_batch <= 0:
+            raise ValueError("torch max_samples_per_batch must be positive when set")
 
 
 @dataclass(frozen=True)
@@ -36,8 +49,16 @@ class TorchOptimizationStep:
     depth_loss: float
     query_loss: float
     normal_loss: float
+    mask_loss: float
     total_loss: float
     carrier_counts: dict[str, int]
+    loss_weights: dict[str, float]
+    optimizer: str
+    gradient_norm: float
+    applied_gradient_norm: float
+    gradient_clip_norm: float | None
+    updated_parameter_count: int
+    max_samples_per_batch: int | None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -73,7 +94,13 @@ def torch_optimize_capture_batch(
     if not scene.elements:
         raise ValueError("torch optimization requires at least one scene element")
     config = config or TorchOptimizationConfig()
-    require_torch()
+    torch = require_torch()
+    sample_count = _batch_sample_count(batch)
+    if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
+        raise ValueError(
+            f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
+            f"{config.max_samples_per_batch}"
+        )
     scene_tensors = torch_scene_tensors(scene, device=str(batch.ray_origins.device))
     carrier_parameters = scene_tensors.carrier_parameters
     steps = []
@@ -85,17 +112,35 @@ def torch_optimize_capture_batch(
             carrier_parameters=carrier_parameters,
             scene_tensors=scene_tensors,
         )
+        weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
         rendered = torch_render_capture_training_batch(
             scene,
             batch,
             carrier_parameters=carrier_parameters,
             scene_tensors=scene_tensors,
         )
-        step = _optimization_step_from_rendered(iteration, rendered, scene.elements)
+        weighted_loss.backward()
+        update = _gradient_step_carrier_parameters(
+            torch,
+            carrier_parameters,
+            learning_rate=config.color_learning_rate,
+            gradient_clip_norm=config.gradient_clip_norm,
+        )
+        step = _optimization_step_from_rendered(
+            iteration,
+            rendered,
+            scene.elements,
+            loss_weights=config.loss_weights,
+            mask_loss=_tensor_scalar(objective.mask_loss),
+            update=update,
+            max_samples_per_batch=config.max_samples_per_batch,
+        )
         steps.append(step)
-        objective.total_loss.backward()
-        _gradient_step_carrier_parameters(torch, carrier_parameters, learning_rate=config.color_learning_rate)
-    optimized_scene = _scene_from_carrier_parameters(scene, carrier_parameters, rendered if steps else None)
+    optimized_scene = _scene_from_carrier_parameters(
+        scene,
+        carrier_parameters,
+        rendered if steps else None,
+    )
     return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps))
 
 
@@ -103,27 +148,40 @@ def _optimization_step_from_rendered(
     iteration: int,
     rendered: TorchRenderBatch,
     elements: Sequence[AuraElement],
+    *,
+    loss_weights: TrainingLossWeights,
+    mask_loss: float,
+    update: "_TorchGradientStepState",
+    max_samples_per_batch: int | None,
 ) -> TorchOptimizationStep:
+    image_loss = _mean(rendered.image_loss)
+    depth_loss = _mean(rendered.depth_loss)
+    query_loss = _mean(rendered.query_loss)
+    normal_loss = _mean(rendered.normal_loss)
     return TorchOptimizationStep(
         iteration=iteration,
         device=rendered.device,
         sample_count=len(rendered.frame_ids),
-        image_loss=_mean(rendered.image_loss),
-        depth_loss=_mean(rendered.depth_loss),
-        query_loss=_mean(rendered.query_loss),
-        normal_loss=_mean(rendered.normal_loss),
-        total_loss=_mean(
-            tuple(
-                image + depth + query + normal
-                for image, depth, query, normal in zip(
-                    rendered.image_loss,
-                    rendered.depth_loss,
-                    rendered.query_loss,
-                    rendered.normal_loss,
-                )
-            )
+        image_loss=image_loss,
+        depth_loss=depth_loss,
+        query_loss=query_loss,
+        normal_loss=normal_loss,
+        mask_loss=mask_loss,
+        total_loss=loss_weights.total(
+            image_loss=image_loss,
+            depth_loss=depth_loss,
+            query_loss=query_loss,
+            normal_loss=normal_loss,
+            mask_loss=mask_loss,
         ),
         carrier_counts=_carrier_counts(elements),
+        loss_weights=loss_weights.to_dict(),
+        optimizer="sgd",
+        gradient_norm=update.gradient_norm,
+        applied_gradient_norm=update.applied_gradient_norm,
+        gradient_clip_norm=update.gradient_clip_norm,
+        updated_parameter_count=update.updated_parameter_count,
+        max_samples_per_batch=max_samples_per_batch,
     )
 
 
@@ -134,17 +192,49 @@ def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]])
                 parameter.grad.zero_()
 
 
-def _gradient_step_carrier_parameters(torch: Any, carrier_parameters: dict[str, dict[str, Any]], *, learning_rate: float) -> None:
+@dataclass(frozen=True)
+class _TorchGradientStepState:
+    gradient_norm: float
+    applied_gradient_norm: float
+    gradient_clip_norm: float | None
+    updated_parameter_count: int
+
+
+def _gradient_step_carrier_parameters(
+    torch: Any,
+    carrier_parameters: dict[str, dict[str, Any]],
+    *,
+    learning_rate: float,
+    gradient_clip_norm: float | None,
+) -> _TorchGradientStepState:
+    parameters = []
+    gradient_sq_sum = 0.0
+    for fields in carrier_parameters.values():
+        for parameter in fields.values():
+            if getattr(parameter, "grad", None) is None:
+                continue
+            parameters.append(parameter)
+            gradient_sq_sum += float(torch.sum(parameter.grad.detach() * parameter.grad.detach()).cpu().item())
+    gradient_norm = sqrt(gradient_sq_sum)
+    scale = 1.0
+    if gradient_clip_norm is not None and gradient_norm > gradient_clip_norm and gradient_norm > 0.0:
+        scale = gradient_clip_norm / gradient_norm
     with torch.no_grad():
         for fields in carrier_parameters.values():
             for name, parameter in fields.items():
                 if getattr(parameter, "grad", None) is None:
                     continue
-                parameter.sub_(learning_rate * parameter.grad)
+                parameter.sub_(learning_rate * scale * parameter.grad)
                 if name in {"color", "opacity", "confidence", "density", "bandwidth", "residual_scale"}:
                     parameter.clamp_(0.0, 1.0)
                 elif name in {"alpha", "beta"}:
                     parameter.clamp_(1e-4)
+    return _TorchGradientStepState(
+        gradient_norm=gradient_norm,
+        applied_gradient_norm=gradient_norm * scale,
+        gradient_clip_norm=gradient_clip_norm,
+        updated_parameter_count=len(parameters),
+    )
 
 
 def _scene_from_carrier_parameters(
@@ -232,6 +322,19 @@ def _carrier_counts(elements: Sequence[AuraElement]) -> dict[str, int]:
     for element in elements:
         counts[element.carrier_id] = counts.get(element.carrier_id, 0) + 1
     return counts
+
+
+def _weighted_torch_loss(objective: Any, loss_weights: TrainingLossWeights) -> Any:
+    return (
+        loss_weights.image * objective.image_loss
+        + loss_weights.depth * objective.depth_loss
+        + loss_weights.normal * objective.normal_loss
+        + loss_weights.mask * objective.mask_loss
+    )
+
+
+def _batch_sample_count(batch: TorchCaptureTrainingBatch) -> int:
+    return int(batch.frame_indices.numel())
 
 
 def _mean(values: Sequence[float]) -> float:

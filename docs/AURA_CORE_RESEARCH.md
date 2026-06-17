@@ -78,6 +78,32 @@ native carriers dominate even if the region still has image residual; Gaussian
 is explicitly labeled as the fallback for regions without enough structured
 evidence.
 
+## Adaptive Evolution Contract
+
+The fixture-scale reconstruction loop now treats adaptive carrier evolution as
+a deterministic policy contract rather than an inline side effect. Each training
+iteration records one decision per predicted element, with the action, reason,
+measured losses, and thresholds that triggered the action. Per-iteration
+reports also include action counts plus created, removed, and retained element
+ids so benchmark and CLI output can be checked without reinterpreting free-form
+reasons.
+
+The current reference policy is intentionally conservative:
+
+- high-residual volume carriers split into beta detail children;
+- high-residual semantic carriers promote neural residual children;
+- converged volume parents merge their beta children when image and depth losses
+  fall below merge thresholds;
+- converged semantic parents demote neural residual children after the iteration
+  gate and residual thresholds pass;
+- simplification metadata records the removed child id, and hysteresis prevents
+  immediate recreation of the same beta or neural child.
+
+This is still a CPU reference scaffold, not a learned production controller.
+The contract matters because split/merge/promote/demote behavior must remain
+auditable as the optimizer moves from fixture losses toward real capture
+residuals.
+
 The key differentiator is adaptive carrier evolution during training:
 
 ```text

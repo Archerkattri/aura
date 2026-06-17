@@ -11,9 +11,18 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 from aura.assignment import RegionEvidence
-from aura.carrier_payloads import BetaKernelPayload, NeuralResidualPayload
 from aura.decomposition import EvidenceSample, carrier_lod_elements_and_chunks, decompose_evidence
 from aura.elements import AuraElement, Bounds
+from aura.evolution import (
+    CarrierEvolutionDecision,
+    CarrierEvolutionPolicy,
+    carrier_evolution_decisions,
+    carrier_evolution_report,
+    evolved_element_for,
+    refined_confidence,
+    simplification_metadata,
+    updated_confidence_map,
+)
 from aura.optimize import RenderTarget, differentiate_scene_rays, gradient_descent_color_step, precondition_color_gradient
 from aura.ray import Ray, Vec3
 from aura.scene import AuraScene
@@ -211,30 +220,22 @@ class ReconstructionConfig:
             raise ValueError("render_backend must be one of: cpu, torch, auto")
         if self.require_cuda and self.render_backend == "cpu":
             raise ValueError("require_cuda needs render_backend='torch' or 'auto'")
-        for name in (
-            "split_image_loss_threshold",
-            "depth_anchor_loss_threshold",
-            "merge_image_loss_threshold",
-            "merge_depth_loss_threshold",
-            "demote_image_loss_threshold",
-            "demote_depth_loss_threshold",
-        ):
-            if getattr(self, name) < 0.0:
-                raise ValueError(f"{name} must be non-negative")
-        if self.demote_after_iteration < 0:
-            raise ValueError("demote_after_iteration must be non-negative")
+        self.to_evolution_policy()
+
+    def to_evolution_policy(self) -> CarrierEvolutionPolicy:
+        return CarrierEvolutionPolicy(
+            enabled=self.enable_adaptive_evolution,
+            split_image_loss_threshold=self.split_image_loss_threshold,
+            depth_anchor_loss_threshold=self.depth_anchor_loss_threshold,
+            merge_image_loss_threshold=self.merge_image_loss_threshold,
+            merge_depth_loss_threshold=self.merge_depth_loss_threshold,
+            demote_after_iteration=self.demote_after_iteration,
+            demote_image_loss_threshold=self.demote_image_loss_threshold,
+            demote_depth_loss_threshold=self.demote_depth_loss_threshold,
+        )
 
     def evolution_policy(self) -> dict:
-        return {
-            "enabled": self.enable_adaptive_evolution,
-            "splitImageLossThreshold": self.split_image_loss_threshold,
-            "depthAnchorLossThreshold": self.depth_anchor_loss_threshold,
-            "mergeImageLossThreshold": self.merge_image_loss_threshold,
-            "mergeDepthLossThreshold": self.merge_depth_loss_threshold,
-            "demoteAfterIteration": self.demote_after_iteration,
-            "demoteImageLossThreshold": self.demote_image_loss_threshold,
-            "demoteDepthLossThreshold": self.demote_depth_loss_threshold,
-        }
+        return self.to_evolution_policy().to_dict()
 
     def rendering_policy(self) -> dict:
         return {
@@ -279,18 +280,6 @@ class FramePrediction:
 
 
 @dataclass(frozen=True)
-class CarrierEvolutionDecision:
-    element_id: str
-    carrier_id: str
-    action: str
-    reason: str
-    created_element_id: str | None = None
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
 class ReconstructionStep:
     iteration: int
     render_backend: str
@@ -317,6 +306,7 @@ class ReconstructionStep:
             "carrier_counts": dict(self.carrier_counts),
             "predictions": [prediction.to_dict() for prediction in self.predictions],
             "carrier_evolution": [decision.to_dict() for decision in self.carrier_evolution],
+            "carrier_evolution_report": carrier_evolution_report(self.carrier_evolution),
         }
 
 
@@ -799,77 +789,12 @@ def _carrier_evolution_decisions(
     config: ReconstructionConfig,
     iteration: int,
 ) -> tuple[CarrierEvolutionDecision, ...]:
-    decisions = []
-    seen = set()
-    element_ids = {element.id for element in scene.elements}
-    element_by_id = {element.id: element for element in scene.elements}
-    for prediction in predictions:
-        if prediction.element_id is None or prediction.carrier_id is None:
-            continue
-        key = (prediction.element_id, prediction.carrier_id)
-        if key in seen:
-            continue
-        seen.add(key)
-        beta_child_id = _created_element_id(prediction.element_id, "split_beta_detail")
-        neural_child_id = _created_element_id(prediction.element_id, "promote_neural_residual")
-        element = element_by_id[prediction.element_id]
-        if (
-            prediction.carrier_id == "volume"
-            and beta_child_id in element_ids
-            and prediction.image_loss < config.merge_image_loss_threshold
-            and prediction.depth_loss < config.merge_depth_loss_threshold
-        ):
-            action = "merge_beta_detail"
-            reason = "volume parent residual fell below split-detail threshold"
-        elif (
-            prediction.carrier_id == "semantic"
-            and neural_child_id in element_ids
-            and iteration >= config.demote_after_iteration
-            and prediction.image_loss < config.demote_image_loss_threshold
-            and prediction.depth_loss < config.demote_depth_loss_threshold
-        ):
-            action = "demote_neural_residual"
-            reason = "semantic residual no longer needs a neural child"
-        elif prediction.image_loss > config.split_image_loss_threshold and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
-            if prediction.carrier_id == "volume":
-                if element.metadata.get("simplified_child") == beta_child_id:
-                    action = "retain_carrier"
-                    reason = "merged beta detail remains below re-split hysteresis"
-                else:
-                    action = "split_beta_detail"
-                    reason = "volume residual benefits from compact bounded support"
-            elif prediction.carrier_id == "semantic":
-                if element.metadata.get("simplified_child") == neural_child_id:
-                    action = "retain_semantic_carrier"
-                    reason = "demoted neural residual remains below re-promote hysteresis"
-                else:
-                    action = "promote_neural_residual"
-                    reason = "semantic object retains view-dependent photometric residual"
-            else:
-                action = "refine_radiance"
-                reason = "photometric residual above native carrier threshold"
-        elif prediction.depth_loss > config.depth_anchor_loss_threshold and prediction.carrier_id in {"surface", "volume", "semantic"}:
-            action = "anchor_carrier_depth"
-            reason = "depth residual exceeds reference tolerance"
-        elif prediction.carrier_id == "gabor":
-            action = "retain_frequency_carrier"
-            reason = "high-frequency evidence is represented by a native carrier"
-        elif prediction.carrier_id == "semantic":
-            action = "retain_semantic_carrier"
-            reason = "semantic observation remains object-addressable"
-        else:
-            action = "retain_carrier"
-            reason = "current carrier explains fixture evidence within reference tolerance"
-        decisions.append(
-            CarrierEvolutionDecision(
-                element_id=prediction.element_id,
-                carrier_id=prediction.carrier_id,
-                action=action,
-                reason=reason,
-                created_element_id=_created_element_id(prediction.element_id, action),
-            )
-        )
-    return tuple(decisions)
+    return carrier_evolution_decisions(
+        predictions,
+        scene.elements,
+        policy=config.to_evolution_policy(),
+        iteration=iteration,
+    )
 
 
 def _refine_scene_from_predictions(
@@ -908,78 +833,29 @@ def _refine_scene_from_predictions(
             depth_delta = -prediction.depth_gradient * prediction.depth_loss * config.color_learning_rate
             bounds = _shift_bounds_along_ray(element.bounds, prediction.ray_direction, depth_delta)
         decision = decision_by_element.get(element.id)
-        confidence_map = _updated_confidence_map(element, prediction)
+        confidence_map = updated_confidence_map(element, prediction)
         elements.append(
             replace(
                 element,
                 bounds=bounds,
                 color=color,  # type: ignore[arg-type]
-                confidence=_refined_confidence(element.confidence, prediction, learning_rate=config.color_learning_rate),
+                confidence=refined_confidence(element.confidence, prediction, learning_rate=config.color_learning_rate),
                 confidence_map=confidence_map,
                 metadata={
                     **element.metadata,
                     "optimized_by": "aura-core-differentiable-reference",
                     "confidence_updated_by": "aura-core-residual-confidence",
-                    **_simplification_metadata(decision),
+                    **simplification_metadata(decision),
                 },
             )
         )
         if decision is not None:
-            evolved = _evolved_element_for(element, decision, prediction)
+            evolved = evolved_element_for(element, decision, prediction)
             if evolved is not None and evolved.id not in existing_ids:
                 elements.append(evolved)
                 existing_ids.add(evolved.id)
     chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(elements))
     return AuraScene(name=scene.name, elements=chunked_elements, chunks=chunks, semantic_graph=scene.semantic_graph)
-
-
-def _evolved_element_for(
-    element: AuraElement,
-    decision: CarrierEvolutionDecision,
-    prediction: FramePrediction,
-) -> AuraElement | None:
-    if decision.action == "split_beta_detail":
-        bounds = _shrink_bounds(element.bounds, scale=0.45)
-        return AuraElement(
-            id=decision.created_element_id or f"{element.id}_beta_detail",
-            carrier_id="beta",
-            bounds=bounds,
-            color=prediction.target_color,
-            opacity=min(1.0, max(0.35, element.opacity * 0.85)),
-            confidence=min(1.0, element.confidence + 0.08),
-            material_id=element.material_id,
-            lod=element.lod + 1,
-            metadata={
-                "source": "aura-core-adaptive-evolution",
-                "parent": element.id,
-                "evolution": decision.action,
-            },
-            confidence_map=_evolved_confidence_map(prediction),
-            edit={"source": "adaptive-carrier-evolution", "parent": element.id},
-            payload=BetaKernelPayload(alpha=3.0, beta=3.0, support_radius=_half_extent(bounds)).to_dict(),
-        )
-    if decision.action == "promote_neural_residual":
-        bounds = _shrink_bounds(element.bounds, scale=0.65)
-        return AuraElement(
-            id=decision.created_element_id or f"{element.id}_neural_residual",
-            carrier_id="neural",
-            bounds=bounds,
-            color=prediction.target_color,
-            opacity=min(1.0, max(0.25, element.opacity * 0.75)),
-            confidence=max(0.1, element.confidence * 0.9),
-            semantic_id=element.semantic_id,
-            residual=True,
-            lod=element.lod + 1,
-            metadata={
-                "source": "aura-core-adaptive-evolution",
-                "parent": element.id,
-                "evolution": decision.action,
-            },
-            confidence_map=_evolved_confidence_map(prediction),
-            edit={"source": "adaptive-carrier-evolution", "parent": element.id},
-            payload=NeuralResidualPayload(latent_dim=16, residual_scale=min(1.0, prediction.image_loss * 4.0)).to_dict(),
-        )
-    return None
 
 
 def _normalized_direction(origin: Vec3, target: Vec3) -> Vec3:
@@ -1004,58 +880,6 @@ def _shift_bounds_along_ray(bounds: Bounds, direction: Vec3, distance: float) ->
     )
 
 
-def _created_element_id(element_id: str, action: str) -> str | None:
-    if action == "split_beta_detail":
-        return f"{element_id}_beta_detail"
-    if action == "promote_neural_residual":
-        return f"{element_id}_neural_residual"
-    if action == "merge_beta_detail":
-        return f"{element_id}_beta_detail"
-    if action == "demote_neural_residual":
-        return f"{element_id}_neural_residual"
-    return None
-
-
-def _simplification_metadata(decision: CarrierEvolutionDecision | None) -> dict[str, str]:
-    if decision is None or decision.action not in {"merge_beta_detail", "demote_neural_residual"}:
-        return {}
-    return {
-        "simplified_child": decision.created_element_id or "",
-        "simplification": decision.action,
-    }
-
-
-def _updated_confidence_map(element: AuraElement, prediction: FramePrediction) -> dict[str, float]:
-    return {
-        **element.confidence_map,
-        "optimization_image_loss": _clamp_unit(prediction.image_loss),
-        "optimization_depth_loss": _clamp_unit(prediction.depth_loss),
-        "optimization_query_loss": _clamp_unit(prediction.query_loss),
-        "optimization_normal_loss": _clamp_unit(prediction.normal_loss),
-        "optimization_residual": _prediction_residual(prediction),
-    }
-
-
-def _evolved_confidence_map(prediction: FramePrediction) -> dict[str, float]:
-    return {
-        "residual": _clamp_unit(prediction.image_loss),
-        "depth": _clamp_unit(prediction.depth_loss),
-        "query": _clamp_unit(prediction.query_loss),
-        "normal": _clamp_unit(prediction.normal_loss),
-        "optimization_residual": _prediction_residual(prediction),
-    }
-
-
-def _refined_confidence(confidence: float, prediction: FramePrediction, *, learning_rate: float) -> float:
-    residual = _prediction_residual(prediction)
-    target = 1.0 - residual
-    return _clamp_unit(confidence + (target - confidence) * min(1.0, learning_rate))
-
-
-def _prediction_residual(prediction: FramePrediction) -> float:
-    return _clamp_unit(prediction.image_loss + prediction.depth_loss * 0.25 + prediction.query_loss + prediction.normal_loss * 0.5)
-
-
 def _color_gradient(predicted: Vec3, target: Vec3) -> Vec3:
     return tuple(float(predicted[index] - target[index]) for index in range(3))  # type: ignore[return-value]
 
@@ -1066,19 +890,6 @@ def _gradient_norm(color_gradient: Vec3, depth_gradient: float) -> float:
 
 def _clamp_unit(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
-
-
-def _shrink_bounds(bounds: Bounds, *, scale: float) -> Bounds:
-    center = tuple((lo + hi) / 2.0 for lo, hi in zip(bounds.min_corner, bounds.max_corner))
-    half = tuple((hi - lo) * scale / 2.0 for lo, hi in zip(bounds.min_corner, bounds.max_corner))
-    return Bounds(
-        min_corner=tuple(value - radius for value, radius in zip(center, half)),  # type: ignore[arg-type]
-        max_corner=tuple(value + radius for value, radius in zip(center, half)),  # type: ignore[arg-type]
-    )
-
-
-def _half_extent(bounds: Bounds) -> Vec3:
-    return tuple(max((hi - lo) / 2.0, 1e-4) for lo, hi in zip(bounds.min_corner, bounds.max_corner))  # type: ignore[return-value]
 
 
 def _carrier_counts(scene: AuraScene) -> dict[str, int]:

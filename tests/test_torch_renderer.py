@@ -909,6 +909,49 @@ def test_torch_render_targets_reports_native_payload_semantics():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_matches_native_gaussian_fallback_sampling():
+    scene = AuraScene(
+        name="torch_gaussian_sampling_scene",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.5],
+                    "covariance": [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]],
+                },
+            ),
+        ),
+    )
+    ray = Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0))
+    native = scene.ray_query(ray)
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=ray,
+                target_color=native.color,
+                target_depth=native.depth or 0.0,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert batch.predicted_color[0] == pytest.approx(native.color)
+    assert batch.transmittance[0] == pytest.approx(native.transmittance)
+    assert batch.opacity[0] == pytest.approx(native.opacity)
+    assert batch.confidence[0] == pytest.approx(native.confidence)
+    assert batch.ordered_hits[0][0]["transmittance"] == pytest.approx(native.transmittance)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_reports_query_contract_loss():
     scene = AuraScene(
         name="torch_query_loss_scene",

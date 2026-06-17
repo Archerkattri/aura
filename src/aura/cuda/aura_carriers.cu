@@ -349,3 +349,67 @@ extern "C" __global__ void aura_render_rays_kernel(
 
     (void)best_exit;
 }
+
+extern "C" void aura_render_rays_launcher(
+    const float* ray_origins,
+    const float* ray_directions,
+    const float* element_mins,
+    const float* element_maxs,
+    const int* carrier_ids,
+    const float* colors,
+    const float* opacities,
+    const float* confidences,
+    const int* material_ids,
+    const int* semantic_ids,
+    float* out_color,
+    float* out_alpha,
+    float* out_transmittance,
+    float* out_depth,
+    float* out_normal,
+    float* out_confidence,
+    unsigned char* out_residual,
+    int* out_material_id,
+    int* out_semantic_id,
+    int* ordered_hits,
+    int ray_count,
+    int element_count,
+    int max_hits,
+    int threads_per_block
+) {
+    if (ray_count <= 0) {
+        return;
+    }
+    int threads = threads_per_block;
+    if (threads <= 0) {
+        threads = 128;
+    }
+    if (threads > 1024) {
+        threads = 1024;
+    }
+    const int block_count = (ray_count + threads - 1) / threads;
+    aura_render_rays_kernel<<<block_count, threads>>>(
+        ray_origins,
+        ray_directions,
+        element_mins,
+        element_maxs,
+        carrier_ids,
+        colors,
+        opacities,
+        confidences,
+        material_ids,
+        semantic_ids,
+        out_color,
+        out_alpha,
+        out_transmittance,
+        out_depth,
+        out_normal,
+        out_confidence,
+        out_residual,
+        out_material_id,
+        out_semantic_id,
+        ordered_hits,
+        ray_count,
+        element_count,
+        max_hits
+    );
+}

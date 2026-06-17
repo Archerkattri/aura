@@ -69,7 +69,9 @@ This package now contains the GPU-ready skeleton for AURA:
   image/depth/normal/mask losses over carrier parameter tensors;
 - torch reference optimization steps through `torch_optimize_capture_batch`,
   which runs repeated batched AURA forward passes, records image/depth/query/
-  normal losses, and applies gradient updates to native carrier tensors;
+  normal/mask losses plus loss weights and optimizer gradient state, enforces
+  optional sampled-batch caps, and applies gradient updates to native carrier
+  tensors;
 - configurable adaptive carrier evolution thresholds for split/promote/merge/
   demote actions, emitted in reconstruction reports;
 - explicit torch carrier kernel specs and autograd parameter tensors for
@@ -83,6 +85,11 @@ This package now contains the GPU-ready skeleton for AURA:
   separately from carrier kernels and still gated as non-production until
   compiled dispatch, parity tests, chunk/BVH traversal, and speed benchmarks
   exist;
+- packaged CUDA renderer host launcher symbol `aura_render_rays_launcher`,
+  which computes a CUDA grid and launches `aura_render_rays_kernel` from the
+  compiled source ABI; this is still not Python-callable renderer dispatch until
+  the loaded extension symbol is verified, tensor bindings exist, and parity
+  tests run on CUDA hardware;
 - deterministic host-side renderer ABI buffers through
   `cuda_renderer_scene_buffers(...)` and `cuda_renderer_kernel_inputs(...)`,
   packing native element bounds, carrier IDs, material/semantic dictionaries,
@@ -108,12 +115,19 @@ This package now contains the GPU-ready skeleton for AURA:
   first-hit depth/normal/material/semantic metadata, transmittance, opacity,
   confidence, residual, provenance, ordered per-carrier hit traces, and
   query-loss outputs over `AuraScene` and `RenderTarget`;
+- PyTorch/native Gaussian fallback parity for ray-clamped closest-point
+  covariance sampling inside the carrier AABB, so fallback carriers use the
+  same reference opacity/confidence semantics as CPU ray queries;
 - `TorchRenderBatch.orderedHits` serialization for checking torch/CUDA ray
   outputs against the CPU `RayTraversal.orderedHits` contract;
 - cached reference chunk BVH traversal metrics for native ray-query probes,
   including traversal mode and tested node counts;
+- cached scene acceleration metadata for element coverage, orphan fallback
+  counts, BVH node/leaf/depth shape, leaf chunk distribution, candidate
+  ordering, and per-query BVH node/leaf/chunk-bound tests;
 - runtime export acceleration metadata for element-linear, chunk-linear, and
-  cached-BVH traversal modes, with production GPU traversal still marked false;
+  cached-BVH traversal modes, with serialized traversal metadata ready for
+  engine integration reports and production GPU traversal still marked false;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render timing,
   runtime export readiness, confidence-quality, and interaction-quality
@@ -133,11 +147,13 @@ fixture.
 
 The current CPU renderer is a deterministic validation preview, and the optional
 PyTorch path is a payload-aware ordered-compositing reference contract rather
-than the final CUDA renderer. A future GPU renderer should match this
-package/query contract while replacing the reference implementation for real
-throughput. The live `torch_render_target_objective` path is the current
-autograd bridge for turning carrier parameter tensors into real GPU
-optimization losses.
+than the final CUDA renderer. Its fallback Gaussian sampling matches the native
+ray-query reference by evaluating covariance weight at the closest ray point
+clamped to the carrier bounds, not only at the AABB entry. A future GPU renderer
+should match this package/query contract while replacing the reference
+implementation for real throughput. The live `torch_render_target_objective`
+path is the current autograd bridge for turning carrier parameter tensors into
+real GPU optimization losses.
 
 The first CLI smoke path is `aura build-native-demo`, which builds a
 mixed-carrier `.aura` package from evidence decomposition. 3DGS CLI commands are
@@ -185,8 +201,11 @@ reference path in the report.
 Use `aura torch-optimize-capture-manifest <manifest> --device cuda
 --pixel-stride N --max-targets-per-frame M` to run the current torch reference
 optimization scaffold from the same native capture tensor batches. It writes a
-`.aura` package plus `torch_training_report.json`; it is still a scaffold until
-the autograd carrier semantics are replaced by production CUDA kernels.
+`.aura` package plus `torch_training_report.json`. The report now records the
+loss weights, image/depth/query/normal/mask loss components, optimizer name,
+gradient norm, clipped/applied gradient norm, updated parameter count, and
+sample cap for each step; it is still a scaffold until the autograd carrier
+semantics are replaced by production CUDA kernels.
 Use `aura torch-kernel-report` to list every native carrier kernel, its current
 reference/autograd status, packaged CUDA source symbol, and missing CUDA
 blockers. The surface carrier
@@ -213,8 +232,10 @@ fallback is not CUDA acceleration. Use
 `aura.cuda_renderer.cuda_renderer_kernel_inputs(...)` to produce deterministic
 host-side buffers matching the packaged `aura_render_rays_kernel` ABI; these
 buffers are parity-test inputs, not a compiled CUDA launch. Use
-`simulate_cuda_renderer_kernel(...)` as the CPU oracle for those buffers while
-compiled CUDA dispatch is still unavailable.
+`aura.cuda_renderer.cuda_renderer_dispatch_contract(...)` to inspect the planned
+kernel/launcher symbols, launch shape, flat arguments, output buffer shapes, and
+missing dispatch work. Use `simulate_cuda_renderer_kernel(...)` as the CPU
+oracle for those buffers while compiled CUDA dispatch is still unavailable.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

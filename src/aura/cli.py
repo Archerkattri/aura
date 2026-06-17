@@ -39,10 +39,17 @@ from aura.readiness import production_readiness_report
 from aura.render import compare_images, read_ppm, render_orthographic
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
+from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
 from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batch
 from aura.torch_renderer import torch_capture_asset_batch, torch_capture_training_batch, torch_renderer_status
 from aura.torch_kernels import torch_carrier_kernel_report
 from aura.training_targets import capture_tensors_to_render_targets, plan_capture_tensor_sampling
+
+NATIVE_DEMO_FALLBACKS = {
+    "mesh": "fallback/native-preview.glb",
+    "usd": "fallback/native-scene.usda",
+    "preview": "fallback/native-demo.ppm",
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -253,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     native_scene = native_demo_scene()
     if args.command in {"write-native-demo-package", "build-native-demo"}:
-        print(package_scene(native_scene, fallbacks={"mesh": "fallback/native-preview.glb"}).write(args.output_dir))
+        print(package_scene(native_scene, fallbacks=NATIVE_DEMO_FALLBACKS).write(args.output_dir))
         return 0
     if args.command == "reconstruct-demo":
         dataset = load_training_dataset(args.frames) if args.frames is not None else None
@@ -576,7 +583,7 @@ def _scene_from_training_dataset(dataset, *, name: str) -> AuraScene:
 
 
 def native_demo_scene() -> AuraScene:
-    return decompose_evidence(
+    scene = decompose_evidence(
         (
             EvidenceSample(
                 id="surface_wall",
@@ -587,8 +594,14 @@ def native_demo_scene() -> AuraScene:
                 normal=(0.0, 0.0, -1.0),
                 material_id="mat_wall_plaster",
                 semantic_label="wall",
-                confidence_map={"geometry": 0.9, "material": 0.75},
-                edit={"editable": True, "group": "wall"},
+                confidence_map={"geometry": 0.9, "material": 0.75, "collision": 0.88, "shadow": 0.82},
+                edit={"editable": True, "group": "room_shell", "operation": "insert_object_occlusion_probe"},
+                metadata={
+                    "demo_role": "opaque_surface_occluder",
+                    "interaction_probe": "inserted_object_occlusion",
+                    "export_proxy": "mesh",
+                    "query_contract": "first_hit_normal_material_collision",
+                },
             ),
             EvidenceSample(
                 id="soft_volume",
@@ -598,6 +611,14 @@ def native_demo_scene() -> AuraScene:
                 opacity=0.35,
                 confidence=0.72,
                 material_id="mat_soft_volume",
+                confidence_map={"density": 0.85, "geometry": 0.25, "transmittance": 0.78},
+                edit={"editable": True, "group": "atmosphere", "operation": "attenuation_tuning"},
+                metadata={
+                    "demo_role": "translucent_volume",
+                    "interaction_probe": "shadow_transmittance",
+                    "export_proxy": "usd_volume_metadata",
+                    "query_contract": "path_transmittance",
+                },
             ),
             EvidenceSample(
                 id="woven_frequency",
@@ -606,6 +627,14 @@ def native_demo_scene() -> AuraScene:
                 color=(0.95, 0.85, 0.35),
                 opacity=0.75,
                 material_id="mat_woven_detail",
+                confidence_map={"frequency": 0.92, "geometry": 0.65, "alias_control": 0.74},
+                edit={"editable": True, "group": "surface_detail", "operation": "texture_frequency_edit"},
+                metadata={
+                    "demo_role": "high_frequency_texture",
+                    "interaction_probe": "ordered_detail_trace",
+                    "export_proxy": "texture_metadata",
+                    "query_contract": "carrier_color_modulation",
+                },
             ),
             EvidenceSample(
                 id="view_residual",
@@ -613,6 +642,16 @@ def native_demo_scene() -> AuraScene:
                 evidence=RegionEvidence(view_dependent=0.88, material_confidence=0.25, image_error=0.55),
                 color=(0.4, 0.75, 0.7),
                 opacity=0.6,
+                confidence=0.68,
+                material_id="mat_view_dependent_glaze",
+                confidence_map={"view": 0.88, "material": 0.25, "residual": 0.55},
+                edit={"editable": False, "group": "residuals", "operation": "bake_or_keep_native"},
+                metadata={
+                    "demo_role": "view_dependent_residual",
+                    "interaction_probe": "reflection_ready_surface",
+                    "export_proxy": "native_residual_only",
+                    "query_contract": "residual_flag_confidence",
+                },
             ),
             EvidenceSample(
                 id="semantic_object",
@@ -620,8 +659,17 @@ def native_demo_scene() -> AuraScene:
                 evidence=RegionEvidence(semantic_confidence=0.95),
                 color=(0.75, 0.55, 0.95),
                 opacity=0.45,
+                confidence=0.95,
+                material_id="mat_fixture_marker",
                 semantic_label="fixture_object",
-                edit={"selectable": True},
+                confidence_map={"semantic": 0.95, "object": 0.93, "edit": 0.9},
+                edit={"selectable": True, "editable": True, "group": "inserted_fixture", "operation": "object_level_edit"},
+                metadata={
+                    "demo_role": "semantic_object_handle",
+                    "interaction_probe": "semantic_object_query",
+                    "export_proxy": "usd_object_metadata",
+                    "query_contract": "semantic_id_object_selection",
+                },
             ),
             EvidenceSample(
                 id="compact_detail",
@@ -629,6 +677,16 @@ def native_demo_scene() -> AuraScene:
                 evidence=RegionEvidence(compact_detail=0.9, image_error=0.2),
                 color=(0.95, 0.45, 0.35),
                 opacity=0.85,
+                confidence=0.81,
+                material_id="mat_compact_chip",
+                confidence_map={"compact_support": 0.9, "image_residual": 0.2, "lod": 0.8},
+                edit={"editable": True, "group": "detail_kernels", "operation": "local_support_move"},
+                metadata={
+                    "demo_role": "compact_bounded_kernel",
+                    "interaction_probe": "local_detail_pick",
+                    "export_proxy": "native_kernel_metadata",
+                    "query_contract": "bounded_support_opacity",
+                },
             ),
             EvidenceSample(
                 id="gaussian_fallback",
@@ -637,10 +695,60 @@ def native_demo_scene() -> AuraScene:
                 color=(0.65, 0.65, 0.65),
                 opacity=0.5,
                 confidence=0.6,
+                material_id="mat_low_structure_fallback",
+                gaussian_mean=(0.95, 0.4, 0.1),
+                gaussian_covariance=((0.0064, 0.0, 0.0), (0.0, 0.0064, 0.0), (0.0, 0.0, 0.0049)),
+                fallback_source="native-demo-low-structure-evidence",
+                confidence_map={"structure": 0.3, "image_residual": 0.05, "fallback": 0.6},
+                edit={"editable": False, "group": "fallbacks", "operation": "promote_when_evidence_improves"},
+                metadata={
+                    "demo_role": "explicit_gaussian_fallback",
+                    "interaction_probe": "fallback_trace",
+                    "export_proxy": "splat_fallback",
+                    "query_contract": "covariance_weighted_fallback",
+                },
             ),
         ),
         name="native_demo",
     )
+    graph = scene.semantic_graph
+    if {node.id for node in graph.nodes} >= {"object:wall", "object:fixture_object"}:
+        graph = SemanticGraph(
+            nodes=tuple(
+                SemanticNode(
+                    id=node.id,
+                    label=node.label,
+                    element_ids=node.element_ids,
+                    confidence=node.confidence,
+                    attributes={
+                        **dict(node.attributes),
+                        **(
+                            {
+                                "demoRole": "occluder_and_collision_proxy",
+                                "exportTarget": "mesh",
+                                "editGroup": "room_shell",
+                            }
+                            if node.label == "wall"
+                            else {
+                                "demoRole": "selectable_inserted_object",
+                                "exportTarget": "usd_object_metadata",
+                                "editGroup": "inserted_fixture",
+                            }
+                        ),
+                    },
+                )
+                for node in graph.nodes
+            ),
+            edges=(
+                SemanticEdge(
+                    source="object:fixture_object",
+                    target="object:wall",
+                    relation="occluded_by",
+                    confidence=0.9,
+                ),
+            ),
+        )
+    return AuraScene(name=scene.name, elements=scene.elements, chunks=scene.chunks, semantic_graph=graph)
 
 
 if __name__ == "__main__":

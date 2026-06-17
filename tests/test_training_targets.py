@@ -243,6 +243,21 @@ def test_capture_tensors_to_packed_render_batches_match_legacy_target_order():
     assert batches[0].frame_ids == ("frame",)
     assert batches[0].frame_semantic_ids == ("tooth",)
     assert batches[0].to_dict()["bounded"] is True
+    assert batches[0].to_dict()["sourceWindows"] == [
+        {
+            "frameId": "frame",
+            "tileIndex": 0,
+            "tileOrigin": [0, 0],
+            "tileSize": [3, 2],
+            "batchTargetOffset": 0,
+            "targetOffset": 0,
+            "targetCount": 2,
+        }
+    ]
+    assert batches[1].source_windows[0].target_offset == 2
+    assert batches[1].source_windows[0].target_count == 2
+    assert batches[2].source_windows[0].target_offset == 4
+    assert batches[2].source_windows[0].target_count == 1
     packed_pixels = [
         tuple(batch.pixel_xy[index : index + 2])
         for batch in batches
@@ -261,6 +276,61 @@ def test_capture_tensors_to_packed_render_batches_match_legacy_target_order():
     assert packed_colors == [target.render_target.target_color for target in legacy_targets]
     assert packed_normal_present == [1, 1, 1, 1, 1]
     assert all(type(batch.pixel_xy).__name__ == "array" for batch in batches)
+
+
+def test_packed_render_batches_record_multi_tile_source_windows():
+    frame = _training_frame()
+    tensors = CaptureFrameTensors(
+        frame_id="frame",
+        image=CaptureTensor(
+            "image.ppm",
+            "Netpbm",
+            "stdlib",
+            3,
+            1,
+            3,
+            (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+        ),
+        mask=CaptureTensor("mask.pgm", "Netpbm", "stdlib", 3, 1, 1, (1.0, 1.0, 1.0)),
+    )
+
+    batches = capture_tensors_to_packed_render_batches(
+        (frame,),
+        (tensors,),
+        tile_size=1,
+        max_targets_per_batch=3,
+    )
+
+    assert [batch.target_count for batch in batches] == [3]
+    assert [window.to_dict() for window in batches[0].source_windows] == [
+        {
+            "frameId": "frame",
+            "tileIndex": 0,
+            "tileOrigin": [0, 0],
+            "tileSize": [1, 1],
+            "batchTargetOffset": 0,
+            "targetOffset": 0,
+            "targetCount": 1,
+        },
+        {
+            "frameId": "frame",
+            "tileIndex": 1,
+            "tileOrigin": [1, 0],
+            "tileSize": [1, 1],
+            "batchTargetOffset": 1,
+            "targetOffset": 1,
+            "targetCount": 1,
+        },
+        {
+            "frameId": "frame",
+            "tileIndex": 2,
+            "tileOrigin": [2, 0],
+            "tileSize": [1, 1],
+            "batchTargetOffset": 2,
+            "targetOffset": 2,
+            "targetCount": 1,
+        },
+    ]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

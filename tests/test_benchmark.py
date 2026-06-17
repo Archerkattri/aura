@@ -41,6 +41,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "aura_core_reconstruction",
         "runtime_export_contract",
         "backend_readiness_contract",
+        "cuda_renderer_abi_parity",
         "production_gate_contract",
     }.issubset(case_ids)
     visual_case = next(case for case in suite.cases if case.id == "visual_quality_vs_3dgs")
@@ -118,6 +119,12 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["cudaRendererCallableBoundary"]["compiledCudaAvailable"] is False
     assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     assert "orderedHits" in payload["cudaRendererCallableBoundary"]["outputFields"]
+    assert payload["cudaRendererAbiParity"]["format"] == "AURA_CUDA_RENDERER_ABI_PARITY"
+    assert payload["cudaRendererAbiParity"]["passed"] is True
+    assert payload["cudaRendererAbiParity"]["parityReady"] is True
+    assert payload["cudaRendererAbiParity"]["productionReady"] is False
+    assert payload["cudaRendererAbiParity"]["probeCount"] > 0
+    assert payload["cudaRendererAbiParity"]["kernelInput"]["rayCount"] == payload["cudaRendererAbiParity"]["probeCount"]
     assert payload["nativeCarrierCoverage"]["format"] == "AURA_NATIVE_CARRIER_COVERAGE"
     assert payload["nativeCarrierCoverage"]["auraFirstCoverageReady"] is True
     assert payload["nativeCarrierCoverage"]["requiredNativeCarrierCoverageRate"] == 1.0
@@ -134,11 +141,15 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["productionGate"]["cudaRendererCallableFallbackBackend"] == "cpu"
     assert payload["productionGate"]["cudaRendererCallableFallbackOnly"] is True
     assert payload["productionGate"]["cudaRendererCallableProductionReady"] is False
+    assert payload["productionGate"]["cudaRendererAbiParityReady"] is True
+    assert payload["productionGate"]["cudaRendererAbiParityProductionReady"] is False
+    assert payload["productionGate"]["cudaRendererAbiParityProbeCount"] == payload["cudaRendererAbiParity"]["probeCount"]
     assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
     assert payload["productionGate"]["requiredNativeCarrierCoverageRate"] == 1.0
     assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
     assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
     assert "cuda_renderer_callable_fallback_only" in payload["productionGate"]["productionBlockers"]
+    assert "cuda_renderer_abi_parity_cpu_oracle_only" in payload["productionGate"]["productionBlockers"]
     assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
@@ -362,6 +373,9 @@ def test_production_gate_report_surfaces_cuda_visual_and_native_carrier_gates(tm
     assert payload["cudaRendererCallableBoundary"]["callableBoundaryReady"] is True
     assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
     assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
+    assert payload["cudaRendererAbiParity"]["format"] == "AURA_CUDA_RENDERER_ABI_PARITY"
+    assert payload["cudaRendererAbiParity"]["passed"] is True
+    assert payload["cudaRendererAbiParity"]["productionReady"] is False
     assert payload["visualClaimBoundary"]["selfReference"] is True
     assert payload["nativeCarrierCoverage"]["auraFirstCoverageReady"] is True
     assert gate["productionReady"] is False
@@ -371,10 +385,14 @@ def test_production_gate_report_surfaces_cuda_visual_and_native_carrier_gates(tm
     assert gate["cudaRendererCallableFallbackAvailable"] is True
     assert gate["cudaRendererCallableFallbackOnly"] is True
     assert gate["cudaRendererCallableProductionReady"] is False
+    assert gate["cudaRendererAbiParityReady"] is True
+    assert gate["cudaRendererAbiParityProductionReady"] is False
+    assert gate["cudaRendererAbiParityProbeCount"] == payload["cudaRendererAbiParity"]["probeCount"]
     assert gate["visualBenchmarkSelfReference"] is True
     assert gate["nativeCarrierCoverageReady"] is True
     assert "cuda_renderer_unavailable" in gate["productionBlockers"]
     assert "cuda_renderer_callable_fallback_only" in gate["productionBlockers"]
+    assert "cuda_renderer_abi_parity_cpu_oracle_only" in gate["productionBlockers"]
     assert "visual_benchmark_self_reference" in gate["productionBlockers"]
 
 
@@ -434,6 +452,10 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
     assert payload["rayQuery"]["shadowReadyCount"] > 0
     assert payload["interactionQuality"]["shadowTransmittanceReadyRate"] == 1.0
     assert payload["rayQueryCorrectness"]["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
+    assert payload["cudaRendererAbiParity"]["format"] == "AURA_CUDA_RENDERER_ABI_PARITY"
+    assert payload["cudaRendererAbiParity"]["productionReady"] is False
+    assert payload["productionGate"]["cudaRendererAbiParityReady"] is True
+    assert payload["productionGate"]["cudaRendererAbiParityProductionReady"] is False
     assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["previewRender"]["width"] == 8
     assert payload["previewRender"]["renderSeconds"] >= 0.0
@@ -456,6 +478,9 @@ def test_production_gate_report_cli_prints_native_gate_json(tmp_path):
     assert payload["productionGate"]["cudaRendererAvailable"] is False
     assert payload["productionGate"]["cudaRendererCallableBoundaryReady"] is True
     assert payload["productionGate"]["cudaRendererCallableFallbackOnly"] is True
+    assert payload["productionGate"]["cudaRendererAbiParityReady"] is True
+    assert payload["productionGate"]["cudaRendererAbiParityProductionReady"] is False
+    assert payload["cudaRendererAbiParity"]["productionReady"] is False
     assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
     assert payload["productionGate"]["nativeCarrierCoverageReady"] is True
 

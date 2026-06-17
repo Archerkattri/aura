@@ -84,6 +84,42 @@ class CaptureSamplingBatch:
 
 
 @dataclass(frozen=True)
+class CapturePackedRenderSourceWindow:
+    """Tile target range used to build a bounded packed render batch."""
+
+    frame_id: str
+    tile_index: int
+    tile_origin: tuple[int, int]
+    tile_size: tuple[int, int]
+    batch_target_offset: int
+    target_offset: int
+    target_count: int
+
+    def __post_init__(self) -> None:
+        if self.tile_index < 0:
+            raise ValueError("packed render source window tile_index cannot be negative")
+        if self.batch_target_offset < 0:
+            raise ValueError("packed render source window batch_target_offset cannot be negative")
+        if self.target_offset < 0:
+            raise ValueError("packed render source window target_offset cannot be negative")
+        if self.target_count <= 0:
+            raise ValueError("packed render source window target_count must be positive")
+        if self.tile_size[0] <= 0 or self.tile_size[1] <= 0:
+            raise ValueError("packed render source window tile_size must be positive")
+
+    def to_dict(self) -> dict:
+        return {
+            "frameId": self.frame_id,
+            "tileIndex": self.tile_index,
+            "tileOrigin": list(self.tile_origin),
+            "tileSize": list(self.tile_size),
+            "batchTargetOffset": self.batch_target_offset,
+            "targetOffset": self.target_offset,
+            "targetCount": self.target_count,
+        }
+
+
+@dataclass(frozen=True)
 class CapturePackedRenderBatch:
     """Bounded packed capture targets for tensor/CUDA ingestion."""
 
@@ -103,6 +139,7 @@ class CapturePackedRenderBatch:
     target_normal: Sequence[float] | None = None
     target_normal_present: Sequence[int] | None = None
     sample_order: str = "row-major tiles, row-major pixels"
+    source_windows: tuple[CapturePackedRenderSourceWindow, ...] = ()
 
     def __post_init__(self) -> None:
         if self.target_count < 0:
@@ -132,6 +169,16 @@ class CapturePackedRenderBatch:
         for frame_index in self.frame_indices:
             if frame_index < 0 or frame_index >= len(self.frame_ids):
                 raise ValueError("packed render batch frame index is out of range")
+        if self.source_windows:
+            expected_offset = 0
+            for window in self.source_windows:
+                if window.frame_id not in self.frame_ids:
+                    raise ValueError("packed render batch source window references unknown frame id")
+                if window.batch_target_offset != expected_offset:
+                    raise ValueError("packed render batch source windows must be contiguous")
+                expected_offset += window.target_count
+            if expected_offset != self.target_count:
+                raise ValueError("packed render batch source windows must cover target_count")
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +210,7 @@ class CapturePackedRenderBatch:
             )
             if self.target_normal_present is not None
             else None,
+            "sourceWindows": [window.to_dict() for window in self.source_windows],
         }
 
 
@@ -337,6 +385,7 @@ def capture_tensors_to_packed_render_batches(
         if batch.target_count == 0:
             continue
         builders = _PackedRenderBatchBuilder(include_mask=include_mask, include_normal=include_normal)
+        source_windows: list[CapturePackedRenderSourceWindow] = []
         batch_start = batch.target_offset
         batch_stop = batch.target_offset + batch.target_count
         for tile_index in batch.tile_indices:
@@ -344,6 +393,7 @@ def capture_tensors_to_packed_render_batches(
             tile_stop = tile.target_offset + tile.sampled_pixel_count
             if tile.sampled_pixel_count == 0 or batch_start >= tile_stop or batch_stop <= tile.target_offset:
                 continue
+            source_windows.append(_source_window_for_batch_tile(batch_start, batch_stop, tile))
             frame_tensors = tensor_by_frame[tile.frame_id]
             frame = by_frame[tile.frame_id]
             frame_index = frame_index_by_id[tile.frame_id]
@@ -363,7 +413,7 @@ def capture_tensors_to_packed_render_batches(
                 frame_ids=frame_ids,
                 frame_semantic_ids=frame_semantic_ids,
                 target_offset=batch.target_offset,
-                target_count=len(builders.frame_indices),
+                target_count=batch.target_count,
                 max_target_count=batch.max_target_count,
                 frame_indices=builders.frame_indices,
                 pixel_xy=builders.pixel_xy,
@@ -374,6 +424,7 @@ def capture_tensors_to_packed_render_batches(
                 target_mask=builders.target_mask if include_mask else None,
                 target_normal=builders.target_normal if include_normal else None,
                 target_normal_present=builders.target_normal_present if include_normal else None,
+                source_windows=tuple(source_windows),
             )
         )
     return tuple(packed_batches)
@@ -593,6 +644,25 @@ def _append_tile_samples_to_packed_batch(
             sampled_offset += 1
             if sampled_offset >= target_stop:
                 return
+
+
+def _source_window_for_batch_tile(
+    batch_start: int,
+    batch_stop: int,
+    tile: CaptureSamplingTile,
+) -> CapturePackedRenderSourceWindow:
+    tile_stop = tile.target_offset + tile.sampled_pixel_count
+    overlap_start = max(batch_start, tile.target_offset)
+    overlap_stop = min(batch_stop, tile_stop)
+    return CapturePackedRenderSourceWindow(
+        frame_id=tile.frame_id,
+        tile_index=tile.tile_index,
+        tile_origin=tile.origin,
+        tile_size=tile.size,
+        batch_target_offset=overlap_start - batch_start,
+        target_offset=overlap_start,
+        target_count=overlap_stop - overlap_start,
+    )
 
 
 def _validate_tensor_dimensions(frame_tensors: CaptureFrameTensors) -> None:

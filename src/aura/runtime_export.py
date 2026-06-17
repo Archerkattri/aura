@@ -169,17 +169,26 @@ def _ray_query_contract() -> dict[str, Any]:
 
 
 def _acceleration_contract(scene: Any) -> dict[str, Any]:
-    chunk_count = len(scene.chunks)
-    active_mode = "bvh" if chunk_count >= BVH_CHUNK_THRESHOLD else "chunk_linear" if chunk_count else "element_linear"
+    metadata = scene.traversal_acceleration().to_dict()
     return {
-        "chunkCount": chunk_count,
+        "elementCount": metadata["elementCount"],
+        "chunkCount": metadata["chunkCount"],
+        "chunkedElementCount": metadata["chunkedElementCount"],
+        "orphanElementCount": metadata["orphanElementCount"],
+        "chunkedElementCoverageRate": metadata["chunkedElementCoverageRate"],
         "bvhChunkThreshold": BVH_CHUNK_THRESHOLD,
-        "activeTraversalMode": active_mode,
+        "activeTraversalMode": metadata["activeTraversalMode"],
         "supportedTraversalModes": ["element_linear", "chunk_linear", "bvh"],
-        "supportsChunkCulling": chunk_count > 0,
-        "supportsCachedBvh": chunk_count >= BVH_CHUNK_THRESHOLD,
-        "supportsOrderedFrontToBackCandidates": True,
-        "supportsUnchunkedElementFallback": True,
+        "supportsChunkCulling": metadata["supportsChunkCulling"],
+        "supportsCachedBvh": metadata["supportsCachedBvh"],
+        "supportsOrderedFrontToBackCandidates": metadata["supportsOrderedFrontToBackCandidates"],
+        "supportsUnchunkedElementFallback": metadata["supportsUnchunkedElementFallback"],
+        "candidateOrdering": metadata["candidateOrdering"],
+        "bvhNodeCount": metadata["bvhNodeCount"],
+        "bvhLeafCount": metadata["bvhLeafCount"],
+        "bvhMaxDepth": metadata["bvhMaxDepth"],
+        "bvhLeafChunkCounts": metadata["bvhLeafChunkCounts"],
+        "serializedAccelerationMetadataReady": True,
         "productionGpuTraversalReady": False,
     }
 

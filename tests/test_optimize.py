@@ -10,6 +10,7 @@ from aura import (
     gradient_descent_color_step,
     precondition_color_gradient,
 )
+from aura.optimize import TrainingLossWeights
 
 
 def test_differentiable_scene_rays_report_loss_and_gradients():
@@ -57,8 +58,11 @@ def test_differentiable_scene_rays_report_loss_and_gradients():
     assert sample.target_normal == (0.0, 0.0, -1.0)
     assert sample.query_loss == 0.0
     assert sample.normal_loss == 0.0
+    assert sample.mask_loss == 0.0
     assert sample.image_loss == pytest.approx(0.12)
     assert sample.depth_loss == 0.0
+    assert sample.total_loss == pytest.approx(0.12)
+    assert sample.loss_weights == TrainingLossWeights().to_dict()
     assert sample.color_jacobian == 1.0
     assert sample.color_gradient[0] < 0.0
     assert sample.color_gradient[1] == pytest.approx(0.0)
@@ -129,12 +133,58 @@ def test_differentiable_scene_rays_reports_normal_contract_loss():
     assert sample.normal_loss == pytest.approx(1.0)
 
 
+def test_training_loss_weights_scale_cpu_reference_total_loss():
+    scene = AuraScene(
+        name="weighted_loss_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+            ),
+        ),
+    )
+    target = RenderTarget(
+        frame_id="frame",
+        ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=4.0,
+    )
+    weights = TrainingLossWeights(image=2.0, depth=0.5, query=0.0, normal=0.0, mask=0.0)
+
+    sample = differentiate_scene_rays(scene, (target,), loss_weights=weights)[0]
+
+    assert sample.image_loss == pytest.approx(1.0 / 3.0)
+    assert sample.depth_loss == pytest.approx(2.0)
+    assert sample.total_loss == pytest.approx((2.0 / 3.0) + 1.0)
+    assert sample.loss_weights == weights.to_dict()
+
+
 def test_precondition_color_gradient_maps_attenuated_gradient_to_carrier_space():
     gradient = (-0.04, 0.0, 0.0)
 
     preconditioned = precondition_color_gradient(gradient, color_jacobian=0.1)
 
     assert preconditioned == pytest.approx((-6.0, 0.0, 0.0))
+
+
+def test_render_target_rejects_non_finite_training_contract_values():
+    with pytest.raises(ValueError, match="color"):
+        RenderTarget(
+            frame_id="frame",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, float("nan"), 0.0),
+            target_depth=1.0,
+        )
+
+
+def test_training_loss_weights_validate_report_contract():
+    with pytest.raises(ValueError, match="at least one"):
+        TrainingLossWeights(image=0.0, depth=0.0, query=0.0, normal=0.0, mask=0.0)
+
+    with pytest.raises(ValueError, match="image"):
+        TrainingLossWeights(image=float("inf"))
 
 
 def test_differentiable_scene_rays_require_targets():
