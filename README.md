@@ -28,7 +28,8 @@ native representation contract pieces:
 - package-level confidence maps and edit metadata;
 - semantic/object graph package artifact;
 - bounded AURA elements and chunks;
-- carrier-aware reference ray-query response with chunk traversal metrics;
+- carrier-aware reference ray-query response with linear chunk and BVH
+  traversal metrics;
 - CPU reference interaction probes for hit points, shadow transmittance,
   reflection directions, and collision proxy distances;
 - simple front-to-back scene query;
@@ -92,8 +93,8 @@ native representation contract pieces:
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
 production EXR/video tensor loading, carrier-complete GPU differentiable
-optimization, CUDA kernels, BVH, autograd carrier updates, or end-to-end
-benchmark results.
+optimization, CUDA kernels, production GPU BVH traversal, autograd carrier
+updates, or end-to-end benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.

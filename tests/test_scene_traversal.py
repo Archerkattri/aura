@@ -48,6 +48,34 @@ def test_scene_traversal_keeps_unchunked_elements_visible():
     assert traversal.skipped_element_count == 2
 
 
+def test_scene_traversal_uses_bvh_for_multi_chunk_scenes():
+    scene = _four_chunk_scene()
+
+    traversal = scene.traverse_ray(Ray(origin=(3.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
+
+    assert traversal.result.provenance == "surface_3"
+    assert traversal.traversal_mode == "bvh"
+    assert traversal.tested_bvh_node_count > 0
+    assert traversal.tested_chunk_ids == ("chunk_3",)
+    assert traversal.tested_element_ids == ("surface_3",)
+    assert traversal.skipped_element_count == 3
+    assert traversal.to_dict()["traversalMode"] == "bvh"
+    assert traversal.to_dict()["testedBvhNodeCount"] == traversal.tested_bvh_node_count
+
+
+def test_scene_bvh_traversal_miss_reports_node_visits_without_element_tests():
+    scene = _four_chunk_scene()
+
+    traversal = scene.traverse_ray(Ray(origin=(12.0, 12.0, -1.0), direction=(0.0, 0.0, 1.0)))
+
+    assert traversal.result.provenance == "miss"
+    assert traversal.traversal_mode == "bvh"
+    assert traversal.tested_bvh_node_count == 1
+    assert traversal.tested_chunk_ids == ()
+    assert traversal.tested_element_ids == ()
+    assert traversal.skipped_element_count == 4
+
+
 def test_reference_benchmark_reports_chunk_traversal_metrics():
     package = package_scene(_two_chunk_scene())
 
@@ -56,6 +84,8 @@ def test_reference_benchmark_reports_chunk_traversal_metrics():
     traversal = payload["rayQuery"]["chunkTraversal"]
     assert traversal["enabled"] is True
     assert traversal["probeCount"] == 2
+    assert traversal["modes"] == ["chunk_linear"]
+    assert traversal["testedBvhNodeCount"] == 0
     assert traversal["testedChunkCount"] == 2
     assert traversal["testedElementCount"] == 2
     assert traversal["skippedElementCount"] == 2
@@ -89,3 +119,24 @@ def _two_chunk_scene() -> AuraScene:
             AuraChunk(id="right_chunk", bounds=right_bounds, element_ids=("right_surface",)),
         ),
     )
+
+
+def _four_chunk_scene() -> AuraScene:
+    elements = []
+    chunks = []
+    for index in range(4):
+        bounds = Bounds((float(index), -0.5, 0.0), (float(index) + 0.5, 0.5, 0.1))
+        element_id = f"surface_{index}"
+        chunk_id = f"chunk_{index}"
+        elements.append(
+            AuraElement(
+                id=element_id,
+                carrier_id="surface",
+                bounds=bounds,
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                chunk_id=chunk_id,
+            )
+        )
+        chunks.append(AuraChunk(id=chunk_id, bounds=bounds, element_ids=(element_id,)))
+    return AuraScene(name="four_chunk_scene", elements=tuple(elements), chunks=tuple(chunks))

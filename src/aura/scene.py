@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
-from aura.elements import AuraChunk, AuraElement
+from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ray import Ray, RayQueryResult, Vec3
 from aura.semantic import SemanticGraph
 
@@ -23,7 +23,7 @@ class AuraScene:
     def traverse_ray(self, ray: Ray) -> "RayTraversal":
         element_by_id = {element.id: element for element in self.elements}
         chunks = tuple(self.chunks)
-        candidate_chunks = _candidate_chunks(ray, chunks)
+        candidate_chunks, traversal_mode, tested_bvh_node_count = _candidate_chunks(ray, chunks)
         if chunks:
             chunked_ids = {element_id for chunk in chunks for element_id in chunk.element_ids}
             candidate_ids = []
@@ -43,6 +43,8 @@ class AuraScene:
                 tested_element_ids=tuple(element.id for element in candidates),
                 total_element_count=len(self.elements),
                 hit_count=0,
+                traversal_mode=traversal_mode,
+                tested_bvh_node_count=tested_bvh_node_count,
             )
         hits.sort(key=lambda item: item.depth if item.depth is not None else float("inf"))
         return RayTraversal(
@@ -51,6 +53,8 @@ class AuraScene:
             tested_element_ids=tuple(element.id for element in candidates),
             total_element_count=len(self.elements),
             hit_count=len(hits),
+            traversal_mode=traversal_mode,
+            tested_bvh_node_count=tested_bvh_node_count,
         )
 
     def carrier_ids(self) -> list[str]:
@@ -67,6 +71,8 @@ class RayTraversal:
     tested_element_ids: tuple[str, ...]
     total_element_count: int
     hit_count: int
+    traversal_mode: str = "linear"
+    tested_bvh_node_count: int = 0
 
     @property
     def skipped_element_count(self) -> int:
@@ -92,6 +98,8 @@ class RayTraversal:
             "testedElementCount": len(self.tested_element_ids),
             "skippedElementCount": self.skipped_element_count,
             "hitCount": self.hit_count,
+            "traversalMode": self.traversal_mode,
+            "testedBvhNodeCount": self.tested_bvh_node_count,
         }
 
 
@@ -132,11 +140,84 @@ def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
     )
 
 
-def _candidate_chunks(ray: Ray, chunks: Sequence[AuraChunk]) -> tuple[AuraChunk, ...]:
+@dataclass(frozen=True)
+class _BvhNode:
+    bounds: Bounds
+    chunks: tuple[AuraChunk, ...]
+    left: "_BvhNode | None" = None
+    right: "_BvhNode | None" = None
+
+    @property
+    def is_leaf(self) -> bool:
+        return self.left is None and self.right is None
+
+
+def _candidate_chunks(ray: Ray, chunks: Sequence[AuraChunk]) -> tuple[tuple[AuraChunk, ...], str, int]:
+    if len(chunks) >= 3:
+        candidates, tested_nodes = _candidate_chunks_bvh(ray, tuple(chunks))
+        return candidates, "bvh", tested_nodes
     candidates = []
     for chunk in chunks:
         hit = chunk.bounds.intersect_ray(ray)
         if hit is not None:
             candidates.append((hit[0], chunk))
     candidates.sort(key=lambda item: item[0])
-    return tuple(chunk for _depth, chunk in candidates)
+    return tuple(chunk for _depth, chunk in candidates), "chunk_linear", 0
+
+
+def _candidate_chunks_bvh(ray: Ray, chunks: tuple[AuraChunk, ...]) -> tuple[tuple[AuraChunk, ...], int]:
+    root = _build_bvh(chunks)
+    stack = [(0.0, root)]
+    candidates: list[tuple[float, AuraChunk]] = []
+    tested_nodes = 0
+    while stack:
+        _entry, node = stack.pop()
+        tested_nodes += 1
+        node_hit = node.bounds.intersect_ray(ray)
+        if node_hit is None:
+            continue
+        if node.is_leaf:
+            for chunk in node.chunks:
+                chunk_hit = chunk.bounds.intersect_ray(ray)
+                if chunk_hit is not None:
+                    candidates.append((chunk_hit[0], chunk))
+            continue
+        children = []
+        for child in (node.left, node.right):
+            if child is None:
+                continue
+            child_hit = child.bounds.intersect_ray(ray)
+            if child_hit is not None:
+                children.append((child_hit[0], child))
+        children.sort(key=lambda item: item[0], reverse=True)
+        stack.extend(children)
+    candidates.sort(key=lambda item: item[0])
+    return tuple(chunk for _depth, chunk in candidates), tested_nodes
+
+
+def _build_bvh(chunks: tuple[AuraChunk, ...]) -> _BvhNode:
+    if len(chunks) <= 1:
+        return _BvhNode(bounds=_union_chunk_bounds(chunks), chunks=chunks)
+    axis = _longest_axis(_union_chunk_bounds(chunks))
+    ordered = tuple(sorted(chunks, key=lambda chunk: _chunk_center(chunk, axis)))
+    midpoint = len(ordered) // 2
+    left = _build_bvh(ordered[:midpoint])
+    right = _build_bvh(ordered[midpoint:])
+    return _BvhNode(bounds=_union_chunk_bounds(chunks), chunks=tuple(), left=left, right=right)
+
+
+def _union_chunk_bounds(chunks: Sequence[AuraChunk]) -> Bounds:
+    if not chunks:
+        raise ValueError("BVH requires at least one chunk")
+    mins = tuple(min(chunk.bounds.min_corner[index] for chunk in chunks) for index in range(3))
+    maxs = tuple(max(chunk.bounds.max_corner[index] for chunk in chunks) for index in range(3))
+    return type(chunks[0].bounds)(mins, maxs)
+
+
+def _longest_axis(bounds: Bounds) -> int:
+    extents = tuple(bounds.max_corner[index] - bounds.min_corner[index] for index in range(3))
+    return max(range(3), key=lambda index: extents[index])
+
+
+def _chunk_center(chunk: AuraChunk, axis: int) -> float:
+    return (chunk.bounds.min_corner[axis] + chunk.bounds.max_corner[axis]) * 0.5

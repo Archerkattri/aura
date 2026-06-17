@@ -232,6 +232,8 @@ def run_reference_benchmark(
             "chunkTraversal": {
                 "enabled": bool(scene.chunks),
                 "probeCount": len(traversals),
+                "modes": sorted({item.traversal_mode for item in traversals}),
+                "testedBvhNodeCount": sum(item.tested_bvh_node_count for item in traversals),
                 "testedChunkCount": sum(len(item.tested_chunk_ids) for item in traversals),
                 "testedElementCount": sum(len(item.tested_element_ids) for item in traversals),
                 "skippedElementCount": sum(item.skipped_element_count for item in traversals),
