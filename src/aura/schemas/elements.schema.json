@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.dev/schemas/0.1/elements.schema.json",
+  "title": "AURA Elements",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "carrier_id",
+      "bounds",
+      "color",
+      "opacity",
+      "confidence",
+      "residual",
+      "lod",
+      "chunk_id",
+      "metadata"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "carrier_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "bounds": {
+        "$ref": "#/$defs/bounds"
+      },
+      "color": {
+        "$ref": "#/$defs/vec3"
+      },
+      "opacity": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "normal": {
+        "anyOf": [
+          { "$ref": "#/$defs/vec3" },
+          { "type": "null" }
+        ]
+      },
+      "material_id": {
+        "type": ["string", "null"]
+      },
+      "semantic_id": {
+        "type": ["string", "null"]
+      },
+      "residual": {
+        "type": "boolean"
+      },
+      "lod": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "chunk_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/vec3" },
+        "max": { "$ref": "#/$defs/vec3" }
+      }
+    }
+  }
+}

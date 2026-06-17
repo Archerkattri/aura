@@ -1,0 +1,20 @@
+ply
+format ascii 1.0
+element vertex 2
+property float x
+property float y
+property float z
+property float scale_0
+property float scale_1
+property float scale_2
+property float rot_0
+property float rot_1
+property float rot_2
+property float rot_3
+property float opacity
+property uchar red
+property uchar green
+property uchar blue
+end_header
+0.0 0.0 0.0 -2.302585093 -2.302585093 -2.995732274 1.0 0.0 0.0 0.0 0.70 255 32 16
+0.0 0.0 0.3 -2.120263536 -2.120263536 -2.995732274 1.0 0.0 0.0 0.0 -0.4054651081 32 64 255

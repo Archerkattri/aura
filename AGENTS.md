@@ -5,7 +5,7 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 ## Read First
 
 1. `README.md`
-2. `docs/CPU_MVP.md`
+2. `docs/GPU_MVP.md`
 3. `docs/DATASETS.md`
 4. `src/aura/cli.py`
 5. `tests/`
@@ -16,7 +16,7 @@ You are working on AURA, Adaptive Unified Radiance Asset.
   or `LOCAL_SECRETS.md`.
 - Keep data under ignored `data/`.
 - Keep generated packages under ignored `outputs/`.
-- Ask before GPU work unless the owner explicitly says this is the GPU machine.
+- Treat this as the GPU development path and expose CUDA device 0 by default.
 - Do not reduce AURA to one new splat kernel. AURA is the asset/ray-query
   contract over adaptive carriers.
 
@@ -24,13 +24,13 @@ You are working on AURA, Adaptive Unified Radiance Asset.
 
 1. Install with `python -m pip install -e .`.
 2. Run `python -m pytest`.
-3. Add one tiny scene fixture.
-4. Add a 3DGS export reader for means/covariances/opacities.
-5. Build the first AURA element scaffold from splat samples.
-6. Add a ray-query path for first-hit/depth/transmittance.
+3. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
+4. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
+5. Build richer AURA element scaffolds from splat samples.
+6. Use `aura import-3dgs` on real baseline output directories.
+7. Add more ray-query paths for first-hit/depth/transmittance.
 
 ## Research Positioning
 
 The paper target is not better PSNR alone. The target is scene behavior: ray
 queries, confidence, geometry proxies, editability, LOD, and export.
-

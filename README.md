@@ -2,7 +2,7 @@
 
 AURA means **Adaptive Unified Radiance Asset**.
 
-This repo is the CPU-only contract scaffold for a post-3DGS captured-scene
+This repo is the GPU-ready contract scaffold for a post-3DGS captured-scene
 representation:
 
 > Photogrammetry -> NeRF -> 3D Gaussian Splatting -> AURA
@@ -13,14 +13,23 @@ common ray-query, confidence, edit, LOD, and export interface.
 
 ## Current Status
 
-This repo contains the non-GPU MVP contract layer:
+This repo contains the GPU-ready MVP contract layer:
 
 - carrier registry;
 - evidence-to-carrier assignment;
 - bounded AURA elements and chunks;
-- CPU reference ray-query response;
+- reference ray-query response;
 - simple front-to-back scene query;
+- tiny JSON/ASCII/binary little-endian PLY 3DGS export reader for means/opacities/covariances;
+- quaternion-aware PLY covariance conversion from 3DGS log-scales;
+- direct 3DGS export/directory import adapter;
 - `.aura` package writer;
+- `.aura` package loader/validator;
+- explicit `.aura` format/version compatibility checks;
+- JSON package inspection output and JSON Schema documents;
+- runtime JSON Schema validation for package files;
+- deterministic orthographic package preview rendering and image metrics;
+- strict-JSON render comparison metrics for regression checks;
 - glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
 
@@ -35,28 +44,35 @@ Use Python 3.11+.
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e .
-python -m pip install pytest
+python -m pip install -e ".[dev]"
 ```
 
-## CPU/GPU Safety
+## GPU Runtime
 
-For local scaffold work:
+Expose the primary CUDA device for GPU development:
 
 ```bash
-export CUDA_VISIBLE_DEVICES=
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
+export CUDA_VISIBLE_DEVICES=0
 ```
 
-On the GPU machine, enable GPU only when implementing real rendering/training.
+The current fixture commands do not train or render yet, but new model,
+rendering, and ray-query adapters should target CUDA by default.
 
 ## Quick Smoke Commands
 
 ```bash
 aura write-demo-package --output-dir outputs/demo.aura
+aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
+aura import-3dgs third_party/gaussian-splatting/output/<scene> --output-dir outputs/<scene>.aura
+# imports direct PLY/JSON exports or point_cloud/iteration_*/point_cloud.ply layouts
+aura validate-package outputs/splat-demo.aura
+# validates JSON Schemas, cross-file references, schema version, and package counts
+aura inspect-package outputs/splat-demo.aura
+# prints the same package summary as stable JSON
+aura render-package outputs/splat-demo.aura --output outputs/splat-demo.ppm --width 128 --height 128
+# writes a deterministic PPM preview for package validation
+aura compare-renders outputs/baseline.ppm outputs/splat-demo.ppm --min-psnr 35
+# prints strict JSON MSE/PSNR metrics and exits nonzero if the threshold fails
 aura query-demo --x 0.0 --y 0.0
 python -m pytest
 ```
@@ -126,17 +142,22 @@ Do not start with full AURA. Start with:
 
 ```text
 src/aura/
+  baselines.py   3DGS export discovery and import adapter
   asset.py       manifest/capability models
   assignment.py  evidence-to-carrier selection
   carriers.py    carrier registry
   cli.py         fixture CLI
   elements.py    bounded elements/chunks
   exchange.py    glTF/USD exchange target metadata
-  package.py     native .aura package writer
+  package.py     native .aura package writer/loader/validator
   ray.py         ray and ray-query response contracts
-  scene.py       CPU reference scene query
+  render.py      deterministic orthographic preview and image metrics
+  schema.py      native package format and supported schema versions
+  scene.py       reference scene query
+  splats.py      tiny JSON/ASCII/binary little-endian PLY 3DGS reader and AURA scaffold conversion
 tests/           contract tests
-docs/            no-GPU and handoff docs
+docs/            GPU handoff and dataset docs
+docs/schemas/    JSON Schemas for native .aura package files
 ```
 
 ## Paper Claim Boundary
@@ -154,4 +175,3 @@ Unsafe claims until implementation exists:
 - robust dynamic scenes;
 - real-time renderer complete;
 - engine-ready production format.
-

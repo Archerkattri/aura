@@ -40,7 +40,7 @@ def choose_carrier(
     """Choose the simplest carrier supported by the current evidence.
 
     This first implementation intentionally uses explicit priority rules rather
-    than learned scoring. It is the CPU-only contract baseline.
+    than learned scoring. It is the GPU-ready contract baseline.
     """
 
     registry = registry or default_registry()
@@ -58,4 +58,3 @@ def choose_carrier(
     if evidence.compact_detail >= 0.75:
         return registry["beta"]
     return registry["gaussian"]
-

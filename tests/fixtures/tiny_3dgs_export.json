@@ -1,0 +1,26 @@
+{
+  "schema_version": "3dgs-fixture-v0.1",
+  "scene": "tiny_splats",
+  "splats": [
+    {
+      "id": "red_front",
+      "mean": [0.0, 0.0, 0.0],
+      "covariance": [
+        [0.01, 0.0, 0.0],
+        [0.0, 0.01, 0.0],
+        [0.0, 0.0, 0.0025]
+      ],
+      "opacity": 0.65,
+      "color": [1.0, 0.1, 0.1],
+      "confidence": 0.9
+    },
+    {
+      "id": "blue_back",
+      "mean": [0.0, 0.0, 0.35],
+      "covariance_diag": [0.0121, 0.0121, 0.0049],
+      "opacity": 0.4,
+      "color": [0.1, 0.2, 1.0],
+      "confidence": 0.75
+    }
+  ]
+}

@@ -5,9 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aura-contract"
 version = "0.1.0"
-description = "CPU-only AURA representation contract scaffold"
+description = "GPU-ready AURA representation contract scaffold"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["jsonschema>=4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [project.scripts]
 aura = "aura.cli:main"
@@ -19,3 +22,6 @@ addopts = "-q"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+aura = ["schemas/*.schema.json"]

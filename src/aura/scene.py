@@ -9,7 +9,7 @@ from aura.ray import Ray, RayQueryResult, Vec3
 
 @dataclass(frozen=True)
 class AuraScene:
-    """CPU reference scene for the AURA ray-query contract."""
+    """Reference scene for the AURA ray-query contract."""
 
     name: str
     elements: Sequence[AuraElement]
@@ -64,4 +64,3 @@ def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
         residual=residual,
         provenance=",".join(provenance),
     )
-

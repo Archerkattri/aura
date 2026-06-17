@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Mapping, Sequence
 
 from aura.carriers import CarrierSpec
+from aura.schema import AURA_SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
@@ -12,7 +13,7 @@ class AuraAsset:
 
     name: str
     carrier_ids: Sequence[str]
-    version: str = "0.1"
+    version: str = AURA_SCHEMA_VERSION
     units: str = "meters"
     coordinate_system: str = "right-handed-y-up"
     fallbacks: Dict[str, str] = field(default_factory=dict)
@@ -32,4 +33,3 @@ class AuraAsset:
             "semanticQuery": any(spec.semantic_query for spec in specs),
             "neuralResidual": any(spec.neural_residual for spec in specs),
         }
-

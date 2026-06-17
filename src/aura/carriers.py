@@ -30,7 +30,7 @@ class CarrierSpec:
 
 
 def default_registry() -> Dict[str, CarrierSpec]:
-    """Return the minimal AURA carrier registry for the no-GPU slice."""
+    """Return the minimal AURA carrier registry for the GPU-ready slice."""
 
     return {
         "surface": CarrierSpec(
@@ -95,4 +95,3 @@ def default_registry() -> Dict[str, CarrierSpec]:
             complexity=0.9,
         ),
     }
-

@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from math import isinf, log10
+from pathlib import Path
+from typing import Sequence
+
+from aura.elements import Bounds
+from aura.ray import Ray, Vec3
+from aura.scene import AuraScene
+
+Pixel = tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class RenderImage:
+    width: int
+    height: int
+    pixels: tuple[Pixel, ...]
+
+    def __post_init__(self) -> None:
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError("image dimensions must be positive")
+        if len(self.pixels) != self.width * self.height:
+            raise ValueError("pixel count must equal width * height")
+
+    def pixel(self, x: int, y: int) -> Pixel:
+        if not 0 <= x < self.width or not 0 <= y < self.height:
+            raise IndexError("pixel coordinate out of bounds")
+        return self.pixels[y * self.width + x]
+
+    def write_ppm(self, path: Path | str) -> Path:
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["P3", f"{self.width} {self.height}", "255"]
+        for pixel in self.pixels:
+            lines.append(" ".join(str(_to_u8(channel)) for channel in pixel))
+        output.write_text("\n".join(lines) + "\n", encoding="ascii")
+        return output
+
+
+def read_ppm(path: Path | str) -> RenderImage:
+    tokens = _ppm_tokens(Path(path).read_text(encoding="ascii"))
+    if len(tokens) < 4 or tokens[0] != "P3":
+        raise ValueError("PPM must use ASCII P3 format")
+    width = int(tokens[1])
+    height = int(tokens[2])
+    max_value = int(tokens[3])
+    if max_value <= 0:
+        raise ValueError("PPM max value must be positive")
+    values = [int(item) for item in tokens[4:]]
+    expected = width * height * 3
+    if len(values) != expected:
+        raise ValueError(f"PPM expected {expected} channel values but found {len(values)}")
+    pixels = []
+    for index in range(0, len(values), 3):
+        pixels.append((values[index] / max_value, values[index + 1] / max_value, values[index + 2] / max_value))
+    return RenderImage(width=width, height=height, pixels=tuple(pixels))
+
+
+def compare_images(left: RenderImage, right: RenderImage, *, min_psnr: float | None = None) -> dict:
+    mse = image_mse(left, right)
+    psnr = image_psnr(left, right)
+    passed = True if min_psnr is None else psnr >= min_psnr
+    return {
+        "width": left.width,
+        "height": left.height,
+        "mse": mse,
+        "psnr": None if isinf(psnr) else psnr,
+        "psnrInfinite": isinf(psnr),
+        "minPsnr": min_psnr,
+        "passed": passed,
+    }
+
+
+def render_orthographic(
+    scene: AuraScene,
+    *,
+    width: int = 64,
+    height: int = 64,
+    bounds: Bounds | None = None,
+    camera_z: float | None = None,
+) -> RenderImage:
+    if width <= 0 or height <= 0:
+        raise ValueError("render dimensions must be positive")
+    frame = bounds or _scene_bounds(scene)
+    z = camera_z if camera_z is not None else frame.min_corner[2] - 1.0
+    pixels: list[Pixel] = []
+    for row in range(height):
+        y = _lerp(frame.max_corner[1], frame.min_corner[1], _center_fraction(row, height))
+        for col in range(width):
+            x = _lerp(frame.min_corner[0], frame.max_corner[0], _center_fraction(col, width))
+            result = scene.ray_query(Ray(origin=(x, y, z), direction=(0.0, 0.0, 1.0)))
+            pixels.append(result.color)
+    return RenderImage(width=width, height=height, pixels=tuple(pixels))
+
+
+def image_mse(left: RenderImage, right: RenderImage) -> float:
+    if left.width != right.width or left.height != right.height:
+        raise ValueError("images must have matching dimensions")
+    total = 0.0
+    count = 0
+    for a, b in zip(left.pixels, right.pixels):
+        for channel_a, channel_b in zip(a, b):
+            total += (channel_a - channel_b) ** 2
+            count += 1
+    return total / count
+
+
+def image_psnr(left: RenderImage, right: RenderImage) -> float:
+    mse = image_mse(left, right)
+    if mse == 0.0:
+        return float("inf")
+    return 10.0 * log10(1.0 / mse)
+
+
+def _scene_bounds(scene: AuraScene) -> Bounds:
+    if scene.chunks:
+        return _union_bounds([chunk.bounds for chunk in scene.chunks])
+    if scene.elements:
+        return _union_bounds([element.bounds for element in scene.elements])
+    raise ValueError("cannot render an empty scene")
+
+
+def _union_bounds(bounds: Sequence[Bounds]) -> Bounds:
+    return Bounds(
+        min_corner=(
+            min(item.min_corner[0] for item in bounds),
+            min(item.min_corner[1] for item in bounds),
+            min(item.min_corner[2] for item in bounds),
+        ),
+        max_corner=(
+            max(item.max_corner[0] for item in bounds),
+            max(item.max_corner[1] for item in bounds),
+            max(item.max_corner[2] for item in bounds),
+        ),
+    )
+
+
+def _center_fraction(index: int, size: int) -> float:
+    return (index + 0.5) / size
+
+
+def _lerp(start: float, end: float, t: float) -> float:
+    return start + (end - start) * t
+
+
+def _to_u8(value: float) -> int:
+    return max(0, min(255, round(float(value) * 255.0)))
+
+
+def _ppm_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0]
+        tokens.extend(line.split())
+    return tokens
