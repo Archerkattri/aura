@@ -11,7 +11,7 @@ from aura.core import ReconstructionConfig, ReconstructionReport, reconstruct_de
 from aura.inspection import RayInspection, inspect_ray
 from aura.package import AuraPackage
 from aura.ray import Ray
-from aura.render import render_orthographic
+from aura.render import compare_images, render_orthographic
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
 
@@ -206,6 +206,7 @@ def run_reference_benchmark(
     render_start = perf_counter()
     image = render_orthographic(scene, width=render_width, height=render_height)
     render_seconds = perf_counter() - render_start
+    reference_visual_quality = compare_images(image, image)
     query_seconds = sum(query_timings)
     return {
         "format": "AURA_REFERENCE_BENCHMARK",
@@ -251,6 +252,9 @@ def run_reference_benchmark(
             "height": image.height,
             "pixelCount": len(image.pixels),
             "renderSeconds": render_seconds,
+            "framesPerSecond": 0.0 if render_seconds <= 0.0 else 1.0 / render_seconds,
+            "pixelsPerSecond": 0.0 if render_seconds <= 0.0 else len(image.pixels) / render_seconds,
+            "referenceVisualQuality": reference_visual_quality,
         },
     }
 
@@ -375,7 +379,7 @@ def default_benchmark_suite() -> BenchmarkSuite:
             BenchmarkCase(
                 id="visual_quality_vs_3dgs",
                 purpose="Compare native AURA preview output against a 3DGS teacher render.",
-                metrics=("mse", "psnr", "ssim_placeholder"),
+                metrics=("mse", "psnr", "ssim", "lpips_proxy"),
                 baseline="3dgs",
             ),
             BenchmarkCase(
@@ -401,7 +405,7 @@ def default_benchmark_suite() -> BenchmarkSuite:
             BenchmarkCase(
                 id="render_query_speed",
                 purpose="Track reference render and ray-query throughput before GPU kernels land.",
-                metrics=("rays_per_second", "render_seconds", "query_p50_ms", "query_p95_ms"),
+                metrics=("rays_per_second", "frames_per_second", "pixels_per_second", "query_p50_ms", "query_p95_ms"),
             ),
             BenchmarkCase(
                 id="mixed_carrier_behavior",

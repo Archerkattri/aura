@@ -98,8 +98,9 @@ AURA_CAPTURE_MANIFEST
    traversal path for secondary rays.
 6. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
    2DGS, ray-traced GS, and radiance-mesh/neural-primitive baselines.
-7. Report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene behavior:
-   ray-query correctness, collision proxy quality, editing, relighting
+7. Replace the current deterministic LPIPS-proxy metric with a learned LPIPS
+   backend and report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene
+   behavior: ray-query correctness, collision proxy quality, editing, relighting
    confidence, semantic grouping, runtime export, and engine workflow.
 
 ## Paper Claim Boundary

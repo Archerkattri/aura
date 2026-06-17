@@ -32,6 +32,12 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "confidence_calibration",
         "aura_core_reconstruction",
     }.issubset(case_ids)
+    visual_case = next(case for case in suite.cases if case.id == "visual_quality_vs_3dgs")
+    speed_case = next(case for case in suite.cases if case.id == "render_query_speed")
+    assert "ssim" in visual_case.metrics
+    assert "lpips_proxy" in visual_case.metrics
+    assert "ssim_placeholder" not in visual_case.metrics
+    assert "frames_per_second" in speed_case.metrics
     assert {"gaussian_only", "no_neural_residual", "no_frequency_carrier", "no_semantic_graph"}.issubset(ablation_ids)
 
 
@@ -80,6 +86,11 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
     assert payload["previewRender"]["renderSeconds"] >= 0.0
+    assert payload["previewRender"]["framesPerSecond"] >= 0.0
+    assert payload["previewRender"]["pixelsPerSecond"] >= 0.0
+    assert payload["previewRender"]["referenceVisualQuality"]["psnrInfinite"] is True
+    assert payload["previewRender"]["referenceVisualQuality"]["ssim"] == 1.0
+    assert payload["previewRender"]["referenceVisualQuality"]["lpipsProxy"] == 0.0
 
 
 def test_apply_ablation_disables_requested_carriers(tmp_path):

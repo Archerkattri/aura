@@ -76,7 +76,8 @@ native representation contract pieces:
   evidence before decomposition;
 - deterministic capture asset summaries built from the same tensor path for
   manifest-backed native training fixtures;
-- deterministic orthographic package preview rendering and image metrics;
+- deterministic orthographic package preview rendering and reference
+  MSE/PSNR/SSIM/LPIPS-proxy image metrics;
 - CPU differentiable reference ray samples with image/depth/query losses,
   normal-target/query losses, color/depth gradients, and ray-query contract
   outputs for native AURA-Core fixture optimization;
@@ -189,7 +190,7 @@ aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --outp
 aura import-3dgs third_party/gaussian-splatting/output/<scene> --output-dir outputs/<scene>.aura
 # imports direct PLY/JSON exports or point_cloud/iteration_*/point_cloud.ply layouts
 aura compare-renders outputs/baseline.ppm outputs/splat-demo.ppm --min-psnr 35
-# prints strict JSON MSE/PSNR metrics and exits nonzero if the threshold fails
+# prints strict JSON MSE/PSNR/SSIM/LPIPS-proxy metrics and exits nonzero if the threshold fails
 aura benchmark-plan
 # prints benchmark and carrier ablation plan JSON
 aura ingest-adapters

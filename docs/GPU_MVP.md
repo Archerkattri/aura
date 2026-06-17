@@ -32,7 +32,8 @@ This package now contains the GPU-ready skeleton for AURA:
 - explicit `.aura` format/version compatibility checks;
 - JSON package inspection output and JSON Schema documents;
 - runtime JSON Schema validation for package files;
-- deterministic orthographic package preview rendering and image metrics;
+- deterministic orthographic package preview rendering and reference
+  MSE/PSNR/SSIM/LPIPS-proxy image metrics;
 - CPU differentiable reference ray samples that preserve image/depth/normal/
   query losses and ray-query contract outputs in reconstruction reports;
 - residual-driven confidence updates and confidence maps on optimized native

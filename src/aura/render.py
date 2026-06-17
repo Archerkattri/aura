@@ -61,6 +61,8 @@ def read_ppm(path: Path | str) -> RenderImage:
 def compare_images(left: RenderImage, right: RenderImage, *, min_psnr: float | None = None) -> dict:
     mse = image_mse(left, right)
     psnr = image_psnr(left, right)
+    ssim = image_ssim(left, right)
+    perceptual = image_lpips_proxy(left, right)
     passed = True if min_psnr is None else psnr >= min_psnr
     return {
         "width": left.width,
@@ -68,6 +70,8 @@ def compare_images(left: RenderImage, right: RenderImage, *, min_psnr: float | N
         "mse": mse,
         "psnr": None if isinf(psnr) else psnr,
         "psnrInfinite": isinf(psnr),
+        "ssim": ssim,
+        "lpipsProxy": perceptual,
         "minPsnr": min_psnr,
         "passed": passed,
     }
@@ -112,6 +116,46 @@ def image_psnr(left: RenderImage, right: RenderImage) -> float:
     if mse == 0.0:
         return float("inf")
     return 10.0 * log10(1.0 / mse)
+
+
+def image_ssim(left: RenderImage, right: RenderImage) -> float:
+    _require_matching_dimensions(left, right)
+    left_values = _flat_channels(left)
+    right_values = _flat_channels(right)
+    mu_left = sum(left_values) / len(left_values)
+    mu_right = sum(right_values) / len(right_values)
+    var_left = sum((value - mu_left) ** 2 for value in left_values) / len(left_values)
+    var_right = sum((value - mu_right) ** 2 for value in right_values) / len(right_values)
+    covariance = sum((a - mu_left) * (b - mu_right) for a, b in zip(left_values, right_values)) / len(left_values)
+    c1 = 0.01**2
+    c2 = 0.03**2
+    numerator = (2.0 * mu_left * mu_right + c1) * (2.0 * covariance + c2)
+    denominator = (mu_left**2 + mu_right**2 + c1) * (var_left + var_right + c2)
+    if denominator == 0.0:
+        return 1.0
+    return max(0.0, min(1.0, numerator / denominator))
+
+
+def image_lpips_proxy(left: RenderImage, right: RenderImage) -> float:
+    """Deterministic perceptual-distance proxy, not learned LPIPS."""
+
+    _require_matching_dimensions(left, right)
+    total = 0.0
+    count = 0
+    for a, b in zip(left.pixels, right.pixels):
+        for channel_a, channel_b in zip(a, b):
+            total += abs(channel_a - channel_b)
+            count += 1
+    return total / count
+
+
+def _require_matching_dimensions(left: RenderImage, right: RenderImage) -> None:
+    if left.width != right.width or left.height != right.height:
+        raise ValueError("images must have matching dimensions")
+
+
+def _flat_channels(image: RenderImage) -> tuple[float, ...]:
+    return tuple(channel for pixel in image.pixels for channel in pixel)
 
 
 def _scene_bounds(scene: AuraScene) -> Bounds:

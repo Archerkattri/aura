@@ -9,8 +9,10 @@ from aura import (
     Bounds,
     RenderImage,
     compare_images,
+    image_lpips_proxy,
     image_mse,
     image_psnr,
+    image_ssim,
     package_scene,
     read_ppm,
     render_orthographic,
@@ -72,10 +74,18 @@ def test_image_metrics_report_identity_and_difference():
 
     assert image_mse(left, left) == 0.0
     assert image_psnr(left, left) == float("inf")
+    assert image_ssim(left, left) == 1.0
+    assert image_lpips_proxy(left, left) == 0.0
     assert image_mse(left, right) == pytest.approx(1.0 / 3.0)
     assert image_psnr(left, right) > 0.0
-    assert compare_images(left, left, min_psnr=99.0)["passed"] is True
-    assert compare_images(left, right, min_psnr=99.0)["passed"] is False
+    assert image_ssim(left, right) < 1.0
+    assert image_lpips_proxy(left, right) == pytest.approx(1.0 / 3.0)
+    identical = compare_images(left, left, min_psnr=99.0)
+    different = compare_images(left, right, min_psnr=99.0)
+    assert identical["passed"] is True
+    assert identical["ssim"] == 1.0
+    assert identical["lpipsProxy"] == 0.0
+    assert different["passed"] is False
 
 
 def test_render_package_cli_writes_preview(tmp_path):

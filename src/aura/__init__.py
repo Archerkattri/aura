@@ -105,7 +105,16 @@ from aura.proposals import (
     score_capture_proposals,
 )
 from aura.ray import Ray, RayQueryResult
-from aura.render import RenderImage, compare_images, image_mse, image_psnr, read_ppm, render_orthographic
+from aura.render import (
+    RenderImage,
+    compare_images,
+    image_lpips_proxy,
+    image_mse,
+    image_psnr,
+    image_ssim,
+    read_ppm,
+    render_orthographic,
+)
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
@@ -221,7 +230,9 @@ __all__ = [
     "differentiate_scene_rays",
     "discover_3dgs_export",
     "image_mse",
+    "image_lpips_proxy",
     "image_psnr",
+    "image_ssim",
     "gradient_descent_color_step",
     "load_3dgs_export",
     "load_3dgs_ply",
