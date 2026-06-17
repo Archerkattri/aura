@@ -80,6 +80,13 @@ from aura.ingest import (
 )
 from aura.inspection import RayInspection, inspect_ray, inspect_scene_rays, native_demo_interaction_probes
 from aura.migration import MigrationReport, migration_report
+from aura.optimize import (
+    DifferentiableRaySample,
+    RenderTarget,
+    differentiate_scene_rays,
+    gradient_descent_color_step,
+    precondition_color_gradient,
+)
 from aura.package import AuraPackage, load_package, package_scene, validate_package, validate_package_documents
 from aura.ray import Ray, RayQueryResult
 from aura.render import RenderImage, compare_images, image_mse, image_psnr, read_ppm, render_orthographic
@@ -111,6 +118,7 @@ __all__ = [
     "ColmapImage",
     "ColmapPoint3D",
     "DepthEvidencePoint",
+    "DifferentiableRaySample",
     "EvidenceSample",
     "FramePrediction",
     "GaborFrequencyPayload",
@@ -129,6 +137,7 @@ __all__ = [
     "ReconstructionResult",
     "ReconstructionStep",
     "RenderImage",
+    "RenderTarget",
     "SemanticFeaturePayload",
     "SemanticEdge",
     "SemanticGraph",
@@ -149,9 +158,11 @@ __all__ = [
     "decompose_evidence",
     "default_benchmark_suite",
     "default_registry",
+    "differentiate_scene_rays",
     "discover_3dgs_export",
     "image_mse",
     "image_psnr",
+    "gradient_descent_color_step",
     "load_3dgs_export",
     "load_3dgs_ply",
     "load_3dgs_scene",
@@ -164,6 +175,7 @@ __all__ = [
     "migration_report",
     "native_demo_ray_query_expectations",
     "package_scene",
+    "precondition_color_gradient",
     "package_3dgs_export",
     "read_ppm",
     "render_orthographic",

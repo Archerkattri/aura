@@ -78,9 +78,9 @@ AURA_CAPTURE_MANIFEST
 
 ## Production Tasks
 
-1. Replace the fixture prediction loop in `src/aura/core.py` with a real
-   differentiable renderer over the same `TrainingFrame` and `TrainingRegion`
-   contracts.
+1. Replace the CPU differentiable reference renderer in `src/aura/optimize.py`
+   with a real PyTorch/CUDA renderer over the same `TrainingFrame` and
+   `TrainingRegion` contracts.
 2. Replace the current dependency-free PPM/PGM fixture asset loader with real
    PNG/EXR/video tensor loading for manifest `image_path`, `depth_path`, and
    `mask_path`.

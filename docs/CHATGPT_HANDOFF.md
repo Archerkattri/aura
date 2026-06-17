@@ -36,7 +36,7 @@ First useful tasks:
 8. read `docs/AURA_CORE_RESEARCH.md` and `docs/PRODUCTION_HANDOFF.md`;
 9. use `aura write-training-frames-demo` and `aura reconstruct-demo --frames`
    around posed color/depth/semantic frames plus native evidence regions, not 3DGS;
-10. replace the CPU fixture loop with a differentiable image/depth renderer;
+10. replace the CPU differentiable reference loop with a real PyTorch/CUDA image/depth renderer;
 11. add adaptive carrier promote/split/merge tests;
 12. expand mixed-carrier decomposition fixtures, semantic graph checks, and query tests;
 13. run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`;

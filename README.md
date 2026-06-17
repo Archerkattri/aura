@@ -42,6 +42,8 @@ native representation contract pieces:
 - runtime JSON Schema validation for package files;
 - schema-validated AURA-Core posed frame and native evidence-region inputs;
 - deterministic orthographic package preview rendering and image metrics;
+- CPU differentiable reference ray samples with color/depth gradients for
+  native AURA-Core fixture optimization;
 - reproducible benchmark plans plus CPU reference package/query/render timing metrics;
 - ray-query correctness scoring for first-hit, carrier, depth, transmittance,
   semantic, material, normal, and residual contract checks;
@@ -50,9 +52,9 @@ native representation contract pieces:
 - fixture CLI commands and tests.
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
-production PNG/EXR/video tensor loading, pose/depth bootstrapping,
-differentiable carrier optimization, adaptive split/merge/promote training,
-CUDA kernels, BVH, or end-to-end benchmark results.
+production PNG/EXR/video tensor loading, pose/depth bootstrapping, learned or
+GPU differentiable carrier optimization, CUDA kernels, BVH, or end-to-end
+benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.
@@ -220,6 +222,7 @@ src/aura/
   decomposition.py evidence samples to mixed native AURA elements
   elements.py    bounded elements/chunks
   exchange.py    package-backed glTF/USD exchange target metadata
+  optimize.py    CPU differentiable reference ray samples and gradients
   package.py     native .aura package writer/loader/validator
   ray.py         ray and ray-query response contracts
   render.py      deterministic orthographic preview and image metrics

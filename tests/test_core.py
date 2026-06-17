@@ -144,7 +144,7 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert report["format"] == "AURA_CORE_RECONSTRUCTION_REPORT"
     assert report["sources"] == ["posed_training_frames", "training_regions", "depth_targets", "semantic_labels"]
     assert "native_evidence_initialization" in report["stages"]
-    assert "cpu_reference_render_loss" in report["stages"]
+    assert "cpu_differentiable_reference_render" in report["stages"]
     assert report["nativeCarrierFraction"] > 0.8
     assert len(report["iterations"]) == 3
     assert report["iterations"][-1]["image_loss"] < report["iterations"][0]["image_loss"]
@@ -162,6 +162,8 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
         "semantic_object_neural_residual",
     }
     assert all("ray_direction" in item for item in report["iterations"][0]["predictions"])
+    assert all("color_gradient" in item for item in report["iterations"][0]["predictions"])
+    assert any(item["gradient_norm"] > 0.0 for item in report["iterations"][0]["predictions"])
 
 
 def test_reconstruct_demo_merges_and_demotes_converged_adaptive_children():

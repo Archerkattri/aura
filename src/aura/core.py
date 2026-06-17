@@ -14,6 +14,7 @@ from aura.assignment import RegionEvidence
 from aura.carrier_payloads import BetaKernelPayload, NeuralResidualPayload
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraElement, Bounds
+from aura.optimize import RenderTarget, differentiate_scene_rays, gradient_descent_color_step, precondition_color_gradient
 from aura.ray import Ray, Vec3
 from aura.scene import AuraScene
 
@@ -207,6 +208,10 @@ class FramePrediction:
     target_depth: float
     image_loss: float
     depth_loss: float
+    color_jacobian: float = 0.0
+    color_gradient: Vec3 = (0.0, 0.0, 0.0)
+    depth_gradient: float = 0.0
+    gradient_norm: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -475,7 +480,7 @@ def reconstruct_demo_scene(
         stages=(
             "posed_synthetic_input",
             "native_evidence_initialization",
-            "cpu_reference_render_loss",
+            "cpu_differentiable_reference_render",
             "adaptive_carrier_split_promote",
             "aura_package_export_ready",
         ),
@@ -512,7 +517,7 @@ def _reference_iterations(
         predictions = _predict_training_frames(scene, frames)
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
-        evolution = _carrier_evolution_decisions(predictions, scene) if config.enable_adaptive_evolution else tuple()
+        evolution = _carrier_evolution_decisions(predictions, scene, iteration=index) if config.enable_adaptive_evolution else tuple()
         steps.append(
             ReconstructionStep(
                 iteration=index,
@@ -529,28 +534,36 @@ def _reference_iterations(
 
 
 def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) -> tuple[FramePrediction, ...]:
+    targets = tuple(
+        RenderTarget(
+            frame_id=frame.id,
+            ray=Ray(origin=frame.camera_origin, direction=_normalized_direction(frame.camera_origin, frame.look_at)),
+            target_color=frame.target_color,
+            target_depth=frame.target_depth,
+        )
+        for frame in frames
+    )
+    samples = differentiate_scene_rays(scene, targets)
     predictions = []
-    element_by_id = {element.id: element for element in scene.elements}
-    for frame in frames:
-        direction = _normalized_direction(frame.camera_origin, frame.look_at)
-        ray = Ray(origin=frame.camera_origin, direction=direction)
-        result = scene.ray_query(ray)
-        provenance = result.provenance.split(",", 1)[0] if result.provenance else None
-        element = element_by_id.get(provenance)
-        image_loss = _color_mse(result.color, frame.target_color)
-        depth_loss = abs((result.depth or 0.0) - frame.target_depth) if result.depth is not None else frame.target_depth
+    by_frame = {frame.id: frame for frame in frames}
+    for sample in samples:
+        frame = by_frame[sample.frame_id]
         predictions.append(
             FramePrediction(
                 frame_id=frame.id,
-                element_id=element.id if element is not None else None,
-                carrier_id=element.carrier_id if element is not None else None,
-                ray_direction=direction,
-                predicted_color=result.color,
-                target_color=frame.target_color,
-                predicted_depth=result.depth,
-                target_depth=frame.target_depth,
-                image_loss=image_loss,
-                depth_loss=depth_loss,
+                element_id=sample.element_id,
+                carrier_id=sample.carrier_id,
+                ray_direction=sample.ray_direction,
+                predicted_color=sample.predicted_color,
+                target_color=sample.target_color,
+                predicted_depth=sample.predicted_depth,
+                target_depth=sample.target_depth,
+                image_loss=sample.image_loss,
+                depth_loss=sample.depth_loss,
+                color_jacobian=sample.color_jacobian,
+                color_gradient=sample.color_gradient,
+                depth_gradient=sample.depth_gradient,
+                gradient_norm=sample.gradient_norm,
             )
         )
     return tuple(predictions)
@@ -559,6 +572,8 @@ def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) 
 def _carrier_evolution_decisions(
     predictions: Sequence[FramePrediction],
     scene: AuraScene,
+    *,
+    iteration: int,
 ) -> tuple[CarrierEvolutionDecision, ...]:
     decisions = []
     seen = set()
@@ -585,6 +600,7 @@ def _carrier_evolution_decisions(
         elif (
             prediction.carrier_id == "semantic"
             and neural_child_id in element_ids
+            and iteration >= 3
             and prediction.image_loss < 0.045
             and prediction.depth_loss < 0.02
         ):
@@ -658,15 +674,14 @@ def _refine_scene_from_predictions(
             elements.append(element)
             continue
         prediction = next(item for item in predictions if item.element_id == element.id)
-        observation_scale = _observed_color_scale(element.color, prediction.predicted_color)
-        target_unattenuated = tuple(_clamp_unit(channel / observation_scale) for channel in target)
-        color = tuple(
-            channel + (target_channel - channel) * config.color_learning_rate
-            for channel, target_channel in zip(element.color, target_unattenuated)
+        color = gradient_descent_color_step(
+            element.color,
+            precondition_color_gradient(prediction.color_gradient, color_jacobian=prediction.color_jacobian),
+            learning_rate=config.color_learning_rate,
         )
         bounds = element.bounds
         if prediction.predicted_depth is not None and prediction.depth_loss > 0.01:
-            depth_delta = (prediction.target_depth - prediction.predicted_depth) * config.color_learning_rate
+            depth_delta = -prediction.depth_gradient * prediction.depth_loss * config.color_learning_rate
             bounds = _shift_bounds_along_ray(element.bounds, prediction.ray_direction, depth_delta)
         decision = decision_by_element.get(element.id)
         elements.append(
@@ -676,7 +691,7 @@ def _refine_scene_from_predictions(
                 color=color,  # type: ignore[arg-type]
                 metadata={
                     **element.metadata,
-                    "optimized_by": "aura-core-reference-loop",
+                    "optimized_by": "aura-core-differentiable-reference",
                     **_simplification_metadata(decision),
                 },
             )
@@ -752,25 +767,6 @@ def _vec3_from_payload(payload: object, name: str) -> Vec3:
     if not isinstance(payload, list | tuple) or len(payload) != 3:
         raise ValueError(f"{name} must be a 3-vector")
     return (float(payload[0]), float(payload[1]), float(payload[2]))
-
-
-def _color_mse(left: Vec3, right: Vec3) -> float:
-    return sum((left_channel - right_channel) ** 2 for left_channel, right_channel in zip(left, right)) / 3.0
-
-
-def _observed_color_scale(element_color: Vec3, predicted_color: Vec3) -> float:
-    ratios = [
-        predicted / raw
-        for raw, predicted in zip(element_color, predicted_color)
-        if abs(raw) > 1e-6
-    ]
-    if not ratios:
-        return 1.0
-    return max(0.05, min(1.0, sum(ratios) / len(ratios)))
-
-
-def _clamp_unit(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
 
 
 def _shift_bounds_along_ray(bounds: Bounds, direction: Vec3, distance: float) -> Bounds:
