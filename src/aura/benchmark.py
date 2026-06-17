@@ -238,6 +238,7 @@ def run_reference_benchmark(
             },
             "probes": [inspection.to_dict() for inspection in inspections],
         },
+        "interactionQuality": _interaction_quality(inspections),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
             _scene_center_expectations(scene),
@@ -316,6 +317,7 @@ def run_core_reconstruction_benchmark(*, iterations: int = 6) -> dict:
             "finalLoss": adaptive_metrics["finalLoss"] - static_metrics["finalLoss"],
             "imageLoss": adaptive_metrics["finalImageLoss"] - static_metrics["finalImageLoss"],
             "depthLoss": adaptive_metrics["finalDepthLoss"] - static_metrics["finalDepthLoss"],
+            "queryLoss": adaptive_metrics["finalQueryLoss"] - static_metrics["finalQueryLoss"],
             "elementCount": len(adaptive.scene.elements) - len(static.scene.elements),
             "adaptiveEvolutionActions": adaptive_metrics["evolutionActionCounts"],
         },
@@ -379,7 +381,12 @@ def default_benchmark_suite() -> BenchmarkSuite:
             BenchmarkCase(
                 id="geometry_collision_proxy",
                 purpose="Measure whether surface/semantic carriers provide stable proxy geometry.",
-                metrics=("proxy_iou", "collision_false_positive_rate", "collision_false_negative_rate"),
+                metrics=("collision_proxy_ready_rate", "collision_distance_ready_rate", "hit_point_ready_rate"),
+            ),
+            BenchmarkCase(
+                id="shadow_reflection_queries",
+                purpose="Score reference shadow transmittance and reflection-vector query readiness.",
+                metrics=("shadow_transmittance_ready_rate", "shadow_unoccluded_rate", "reflection_vector_ready_rate"),
             ),
             BenchmarkCase(
                 id="package_size",
@@ -399,7 +406,7 @@ def default_benchmark_suite() -> BenchmarkSuite:
             BenchmarkCase(
                 id="aura_core_reconstruction",
                 purpose="Measure native AURA-Core reconstruction loss and adaptive carrier evolution.",
-                metrics=("final_loss", "image_loss_delta", "depth_loss_delta", "split_promote_merge_demote_counts"),
+                metrics=("final_loss", "image_loss_delta", "depth_loss_delta", "query_loss_delta", "split_promote_merge_demote_counts"),
                 baseline="static_carriers",
             ),
         ),
@@ -448,9 +455,31 @@ def _core_report_metrics(report: ReconstructionReport) -> dict:
         "initialLoss": first["total_loss"],
         "finalImageLoss": final["image_loss"],
         "finalDepthLoss": final["depth_loss"],
+        "finalQueryLoss": final["query_loss"],
         "lossReduction": first["total_loss"] - payload["finalLoss"],
         "nativeCarrierFraction": payload["nativeCarrierFraction"],
         "evolutionActionCounts": actions,
+    }
+
+
+def _interaction_quality(inspections: Sequence[RayInspection]) -> dict:
+    hits = [inspection for inspection in inspections if inspection.first_hit]
+    shadows = [inspection for inspection in hits if inspection.shadow_transmittance is not None]
+    reflections = [inspection for inspection in hits if inspection.reflection_ready]
+    collisions = [inspection for inspection in hits if inspection.collision_proxy_ready]
+    return {
+        "hitPointReadyRate": _rate(inspection.hit_point is not None for inspection in hits),
+        "shadowTransmittanceReadyRate": _rate(inspection.shadow_transmittance is not None for inspection in hits),
+        "shadowTransmittanceWithinBoundsRate": _rate(
+            0.0 <= inspection.shadow_transmittance <= 1.0
+            for inspection in shadows
+            if inspection.shadow_transmittance is not None
+        ),
+        "shadowUnoccludedRate": _rate(inspection.shadow_occluded is False for inspection in shadows),
+        "reflectionVectorReadyRate": _rate(inspection.reflection_direction is not None for inspection in hits),
+        "reflectionHitRate": _rate(inspection.reflection_hit is True for inspection in reflections),
+        "collisionProxyReadyRate": _rate(inspection.collision_proxy_ready for inspection in hits),
+        "collisionDistanceReadyRate": _rate(inspection.collision_distance is not None for inspection in collisions),
     }
 
 

@@ -25,6 +25,7 @@ def test_default_benchmark_suite_covers_required_mvp_axes():
         "visual_quality_vs_3dgs",
         "ray_query_correctness",
         "geometry_collision_proxy",
+        "shadow_reflection_queries",
         "package_size",
         "render_query_speed",
         "mixed_carrier_behavior",
@@ -67,6 +68,11 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["rayQuery"]["queryP95Ms"] >= payload["rayQuery"]["queryP50Ms"]
     assert payload["rayQueryCorrectness"]["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
     assert payload["rayQueryCorrectness"]["firstHitAccuracy"] > 0.0
+    assert payload["interactionQuality"]["hitPointReadyRate"] == 1.0
+    assert payload["interactionQuality"]["shadowTransmittanceReadyRate"] == 1.0
+    assert payload["interactionQuality"]["shadowTransmittanceWithinBoundsRate"] == 1.0
+    assert payload["interactionQuality"]["collisionDistanceReadyRate"] == 1.0
+    assert payload["interactionQuality"]["reflectionVectorReadyRate"] > 0.0
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
     assert payload["previewRender"]["renderSeconds"] >= 0.0
@@ -102,6 +108,8 @@ def test_core_reconstruction_benchmark_compares_adaptive_and_static_runs():
     assert payload["format"] == "AURA_CORE_RECONSTRUCTION_BENCHMARK"
     assert payload["scene"] == "reconstruct_demo"
     assert payload["adaptive"]["finalLoss"] > 0.0
+    assert payload["adaptive"]["finalQueryLoss"] == 0.0
+    assert payload["static"]["finalQueryLoss"] == 0.0
     assert payload["adaptive"]["lossReduction"] > 0.0
     assert payload["static"]["lossReduction"] > 0.0
     assert payload["adaptive"]["evolutionActionCounts"]["split_beta_detail"] > 0
@@ -111,6 +119,7 @@ def test_core_reconstruction_benchmark_compares_adaptive_and_static_runs():
     assert payload["static"]["evolvedElementCount"] == 0
     assert payload["static"]["evolutionActionCounts"] == {}
     assert payload["delta"]["adaptiveEvolutionActions"] == payload["adaptive"]["evolutionActionCounts"]
+    assert payload["delta"]["queryLoss"] == 0.0
 
 
 def test_ray_query_correctness_benchmark_scores_native_demo_contract():
@@ -186,6 +195,7 @@ def test_reference_benchmark_cli_prints_result_json(tmp_path):
 
     assert payload["asset"] == "native_demo"
     assert payload["rayQuery"]["shadowReadyCount"] > 0
+    assert payload["interactionQuality"]["shadowTransmittanceReadyRate"] == 1.0
     assert payload["rayQueryCorrectness"]["format"] == "AURA_RAY_QUERY_CORRECTNESS_BENCHMARK"
     assert payload["rayQuery"]["raysPerSecond"] >= 0.0
     assert payload["previewRender"]["width"] == 8
