@@ -8,7 +8,7 @@ from aura.ingest.capture import CaptureFrameTensors, CaptureTensor
 from aura.optimize import RenderTarget
 from aura.core import TrainingFrame
 from aura.scene import AuraScene
-from aura.torch_kernels import torch_carrier_response_tensors
+from aura.torch_kernels import torch_carrier_parameter_tensors, torch_carrier_response_tensors
 
 
 @dataclass(frozen=True)
@@ -278,6 +278,8 @@ def torch_capture_training_batch(
 def torch_render_capture_training_batch(
     scene: AuraScene,
     batch: TorchCaptureTrainingBatch,
+    *,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
 ) -> TorchRenderBatch:
     """Render sampled capture tensor targets through the torch AURA contract."""
 
@@ -298,6 +300,7 @@ def torch_render_capture_training_batch(
         target_semantic_ids=(None,) * len(sample_frame_ids),
         target_material_ids=(None,) * len(sample_frame_ids),
         device=str(batch.ray_origins.device),
+        carrier_parameters=carrier_parameters,
     )
 
 
@@ -306,6 +309,7 @@ def torch_render_targets(
     targets: Sequence[RenderTarget],
     *,
     device: str | None = None,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
 ) -> TorchRenderBatch:
     """Vectorized PyTorch reference renderer over native AURA bounds.
 
@@ -344,6 +348,7 @@ def torch_render_targets(
         target_semantic_ids=tuple(target.target_semantic_id for target in targets),
         target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
+        carrier_parameters=carrier_parameters,
     )
 
 
@@ -360,6 +365,7 @@ def _torch_render_tensor_targets(
     target_semantic_ids: Sequence[str | None],
     target_material_ids: Sequence[str | None],
     device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
 ) -> TorchRenderBatch:
     torch = require_torch()
     if not scene.elements:
@@ -384,6 +390,7 @@ def _torch_render_tensor_targets(
     colors = torch.tensor([element.color for element in scene.elements], dtype=torch.float32, device=device)
     opacities = torch.tensor([element.opacity for element in scene.elements], dtype=torch.float32, device=device)
     confidences = torch.tensor([element.confidence for element in scene.elements], dtype=torch.float32, device=device)
+    carrier_parameters = carrier_parameters or torch_carrier_parameter_tensors(torch, tuple(scene.elements), device=device)
 
     safe_directions = torch.where(directions.abs() < 1e-8, torch.full_like(directions, 1e-8), directions)
     t0 = (mins[None, :, :] - origins[:, None, :]) / safe_directions[:, None, :]
@@ -414,6 +421,7 @@ def _torch_render_tensor_targets(
         mins,
         maxs,
         device,
+        carrier_parameters=carrier_parameters,
     )
     gathered_colors = carrier_colors * (1.0 - transmittance).unsqueeze(1)
     predicted_colors = torch.where(has_hit.unsqueeze(1), gathered_colors, torch.zeros_like(gathered_colors))

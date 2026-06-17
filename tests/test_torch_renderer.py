@@ -14,6 +14,7 @@ from aura import (
     require_torch,
     torch_capture_asset_batch,
     torch_capture_training_batch,
+    torch_carrier_parameter_tensors,
     torch_render_capture_training_batch,
     torch_render_targets,
     torch_renderer_status,
@@ -212,6 +213,49 @@ def test_torch_capture_asset_batch_rejects_mismatched_shapes():
 
     with pytest.raises(ValueError, match="image tensor shapes"):
         torch_capture_asset_batch((_capture_tensor_frame(), bad_frame), device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_carrier_parameter_tensors():
+    import torch
+
+    scene = AuraScene(
+        name="torch_parameter_scene",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.1, 0.1, 0.1),
+                opacity=0.1,
+                confidence=0.2,
+                payload={"type": "gaussian_fallback"},
+            ),
+        ),
+    )
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+    carrier_parameters["gaussian"]["color"] = torch.tensor([0.2, 0.4, 0.6], dtype=torch.float32, requires_grad=True)
+    carrier_parameters["gaussian"]["opacity"] = torch.tensor(0.5, dtype=torch.float32, requires_grad=True)
+    carrier_parameters["gaussian"]["confidence"] = torch.tensor(0.75, dtype=torch.float32, requires_grad=True)
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.1, 0.2, 0.3),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+
+    assert batch.carrier_ids == ("gaussian",)
+    assert batch.predicted_color[0] == pytest.approx((0.1, 0.2, 0.3))
+    assert batch.opacity == pytest.approx((0.5,))
+    assert batch.confidence == pytest.approx((0.75,))
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

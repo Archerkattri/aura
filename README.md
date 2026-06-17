@@ -63,12 +63,13 @@ native representation contract pieces:
   tensors via `capture_tensors_to_render_targets` and
   `torch_capture_training_batch`;
 - torch reference rendering from capture training batches via
-  `torch_render_capture_training_batch`;
+  `torch_render_capture_training_batch`, using carrier parameter tensors;
 - torch reference optimization steps via `torch_optimize_capture_batch`, using
   the batched native AURA forward contract for loss reporting and bounded
   carrier color updates;
-- explicit torch carrier kernel specs for surface, volume, beta, gabor, neural,
-  semantic, and Gaussian fallback reference semantics;
+- explicit torch carrier kernel specs and autograd parameter tensors for
+  surface, volume, beta, gabor, neural, semantic, and Gaussian fallback
+  semantics;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
   targets into the CPU reference optimization loop;
 - model-scored native feature proposals from image/depth/mask/normal tensor

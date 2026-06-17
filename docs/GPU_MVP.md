@@ -46,12 +46,14 @@ This package now contains the GPU-ready skeleton for AURA:
 - per-pixel capture training target generation through
   `capture_tensors_to_render_targets` and `torch_capture_training_batch`;
 - torch reference rendering directly from capture training batches through
-  `torch_render_capture_training_batch`;
+  `torch_render_capture_training_batch`, using carrier parameter tensors for
+  every supported native/fallback carrier;
 - torch reference optimization steps through `torch_optimize_capture_batch`,
   which runs repeated batched AURA forward passes and records image/depth/query/
   normal losses while applying bounded native carrier color updates;
-- explicit torch carrier kernel specs for the current reference surface, volume,
-  beta, gabor, neural residual, semantic, and Gaussian fallback semantics;
+- explicit torch carrier kernel specs and autograd parameter tensors for
+  surface, volume, beta, gabor, neural residual, semantic, and Gaussian fallback
+  semantics;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - model-scored native feature proposals for image-detail and depth-edge regions
@@ -98,7 +100,7 @@ Use `aura torch-optimize-capture-manifest <manifest> --device cuda
 --pixel-stride N --max-targets-per-frame M` to run the current torch reference
 optimization scaffold from the same native capture tensor batches. It writes a
 `.aura` package plus `torch_training_report.json`; it is still a scaffold until
-the reference carrier semantics are replaced by autograd/CUDA kernels.
+the autograd carrier semantics are replaced by production CUDA kernels.
 Use `aura torch-kernel-report` to list every native carrier kernel, its current
 reference/autograd status, and the missing CUDA blockers. The surface carrier
 has a tested torch autograd path, and the volume carrier has a differentiable
