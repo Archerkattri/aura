@@ -131,7 +131,12 @@ Use `aura plan-capture-sampling <manifest> --tile-size N --pixel-stride S
 pixel counts that future tiled, memory-mapped, or GPU-native loaders should
 match before materializing render targets. CPU and torch capture target builders
 use the same mask-aware sampling semantics, skipping pixels whose mask value is
-zero or negative.
+zero or negative. The plan is intentionally GPU-consumable without launching
+CUDA: it records row-major tile/pixel order, per-tile target offsets,
+candidate/sampled/masked pixel counts, first/last sampled pixels, and bounded
+batch metadata (`maxTargetsPerBatch`, batch tile indices, target offsets, and
+target counts) so production kernels can stream sampled tiles without
+materializing an unbounded all-pixel list.
 Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
 N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
 sampled per-pixel capture tensor targets before moving the same target batches

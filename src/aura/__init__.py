@@ -135,6 +135,7 @@ from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_V
 from aura.scene import AuraScene, RayHitTrace, RayTraversal
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
 from aura.training_targets import (
+    CaptureSamplingBatch,
     CapturePixelTarget,
     CaptureSamplingPlan,
     CaptureSamplingTile,
@@ -191,6 +192,7 @@ __all__ = [
     "CaptureFrameTensors",
     "CaptureManifest",
     "CapturePixelTarget",
+    "CaptureSamplingBatch",
     "CaptureSamplingPlan",
     "CaptureSamplingTile",
     "CaptureProposalFeatures",

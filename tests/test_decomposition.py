@@ -119,6 +119,85 @@ def test_decompose_evidence_produces_mixed_native_carriers(tmp_path):
     assert loaded.scene.semantic_graph.nodes[0].element_ids == ("semantic_tooth",)
 
 
+def test_adaptive_decomposition_records_native_evidence_and_gaussian_fallback(tmp_path):
+    samples = (
+        EvidenceSample(
+            id="semantic_region",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            evidence=RegionEvidence(semantic_confidence=0.9, image_error=0.9),
+            semantic_label="crown",
+        ),
+        EvidenceSample(
+            id="volume_region",
+            bounds=Bounds((1.0, 0.0, 0.0), (2.0, 1.0, 1.0)),
+            evidence=RegionEvidence(fuzzy_confidence=0.85, geometry_confidence=0.2, image_error=0.8),
+        ),
+        EvidenceSample(
+            id="gabor_region",
+            bounds=Bounds((2.0, 0.0, 0.0), (3.0, 1.0, 1.0)),
+            evidence=RegionEvidence(high_frequency=0.9, image_error=0.8),
+        ),
+        EvidenceSample(
+            id="neural_region",
+            bounds=Bounds((3.0, 0.0, 0.0), (4.0, 1.0, 1.0)),
+            evidence=RegionEvidence(view_dependent=0.9, material_confidence=0.1, image_error=0.8),
+        ),
+        EvidenceSample(
+            id="surface_region",
+            bounds=Bounds((4.0, 0.0, 0.0), (5.0, 1.0, 0.1)),
+            evidence=RegionEvidence(geometry_confidence=0.9, edit_need=0.6, image_error=0.8),
+        ),
+        EvidenceSample(
+            id="beta_region",
+            bounds=Bounds((5.0, 0.0, 0.0), (5.5, 0.5, 0.5)),
+            evidence=RegionEvidence(compact_detail=0.9, image_error=0.8),
+        ),
+        EvidenceSample(
+            id="weak_region",
+            bounds=Bounds((6.0, 0.0, 0.0), (7.0, 1.0, 1.0)),
+            evidence=RegionEvidence(image_error=0.1, geometry_confidence=0.3),
+        ),
+    )
+
+    package_scene(decompose_evidence(samples, name="metadata_contract")).write(tmp_path)
+    loaded = load_package(tmp_path)
+    by_id = {element.id: element for element in loaded.scene.elements}
+
+    assert {element.carrier_id for element in loaded.scene.elements if element.id != "weak_region"} == {
+        "semantic",
+        "volume",
+        "gabor",
+        "neural",
+        "surface",
+        "beta",
+    }
+    assert all(
+        by_id[element_id].metadata["decomposition_role"] == "native"
+        for element_id in by_id
+        if element_id != "weak_region"
+    )
+    assert by_id["semantic_region"].metadata["selected_carrier"] == "semantic"
+    assert by_id["semantic_region"].metadata["selection_reason"] == "semantic_confidence>=0.80"
+    assert by_id["semantic_region"].metadata["selection_evidence"] == "semantic_confidence=0.900"
+    assert "image_error=0.900" in by_id["semantic_region"].metadata["evidence_summary"]
+    assert by_id["volume_region"].metadata["selection_reason"] == (
+        "fuzzy_confidence>=0.70 and geometry_confidence<0.60"
+    )
+    assert by_id["gabor_region"].metadata["selection_reason"] == "high_frequency>=0.80"
+    assert by_id["neural_region"].metadata["selection_reason"] == (
+        "view_dependent>=0.75 and material_confidence<0.50"
+    )
+    assert by_id["surface_region"].metadata["selection_reason"] == (
+        "geometry_confidence>=0.75 and edit_need>=0.40"
+    )
+    assert by_id["beta_region"].metadata["selection_reason"] == "compact_detail>=0.75"
+    assert by_id["weak_region"].carrier_id == "gaussian"
+    assert by_id["weak_region"].metadata["selected_carrier"] == "gaussian"
+    assert by_id["weak_region"].metadata["decomposition_role"] == "fallback"
+    assert by_id["weak_region"].metadata["fallback_label"] == "gaussian_fallback"
+    assert by_id["weak_region"].metadata["selection_reason"] == "no native carrier threshold met"
+
+
 def test_inspect_package_reports_mixed_native_scene(tmp_path):
     scene = decompose_evidence(
         (

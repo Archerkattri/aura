@@ -98,6 +98,10 @@ Run `aura readiness-report` before claiming production status. The report is a
 native AURA audit of implemented scaffolds versus missing production pillars,
 including native carriers, package validation, PyTorch reference support, CUDA
 kernel status, renderer/trainer gaps, and benchmark claim boundaries.
+Benchmark reports also emit `productionGate`. Treat `productionReady: false` as
+authoritative: current CPU reference and visual smoke outputs are blocked from
+production interpretation while CUDA renderer readiness is unavailable or the
+visual score is a self-reference comparison.
 
 1. Replace the optional payload-aware PyTorch ordered-compositing reference path
    and CPU differentiable reference renderer with a carrier-complete
@@ -124,6 +128,9 @@ kernel status, renderer/trainer gaps, and benchmark claim boundaries.
    backend and report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene
    behavior: ray-query correctness, collision proxy quality, editing, relighting
    confidence, semantic grouping, runtime export, and engine workflow.
+9. Clear the benchmark `productionGate` only after production CUDA renderer
+   readiness is true and visual benchmarks compare against external teacher or
+   baseline renders rather than package self-reference renders.
 
 ## Paper Claim Boundary
 

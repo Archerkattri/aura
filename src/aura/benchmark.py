@@ -217,6 +217,12 @@ def run_reference_benchmark(
     reference_visual_quality = compare_images(image, image)
     query_seconds = sum(query_timings)
     runtime_export = runtime_export_report(package).to_dict()
+    backend_readiness = evaluate_backend_readiness(scene, runtime_export, traversals)
+    preview_visual_claim = _visual_claim_boundary(
+        baseline_label="reference_preview_self",
+        self_reference=True,
+        backend_readiness=backend_readiness,
+    )
     return {
         "format": "AURA_REFERENCE_BENCHMARK",
         "asset": package.asset.name,
@@ -253,7 +259,11 @@ def run_reference_benchmark(
         },
         "interactionQuality": _interaction_quality(inspections),
         "runtimeExport": runtime_export,
-        "backendReadiness": evaluate_backend_readiness(scene, runtime_export, traversals),
+        "backendReadiness": backend_readiness,
+        "productionGate": _benchmark_production_gate(
+            backend_readiness=backend_readiness,
+            visual_claims=(preview_visual_claim,),
+        ),
         "rayQueryCorrectness": run_ray_query_correctness_benchmark(
             scene,
             _scene_center_expectations(scene),
@@ -266,6 +276,7 @@ def run_reference_benchmark(
             "framesPerSecond": 0.0 if render_seconds <= 0.0 else 1.0 / render_seconds,
             "pixelsPerSecond": 0.0 if render_seconds <= 0.0 else len(image.pixels) / render_seconds,
             "referenceVisualQuality": reference_visual_quality,
+            "visualClaimBoundary": preview_visual_claim,
         },
     }
 
@@ -285,6 +296,12 @@ def run_visual_quality_benchmark(
     rendered = render_orthographic(package.scene, width=width, height=height)
     render_seconds = perf_counter() - render_start
     metrics = compare_images(reference_image, rendered, min_psnr=min_psnr)
+    backend_readiness = evaluate_backend_readiness(package.scene)
+    visual_claim = _visual_claim_boundary(
+        baseline_label=baseline_label,
+        self_reference=_is_self_reference_visual(baseline_label, metrics),
+        backend_readiness=backend_readiness,
+    )
     return {
         "format": "AURA_VISUAL_QUALITY_BENCHMARK",
         "asset": package.asset.name,
@@ -299,6 +316,11 @@ def run_visual_quality_benchmark(
         },
         "metrics": metrics,
         "passed": bool(metrics["passed"]),
+        "productionGate": _benchmark_production_gate(
+            backend_readiness=backend_readiness,
+            visual_claims=(visual_claim,),
+        ),
+        "visualClaimBoundary": visual_claim,
         "metricNotes": {
             "lpipsProxy": "Deterministic mean absolute RGB distance; replace with learned LPIPS backend for paper claims.",
             "ssim": "Global RGB SSIM reference metric for deterministic smoke benchmarks.",
@@ -569,6 +591,75 @@ def evaluate_backend_readiness(
             "It does not execute torch, require CUDA, or certify production CUDA throughput."
         ),
     }
+
+
+def _benchmark_production_gate(
+    *,
+    backend_readiness: dict[str, Any],
+    visual_claims: Sequence[dict[str, Any]] = (),
+) -> dict:
+    blockers = list(backend_readiness.get("productionBlockers", ()))
+    if not backend_readiness.get("productionCudaReady", False):
+        _append_unique(blockers, "cuda_renderer_unavailable")
+    for claim in visual_claims:
+        for blocker in claim.get("productionBlockers", ()):
+            _append_unique(blockers, str(blocker))
+    return {
+        "format": "AURA_BENCHMARK_PRODUCTION_GATE",
+        "productionReady": not blockers,
+        "blocksProductionClaim": bool(blockers),
+        "cudaRendererReady": bool(backend_readiness.get("productionCudaReady")),
+        "visualBenchmarkSelfReference": any(bool(claim.get("selfReference")) for claim in visual_claims),
+        "visualBenchmarkExternalReference": any(bool(claim.get("externalReference")) for claim in visual_claims),
+        "productionBlockers": blockers,
+        "notes": (
+            "This gate is deterministic and CPU-only. It blocks production claims when CUDA renderer readiness "
+            "is unavailable or visual quality is measured against a self-reference."
+        ),
+    }
+
+
+def _visual_claim_boundary(
+    *,
+    baseline_label: str,
+    self_reference: bool,
+    backend_readiness: dict[str, Any],
+) -> dict:
+    blockers = []
+    if self_reference:
+        blockers.append("visual_benchmark_self_reference")
+    if not backend_readiness.get("productionCudaReady", False):
+        blockers.append("cuda_renderer_unavailable")
+    return {
+        "baseline": baseline_label,
+        "selfReference": self_reference,
+        "externalReference": not self_reference,
+        "cudaRendererReady": bool(backend_readiness.get("productionCudaReady")),
+        "productionClaimAllowed": not blockers,
+        "productionBlockers": blockers,
+        "notes": (
+            "Self-reference visual scores are smoke checks only and cannot support production or paper-quality "
+            "visual claims."
+        ),
+    }
+
+
+def _is_self_reference_baseline(baseline_label: str) -> bool:
+    normalized = baseline_label.lower().replace("-", "_").replace(" ", "_")
+    return normalized in {"self", "native_self", "aura_self", "self_reference", "reference_preview_self"} or "self" in normalized
+
+
+def _is_self_reference_visual(baseline_label: str, metrics: dict[str, Any]) -> bool:
+    return _is_self_reference_baseline(baseline_label) or (
+        bool(metrics.get("psnrInfinite"))
+        and metrics.get("ssim") == 1.0
+        and metrics.get("lpipsProxy") == 0.0
+    )
+
+
+def _append_unique(items: list[str], item: str) -> None:
+    if item not in items:
+        items.append(item)
 
 
 def _package_size(package_dir: Path | str | None) -> int | None:

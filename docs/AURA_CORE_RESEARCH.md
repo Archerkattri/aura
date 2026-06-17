@@ -69,6 +69,15 @@ Native carrier families:
 - Gaussian fallback carriers only where the evidence does not justify a more
   structured primitive.
 
+Adaptive decomposition should preserve the evidence for that choice. Runtime
+elements carry decomposition metadata that labels native carriers versus
+Gaussian fallback carriers, records the selected evidence threshold, and keeps a
+compact evidence summary. This makes mixed-carrier scenes auditable: when
+surface, volume, beta, gabor, neural, or semantic evidence is strong, those
+native carriers dominate even if the region still has image residual; Gaussian
+is explicitly labeled as the fallback for regions without enough structured
+evidence.
+
 The key differentiator is adaptive carrier evolution during training:
 
 ```text

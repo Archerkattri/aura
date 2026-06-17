@@ -107,6 +107,13 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["backendReadiness"]["queryContract"]["fieldCoverageRate"] == 1.0
     assert payload["backendReadiness"]["chunkLodContract"]["chunkedElementCoverageRate"] == 1.0
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
+    assert payload["productionGate"]["format"] == "AURA_BENCHMARK_PRODUCTION_GATE"
+    assert payload["productionGate"]["productionReady"] is False
+    assert payload["productionGate"]["blocksProductionClaim"] is True
+    assert payload["productionGate"]["cudaRendererReady"] is False
+    assert payload["productionGate"]["visualBenchmarkSelfReference"] is True
+    assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
+    assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
     assert payload["carrierEntropy"] > 0.0
     assert payload["previewRender"]["pixelCount"] == 64
     assert payload["previewRender"]["renderSeconds"] >= 0.0
@@ -115,6 +122,8 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["previewRender"]["referenceVisualQuality"]["psnrInfinite"] is True
     assert payload["previewRender"]["referenceVisualQuality"]["ssim"] == 1.0
     assert payload["previewRender"]["referenceVisualQuality"]["lpipsProxy"] == 0.0
+    assert payload["previewRender"]["visualClaimBoundary"]["selfReference"] is True
+    assert payload["previewRender"]["visualClaimBoundary"]["productionClaimAllowed"] is False
 
 
 def test_visual_quality_benchmark_compares_package_render_to_reference():
@@ -132,7 +141,17 @@ def test_visual_quality_benchmark_compares_package_render_to_reference():
     assert payload["metrics"]["ssim"] == 1.0
     assert payload["metrics"]["lpipsProxy"] == 0.0
     assert payload["passed"] is True
+    assert payload["visualClaimBoundary"]["selfReference"] is True
+    assert payload["visualClaimBoundary"]["productionClaimAllowed"] is False
+    assert payload["productionGate"]["productionReady"] is False
+    assert payload["productionGate"]["blocksProductionClaim"] is True
+    assert "visual_benchmark_self_reference" in payload["productionGate"]["productionBlockers"]
+    assert "cuda_renderer_unavailable" in payload["productionGate"]["productionBlockers"]
     assert "learned LPIPS" in payload["metricNotes"]["lpipsProxy"]
+
+    relabeled_payload = run_visual_quality_benchmark(package, reference, baseline_label="teacher")
+    assert relabeled_payload["visualClaimBoundary"]["selfReference"] is True
+    assert "visual_benchmark_self_reference" in relabeled_payload["productionGate"]["productionBlockers"]
 
 
 def test_apply_ablation_disables_requested_carriers(tmp_path):

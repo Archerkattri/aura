@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Mapping, Sequence
 
 from aura.assignment import RegionEvidence, choose_carrier
@@ -68,11 +68,57 @@ def _sample_to_element(sample: EvidenceSample) -> AuraElement:
         material_id=sample.material_id,
         semantic_id=semantic_id,
         residual=carrier.id == "neural",
-        metadata={"decomposition": "evidence-v0", **dict(sample.metadata)},
+        metadata={**dict(sample.metadata), **_decomposition_metadata(sample, carrier.id)},
         confidence_map={"assignment": sample.confidence, **dict(sample.confidence_map)},
         edit={"source": "adaptive-decomposition", **dict(sample.edit)},
         payload=payload,
     )
+
+
+def _decomposition_metadata(sample: EvidenceSample, carrier_id: str) -> dict[str, str]:
+    reason_metric, reason_value, reason_rule = _selection_reason(sample.evidence)
+    role = "fallback" if carrier_id == "gaussian" else "native"
+    metadata = {
+        "decomposition": "evidence-v1",
+        "decomposition_role": role,
+        "selected_carrier": carrier_id,
+        "selection_reason": reason_rule,
+        "selection_evidence": f"{reason_metric}={reason_value:.3f}",
+        "evidence_summary": _evidence_summary(sample.evidence),
+    }
+    if carrier_id == "gaussian":
+        metadata["fallback_label"] = "gaussian_fallback"
+        metadata["fallback_reason"] = "no_structured_native_evidence"
+    return metadata
+
+
+def _selection_reason(evidence: RegionEvidence) -> tuple[str, float, str]:
+    if evidence.semantic_confidence >= 0.8:
+        return ("semantic_confidence", evidence.semantic_confidence, "semantic_confidence>=0.80")
+    if evidence.fuzzy_confidence >= 0.7 and evidence.geometry_confidence < 0.6:
+        return ("fuzzy_confidence", evidence.fuzzy_confidence, "fuzzy_confidence>=0.70 and geometry_confidence<0.60")
+    if evidence.high_frequency >= 0.8:
+        return ("high_frequency", evidence.high_frequency, "high_frequency>=0.80")
+    if evidence.view_dependent >= 0.75 and evidence.material_confidence < 0.5:
+        return ("view_dependent", evidence.view_dependent, "view_dependent>=0.75 and material_confidence<0.50")
+    if evidence.geometry_confidence >= 0.75 and evidence.edit_need >= 0.4:
+        return ("geometry_confidence", evidence.geometry_confidence, "geometry_confidence>=0.75 and edit_need>=0.40")
+    if evidence.compact_detail >= 0.75:
+        return ("compact_detail", evidence.compact_detail, "compact_detail>=0.75")
+    metric, value = max(
+        ((field.name, float(getattr(evidence, field.name))) for field in fields(evidence)),
+        key=lambda item: item[1],
+    )
+    return (metric, value, "no native carrier threshold met")
+
+
+def _evidence_summary(evidence: RegionEvidence) -> str:
+    nonzero = [
+        f"{field.name}={float(getattr(evidence, field.name)):.3f}"
+        for field in fields(evidence)
+        if float(getattr(evidence, field.name)) > 0.0
+    ]
+    return ";".join(nonzero) or "none"
 
 
 def _payload_for(sample: EvidenceSample, carrier_id: str) -> dict:

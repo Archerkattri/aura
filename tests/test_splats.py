@@ -45,7 +45,9 @@ def test_load_3dgs_scene_builds_gaussian_aura_elements_with_bounds():
     assert scene.elements[0].bounds.min_corner == pytest.approx((-0.2, -0.2, -0.1))
     assert scene.elements[0].bounds.max_corner == pytest.approx((0.2, 0.2, 0.1))
     assert scene.chunks[0].element_ids == ("red_front", "blue_back")
-    assert scene.elements[0].metadata["decomposition"] == "evidence-v0"
+    assert scene.elements[0].metadata["decomposition"] == "evidence-v1"
+    assert scene.elements[0].metadata["decomposition_role"] == "fallback"
+    assert scene.elements[0].metadata["fallback_label"] == "gaussian_fallback"
     assert scene.elements[0].metadata["source"] == "3dgs-export"
 
 
