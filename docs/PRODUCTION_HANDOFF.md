@@ -34,6 +34,7 @@ files exist as PNG, PPM/PGM, or COLMAP dense-map assets, also run:
 aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
 aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
+aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/reconstruct-capture-assets.aura --iterations 6
 ```
 
 For COLMAP sparse models, generate the capture manifest with:
@@ -83,9 +84,9 @@ AURA_CAPTURE_MANIFEST
 1. Replace the optional payload-aware PyTorch AABB reference path and CPU
    differentiable reference renderer with a carrier-complete PyTorch/CUDA
    renderer over the same `TrainingFrame` and `TrainingRegion` contracts.
-2. Connect `torch_capture_training_batch` to the reconstruction loop so
-   optimization consumes per-pixel image/depth/mask/normal targets rather than
-   one summary color/depth per frame.
+2. Replace the CPU reference per-pixel capture target loop with
+   `torch_capture_training_batch` inside the GPU optimizer so CUDA training
+   consumes the same image/depth/mask/normal targets.
 3. Harden COLMAP import beyond deterministic sparse/depth/mask/normal prior
    regions, including learned region proposal generation.
 4. Replace the reference Torch payload semantics with real differentiable

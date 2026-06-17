@@ -322,6 +322,39 @@ def test_capture_manifest_cli_can_materialize_training_targets_from_assets(tmp_p
     assert payload["frames"][0]["target_depth"] == 0.75
 
 
+def test_reconstruct_capture_manifest_cli_uses_per_pixel_asset_targets(tmp_path):
+    manifest_path = _write_asset_manifest(tmp_path)
+    package_dir = tmp_path / "reconstruct-capture.aura"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "reconstruct-capture-manifest",
+            str(manifest_path),
+            "--output-dir",
+            str(package_dir),
+            "--iterations",
+            "1",
+            "--load-assets",
+            "--max-targets-per-frame",
+            "2",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    report = json.loads((package_dir / "training_report.json").read_text(encoding="utf-8"))
+
+    assert "capture_tensor_pixel_targets" in report["stages"]
+    assert "capture_tensor_pixels" in report["sources"]
+    assert len(report["iterations"][0]["predictions"]) == 1
+    assert report["iterations"][0]["predictions"][0]["target_color"] == [1.0, 0.0, 0.0]
+    assert report["iterations"][0]["predictions"][0]["target_depth"] == 0.5
+
+
 def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
     manifest_path = _write_asset_manifest(tmp_path)
 

@@ -34,6 +34,7 @@ from aura.ray import Ray
 from aura.render import compare_images, read_ppm, render_orthographic
 from aura.scene import AuraScene
 from aura.torch_renderer import torch_renderer_status
+from aura.training_targets import capture_tensors_to_render_targets
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,8 +92,10 @@ def main(argv: list[str] | None = None) -> int:
     reconstruct_capture.add_argument(
         "--load-assets",
         action="store_true",
-        help="Read PNG, PPM/PGM, or COLMAP depth/normal-map assets before reconstruction",
+        help="Read capture tensors and train from per-pixel image/depth/mask/normal targets",
     )
+    reconstruct_capture.add_argument("--pixel-stride", type=int, default=1)
+    reconstruct_capture.add_argument("--max-targets-per-frame", type=int, default=256)
 
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
@@ -219,10 +222,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "reconstruct-capture-manifest":
         manifest = load_capture_manifest(args.manifest)
         dataset = manifest.to_training_dataset(load_assets=args.load_assets)
+        render_targets = None
+        if args.load_assets:
+            pixel_targets = capture_tensors_to_render_targets(
+                dataset.frames,
+                load_capture_asset_tensors(manifest),
+                pixel_stride=args.pixel_stride,
+                max_targets_per_frame=args.max_targets_per_frame,
+            )
+            render_targets = tuple(target.render_target for target in pixel_targets)
         result = reconstruct_demo_scene(
             ReconstructionConfig(iterations=args.iterations),
             frames=dataset.frames,
             regions=dataset.regions,
+            render_targets=render_targets,
             name="reconstruct_capture",
         )
         package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/reconstruct-capture-preview.glb"}).write(args.output_dir)

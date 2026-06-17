@@ -3,10 +3,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from aura import (
     Bounds,
+    Ray,
     ReconstructionConfig,
     RegionEvidence,
+    RenderTarget,
     TrainingFrame,
     TrainingRegion,
     load_package,
@@ -123,6 +127,73 @@ def test_reconstruct_demo_accepts_data_driven_regions_without_fixture_ids():
     assert result.scene.elements[0].id == "custom_surface"
     assert result.scene.elements[0].carrier_id == "surface"
     assert result.report.frames == frames
+
+
+def test_reconstruct_demo_uses_explicit_capture_pixel_targets():
+    frames = (
+        TrainingFrame(
+            id="capture_a",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.2, 0.2, 0.2),
+            target_depth=2.0,
+        ),
+    )
+    regions = (
+        TrainingRegion(
+            id="custom_surface",
+            frame_id="capture_a",
+            bounds=Bounds((-0.25, -0.25, 0.0), (0.25, 0.25, 0.1)),
+            evidence=RegionEvidence(geometry_confidence=0.9, edit_need=0.6),
+            opacity=1.0,
+        ),
+    )
+    render_targets = (
+        RenderTarget(
+            frame_id="capture_a",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 0.0, 0.0),
+            target_depth=2.0,
+        ),
+        RenderTarget(
+            frame_id="capture_a",
+            ray=Ray(origin=(0.1, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(0.0, 1.0, 0.0),
+            target_depth=2.0,
+        ),
+    )
+
+    result = reconstruct_demo_scene(
+        ReconstructionConfig(iterations=1, enable_adaptive_evolution=False),
+        frames=frames,
+        regions=regions,
+        render_targets=render_targets,
+        name="capture_pixels",
+    )
+    report = result.report.to_dict()
+
+    assert "capture_tensor_pixel_targets" in report["stages"]
+    assert "capture_tensor_pixels" in report["sources"]
+    assert len(report["iterations"][0]["predictions"]) == 2
+    assert [item["target_color"] for item in report["iterations"][0]["predictions"]] == [
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+    ]
+
+
+def test_reconstruct_demo_rejects_render_targets_for_unknown_frames():
+    with pytest.raises(ValueError, match="render targets reference unknown frame ids"):
+        reconstruct_demo_scene(
+            ReconstructionConfig(iterations=1),
+            render_targets=(
+                RenderTarget(
+                    frame_id="missing",
+                    ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                    target_color=(1.0, 1.0, 1.0),
+                    target_depth=2.0,
+                ),
+            ),
+        )
 
 
 def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():

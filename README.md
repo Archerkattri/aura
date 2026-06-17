@@ -61,6 +61,8 @@ native representation contract pieces:
 - per-pixel capture training target generation from image/depth/mask/normal
   tensors via `capture_tensors_to_render_targets` and
   `torch_capture_training_batch`;
+- capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
+  targets into the CPU reference optimization loop;
 - deterministic capture asset summaries built from the same tensor path for
   manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and image metrics;
@@ -161,6 +163,8 @@ aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
 # prints per-frame image/depth/mask/normal tensor shape, backend, and sample metadata
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 # replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
+aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --pixel-stride 8 --max-targets-per-frame 1024
+# feeds sampled per-pixel capture tensor targets into the CPU reference reconstruction loop
 
 # COLMAP pose/intrinsics ingest:
 aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json

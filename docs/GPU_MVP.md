@@ -44,6 +44,8 @@ This package now contains the GPU-ready skeleton for AURA:
   selected device;
 - per-pixel capture training target generation through
   `capture_tensors_to_render_targets` and `torch_capture_training_batch`;
+- `reconstruct-capture-manifest --load-assets` integration that feeds sampled
+  per-pixel capture tensor targets into the CPU reference optimization loop;
 - optional PyTorch renderer contract for batched native first-hit/depth/color,
   transmittance, confidence, residual, and semantic tensors over `AuraScene`
   and `RenderTarget`;
@@ -75,6 +77,10 @@ Use `aura inspect-capture-tensors <manifest>` on real capture manifests before
 GPU training. It reports per-frame image/depth/mask/normal tensor shapes,
 loader backend, and sample values so the CUDA path can consume manifest assets
 without relying on summary-only statistics.
+Use `aura reconstruct-capture-manifest <manifest> --load-assets --pixel-stride
+N --max-targets-per-frame M` to exercise the CPU reference optimization loop on
+sampled per-pixel capture tensor targets before moving the same target batches
+to CUDA.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

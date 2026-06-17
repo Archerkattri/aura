@@ -473,6 +473,7 @@ def reconstruct_demo_scene(
     *,
     frames: Sequence[TrainingFrame] | None = None,
     regions: Sequence[TrainingRegion] | None = None,
+    render_targets: Sequence[RenderTarget] | None = None,
     name: str = "reconstruct_demo",
 ) -> ReconstructionResult:
     """Run the deterministic AURA-Core fixture reconstruction path.
@@ -485,25 +486,40 @@ def reconstruct_demo_scene(
     config = config or ReconstructionConfig()
     training_frames = tuple(frames or synthetic_training_frames())
     training_regions = tuple(regions or synthetic_training_regions())
+    training_targets = tuple(render_targets or ())
+    _validate_render_targets(training_frames, training_targets)
     scene = decompose_evidence(_initial_evidence_from_regions(training_frames, training_regions), name=name)
-    scene, iterations = _reference_iterations(scene, training_frames, config)
+    scene, iterations = _reference_iterations(scene, training_frames, config, render_targets=training_targets or None)
     final_loss = iterations[-1].image_loss + iterations[-1].depth_loss + iterations[-1].query_loss
     non_gaussian = sum(1 for element in scene.elements if element.carrier_id != "gaussian")
     native_fraction = 0.0 if not scene.elements else non_gaussian / len(scene.elements)
+    stages = (
+        "posed_synthetic_input",
+        "native_evidence_initialization",
+    )
+    if training_targets:
+        stages += ("capture_tensor_pixel_targets",)
+    stages += (
+        "cpu_differentiable_reference_render",
+        "adaptive_carrier_split_promote",
+        "aura_package_export_ready",
+    )
+    sources = (
+        "posed_training_frames",
+        "training_regions",
+        "depth_targets",
+        "semantic_labels",
+    )
+    if training_targets:
+        sources += ("capture_tensor_pixels",)
     report = ReconstructionReport(
         name=scene.name,
         frames=training_frames,
-        stages=(
-            "posed_synthetic_input",
-            "native_evidence_initialization",
-            "cpu_differentiable_reference_render",
-            "adaptive_carrier_split_promote",
-            "aura_package_export_ready",
-        ),
+        stages=stages,
         iterations=iterations,
         final_loss=final_loss,
         native_carrier_fraction=native_fraction,
-        sources=("posed_training_frames", "training_regions", "depth_targets", "semantic_labels"),
+        sources=sources,
     )
     return ReconstructionResult(scene=scene, report=report)
 
@@ -523,14 +539,23 @@ def _initial_evidence_from_regions(
     return tuple(region.to_evidence_sample(by_id[region.frame_id]) for region in regions)
 
 
+def _validate_render_targets(frames: Sequence[TrainingFrame], render_targets: Sequence[RenderTarget]) -> None:
+    frame_ids = {frame.id for frame in frames}
+    missing = sorted({target.frame_id for target in render_targets}.difference(frame_ids))
+    if missing:
+        raise ValueError(f"render targets reference unknown frame ids: {', '.join(missing)}")
+
+
 def _reference_iterations(
     scene: AuraScene,
     frames: Sequence[TrainingFrame],
     config: ReconstructionConfig,
+    *,
+    render_targets: Sequence[RenderTarget] | None = None,
 ) -> tuple[AuraScene, tuple[ReconstructionStep, ...]]:
     steps = []
     for index in range(config.iterations):
-        predictions = _predict_training_frames(scene, frames)
+        predictions = _predict_training_frames(scene, frames, render_targets=render_targets)
         image_loss = sum(prediction.image_loss for prediction in predictions) / len(predictions)
         depth_loss = sum(prediction.depth_loss for prediction in predictions) / len(predictions)
         query_loss = sum(prediction.query_loss for prediction in predictions) / len(predictions)
@@ -551,8 +576,13 @@ def _reference_iterations(
     return scene, tuple(steps)
 
 
-def _predict_training_frames(scene: AuraScene, frames: Sequence[TrainingFrame]) -> tuple[FramePrediction, ...]:
-    targets = tuple(
+def _predict_training_frames(
+    scene: AuraScene,
+    frames: Sequence[TrainingFrame],
+    *,
+    render_targets: Sequence[RenderTarget] | None = None,
+) -> tuple[FramePrediction, ...]:
+    targets = tuple(render_targets) if render_targets is not None else tuple(
         RenderTarget(
             frame_id=frame.id,
             ray=Ray(origin=frame.camera_origin, direction=_normalized_direction(frame.camera_origin, frame.look_at)),
