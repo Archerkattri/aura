@@ -14,7 +14,8 @@
     "capabilities",
     "fallbacks",
     "chunks",
-    "semanticGraph"
+    "semanticGraph",
+    "exchange"
   ],
   "properties": {
     "format": {
@@ -81,6 +82,9 @@
     },
     "semanticGraph": {
       "const": "semantic_graph.json"
+    },
+    "exchange": {
+      "const": "exchange.json"
     }
   }
 }

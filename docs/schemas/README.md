@@ -10,6 +10,7 @@ Current schema version: `0.1`
 - `chunks.schema.json`: chunk and LOD records.
 - `semantic_graph.schema.json`: semantic/object nodes, element bindings, and
   relationships.
+- `exchange.schema.json`: native AURA, glTF fallback, and USD bridge metadata.
 
 The Python loader validates these schemas at runtime, then performs cross-file
 checks such as manifest chunk IDs matching `chunks.json` and chunk element

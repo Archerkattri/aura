@@ -38,7 +38,7 @@ This repo contains the GPU-ready MVP contract layer:
 - deterministic orthographic package preview rendering and image metrics;
 - reproducible benchmark plans plus CPU reference package/query/render metrics;
 - strict-JSON render comparison metrics for regression checks;
-- glTF/USD exchange-target metadata;
+- package-backed glTF/USD exchange-target metadata;
 - fixture CLI commands and tests.
 
 It does **not** contain a real renderer, trainer, CUDA kernel, BVH, 3DGS
@@ -172,7 +172,7 @@ src/aura/
   cli.py         fixture CLI
   decomposition.py evidence samples to mixed native AURA elements
   elements.py    bounded elements/chunks
-  exchange.py    glTF/USD exchange target metadata
+  exchange.py    package-backed glTF/USD exchange target metadata
   package.py     native .aura package writer/loader/validator
   ray.py         ray and ray-query response contracts
   render.py      deterministic orthographic preview and image metrics

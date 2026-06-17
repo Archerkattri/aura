@@ -25,7 +25,7 @@ This package now contains the GPU-ready skeleton for AURA:
 - deterministic orthographic package preview rendering and image metrics;
 - strict-JSON render comparison metrics for regression checks;
 - reproducible benchmark plans plus CPU reference package/query/render metrics;
-- glTF/USD exchange-plan metadata;
+- package-backed glTF/USD exchange-plan metadata;
 - native-first CLI fixtures.
 
 It is not yet a renderer, trainer, CUDA kernel, or research benchmark result. The first

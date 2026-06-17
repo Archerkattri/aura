@@ -59,11 +59,15 @@ def test_package_writer_outputs_manifest(tmp_path):
     package = package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb"})
     package.write(tmp_path)
     manifest = json.loads((tmp_path / "manifest.json").read_text())
+    exchange = json.loads((tmp_path / "exchange.json").read_text())
 
     assert manifest["format"] == AURA_FORMAT
     assert manifest["version"] == AURA_SCHEMA_VERSION
     assert manifest["capabilities"]["rayQuery"] is True
     assert manifest["fallbacks"]["mesh"] == "fallback/preview.glb"
+    assert manifest["exchange"] == "exchange.json"
+    assert exchange["gltfFallback"]["supports_ray_query"] is False
+    assert exchange["usdBridge"]["supports_typed_carriers"] is True
 
 
 def test_package_loader_round_trips_scene_and_manifest(tmp_path):
@@ -73,6 +77,8 @@ def test_package_loader_round_trips_scene_and_manifest(tmp_path):
 
     assert package.asset.name == "demo"
     assert package.asset.fallbacks["mesh"] == "fallback/preview.glb"
+    assert package.exchange["asset"] == "demo"
+    assert package.exchange["native"].startswith(".aura package")
     assert package.scene.elements[0].id == "wall_patch"
     assert package.scene.elements[0].payload["type"] == "surface_cell"
     assert package.scene.semantic_graph.nodes == ()
@@ -218,6 +224,28 @@ def test_package_loader_rejects_unknown_semantic_graph_element(tmp_path):
         load_package(tmp_path)
 
 
+def test_package_loader_rejects_manifest_exchange_mismatch(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["exchange"] = "wrong.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest.schema.json validation failed"):
+        load_package(tmp_path)
+
+
+def test_package_loader_rejects_malformed_exchange_metadata(tmp_path):
+    package_scene(demo_scene()).write(tmp_path)
+    exchange_path = tmp_path / "exchange.json"
+    exchange = json.loads(exchange_path.read_text(encoding="utf-8"))
+    del exchange["gltfFallback"]["notes"]
+    exchange_path.write_text(json.dumps(exchange), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="exchange.schema.json validation failed"):
+        load_package(tmp_path)
+
+
 def test_package_loader_rejects_unsupported_major_version(tmp_path):
     package_scene(demo_scene()).write(tmp_path)
     manifest_path = tmp_path / "manifest.json"
@@ -274,11 +302,18 @@ def test_inspect_package_cli_reports_stable_json_summary(tmp_path):
         "elementCount": 1,
         "chunkCount": 1,
         "semanticObjectCount": 0,
+        "exchangeTargets": ["asset", "gltfFallback", "native", "usdBridge"],
     }
 
 
 def test_json_schema_documents_are_parseable_and_versioned():
-    schema_names = {"manifest.schema.json", "elements.schema.json", "chunks.schema.json", "semantic_graph.schema.json"}
+    schema_names = {
+        "manifest.schema.json",
+        "elements.schema.json",
+        "chunks.schema.json",
+        "semantic_graph.schema.json",
+        "exchange.schema.json",
+    }
     found = {path.name for path in SCHEMA_DIR.glob("*.schema.json")}
 
     assert found == schema_names
@@ -290,7 +325,13 @@ def test_json_schema_documents_are_parseable_and_versioned():
 
 
 def test_json_schema_documents_are_packaged_runtime_resources():
-    schema_names = {"manifest.schema.json", "elements.schema.json", "chunks.schema.json", "semantic_graph.schema.json"}
+    schema_names = {
+        "manifest.schema.json",
+        "elements.schema.json",
+        "chunks.schema.json",
+        "semantic_graph.schema.json",
+        "exchange.schema.json",
+    }
     package_files = resources.files("aura.schemas")
     found = {path.name for path in package_files.iterdir() if path.name.endswith(".schema.json")}
 

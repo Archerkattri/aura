@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from jsonschema.exceptions import ValidationError
 from aura.asset import AuraAsset
 from aura.carriers import default_registry
 from aura.elements import AuraChunk, AuraElement, Bounds
+from aura.exchange import exchange_plan
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
 from aura.scene import AuraScene
 from aura.semantic import SemanticGraph
@@ -30,6 +31,7 @@ PAYLOAD_TYPE_BY_CARRIER = {
 class AuraPackage:
     asset: AuraAsset
     scene: AuraScene
+    exchange: dict = field(default_factory=dict)
 
     def summary(self) -> dict:
         return {
@@ -40,6 +42,7 @@ class AuraPackage:
             "elementCount": len(self.scene.elements),
             "chunkCount": len(self.scene.chunks),
             "semanticObjectCount": len(self.scene.semantic_graph.nodes),
+            "exchangeTargets": sorted((self.exchange or exchange_plan(self.asset)).keys()),
         }
 
     def manifest(self) -> dict:
@@ -55,6 +58,7 @@ class AuraPackage:
             "fallbacks": dict(self.asset.fallbacks),
             "chunks": self.scene.chunk_ids(),
             "semanticGraph": "semantic_graph.json",
+            "exchange": "exchange.json",
         }
 
     def write(self, output_dir: Path | str) -> Path:
@@ -73,6 +77,10 @@ class AuraPackage:
             json.dumps(self.scene.semantic_graph.to_dict(), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        (out / "exchange.json").write_text(
+            json.dumps(self.exchange or exchange_plan(self.asset), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         return out
 
 
@@ -87,8 +95,9 @@ def load_package(package_dir: Path | str) -> AuraPackage:
     elements_payload = _read_json_list(root / "elements.json")
     chunks_payload = _read_json_list(root / "chunks.json")
     semantic_graph_payload = _read_json_object(root / "semantic_graph.json")
+    exchange_payload = _read_json_object(root / "exchange.json")
 
-    validate_package_documents(manifest, elements_payload, chunks_payload, semantic_graph_payload)
+    validate_package_documents(manifest, elements_payload, chunks_payload, semantic_graph_payload, exchange_payload)
     _validate_manifest_shape(manifest)
     elements = tuple(_element_from_dict(item) for item in elements_payload)
     chunks = tuple(_chunk_from_dict(item) for item in chunks_payload)
@@ -102,17 +111,25 @@ def load_package(package_dir: Path | str) -> AuraPackage:
         coordinate_system=str(manifest["coordinateSystem"]),
         fallbacks={str(key): str(value) for key, value in manifest.get("fallbacks", {}).items()},
     )
-    package = AuraPackage(asset=asset, scene=scene)
+    package = AuraPackage(asset=asset, scene=scene, exchange=exchange_payload)
     validate_package(package, manifest=manifest)
     return package
 
 
-def validate_package_documents(manifest: dict, elements: list, chunks: list, semantic_graph: dict | None = None) -> None:
+def validate_package_documents(
+    manifest: dict,
+    elements: list,
+    chunks: list,
+    semantic_graph: dict | None = None,
+    exchange: dict | None = None,
+) -> None:
     _validate_json_schema("manifest.schema.json", manifest)
     _validate_json_schema("elements.schema.json", elements)
     _validate_json_schema("chunks.schema.json", chunks)
     if semantic_graph is not None:
         _validate_json_schema("semantic_graph.schema.json", semantic_graph)
+    if exchange is not None:
+        _validate_json_schema("exchange.schema.json", exchange)
 
 
 def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> None:
@@ -142,6 +159,8 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
             raise ValueError("manifest chunks do not match chunks.json")
     if manifest is not None and manifest.get("semanticGraph") != "semantic_graph.json":
         raise ValueError("manifest semanticGraph must reference semantic_graph.json")
+    if manifest is not None and manifest.get("exchange") != "exchange.json":
+        raise ValueError("manifest exchange must reference exchange.json")
 
 
 def _read_json_object(path: Path) -> dict:
