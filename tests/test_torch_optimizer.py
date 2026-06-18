@@ -1999,33 +1999,27 @@ def test_torch_budget_ceiling_over_budget_signal():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
-def test_torch_coarse_to_fine_schedule_returns_correct_scale():
-    schedule = ((0, 0.5), (5, 1.0))
-
-    scale_at_0 = torch_optimizer_module._coarse_to_fine_scale(schedule, 0)
-    assert scale_at_0 == pytest.approx(0.5)
-
-    scale_at_3 = torch_optimizer_module._coarse_to_fine_scale(schedule, 3)
-    assert scale_at_3 == pytest.approx(0.5)
-
-    scale_at_5 = torch_optimizer_module._coarse_to_fine_scale(schedule, 5)
-    assert scale_at_5 == pytest.approx(1.0)
-
-    scale_empty = torch_optimizer_module._coarse_to_fine_scale((), 10)
-    assert scale_empty == pytest.approx(1.0)
-
-
-@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
-def test_torch_coarse_to_fine_in_step_report():
+def test_torch_importance_scores_are_real_in_step_report():
+    # Two carriers with distinct opacities; RadSplat importance must reflect them
+    # in the per-step report (not an empty tuple). This fails if the loop reverts
+    # to hardcoding importance_scores=().
     scene = AuraScene(
-        name="c2f_scene",
+        name="importance_scene",
         elements=(
             AuraElement(
-                id="surface",
+                id="opaque",
                 carrier_id="surface",
                 bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
                 color=(0.0, 0.0, 0.0),
-                opacity=1.0,
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+            ),
+            AuraElement(
+                id="faint",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.2), (0.5, 0.5, 0.3)),
+                color=(0.0, 0.0, 0.0),
+                opacity=0.1,
                 normal=(0.0, 0.0, -1.0),
             ),
         ),
@@ -2055,15 +2049,18 @@ def test_torch_coarse_to_fine_in_step_report():
     result = torch_optimize_capture_batch(
         scene, batch,
         TorchOptimizationConfig(
-            iterations=2,
+            iterations=1,
             color_learning_rate=0.1,
-            coarse_to_fine_schedule=((0, 0.5), (1, 1.0)),
             loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
             max_samples_per_batch=1,
         ),
     )
-    assert result.steps[0].resolution_scale == pytest.approx(0.5)
-    assert result.steps[1].resolution_scale == pytest.approx(1.0)
+    importance = dict(result.steps[0].importance_scores)
+    # Real, non-empty, covers both carriers
+    assert set(importance) == {"opaque", "faint"}
+    # Importance tracks live opacity: the opaque carrier outranks the faint one
+    assert importance["opaque"] > importance["faint"]
+    assert importance["opaque"] == pytest.approx(0.9, abs=0.2)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

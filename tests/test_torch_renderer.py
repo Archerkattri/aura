@@ -2373,7 +2373,10 @@ def test_mip_splatting_3d_frequency_cap_reduces_gaussian_support():
             st.surface_normals, st.gabor_normals, st.element_normals,
         )
     )
-    origins = torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32)
+    # A grazing ray that clips the edge of the gaussian: shrinking the support
+    # via the mip 3D frequency cap must change whether/how much it hits. A
+    # dead-center ray would hit regardless of support and hide a no-op.
+    origins = torch.tensor([[1.3, 0.0, -1.0]], dtype=torch.float32)
     directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
 
     # Without mip_splatting: hits the gaussian (support_radius_sq=9.0)
@@ -2411,9 +2414,13 @@ def test_mip_splatting_3d_frequency_cap_reduces_gaussian_support():
     # ON with tiny focal: clamped support, so might miss
     transmittance_off = float(result_off["transmittance"][0])
     transmittance_on = float(result_on["transmittance"][0])
-    # With large support OFF -> low transmittance (high opacity hit)
-    # With clamped support ON -> higher transmittance (miss or reduced hit)
-    assert transmittance_on >= transmittance_off - 1e-6  # mip-splatting can only reduce hits
+    # The grazing ray partially hits the full-support gaussian (transmittance < 1)...
+    assert transmittance_off < 0.95, f"grazing ray should partially hit, got {transmittance_off}"
+    # ...but with the mip frequency cap the support is clamped small enough that
+    # the ray meaningfully MORE misses. A no-op would leave these equal.
+    assert transmittance_on > transmittance_off + 0.1, (
+        f"mip-splatting must change the result: off={transmittance_off} on={transmittance_on}"
+    )
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -2499,38 +2506,68 @@ def test_ssaa_2x2_averages_four_subsamples():
     from aura import AuraElement, AuraScene, Bounds
     from aura.torch_renderer import torch_render_ray_color_tensor
 
+    # Small gaussian so a pixel at its edge has sub-samples that straddle the
+    # boundary: the center ray misses, but the 2x2 jittered sub-rays partially
+    # hit. This proves SSAA performs real supersampling (would FAIL if SSAA were
+    # a no-op returning the single center sample).
     scene = AuraScene(
         name="ssaa_test",
         elements=(
             AuraElement(
-                id="surface",
-                carrier_id="surface",
-                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
-                color=(0.8, 0.2, 0.4),
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.5, -1.5, 0.5), (1.5, 1.5, 1.5)),
+                color=(1.0, 0.0, 0.0),
                 opacity=1.0,
                 confidence=1.0,
-                payload={"type": "surface_cell"},
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 1.0],
+                    "covariance": [[0.25, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.0, 0.25]],
+                    "support_sigma": 1.0,
+                },
             ),
         ),
     )
     ray_origins = torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32)
-    ray_directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+    # Direction aimed just past the gaussian edge: the center ray misses.
+    ray_directions = torch.tensor([[0.26, 0.0, 1.0]], dtype=torch.float32)
 
-    # Without SSAA
     color_no_ssaa = torch_render_ray_color_tensor(scene, ray_origins, ray_directions, device="cpu")
-
-    # With SSAA (should return same shape but averaged over 4 subsamples)
     color_ssaa = torch_render_ray_color_tensor(
         scene, ray_origins, ray_directions, device="cpu",
-        ssaa_2x2=True, focal_length_pixels=100.0,  # large focal = tiny jitter
+        ssaa_2x2=True, focal_length_pixels=2.0,
     )
 
-    assert color_no_ssaa.shape == color_ssaa.shape
-    # With very large focal (tiny jitter), SSAA result should be very close to no-SSAA
-    assert torch.allclose(color_no_ssaa, color_ssaa, atol=0.1)
-    # SSAA should still produce valid colors
-    assert color_ssaa.shape == (1, 3)
-    assert float(color_ssaa[0, 0]) >= 0.0
+    assert color_no_ssaa.shape == color_ssaa.shape == (1, 3)
+    center_red = float(color_no_ssaa[0, 0])
+    ssaa_red = float(color_ssaa[0, 0])
+    # The center ray misses the gaussian entirely...
+    assert center_red < 0.05, f"center ray expected to miss, got {center_red}"
+    # ...but the supersampled pixel picks up real coverage from edge sub-samples.
+    assert ssaa_red > 0.2, f"SSAA expected real coverage from sub-samples, got {ssaa_red}"
+    assert abs(ssaa_red - center_red) > 0.1
+
+    # Backward-compat property: with a near-zero jitter (huge focal length) SSAA
+    # collapses to the single-sample result.
+    flat_scene = AuraScene(
+        name="ssaa_flat",
+        elements=(
+            AuraElement(
+                id="surface", carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.8, 0.2, 0.4), opacity=1.0, confidence=1.0,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    flat_dir = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+    flat_off = torch_render_ray_color_tensor(flat_scene, ray_origins, flat_dir, device="cpu")
+    flat_on = torch_render_ray_color_tensor(
+        flat_scene, ray_origins, flat_dir, device="cpu",
+        ssaa_2x2=True, focal_length_pixels=1e6,
+    )
+    assert torch.allclose(flat_off, flat_on, atol=1e-3)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

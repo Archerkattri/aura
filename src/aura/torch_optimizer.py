@@ -59,8 +59,6 @@ class TorchOptimizationConfig:
     recovery_window: int = 100
     # Deliverable 6: Budget ceiling
     max_carriers: int = 0
-    # Deliverable 8: Coarse-to-fine schedule
-    coarse_to_fine_schedule: tuple = ()
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -117,14 +115,13 @@ class TorchOptimizationStep:
     max_samples_per_batch: int | None
     source_windows: tuple[dict[str, Any], ...] = ()
     carrier_evolution: tuple[dict[str, Any], ...] = ()
-    # New optional fields (all with defaults) - Deliverables 3-8
+    # New optional fields (all with defaults)
     grad_stats: tuple = ()
     opacity_reset_due: bool = False
     recovery_phase: bool = False
     importance_scores: tuple = ()
     carrier_count: int = 0
     over_budget: bool = False
-    resolution_scale: float = 1.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -187,6 +184,38 @@ def compute_importance_scores(
         transmittance = transmittances.get(carrier_id, 1.0)
         scores[carrier_id] = opacity * transmittance
     return scores
+
+
+def _live_opacity(parameter: Any, fallback: float) -> float:
+    """Read a scalar opacity value from a (possibly tensor) carrier parameter."""
+    if parameter is None:
+        return float(fallback)
+    detach = getattr(parameter, "detach", None)
+    if detach is not None:
+        flat = parameter.detach().reshape(-1)
+        return float(flat[0].item()) if flat.numel() else float(fallback)
+    try:
+        return float(parameter)
+    except (TypeError, ValueError):
+        return float(fallback)
+
+
+def _carrier_importance_scores(
+    carrier_parameters: dict[str, dict[str, Any]],
+    elements: Sequence[AuraElement],
+) -> dict[str, float]:
+    """RadSplat-style per-carrier importance from the live trained opacity values.
+
+    Uses the current optimized opacity parameter for each element (falling back to
+    the element's stored opacity when no trainable opacity tensor exists). Transmittance
+    defaults to 1.0 since per-view transmittance is not materialized on the training
+    path, so this is an opacity-weighted importance proxy (RadSplat arXiv:2403.13806).
+    """
+    opacities: dict[str, float] = {}
+    for element in elements:
+        fields = carrier_parameters.get(element.id, {})
+        opacities[element.id] = _live_opacity(fields.get("opacity"), element.opacity)
+    return compute_importance_scores(opacities, {})
 
 
 def torch_optimize_capture_batch(
@@ -338,17 +367,6 @@ def _compute_position_lr(config: TorchOptimizationConfig, step: int) -> float:
     return lr_init * (lr_final / lr_init) ** t
 
 
-def _coarse_to_fine_scale(schedule: tuple, step: int) -> float:
-    """Find current resolution scale from schedule breakpoints."""
-    if not schedule:
-        return 1.0
-    current_scale = 1.0
-    for breakpoint_step, scale in schedule:
-        if step >= breakpoint_step:
-            current_scale = scale
-    return current_scale
-
-
 def _optimization_step_from_objective(
     iteration: int,
     objective: Any,
@@ -367,7 +385,6 @@ def _optimization_step_from_objective(
     recovery_phase: bool = False,
     importance_scores: tuple = (),
     max_carriers: int = 0,
-    resolution_scale: float = 1.0,
 ) -> TorchOptimizationStep:
     image_loss = _tensor_scalar(objective.image_loss)
     depth_loss = _tensor_scalar(objective.depth_loss)
@@ -413,7 +430,6 @@ def _optimization_step_from_objective(
         importance_scores=importance_scores,
         carrier_count=carrier_count,
         over_budget=over_budget,
-        resolution_scale=resolution_scale,
     )
 
 
@@ -462,9 +478,6 @@ def _optimize_torch_batches(
             config.checkpoint_interval is not None
             and (iteration + 1) % config.checkpoint_interval == 0
         )
-
-        # Deliverable 8: Coarse-to-fine schedule
-        resolution_scale = _coarse_to_fine_scale(config.coarse_to_fine_schedule, absolute_iteration)
 
         # Deliverable 4: Opacity reset
         opacity_reset_due = False
@@ -610,10 +623,7 @@ def _optimize_torch_batches(
                         (k, v / grad_accum_step_count) for k, v in sorted(grad_accumulator.items())
                     )
 
-            if use_adam and adam_optimizer is not None:
-                _zero_carrier_parameter_grads(carrier_parameters)
-            else:
-                _zero_carrier_parameter_grads(carrier_parameters)
+            _zero_carrier_parameter_grads(carrier_parameters)
 
             with torch.no_grad():
                 checkpoint_objective = torch_render_capture_training_objective(
@@ -633,6 +643,9 @@ def _optimize_torch_batches(
                         iteration_summaries.append(summary)
                     if checkpoint_due:
                         iteration_materialization_summary = summary
+            step_importance = tuple(
+                sorted(_carrier_importance_scores(carrier_parameters, current_scene.elements).items())
+            )
             steps.append(
                 _optimization_step_from_objective(
                     absolute_iteration,
@@ -649,9 +662,8 @@ def _optimize_torch_batches(
                     grad_stats=current_grad_stats,
                     opacity_reset_due=opacity_reset_due,
                     recovery_phase=recovery_phase,
-                    importance_scores=(),
+                    importance_scores=step_importance,
                     max_carriers=config.max_carriers,
-                    resolution_scale=resolution_scale,
                 )
             )
         if evolution_enabled or checkpoint_due:
