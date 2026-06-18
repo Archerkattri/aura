@@ -518,6 +518,334 @@ __device__ float aura_beta_support(
     return aura_clamp_unit(raw);
 }
 
+#define AURA_RENDER_MAX_ORDERED_HITS 64
+
+// Intersect one element against the ray and insert it into the depth-sorted
+// hit buffers. Shared by the brute-force and BVH traversal kernels so both
+// paths produce identical ordered hits.
+__device__ void aura_collect_element(
+    int element_i,
+    const float* origin,
+    const float* direction,
+    const float* element_mins,
+    const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
+    const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
+    const int* carrier_ids,
+    int stored_hit_limit,
+    float* hit_depths,
+    float* hit_exits,
+    float* hit_normals,
+    int* hit_elements,
+    int* stored_hit_count
+) {
+    float enter_depth = 0.0f;
+    float exit_depth = 0.0f;
+    float normal[3] = {0.0f, 0.0f, 0.0f};
+    const bool hit = aura_ray_aabb_intersect(
+        origin,
+        direction,
+        element_mins + element_i * 3,
+        element_maxs + element_i * 3,
+        &enter_depth,
+        &exit_depth,
+        normal
+    );
+    if (carrier_ids[element_i] == 0 || carrier_ids[element_i] == 3) {
+        const bool plane_hit = aura_ray_plane_intersect(
+            origin,
+            direction,
+            element_mins + element_i * 3,
+            element_maxs + element_i * 3,
+            plane_points + element_i * 3,
+            plane_normals + element_i * 3,
+            &enter_depth,
+            normal
+        );
+        if (plane_hit) {
+            exit_depth = enter_depth;
+        } else if (!hit) {
+            return;
+        }
+    } else if (carrier_ids[element_i] == 2) {
+        const float* beta_radii = beta_support_radii + element_i * 3;
+        float beta_enter = 0.0f;
+        float beta_exit = 0.0f;
+        float beta_normal[3] = {0.0f, 0.0f, 0.0f};
+        const bool beta_hit = aura_ray_beta_ellipsoid_intersect(
+            origin,
+            direction,
+            element_mins + element_i * 3,
+            element_maxs + element_i * 3,
+            beta_radii,
+            &beta_enter,
+            &beta_exit,
+            beta_normal
+        );
+        if (beta_hit && hit) {
+            if (beta_enter > enter_depth) {
+                enter_depth = beta_enter;
+                normal[0] = beta_normal[0];
+                normal[1] = beta_normal[1];
+                normal[2] = beta_normal[2];
+            }
+            exit_depth = fminf(exit_depth, beta_exit);
+            if (exit_depth < enter_depth) {
+                return;
+            }
+        } else if (aura_beta_radii_valid(beta_radii)) {
+            return;
+        } else if (!hit) {
+            return;
+        }
+    } else if (carrier_ids[element_i] == 6) {
+        const float* gaussian_mean = gaussian_means + element_i * 3;
+        const float* gaussian_inverse_covariance = gaussian_inverse_covariances + element_i * 9;
+        const float gaussian_support = gaussian_support_radius_sq[element_i];
+        float gaussian_enter = 0.0f;
+        float gaussian_exit = 0.0f;
+        float gaussian_normal[3] = {0.0f, 0.0f, 0.0f};
+        const bool gaussian_hit = aura_ray_gaussian_ellipsoid_intersect(
+            origin,
+            direction,
+            gaussian_mean,
+            gaussian_inverse_covariance,
+            gaussian_support,
+            &gaussian_enter,
+            &gaussian_exit,
+            gaussian_normal
+        );
+        if (gaussian_hit && hit) {
+            if (gaussian_enter > enter_depth) {
+                enter_depth = gaussian_enter;
+                normal[0] = gaussian_normal[0];
+                normal[1] = gaussian_normal[1];
+                normal[2] = gaussian_normal[2];
+            }
+            exit_depth = fminf(exit_depth, gaussian_exit);
+            if (exit_depth < enter_depth) {
+                return;
+            }
+        } else if (aura_gaussian_geometry_valid(gaussian_mean, gaussian_inverse_covariance, gaussian_support)) {
+            return;
+        } else if (!hit) {
+            return;
+        }
+    } else if (!hit) {
+        return;
+    }
+    if (stored_hit_limit <= 0) {
+        return;
+    }
+    int insert_at = *stored_hit_count;
+    while (insert_at > 0 && enter_depth < hit_depths[insert_at - 1]) {
+        --insert_at;
+    }
+    if (insert_at >= stored_hit_limit) {
+        return;
+    }
+    const int last = *stored_hit_count < stored_hit_limit ? *stored_hit_count : stored_hit_limit - 1;
+    for (int move_i = last; move_i > insert_at; --move_i) {
+        hit_depths[move_i] = hit_depths[move_i - 1];
+        hit_exits[move_i] = hit_exits[move_i - 1];
+        hit_elements[move_i] = hit_elements[move_i - 1];
+        hit_normals[move_i * 3 + 0] = hit_normals[(move_i - 1) * 3 + 0];
+        hit_normals[move_i * 3 + 1] = hit_normals[(move_i - 1) * 3 + 1];
+        hit_normals[move_i * 3 + 2] = hit_normals[(move_i - 1) * 3 + 2];
+    }
+    hit_depths[insert_at] = enter_depth;
+    hit_exits[insert_at] = exit_depth;
+    hit_elements[insert_at] = element_i;
+    hit_normals[insert_at * 3 + 0] = normal[0];
+    hit_normals[insert_at * 3 + 1] = normal[1];
+    hit_normals[insert_at * 3 + 2] = normal[2];
+    if (*stored_hit_count < stored_hit_limit) {
+        ++(*stored_hit_count);
+    }
+}
+
+// Composite the depth-sorted hit buffers into the per-ray outputs. Shared by
+// the brute-force and BVH kernels.
+__device__ void aura_finalize_ray(
+    int ray_i,
+    const float* origin,
+    const float* direction,
+    const float* element_mins,
+    const float* element_maxs,
+    const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
+    const int* carrier_ids,
+    const float* colors,
+    const float* opacities,
+    const float* confidences,
+    const float* payload_params,
+    const int* material_ids,
+    const int* semantic_ids,
+    const float* hit_depths,
+    const float* hit_exits,
+    const float* hit_normals,
+    const int* hit_elements,
+    int stored_hit_count,
+    int max_hits,
+    float* out_color,
+    float* out_alpha,
+    float* out_transmittance,
+    float* out_depth,
+    float* out_normal,
+    float* out_confidence,
+    unsigned char* out_residual,
+    int* out_material_id,
+    int* out_semantic_id,
+    int* ordered_hits
+) {
+    if (stored_hit_count <= 0) {
+        out_color[ray_i * 3 + 0] = 0.0f;
+        out_color[ray_i * 3 + 1] = 0.0f;
+        out_color[ray_i * 3 + 2] = 0.0f;
+        out_alpha[ray_i] = 0.0f;
+        out_transmittance[ray_i] = 1.0f;
+        out_depth[ray_i] = 3.402823466e+38f;
+        out_normal[ray_i * 3 + 0] = 0.0f;
+        out_normal[ray_i * 3 + 1] = 0.0f;
+        out_normal[ray_i * 3 + 2] = 0.0f;
+        out_confidence[ray_i] = 0.0f;
+        out_residual[ray_i] = 0;
+        out_material_id[ray_i] = -1;
+        out_semantic_id[ray_i] = -1;
+        return;
+    }
+
+    float color_r = 0.0f;
+    float color_g = 0.0f;
+    float color_b = 0.0f;
+    float remaining = 1.0f;
+    float confidence_num = 0.0f;
+    float confidence_den = 0.0f;
+    unsigned char residual = 0;
+
+    for (int hit_i = 0; hit_i < stored_hit_count; ++hit_i) {
+        const int element_i = hit_elements[hit_i];
+        const int carrier_id = carrier_ids[element_i];
+        const float opacity = aura_clamp_unit(opacities[element_i]);
+        const float* payload = payload_params + element_i * 5;
+        float transmittance = aura_clamp_unit(1.0f - opacity);
+        float confidence_value = aura_clamp_unit(confidences[element_i]);
+        float color_r_hit = colors[element_i * 3 + 0];
+        float color_g_hit = colors[element_i * 3 + 1];
+        float color_b_hit = colors[element_i * 3 + 2];
+        if (carrier_id == 1) {
+            const float density = fmaxf(payload[0], 0.0f);
+            const float volume_opacity = aura_clamp_unit(payload[1]);
+            const float path_length = fmaxf(hit_exits[hit_i] - hit_depths[hit_i], 0.0f);
+            const float alpha = volume_opacity * (1.0f - expf(-density * path_length));
+            transmittance = aura_clamp_unit(1.0f - alpha);
+        } else if (carrier_id == 2) {
+            float point[3] = {
+                origin[0] + direction[0] * hit_depths[hit_i],
+                origin[1] + direction[1] * hit_depths[hit_i],
+                origin[2] + direction[2] * hit_depths[hit_i],
+            };
+            const float support = aura_beta_support(
+                point,
+                element_mins + element_i * 3,
+                element_maxs + element_i * 3,
+                beta_support_radii + element_i * 3,
+                payload[0],
+                payload[1]
+            );
+            transmittance = aura_clamp_unit(1.0f - opacity * support);
+        } else if (carrier_id == 3) {
+            float point[3] = {
+                origin[0] + direction[0] * hit_depths[hit_i],
+                origin[1] + direction[1] * hit_depths[hit_i],
+                origin[2] + direction[2] * hit_depths[hit_i],
+            };
+            const float phase = payload[3];
+            const float bandwidth = aura_clamp_unit(payload[4]);
+            const float dot = point[0] * payload[0] + point[1] * payload[1] + point[2] * payload[2];
+            const float modulation = 1.0f - bandwidth + bandwidth * (0.5f + 0.5f * sinf(6.28318530718f * dot + phase));
+            color_r_hit = aura_clamp_unit(color_r_hit * modulation);
+            color_g_hit = aura_clamp_unit(color_g_hit * modulation);
+            color_b_hit = aura_clamp_unit(color_b_hit * modulation);
+            confidence_value = aura_clamp_unit(confidence_value * bandwidth);
+        } else if (carrier_id == 4) {
+            const float neural_strength = aura_clamp_unit(payload[0]);
+            transmittance = aura_clamp_unit(1.0f - opacity * neural_strength);
+            confidence_value = aura_clamp_unit(confidence_value * (1.0f - neural_strength * 0.25f));
+        } else if (carrier_id == 6) {
+            const float* gaussian_mean = gaussian_means + element_i * 3;
+            const float* gaussian_inverse_covariance = gaussian_inverse_covariances + element_i * 9;
+            const float gaussian_support = gaussian_support_radius_sq[element_i];
+            float gaussian_weight = 1.0f;
+            if (aura_gaussian_geometry_valid(gaussian_mean, gaussian_inverse_covariance, gaussian_support)) {
+                const float ray_to_mean[3] = {
+                    gaussian_mean[0] - origin[0],
+                    gaussian_mean[1] - origin[1],
+                    gaussian_mean[2] - origin[2],
+                };
+                const float direction_norm = fmaxf(
+                    direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2],
+                    1.0e-8f
+                );
+                const float projected_depth =
+                    (ray_to_mean[0] * direction[0] + ray_to_mean[1] * direction[1] + ray_to_mean[2] * direction[2]) /
+                    direction_norm;
+                const float gaussian_depth = fmaxf(hit_depths[hit_i], fminf(hit_exits[hit_i], projected_depth));
+                const float point[3] = {
+                    origin[0] + direction[0] * gaussian_depth,
+                    origin[1] + direction[1] * gaussian_depth,
+                    origin[2] + direction[2] * gaussian_depth,
+                };
+                const float delta[3] = {
+                    point[0] - gaussian_mean[0],
+                    point[1] - gaussian_mean[1],
+                    point[2] - gaussian_mean[2],
+                };
+                float weighted_delta[3] = {0.0f, 0.0f, 0.0f};
+                aura_matvec3(gaussian_inverse_covariance, delta, weighted_delta);
+                const float mahalanobis = fmaxf(
+                    delta[0] * weighted_delta[0] + delta[1] * weighted_delta[1] + delta[2] * weighted_delta[2],
+                    0.0f
+                );
+                gaussian_weight = aura_clamp_unit(expf(-0.5f * mahalanobis));
+            }
+            transmittance = aura_clamp_unit(1.0f - opacity * gaussian_weight);
+            confidence_value = aura_clamp_unit(confidence_value * gaussian_weight);
+        }
+        const float alpha = 1.0f - transmittance;
+        const float weight = remaining * alpha;
+        color_r += weight * color_r_hit;
+        color_g += weight * color_g_hit;
+        color_b += weight * color_b_hit;
+        confidence_num += weight * confidence_value;
+        confidence_den += weight;
+        remaining *= transmittance;
+        residual = residual || (carrier_id == 4);
+        ordered_hits[ray_i * max_hits + hit_i] = element_i;
+    }
+
+    const int first_element = hit_elements[0];
+    out_color[ray_i * 3 + 0] = color_r;
+    out_color[ray_i * 3 + 1] = color_g;
+    out_color[ray_i * 3 + 2] = color_b;
+    out_alpha[ray_i] = fminf(fmaxf(1.0f - remaining, 0.0f), 1.0f);
+    out_transmittance[ray_i] = fminf(fmaxf(remaining, 0.0f), 1.0f);
+    out_depth[ray_i] = hit_depths[0];
+    out_normal[ray_i * 3 + 0] = hit_normals[0];
+    out_normal[ray_i * 3 + 1] = hit_normals[1];
+    out_normal[ray_i * 3 + 2] = hit_normals[2];
+    out_confidence[ray_i] = confidence_den > 1.0e-8f ? confidence_num / confidence_den : 0.0f;
+    out_residual[ray_i] = residual;
+    out_material_id[ray_i] = material_ids[first_element];
+    out_semantic_id[ray_i] = semantic_ids[first_element];
+}
+
 extern "C" __global__ void aura_render_rays_kernel(
     const float* ray_origins,
     const float* ray_directions,
@@ -550,7 +878,6 @@ extern "C" __global__ void aura_render_rays_kernel(
     int element_count,
     int max_hits
 ) {
-    const int AURA_RENDER_MAX_ORDERED_HITS = 64;
     const int ray_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (ray_i >= ray_count) {
         return;
@@ -921,6 +1248,254 @@ extern "C" void aura_render_rays_launcher(
         ordered_hits,
         ray_count,
         element_count,
+        max_hits
+    );
+}
+
+// Production GPU BVH traversal kernel. Replaces the brute-force element scan
+// with a stack-based descent over a flattened median-split BVH, collecting only
+// the elements whose AABB nodes the ray pierces before running the identical
+// per-element hit + compositing logic.
+extern "C" __global__ void aura_render_rays_bvh_kernel(
+    const float* ray_origins,
+    const float* ray_directions,
+    const float* element_mins,
+    const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
+    const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
+    const int* carrier_ids,
+    const float* colors,
+    const float* opacities,
+    const float* confidences,
+    const float* payload_params,
+    const int* material_ids,
+    const int* semantic_ids,
+    const float* node_mins,
+    const float* node_maxs,
+    const int* node_left,
+    const int* node_right,
+    const int* node_element,
+    float* out_color,
+    float* out_alpha,
+    float* out_transmittance,
+    float* out_depth,
+    float* out_normal,
+    float* out_confidence,
+    unsigned char* out_residual,
+    int* out_material_id,
+    int* out_semantic_id,
+    int* ordered_hits,
+    int ray_count,
+    int node_count,
+    int max_hits
+) {
+    const int AURA_BVH_STACK_SIZE = 64;
+    const int ray_i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ray_i >= ray_count) {
+        return;
+    }
+
+    const float* origin = ray_origins + ray_i * 3;
+    const float* direction = ray_directions + ray_i * 3;
+    const int stored_hit_limit = max_hits < AURA_RENDER_MAX_ORDERED_HITS ? max_hits : AURA_RENDER_MAX_ORDERED_HITS;
+    float hit_depths[AURA_RENDER_MAX_ORDERED_HITS];
+    float hit_exits[AURA_RENDER_MAX_ORDERED_HITS];
+    float hit_normals[AURA_RENDER_MAX_ORDERED_HITS * 3];
+    int hit_elements[AURA_RENDER_MAX_ORDERED_HITS];
+    int stored_hit_count = 0;
+
+    for (int hit_i = 0; hit_i < max_hits; ++hit_i) {
+        ordered_hits[ray_i * max_hits + hit_i] = -1;
+    }
+    for (int hit_i = 0; hit_i < AURA_RENDER_MAX_ORDERED_HITS; ++hit_i) {
+        hit_depths[hit_i] = 3.402823466e+38f;
+        hit_exits[hit_i] = 3.402823466e+38f;
+        hit_elements[hit_i] = -1;
+        hit_normals[hit_i * 3 + 0] = 0.0f;
+        hit_normals[hit_i * 3 + 1] = 0.0f;
+        hit_normals[hit_i * 3 + 2] = 0.0f;
+    }
+
+    if (node_count > 0) {
+        int stack[AURA_BVH_STACK_SIZE];
+        int stack_size = 0;
+        stack[stack_size++] = 0;
+        while (stack_size > 0) {
+            const int node_index = stack[--stack_size];
+            float node_enter = 0.0f;
+            float node_exit = 0.0f;
+            float node_normal[3] = {0.0f, 0.0f, 0.0f};
+            const bool node_hit = aura_ray_aabb_intersect(
+                origin,
+                direction,
+                node_mins + node_index * 3,
+                node_maxs + node_index * 3,
+                &node_enter,
+                &node_exit,
+                node_normal
+            );
+            if (!node_hit) {
+                continue;
+            }
+            const int element_index = node_element[node_index];
+            if (element_index >= 0) {
+                aura_collect_element(
+                    element_index,
+                    origin,
+                    direction,
+                    element_mins,
+                    element_maxs,
+                    plane_points,
+                    plane_normals,
+                    beta_support_radii,
+                    gaussian_means,
+                    gaussian_inverse_covariances,
+                    gaussian_support_radius_sq,
+                    carrier_ids,
+                    stored_hit_limit,
+                    hit_depths,
+                    hit_exits,
+                    hit_normals,
+                    hit_elements,
+                    &stored_hit_count
+                );
+                continue;
+            }
+            const int left = node_left[node_index];
+            const int right = node_right[node_index];
+            if (right >= 0 && stack_size < AURA_BVH_STACK_SIZE) {
+                stack[stack_size++] = right;
+            }
+            if (left >= 0 && stack_size < AURA_BVH_STACK_SIZE) {
+                stack[stack_size++] = left;
+            }
+        }
+    }
+
+    aura_finalize_ray(
+        ray_i,
+        origin,
+        direction,
+        element_mins,
+        element_maxs,
+        beta_support_radii,
+        gaussian_means,
+        gaussian_inverse_covariances,
+        gaussian_support_radius_sq,
+        carrier_ids,
+        colors,
+        opacities,
+        confidences,
+        payload_params,
+        material_ids,
+        semantic_ids,
+        hit_depths,
+        hit_exits,
+        hit_normals,
+        hit_elements,
+        stored_hit_count,
+        max_hits,
+        out_color,
+        out_alpha,
+        out_transmittance,
+        out_depth,
+        out_normal,
+        out_confidence,
+        out_residual,
+        out_material_id,
+        out_semantic_id,
+        ordered_hits
+    );
+}
+
+extern "C" void aura_render_rays_bvh_launcher(
+    const float* ray_origins,
+    const float* ray_directions,
+    const float* element_mins,
+    const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
+    const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
+    const int* carrier_ids,
+    const float* colors,
+    const float* opacities,
+    const float* confidences,
+    const float* payload_params,
+    const int* material_ids,
+    const int* semantic_ids,
+    const float* node_mins,
+    const float* node_maxs,
+    const int* node_left,
+    const int* node_right,
+    const int* node_element,
+    float* out_color,
+    float* out_alpha,
+    float* out_transmittance,
+    float* out_depth,
+    float* out_normal,
+    float* out_confidence,
+    unsigned char* out_residual,
+    int* out_material_id,
+    int* out_semantic_id,
+    int* ordered_hits,
+    int ray_count,
+    int node_count,
+    int max_hits,
+    int threads_per_block
+) {
+    if (ray_count <= 0) {
+        return;
+    }
+    int threads = threads_per_block;
+    if (threads <= 0) {
+        threads = 128;
+    }
+    if (threads > 1024) {
+        threads = 1024;
+    }
+    const int block_count = (ray_count + threads - 1) / threads;
+    aura_render_rays_bvh_kernel<<<block_count, threads>>>(
+        ray_origins,
+        ray_directions,
+        element_mins,
+        element_maxs,
+        plane_points,
+        plane_normals,
+        beta_support_radii,
+        gaussian_means,
+        gaussian_inverse_covariances,
+        gaussian_support_radius_sq,
+        carrier_ids,
+        colors,
+        opacities,
+        confidences,
+        payload_params,
+        material_ids,
+        semantic_ids,
+        node_mins,
+        node_maxs,
+        node_left,
+        node_right,
+        node_element,
+        out_color,
+        out_alpha,
+        out_transmittance,
+        out_depth,
+        out_normal,
+        out_confidence,
+        out_residual,
+        out_material_id,
+        out_semantic_id,
+        ordered_hits,
+        ray_count,
+        node_count,
         max_hits
     );
 }

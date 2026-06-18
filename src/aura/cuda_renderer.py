@@ -20,6 +20,7 @@ from aura.scene import AuraScene, RayTraversal
 
 
 CudaFallbackBackend = Literal["cpu", "torch", "auto", "none"]
+CUDA_RENDERER_BVH_BINDING_SYMBOL = "render_rays_bvh"
 CUDA_RENDERER_CARRIER_IDS = {
     "surface": 0,
     "volume": 1,
@@ -480,6 +481,105 @@ def cuda_renderer_launch_config(
         fallback_backend=fallback_backend,
         device=device,
         require_cuda=require_cuda,
+    )
+
+
+@dataclass(frozen=True)
+class CudaRendererBvh:
+    """Flattened median-split BVH over element AABBs for GPU traversal.
+
+    Internal nodes store left/right child node indices; leaf nodes store the
+    element index in ``node_element`` (``-1`` for internal nodes and ``node_left``
+    ``-1`` for leaves). The arrays are laid out for direct upload as CUDA tensors
+    and a stack-based device traversal.
+    """
+
+    node_mins: tuple[float, ...]
+    node_maxs: tuple[float, ...]
+    node_left: tuple[int, ...]
+    node_right: tuple[int, ...]
+    node_element: tuple[int, ...]
+    node_count: int
+    element_count: int
+    max_depth: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "format": "AURA_CUDA_RENDERER_BVH",
+            "nodeCount": self.node_count,
+            "elementCount": self.element_count,
+            "maxDepth": self.max_depth,
+            "leafCount": sum(1 for value in self.node_element if value >= 0),
+        }
+
+
+def cuda_renderer_build_bvh(scene: AuraScene) -> CudaRendererBvh:
+    """Build a flattened median-split BVH over the scene element AABBs."""
+
+    element_count = len(scene.elements)
+    mins = [tuple(float(value) for value in element.bounds.min_corner) for element in scene.elements]
+    maxs = [tuple(float(value) for value in element.bounds.max_corner) for element in scene.elements]
+
+    node_mins: list[tuple[float, float, float]] = []
+    node_maxs: list[tuple[float, float, float]] = []
+    node_left: list[int] = []
+    node_right: list[int] = []
+    node_element: list[int] = []
+
+    def _bounds_of(indices: list[int]) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        lo = [float("inf"), float("inf"), float("inf")]
+        hi = [float("-inf"), float("-inf"), float("-inf")]
+        for index in indices:
+            for axis in range(3):
+                lo[axis] = min(lo[axis], mins[index][axis])
+                hi[axis] = max(hi[axis], maxs[index][axis])
+        return (lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])
+
+    max_depth = 0
+
+    def _build(indices: list[int], depth: int) -> int:
+        nonlocal max_depth
+        max_depth = max(max_depth, depth)
+        node_index = len(node_mins)
+        node_mins.append((0.0, 0.0, 0.0))
+        node_maxs.append((0.0, 0.0, 0.0))
+        node_left.append(-1)
+        node_right.append(-1)
+        node_element.append(-1)
+        lo, hi = _bounds_of(indices)
+        node_mins[node_index] = lo
+        node_maxs[node_index] = hi
+        if len(indices) == 1:
+            node_element[node_index] = indices[0]
+            return node_index
+        extent = tuple(hi[axis] - lo[axis] for axis in range(3))
+        axis = max(range(3), key=lambda candidate: extent[candidate])
+        centroid = lambda index: 0.5 * (mins[index][axis] + maxs[index][axis])  # noqa: E731
+        ordered = sorted(indices, key=centroid)
+        mid = len(ordered) // 2
+        left_indices = ordered[:mid]
+        right_indices = ordered[mid:]
+        if not left_indices or not right_indices:
+            # Degenerate split (coincident centroids); fall back to index split.
+            mid = len(indices) // 2
+            left_indices = indices[:mid]
+            right_indices = indices[mid:]
+        node_left[node_index] = _build(left_indices, depth + 1)
+        node_right[node_index] = _build(right_indices, depth + 1)
+        return node_index
+
+    if element_count > 0:
+        _build(list(range(element_count)), 1)
+
+    return CudaRendererBvh(
+        node_mins=tuple(value for node in node_mins for value in node),
+        node_maxs=tuple(value for node in node_maxs for value in node),
+        node_left=tuple(node_left),
+        node_right=tuple(node_right),
+        node_element=tuple(node_element),
+        node_count=len(node_mins),
+        element_count=element_count,
+        max_depth=max_depth,
     )
 
 
@@ -1516,9 +1616,7 @@ def _compiled_extension_batch(
         raise ValueError(f"ray_origins count {int(ray_origin_tensor.shape[0])} does not match launch config ray count")
     if int(ray_direction_tensor.shape[0]) != launch_config.ray_count:
         raise ValueError(f"ray_directions count {int(ray_direction_tensor.shape[0])} does not match launch config ray count")
-    outputs = getattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL)(
-        ray_origin_tensor,
-        ray_direction_tensor,
+    scene_args = (
         torch.tensor(scene_buffers.element_mins, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
         torch.tensor(scene_buffers.element_maxs, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
         torch.tensor(scene_buffers.plane_points, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
@@ -1534,6 +1632,34 @@ def _compiled_extension_batch(
         torch.tensor(scene_buffers.payload_params, dtype=torch.float32, device=resolved_device).reshape(element_count, 5).contiguous(),
         torch.tensor(scene_buffers.material_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.semantic_ids, dtype=torch.int32, device=resolved_device).contiguous(),
+    )
+    bvh_binding = getattr(extension_module, CUDA_RENDERER_BVH_BINDING_SYMBOL, None)
+    if element_count > 0 and callable(bvh_binding):
+        bvh = cuda_renderer_build_bvh(scene)
+        outputs = bvh_binding(
+            ray_origin_tensor,
+            ray_direction_tensor,
+            *scene_args,
+            torch.tensor(bvh.node_mins, dtype=torch.float32, device=resolved_device).reshape(bvh.node_count, 3).contiguous(),
+            torch.tensor(bvh.node_maxs, dtype=torch.float32, device=resolved_device).reshape(bvh.node_count, 3).contiguous(),
+            torch.tensor(bvh.node_left, dtype=torch.int32, device=resolved_device).contiguous(),
+            torch.tensor(bvh.node_right, dtype=torch.int32, device=resolved_device).contiguous(),
+            torch.tensor(bvh.node_element, dtype=torch.int32, device=resolved_device).contiguous(),
+            int(launch_config.max_hits),
+            int(launch_config.threads_per_block),
+        )
+        return _batch_from_compiled_outputs(
+            launch_config.ray_count,
+            outputs,
+            launch_config,
+            extension,
+            scene_buffers,
+            device=str(resolved_device),
+        )
+    outputs = getattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL)(
+        ray_origin_tensor,
+        ray_direction_tensor,
+        *scene_args,
         int(launch_config.max_hits),
         int(launch_config.threads_per_block),
     )

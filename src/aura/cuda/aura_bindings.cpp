@@ -231,6 +231,231 @@ pybind11::dict render_rays(
     return outputs;
 }
 
+extern "C" void aura_render_rays_bvh_launcher(
+    const float* ray_origins,
+    const float* ray_directions,
+    const float* element_mins,
+    const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
+    const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
+    const int* carrier_ids,
+    const float* colors,
+    const float* opacities,
+    const float* confidences,
+    const float* payload_params,
+    const int* material_ids,
+    const int* semantic_ids,
+    const float* node_mins,
+    const float* node_maxs,
+    const int* node_left,
+    const int* node_right,
+    const int* node_element,
+    float* out_color,
+    float* out_alpha,
+    float* out_transmittance,
+    float* out_depth,
+    float* out_normal,
+    float* out_confidence,
+    unsigned char* out_residual,
+    int* out_material_id,
+    int* out_semantic_id,
+    int* ordered_hits,
+    int ray_count,
+    int node_count,
+    int max_hits,
+    int threads_per_block
+);
+
+pybind11::dict render_rays_bvh(
+    torch::Tensor ray_origins,
+    torch::Tensor ray_directions,
+    torch::Tensor element_mins,
+    torch::Tensor element_maxs,
+    torch::Tensor plane_points,
+    torch::Tensor plane_normals,
+    torch::Tensor beta_support_radii,
+    torch::Tensor gaussian_means,
+    torch::Tensor gaussian_inverse_covariances,
+    torch::Tensor gaussian_support_radius_sq,
+    torch::Tensor carrier_ids,
+    torch::Tensor colors,
+    torch::Tensor opacities,
+    torch::Tensor confidences,
+    torch::Tensor payload_params,
+    torch::Tensor material_ids,
+    torch::Tensor semantic_ids,
+    torch::Tensor node_mins,
+    torch::Tensor node_maxs,
+    torch::Tensor node_left,
+    torch::Tensor node_right,
+    torch::Tensor node_element,
+    int64_t max_hits,
+    int64_t threads_per_block
+) {
+    require_cuda_float_tensor(ray_origins, "ray_origins");
+    require_cuda_float_tensor(ray_directions, "ray_directions");
+    require_cuda_float_tensor(element_mins, "element_mins");
+    require_cuda_float_tensor(element_maxs, "element_maxs");
+    require_cuda_float_tensor(plane_points, "plane_points");
+    require_cuda_float_tensor(plane_normals, "plane_normals");
+    require_cuda_float_tensor(beta_support_radii, "beta_support_radii");
+    require_cuda_float_tensor(gaussian_means, "gaussian_means");
+    require_cuda_float_tensor(gaussian_inverse_covariances, "gaussian_inverse_covariances");
+    require_cuda_float_tensor(gaussian_support_radius_sq, "gaussian_support_radius_sq");
+    require_cuda_int_tensor(carrier_ids, "carrier_ids");
+    require_cuda_float_tensor(colors, "colors");
+    require_cuda_float_tensor(opacities, "opacities");
+    require_cuda_float_tensor(confidences, "confidences");
+    require_cuda_float_tensor(payload_params, "payload_params");
+    require_cuda_int_tensor(material_ids, "material_ids");
+    require_cuda_int_tensor(semantic_ids, "semantic_ids");
+    require_cuda_float_tensor(node_mins, "node_mins");
+    require_cuda_float_tensor(node_maxs, "node_maxs");
+    require_cuda_int_tensor(node_left, "node_left");
+    require_cuda_int_tensor(node_right, "node_right");
+    require_cuda_int_tensor(node_element, "node_element");
+
+    require_same_cuda_device(ray_directions, ray_origins, "ray_directions", "ray_origins");
+    require_same_cuda_device(element_mins, ray_origins, "element_mins", "ray_origins");
+    require_same_cuda_device(element_maxs, ray_origins, "element_maxs", "ray_origins");
+    require_same_cuda_device(plane_points, ray_origins, "plane_points", "ray_origins");
+    require_same_cuda_device(plane_normals, ray_origins, "plane_normals", "ray_origins");
+    require_same_cuda_device(beta_support_radii, ray_origins, "beta_support_radii", "ray_origins");
+    require_same_cuda_device(gaussian_means, ray_origins, "gaussian_means", "ray_origins");
+    require_same_cuda_device(gaussian_inverse_covariances, ray_origins, "gaussian_inverse_covariances", "ray_origins");
+    require_same_cuda_device(gaussian_support_radius_sq, ray_origins, "gaussian_support_radius_sq", "ray_origins");
+    require_same_cuda_device(carrier_ids, ray_origins, "carrier_ids", "ray_origins");
+    require_same_cuda_device(colors, ray_origins, "colors", "ray_origins");
+    require_same_cuda_device(opacities, ray_origins, "opacities", "ray_origins");
+    require_same_cuda_device(confidences, ray_origins, "confidences", "ray_origins");
+    require_same_cuda_device(payload_params, ray_origins, "payload_params", "ray_origins");
+    require_same_cuda_device(material_ids, ray_origins, "material_ids", "ray_origins");
+    require_same_cuda_device(semantic_ids, ray_origins, "semantic_ids", "ray_origins");
+    require_same_cuda_device(node_mins, ray_origins, "node_mins", "ray_origins");
+    require_same_cuda_device(node_maxs, ray_origins, "node_maxs", "ray_origins");
+    require_same_cuda_device(node_left, ray_origins, "node_left", "ray_origins");
+    require_same_cuda_device(node_right, ray_origins, "node_right", "ray_origins");
+    require_same_cuda_device(node_element, ray_origins, "node_element", "ray_origins");
+
+    TORCH_CHECK(max_hits > 0, "max_hits must be positive");
+    TORCH_CHECK(threads_per_block > 0 && threads_per_block <= 1024, "threads_per_block must be in [1, 1024]");
+    TORCH_CHECK(ray_origins.dim() == 2 && ray_origins.size(1) == 3, "ray_origins must be rayCount x 3");
+    const int64_t ray_count_64 = ray_origins.size(0);
+    require_shape2(ray_directions, "ray_directions", ray_count_64, 3);
+    TORCH_CHECK(element_mins.dim() == 2 && element_mins.size(1) == 3, "element_mins must be elementCount x 3");
+    const int64_t element_count_64 = element_mins.size(0);
+    require_shape2(element_maxs, "element_maxs", element_count_64, 3);
+    require_shape2(plane_points, "plane_points", element_count_64, 3);
+    require_shape2(plane_normals, "plane_normals", element_count_64, 3);
+    require_shape2(beta_support_radii, "beta_support_radii", element_count_64, 3);
+    require_shape2(gaussian_means, "gaussian_means", element_count_64, 3);
+    TORCH_CHECK(
+        gaussian_inverse_covariances.dim() == 3 &&
+        gaussian_inverse_covariances.size(0) == element_count_64 &&
+        gaussian_inverse_covariances.size(1) == 3 &&
+        gaussian_inverse_covariances.size(2) == 3,
+        "gaussian_inverse_covariances must be elementCount x 3 x 3"
+    );
+    require_shape1(gaussian_support_radius_sq, "gaussian_support_radius_sq", element_count_64);
+    require_shape1(carrier_ids, "carrier_ids", element_count_64);
+    require_shape2(colors, "colors", element_count_64, 3);
+    require_shape1(opacities, "opacities", element_count_64);
+    require_shape1(confidences, "confidences", element_count_64);
+    require_shape2(payload_params, "payload_params", element_count_64, 5);
+    require_shape1(material_ids, "material_ids", element_count_64);
+    require_shape1(semantic_ids, "semantic_ids", element_count_64);
+
+    TORCH_CHECK(node_mins.dim() == 2 && node_mins.size(1) == 3, "node_mins must be nodeCount x 3");
+    const int64_t node_count_64 = node_mins.size(0);
+    require_shape2(node_maxs, "node_maxs", node_count_64, 3);
+    require_shape1(node_left, "node_left", node_count_64);
+    require_shape1(node_right, "node_right", node_count_64);
+    require_shape1(node_element, "node_element", node_count_64);
+
+    TORCH_CHECK(ray_count_64 <= static_cast<int64_t>(std::numeric_limits<int>::max()), "ray_count exceeds int32 launcher ABI");
+    TORCH_CHECK(node_count_64 <= static_cast<int64_t>(std::numeric_limits<int>::max()), "node_count exceeds int32 launcher ABI");
+    TORCH_CHECK(max_hits <= static_cast<int64_t>(std::numeric_limits<int>::max()), "max_hits exceeds int32 launcher ABI");
+
+    const int ray_count = static_cast<int>(ray_count_64);
+    const int node_count = static_cast<int>(node_count_64);
+    const int hit_count = static_cast<int>(max_hits);
+    const int threads = static_cast<int>(threads_per_block);
+    const c10::cuda::CUDAGuard device_guard(ray_origins.device());
+
+    auto float_options = ray_origins.options();
+    auto int_options = carrier_ids.options();
+    auto byte_options = torch::TensorOptions().dtype(torch::kUInt8).device(ray_origins.device());
+
+    torch::Tensor out_color = torch::empty({ray_count, 3}, float_options);
+    torch::Tensor out_alpha = torch::empty({ray_count}, float_options);
+    torch::Tensor out_transmittance = torch::empty({ray_count}, float_options);
+    torch::Tensor out_depth = torch::empty({ray_count}, float_options);
+    torch::Tensor out_normal = torch::empty({ray_count, 3}, float_options);
+    torch::Tensor out_confidence = torch::empty({ray_count}, float_options);
+    torch::Tensor out_residual = torch::empty({ray_count}, byte_options);
+    torch::Tensor out_material_id = torch::empty({ray_count}, int_options);
+    torch::Tensor out_semantic_id = torch::empty({ray_count}, int_options);
+    torch::Tensor ordered_hits = torch::empty({ray_count, hit_count}, int_options);
+
+    aura_render_rays_bvh_launcher(
+        ray_origins.data_ptr<float>(),
+        ray_directions.data_ptr<float>(),
+        element_mins.data_ptr<float>(),
+        element_maxs.data_ptr<float>(),
+        plane_points.data_ptr<float>(),
+        plane_normals.data_ptr<float>(),
+        beta_support_radii.data_ptr<float>(),
+        gaussian_means.data_ptr<float>(),
+        gaussian_inverse_covariances.data_ptr<float>(),
+        gaussian_support_radius_sq.data_ptr<float>(),
+        carrier_ids.data_ptr<int>(),
+        colors.data_ptr<float>(),
+        opacities.data_ptr<float>(),
+        confidences.data_ptr<float>(),
+        payload_params.data_ptr<float>(),
+        material_ids.data_ptr<int>(),
+        semantic_ids.data_ptr<int>(),
+        node_mins.data_ptr<float>(),
+        node_maxs.data_ptr<float>(),
+        node_left.data_ptr<int>(),
+        node_right.data_ptr<int>(),
+        node_element.data_ptr<int>(),
+        out_color.data_ptr<float>(),
+        out_alpha.data_ptr<float>(),
+        out_transmittance.data_ptr<float>(),
+        out_depth.data_ptr<float>(),
+        out_normal.data_ptr<float>(),
+        out_confidence.data_ptr<float>(),
+        out_residual.data_ptr<unsigned char>(),
+        out_material_id.data_ptr<int>(),
+        out_semantic_id.data_ptr<int>(),
+        ordered_hits.data_ptr<int>(),
+        ray_count,
+        node_count,
+        hit_count,
+        threads
+    );
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    pybind11::dict outputs;
+    outputs["out_color"] = out_color;
+    outputs["out_alpha"] = out_alpha;
+    outputs["out_transmittance"] = out_transmittance;
+    outputs["out_depth"] = out_depth;
+    outputs["out_normal"] = out_normal;
+    outputs["out_confidence"] = out_confidence;
+    outputs["out_residual"] = out_residual;
+    outputs["out_material_id"] = out_material_id;
+    outputs["out_semantic_id"] = out_semantic_id;
+    outputs["ordered_hits"] = ordered_hits;
+    return outputs;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("render_rays", &render_rays, "Launch the AURA CUDA renderer over packed ray and scene tensors");
+    m.def("render_rays_bvh", &render_rays_bvh, "Launch the AURA CUDA renderer with GPU BVH traversal over packed ray and scene tensors");
 }

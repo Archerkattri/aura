@@ -6,7 +6,9 @@ import aura.cuda_renderer as cuda_renderer_module
 from aura import AuraElement, AuraScene, Bounds, Ray
 from aura.cuda_kernels import CudaExtensionStatus
 from aura.cuda_renderer import (
+    CUDA_RENDERER_BINDING_SYMBOL,
     cuda_render_rays,
+    cuda_renderer_build_bvh,
     cuda_renderer_dispatch_contract,
     cuda_renderer_boundary_report,
     cuda_renderer_kernel_inputs,
@@ -631,6 +633,172 @@ def test_cuda_render_rays_compiled_extension_uses_gabor_phase_on_cuda():
     assert batch.backend == "cuda"
     assert _flatten_nested(batch.color) == pytest.approx(simulation.out_color)
     assert batch.depth == pytest.approx((1.2,))
+
+
+def _multi_carrier_scene():
+    return AuraScene(
+        name="cuda_bvh_multi_carrier",
+        elements=(
+            AuraElement(
+                id="wall",
+                carrier_id="surface",
+                bounds=Bounds((-0.75, -0.75, 0.0), (-0.25, -0.25, 0.1)),
+                color=(0.8, 0.2, 0.1),
+                opacity=0.7,
+                confidence=0.9,
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="fog",
+                carrier_id="volume",
+                bounds=Bounds((-0.15, -0.7, 0.0), (0.35, -0.2, 0.8)),
+                color=(0.2, 0.4, 0.8),
+                opacity=0.6,
+                confidence=0.7,
+                payload={"type": "volume_cell", "density": 1.2},
+            ),
+            AuraElement(
+                id="residual",
+                carrier_id="neural",
+                bounds=Bounds((-0.75, 0.05, 0.0), (-0.25, 0.55, 0.2)),
+                color=(0.1, 0.2, 0.9),
+                opacity=0.5,
+                confidence=0.6,
+                payload={"type": "neural_residual", "residual_scale": 0.3},
+            ),
+            AuraElement(
+                id="detail",
+                carrier_id="beta",
+                bounds=Bounds((0.5, 0.05, 0.0), (0.8, 0.35, 0.15)),
+                color=(0.9, 0.6, 0.2),
+                opacity=0.8,
+                confidence=0.8,
+                payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0},
+            ),
+            AuraElement(
+                id="blob",
+                carrier_id="gaussian",
+                bounds=Bounds((0.85, 0.3, 0.0), (1.05, 0.5, 0.2)),
+                color=(0.3, 0.7, 0.5),
+                opacity=0.7,
+                confidence=0.75,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.95, 0.4, 0.1],
+                    "covariance": [[0.05, 0.0, 0.0], [0.0, 0.05, 0.0], [0.0, 0.0, 0.05]],
+                    "support_sigma": 1.0,
+                },
+            ),
+        ),
+    )
+
+
+def test_cuda_renderer_build_bvh_covers_every_element_as_a_leaf():
+    scene = _multi_carrier_scene()
+
+    bvh = cuda_renderer_build_bvh(scene)
+    payload = bvh.to_dict()
+
+    assert payload["format"] == "AURA_CUDA_RENDERER_BVH"
+    assert bvh.element_count == len(scene.elements)
+    assert payload["leafCount"] == len(scene.elements)
+    leaf_elements = sorted(value for value in bvh.node_element if value >= 0)
+    assert leaf_elements == list(range(len(scene.elements)))
+    # Internal nodes reference valid child node indices; leaves have no children.
+    for node_index in range(bvh.node_count):
+        element_index = bvh.node_element[node_index]
+        if element_index >= 0:
+            assert bvh.node_left[node_index] == -1
+            assert bvh.node_right[node_index] == -1
+        else:
+            assert 0 <= bvh.node_left[node_index] < bvh.node_count
+            assert 0 <= bvh.node_right[node_index] < bvh.node_count
+
+
+def test_cuda_renderer_build_bvh_handles_single_and_empty_scenes():
+    single = AuraScene(
+        name="single_bvh",
+        elements=(
+            AuraElement(
+                id="only",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    bvh = cuda_renderer_build_bvh(single)
+    assert bvh.node_count == 1
+    assert bvh.node_element == (0,)
+
+    empty = cuda_renderer_build_bvh(AuraScene(name="empty_bvh", elements=()))
+    assert empty.node_count == 0
+    assert empty.node_element == ()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_bvh_path_matches_brute_force_and_torch_on_cuda():
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    import aura.cuda_renderer as renderer_module
+    from aura.benchmark import _benchmark_ray_grid
+    from aura.torch_renderer import torch_render_rays
+
+    scene = _multi_carrier_scene()
+    origins, directions = _benchmark_ray_grid(scene, 256)
+    ray_origins = torch.tensor(origins, dtype=torch.float32, device="cuda")
+    ray_directions = torch.tensor(directions, dtype=torch.float32, device="cuda")
+
+    extension, extension_module = renderer_module._resolve_cuda_renderer_extension(
+        extension=None, extension_module=None, build=True
+    )
+    assert extension.available
+    assert hasattr(extension_module, "render_rays_bvh")
+
+    # Production path: dispatch prefers the GPU BVH binding when present.
+    bvh_batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        require_cuda=True,
+        fallback_backend="none",
+        max_hits=8,
+    )
+
+    # Force the brute-force binding by hiding render_rays_bvh from the module.
+    class _BruteForceOnly:
+        render_rays = staticmethod(getattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL))
+        aura_render_rays_kernel = object()
+        aura_render_rays_launcher = object()
+
+    brute_batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        extension=extension,
+        extension_module=_BruteForceOnly,
+        max_hits=8,
+    )
+
+    torch_batch = torch_render_rays(scene, ray_origins, ray_directions, device="cuda", collect_traces=False)
+
+    assert bvh_batch.backend == "cuda"
+    for ray_index in range(256):
+        assert bvh_batch.element_ids[ray_index] == brute_batch.element_ids[ray_index]
+        assert bvh_batch.element_ids[ray_index] == torch_batch.element_ids[ray_index]
+        for channel in range(3):
+            assert bvh_batch.color[ray_index][channel] == pytest.approx(
+                brute_batch.color[ray_index][channel], abs=1.0e-6
+            )
+            assert bvh_batch.color[ray_index][channel] == pytest.approx(
+                torch_batch.predicted_color[ray_index][channel], abs=1.0e-4
+            )
+        assert bvh_batch.transmittance[ray_index] == pytest.approx(brute_batch.transmittance[ray_index], abs=1.0e-6)
 
 
 def _carrier_parity_scene(carrier_id, payload, **element_kwargs):

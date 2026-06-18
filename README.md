@@ -64,16 +64,22 @@ Implemented now:
 - checkpoint and resume metadata for training runs;
 - deterministic CPU/torch package rendering, query demos, ray-query scoring,
   and visual metric helpers;
-- packaged CUDA kernel and PyTorch extension sources with build/status probes.
+- packaged CUDA kernel and PyTorch extension sources with build/status probes;
+- compiled CUDA renderer (`aura cuda-kernel-build-report --build` reports
+  `compiled: true, loadable: true`) dispatched through a pybind11 `render_rays`
+  binding over packed CUDA scene/ray tensors;
+- carrier-complete CUDA kernels with measured parity against the torch renderer
+  for surface, volume, beta, gabor, neural residual, semantic, and Gaussian
+  fallback carriers (per-carrier GPU parity tests run when CUDA is available);
+- a production GPU BVH traversal kernel (`render_rays_bvh`) over a flattened
+  median-split element BVH that replaces the brute-force element scan as the
+  dispatched production path, with parity tests against both the brute-force
+  kernel and the torch renderer;
+- a CUDA-vs-torch render runtime benchmark (`aura benchmark-cuda-runtime`) that
+  measures on-device throughput and verifies cross-backend parity.
 
 Still missing before this can be called production:
 
-- compiled CUDA renderer dispatch parity and runtime benchmarks;
-- production GPU BVH/traversal instead of the current mixed exact-carrier and
-  bounded fallback tensor path;
-- carrier-complete CUDA kernels with measured parity against the torch renderer
-  for surface, volume, beta, gabor, neural residual, semantic, and Gaussian
-  fallback carriers;
 - larger real-scene benchmarks against COLMAP, NeRF, and 3DGS baselines;
 - production EXR/video streaming and long-run memory tests.
 
