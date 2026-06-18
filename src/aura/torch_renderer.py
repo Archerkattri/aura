@@ -1418,8 +1418,6 @@ def _torch_gaussian_ellipsoid_hits(
         & torch.isfinite(support_radius_sq)
         & (support_radius_sq > 0.0)
     )
-    if not bool(valid_gaussian.detach().cpu().item()):
-        return invalid_entry, invalid_entry, invalid_hits
 
     delta = origins - mean.unsqueeze(0)
     inv_directions = directions @ inverse_covariance
@@ -1433,7 +1431,7 @@ def _torch_gaussian_ellipsoid_hits(
     near = (-b - sqrt_discriminant) / torch.clamp(2.0 * a, min=1e-8)
     far = (-b + sqrt_discriminant) / torch.clamp(2.0 * a, min=1e-8)
     entry = torch.where(near >= 0.0, near, torch.zeros_like(near))
-    hits = valid & (far >= 0.0) & (entry >= 0.0)
+    hits = valid_gaussian & valid & (far >= 0.0) & (entry >= 0.0)
     entry = torch.where(hits, entry, invalid_entry)
     exit_depth = torch.where(hits, torch.clamp(far, min=0.0), invalid_entry)
     return entry, exit_depth, hits
@@ -1450,8 +1448,6 @@ def _torch_beta_ellipsoid_hits(
     invalid_entry = torch.full((ray_count,), float("inf"), dtype=origins.dtype, device=origins.device)
     invalid_hits = torch.zeros((ray_count,), dtype=torch.bool, device=origins.device)
     valid_beta = torch.isfinite(center).all() & torch.isfinite(support_radii).all() & torch.all(support_radii > 0.0)
-    if not bool(valid_beta.detach().cpu().item()):
-        return invalid_entry, invalid_entry, invalid_hits
 
     scaled_origin = (origins - center.unsqueeze(0)) / support_radii.unsqueeze(0)
     scaled_direction = directions / support_radii.unsqueeze(0)
@@ -1466,7 +1462,7 @@ def _torch_beta_ellipsoid_hits(
     far = (-b + sqrt_discriminant) / denom
     entry = torch.clamp(torch.minimum(near, far), min=0.0)
     exit_depth = torch.maximum(near, far)
-    hits = valid & (exit_depth >= entry)
+    hits = valid_beta & valid & (exit_depth >= entry)
     return (
         torch.where(hits, entry, invalid_entry),
         torch.where(hits, exit_depth, invalid_entry),

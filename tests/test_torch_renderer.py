@@ -1363,6 +1363,32 @@ def test_torch_render_targets_uses_trainable_gaussian_mean():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_gaussian_ellipsoid_invalid_geometry_masks_to_miss():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    origins = torch.tensor([[0.0, 0.0, -2.0]], dtype=torch.float32, device=device)
+    directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32, device=device)
+    mean = torch.tensor([float("nan"), 0.0, 0.0], dtype=torch.float32, device=device)
+    inverse_covariance = torch.eye(3, dtype=torch.float32, device=device)
+    support_radius_sq = torch.tensor(1.0, dtype=torch.float32, device=device)
+
+    entry, exit_depth, hits = torch_renderer_module._torch_gaussian_ellipsoid_hits(
+        torch,
+        origins,
+        directions,
+        mean,
+        inverse_covariance,
+        support_radius_sq,
+    )
+
+    assert entry.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert torch.isinf(entry).tolist() == [True]
+    assert torch.isinf(exit_depth).tolist() == [True]
+    assert hits.tolist() == [False]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_uses_gabor_surface_support_plane():
     scene = AuraScene(
         name="torch_gabor_surface_geometry_scene",
@@ -1499,6 +1525,30 @@ def test_torch_render_targets_uses_beta_support_ellipsoid():
     assert center_batch.element_ids == ("beta",)
     assert center_batch.predicted_depth == pytest.approx((2.5,))
     assert center_batch.ordered_hits[0][0]["depth"] == pytest.approx(2.5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_beta_ellipsoid_invalid_geometry_masks_to_miss():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    origins = torch.tensor([[0.0, 0.0, -2.0]], dtype=torch.float32, device=device)
+    directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32, device=device)
+    center = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, device=device)
+    support_radii = torch.tensor([0.0, 0.5, 0.5], dtype=torch.float32, device=device)
+
+    entry, exit_depth, hits = torch_renderer_module._torch_beta_ellipsoid_hits(
+        torch,
+        origins,
+        directions,
+        center,
+        support_radii,
+    )
+
+    assert entry.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert torch.isinf(entry).tolist() == [True]
+    assert torch.isinf(exit_depth).tolist() == [True]
+    assert hits.tolist() == [False]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
