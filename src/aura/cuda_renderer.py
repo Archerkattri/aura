@@ -48,6 +48,7 @@ class CudaRendererSceneBuffers:
     element_maxs: tuple[float, ...]
     plane_points: tuple[float, ...]
     plane_normals: tuple[float, ...]
+    beta_support_radii: tuple[float, ...]
     colors: tuple[float, ...]
     opacities: tuple[float, ...]
     confidences: tuple[float, ...]
@@ -66,6 +67,7 @@ class CudaRendererSceneBuffers:
             ("element_maxs", self.element_maxs, element_count * 3),
             ("plane_points", self.plane_points, element_count * 3),
             ("plane_normals", self.plane_normals, element_count * 3),
+            ("beta_support_radii", self.beta_support_radii, element_count * 3),
             ("colors", self.colors, element_count * 3),
             ("payload_params", self.payload_params, element_count * 4),
         ):
@@ -91,6 +93,7 @@ class CudaRendererSceneBuffers:
             "elementMaxs": _flat_buffer_metadata(self.element_maxs, "float32", (self.element_count, 3)),
             "planePoints": _flat_buffer_metadata(self.plane_points, "float32", (self.element_count, 3)),
             "planeNormals": _flat_buffer_metadata(self.plane_normals, "float32", (self.element_count, 3)),
+            "betaSupportRadii": _flat_buffer_metadata(self.beta_support_radii, "float32", (self.element_count, 3)),
             "colors": _flat_buffer_metadata(self.colors, "float32", (self.element_count, 3)),
             "opacities": _flat_buffer_metadata(self.opacities, "float32", (self.element_count,)),
             "confidences": _flat_buffer_metadata(self.confidences, "float32", (self.element_count,)),
@@ -145,6 +148,7 @@ class CudaRendererKernelInputBuffers:
             "element_maxs": self.scene.element_maxs,
             "plane_points": self.scene.plane_points,
             "plane_normals": self.scene.plane_normals,
+            "beta_support_radii": self.scene.beta_support_radii,
             "carrier_ids": self.scene.carrier_kernel_ids,
             "colors": self.scene.colors,
             "opacities": self.scene.opacities,
@@ -474,6 +478,7 @@ def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
         element_maxs=tuple(value for element in scene.elements for value in element.bounds.max_corner),
         plane_points=tuple(value for element in scene.elements for value in _cuda_renderer_plane_point(element)),
         plane_normals=tuple(value for element in scene.elements for value in _cuda_renderer_plane_normal(element)),
+        beta_support_radii=tuple(value for element in scene.elements for value in _cuda_renderer_beta_support_radius(element)),
         colors=tuple(value for element in scene.elements for value in element.color),
         opacities=tuple(float(element.opacity) for element in scene.elements),
         confidences=tuple(float(element.confidence) for element in scene.elements),
@@ -546,6 +551,23 @@ def _cuda_renderer_plane_point(element: Any) -> tuple[float, float, float]:
         dominant_axis = max(range(3), key=lambda index: abs(normal[index]))
         center[dominant_axis] = min_corner[dominant_axis] if normal[dominant_axis] < 0.0 else max_corner[dominant_axis]
     return tuple(center)  # type: ignore[return-value]
+
+
+def _cuda_renderer_beta_support_radius(element: Any) -> tuple[float, float, float]:
+    payload_type = element.payload.get("type")
+    if payload_type != "beta_kernel" and element.carrier_id != "beta":
+        return _nan_vec3()
+    support_radius = element.payload.get("support_radius")
+    if isinstance(support_radius, (list, tuple)) and len(support_radius) == 3:
+        try:
+            radii = tuple(float(value) for value in support_radius)
+        except (TypeError, ValueError):
+            return _nan_vec3()
+        return radii if all(value > 0.0 for value in radii) else _nan_vec3()  # type: ignore[return-value]
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    radii = tuple(max((max_corner[index] - min_corner[index]) * 0.5, 1.0e-4) for index in range(3))
+    return radii  # type: ignore[return-value]
 
 
 def cuda_renderer_kernel_inputs(
@@ -708,6 +730,21 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
                 )
                 if plane_hit is not None:
                     hit = plane_hit
+            elif carrier_id == CUDA_RENDERER_CARRIER_IDS["beta"]:
+                beta_support_radii = _flat_vec3(inputs.scene.beta_support_radii, element_index)
+                beta_hit = _simulate_ray_beta_ellipsoid_intersect(
+                    origin,
+                    direction,
+                    _flat_vec3(inputs.scene.element_mins, element_index),
+                    _flat_vec3(inputs.scene.element_maxs, element_index),
+                    beta_support_radii,
+                )
+                if beta_hit is None and _valid_support_radii(beta_support_radii):
+                    hit = None
+                elif beta_hit is not None and hit is not None:
+                    bounded_entry = max(hit[0], beta_hit[0])
+                    bounded_exit = min(hit[1], beta_hit[1])
+                    hit = (bounded_entry, bounded_exit, hit[2]) if bounded_exit >= bounded_entry else None
             if hit is None:
                 continue
             depth, _exit_depth, normal = hit
@@ -802,7 +839,14 @@ def _simulate_cuda_carrier_response(
         alpha = max(payload[0], 1e-6)
         beta = max(payload[1], 1e-6)
         point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
-        support = _cuda_beta_support(point, _flat_vec3(inputs.scene.element_mins, element_index), _flat_vec3(inputs.scene.element_maxs, element_index), alpha, beta)
+        support = _cuda_beta_support(
+            point,
+            _flat_vec3(inputs.scene.element_mins, element_index),
+            _flat_vec3(inputs.scene.element_maxs, element_index),
+            _flat_vec3(inputs.scene.beta_support_radii, element_index),
+            alpha,
+            beta,
+        )
         return (_clamp_unit(1.0 - opacity * support), confidence, color, residual)
     if carrier_id == CUDA_RENDERER_CARRIER_IDS["gabor"]:
         point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
@@ -829,14 +873,16 @@ def _cuda_beta_support(
     point: tuple[float, float, float],
     mins: tuple[float, float, float],
     maxs: tuple[float, float, float],
+    support_radii: tuple[float, float, float],
     alpha: float,
     beta: float,
 ) -> float:
-    coords = []
+    center = tuple((mins[axis] + maxs[axis]) * 0.5 for axis in range(3))
+    normalized = []
     for axis in range(3):
-        extent = max(maxs[axis] - mins[axis], 1e-6)
-        coords.append(_clamp_unit((point[axis] - mins[axis]) / extent))
-    u = sum(coords) / 3.0
+        radius = max(support_radii[axis], 1e-6)
+        normalized.append(_clamp_unit(1.0 - abs(point[axis] - center[axis]) / radius))
+    u = sum(normalized) / 3.0
     raw = (u ** (alpha - 1.0)) * ((1.0 - u) ** (beta - 1.0))
     if alpha > 1.0 and beta > 1.0:
         mode = _clamp_unit((alpha - 1.0) / max(alpha + beta - 2.0, 1e-6))
@@ -1316,6 +1362,7 @@ def _compiled_extension_batch(
         torch.tensor(scene_buffers.element_maxs, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.plane_points, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.plane_normals, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.beta_support_radii, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.carrier_kernel_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
@@ -1558,6 +1605,10 @@ def _is_nan_vec3(vector: tuple[float, float, float]) -> bool:
     return any(value != value for value in vector)
 
 
+def _valid_support_radii(vector: tuple[float, float, float]) -> bool:
+    return not _is_nan_vec3(vector) and all(value > 0.0 for value in vector)
+
+
 def _flat_vec3(values: Sequence[float], index: int) -> tuple[float, float, float]:
     offset = index * 3
     return (float(values[offset]), float(values[offset + 1]), float(values[offset + 2]))
@@ -1625,6 +1676,51 @@ def _simulate_ray_plane_intersect(
     if any(point[axis] < box_min[axis] - 1.0e-5 or point[axis] > box_max[axis] + 1.0e-5 for axis in range(3)):
         return None
     return (depth, depth, normal)
+
+
+def _simulate_ray_beta_ellipsoid_intersect(
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    box_min: tuple[float, float, float],
+    box_max: tuple[float, float, float],
+    support_radii: tuple[float, float, float],
+) -> tuple[float, float, tuple[float, float, float]] | None:
+    if _is_nan_vec3(support_radii) or any(value <= 0.0 for value in support_radii):
+        return None
+    center = tuple((box_min[axis] + box_max[axis]) * 0.5 for axis in range(3))
+    scaled_origin = tuple((origin[axis] - center[axis]) / support_radii[axis] for axis in range(3))
+    scaled_direction = tuple(direction[axis] / support_radii[axis] for axis in range(3))
+    a = sum(value * value for value in scaled_direction)
+    b = 2.0 * sum(scaled_origin[axis] * scaled_direction[axis] for axis in range(3))
+    c = sum(value * value for value in scaled_origin) - 1.0
+    discriminant = b * b - 4.0 * a * c
+    if a <= 1.0e-8 or discriminant < 0.0:
+        return None
+    root = discriminant ** 0.5
+    denom = 2.0 * a
+    near = (-b - root) / denom
+    far = (-b + root) / denom
+    entry = max(min(near, far), 0.0)
+    exit_depth = max(near, far)
+    if exit_depth < entry:
+        return None
+    normal = _beta_ellipsoid_normal(origin, direction, entry, center, support_radii)
+    return (entry, exit_depth, normal)
+
+
+def _beta_ellipsoid_normal(
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    depth: float,
+    center: tuple[float, float, float],
+    support_radii: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
+    gradient = tuple((point[axis] - center[axis]) / max(support_radii[axis] * support_radii[axis], 1.0e-12) for axis in range(3))
+    try:
+        return _normalize_vec3(gradient)
+    except ValueError:
+        return (0.0, 0.0, 0.0)
 
 
 def _flat_buffer_metadata(values: Sequence[object], dtype: str, shape: tuple[int, ...]) -> dict[str, object]:

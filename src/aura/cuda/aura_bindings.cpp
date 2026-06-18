@@ -13,6 +13,7 @@ extern "C" void aura_render_rays_launcher(
     const float* element_maxs,
     const float* plane_points,
     const float* plane_normals,
+    const float* beta_support_radii,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -78,6 +79,7 @@ pybind11::dict render_rays(
     torch::Tensor element_maxs,
     torch::Tensor plane_points,
     torch::Tensor plane_normals,
+    torch::Tensor beta_support_radii,
     torch::Tensor carrier_ids,
     torch::Tensor colors,
     torch::Tensor opacities,
@@ -94,6 +96,7 @@ pybind11::dict render_rays(
     require_cuda_float_tensor(element_maxs, "element_maxs");
     require_cuda_float_tensor(plane_points, "plane_points");
     require_cuda_float_tensor(plane_normals, "plane_normals");
+    require_cuda_float_tensor(beta_support_radii, "beta_support_radii");
     require_cuda_int_tensor(carrier_ids, "carrier_ids");
     require_cuda_float_tensor(colors, "colors");
     require_cuda_float_tensor(opacities, "opacities");
@@ -106,6 +109,7 @@ pybind11::dict render_rays(
     require_same_cuda_device(element_maxs, ray_origins, "element_maxs", "ray_origins");
     require_same_cuda_device(plane_points, ray_origins, "plane_points", "ray_origins");
     require_same_cuda_device(plane_normals, ray_origins, "plane_normals", "ray_origins");
+    require_same_cuda_device(beta_support_radii, ray_origins, "beta_support_radii", "ray_origins");
     require_same_cuda_device(carrier_ids, ray_origins, "carrier_ids", "ray_origins");
     require_same_cuda_device(colors, ray_origins, "colors", "ray_origins");
     require_same_cuda_device(opacities, ray_origins, "opacities", "ray_origins");
@@ -124,6 +128,7 @@ pybind11::dict render_rays(
     require_shape2(element_maxs, "element_maxs", element_count_64, 3);
     require_shape2(plane_points, "plane_points", element_count_64, 3);
     require_shape2(plane_normals, "plane_normals", element_count_64, 3);
+    require_shape2(beta_support_radii, "beta_support_radii", element_count_64, 3);
     require_shape1(carrier_ids, "carrier_ids", element_count_64);
     require_shape2(colors, "colors", element_count_64, 3);
     require_shape1(opacities, "opacities", element_count_64);
@@ -163,6 +168,7 @@ pybind11::dict render_rays(
         element_maxs.data_ptr<float>(),
         plane_points.data_ptr<float>(),
         plane_normals.data_ptr<float>(),
+        beta_support_radii.data_ptr<float>(),
         carrier_ids.data_ptr<int>(),
         colors.data_ptr<float>(),
         opacities.data_ptr<float>(),

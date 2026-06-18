@@ -294,19 +294,119 @@ __device__ float aura_clamp_unit(float value) {
     return fminf(fmaxf(value, 0.0f), 1.0f);
 }
 
+__device__ bool aura_beta_radii_valid(const float* radii) {
+    return isfinite(radii[0]) && isfinite(radii[1]) && isfinite(radii[2]) && radii[0] > 0.0f && radii[1] > 0.0f && radii[2] > 0.0f;
+}
+
+__device__ void aura_beta_ellipsoid_normal(
+    const float* origin,
+    const float* direction,
+    float depth,
+    const float* center,
+    const float* radii,
+    float* out_normal
+) {
+    const float point[3] = {
+        origin[0] + direction[0] * depth,
+        origin[1] + direction[1] * depth,
+        origin[2] + direction[2] * depth,
+    };
+    const float gx = (point[0] - center[0]) / fmaxf(radii[0] * radii[0], 1.0e-12f);
+    const float gy = (point[1] - center[1]) / fmaxf(radii[1] * radii[1], 1.0e-12f);
+    const float gz = (point[2] - center[2]) / fmaxf(radii[2] * radii[2], 1.0e-12f);
+    const float norm = sqrtf(gx * gx + gy * gy + gz * gz);
+    if (norm <= 1.0e-12f) {
+        out_normal[0] = 0.0f;
+        out_normal[1] = 0.0f;
+        out_normal[2] = 0.0f;
+        return;
+    }
+    out_normal[0] = gx / norm;
+    out_normal[1] = gy / norm;
+    out_normal[2] = gz / norm;
+}
+
+__device__ bool aura_ray_beta_ellipsoid_intersect(
+    const float* origin,
+    const float* direction,
+    const float* box_min,
+    const float* box_max,
+    const float* radii,
+    float* out_enter,
+    float* out_exit,
+    float* out_normal
+) {
+    if (!aura_beta_radii_valid(radii)) {
+        return false;
+    }
+    const float center[3] = {
+        (box_min[0] + box_max[0]) * 0.5f,
+        (box_min[1] + box_max[1]) * 0.5f,
+        (box_min[2] + box_max[2]) * 0.5f,
+    };
+    const float scaled_origin[3] = {
+        (origin[0] - center[0]) / radii[0],
+        (origin[1] - center[1]) / radii[1],
+        (origin[2] - center[2]) / radii[2],
+    };
+    const float scaled_direction[3] = {
+        direction[0] / radii[0],
+        direction[1] / radii[1],
+        direction[2] / radii[2],
+    };
+    const float a = (
+        scaled_direction[0] * scaled_direction[0] +
+        scaled_direction[1] * scaled_direction[1] +
+        scaled_direction[2] * scaled_direction[2]
+    );
+    const float b = 2.0f * (
+        scaled_origin[0] * scaled_direction[0] +
+        scaled_origin[1] * scaled_direction[1] +
+        scaled_origin[2] * scaled_direction[2]
+    );
+    const float c = (
+        scaled_origin[0] * scaled_origin[0] +
+        scaled_origin[1] * scaled_origin[1] +
+        scaled_origin[2] * scaled_origin[2] - 1.0f
+    );
+    const float discriminant = b * b - 4.0f * a * c;
+    if (a <= 1.0e-8f || discriminant < 0.0f) {
+        return false;
+    }
+    const float root = sqrtf(fmaxf(discriminant, 0.0f));
+    const float denom = 2.0f * a;
+    const float near_depth = (-b - root) / denom;
+    const float far_depth = (-b + root) / denom;
+    const float entry = fmaxf(fminf(near_depth, far_depth), 0.0f);
+    const float exit_depth = fmaxf(near_depth, far_depth);
+    if (exit_depth < entry) {
+        return false;
+    }
+    *out_enter = entry;
+    *out_exit = exit_depth;
+    aura_beta_ellipsoid_normal(origin, direction, entry, center, radii, out_normal);
+    return true;
+}
+
 __device__ float aura_beta_support(
     const float* point,
     const float* box_min,
     const float* box_max,
+    const float* radii,
     float alpha,
     float beta
 ) {
     const float safe_alpha = fmaxf(alpha, 1.0e-6f);
     const float safe_beta = fmaxf(beta, 1.0e-6f);
+    const float center[3] = {
+        (box_min[0] + box_max[0]) * 0.5f,
+        (box_min[1] + box_max[1]) * 0.5f,
+        (box_min[2] + box_max[2]) * 0.5f,
+    };
     float u = 0.0f;
     for (int axis = 0; axis < 3; ++axis) {
-        const float extent = fmaxf(box_max[axis] - box_min[axis], 1.0e-6f);
-        u += aura_clamp_unit((point[axis] - box_min[axis]) / extent);
+        const float radius = fmaxf(radii[axis], 1.0e-6f);
+        u += aura_clamp_unit(1.0f - fabsf(point[axis] - center[axis]) / radius);
     }
     u /= 3.0f;
     float raw = powf(u, safe_alpha - 1.0f) * powf(1.0f - u, safe_beta - 1.0f);
@@ -327,6 +427,7 @@ extern "C" __global__ void aura_render_rays_kernel(
     const float* element_maxs,
     const float* plane_points,
     const float* plane_normals,
+    const float* beta_support_radii,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -401,6 +502,37 @@ extern "C" __global__ void aura_render_rays_kernel(
             );
             if (plane_hit) {
                 exit_depth = enter_depth;
+            } else if (!hit) {
+                continue;
+            }
+        } else if (carrier_ids[element_i] == 2) {
+            const float* beta_radii = beta_support_radii + element_i * 3;
+            float beta_enter = 0.0f;
+            float beta_exit = 0.0f;
+            float beta_normal[3] = {0.0f, 0.0f, 0.0f};
+            const bool beta_hit = aura_ray_beta_ellipsoid_intersect(
+                origin,
+                direction,
+                element_mins + element_i * 3,
+                element_maxs + element_i * 3,
+                beta_radii,
+                &beta_enter,
+                &beta_exit,
+                beta_normal
+            );
+            if (beta_hit && hit) {
+                if (beta_enter > enter_depth) {
+                    enter_depth = beta_enter;
+                    normal[0] = beta_normal[0];
+                    normal[1] = beta_normal[1];
+                    normal[2] = beta_normal[2];
+                }
+                exit_depth = fminf(exit_depth, beta_exit);
+                if (exit_depth < enter_depth) {
+                    continue;
+                }
+            } else if (aura_beta_radii_valid(beta_radii)) {
+                continue;
             } else if (!hit) {
                 continue;
             }
@@ -486,6 +618,7 @@ extern "C" __global__ void aura_render_rays_kernel(
                 point,
                 element_mins + element_i * 3,
                 element_maxs + element_i * 3,
+                beta_support_radii + element_i * 3,
                 payload[0],
                 payload[1]
             );
@@ -543,6 +676,7 @@ extern "C" void aura_render_rays_launcher(
     const float* element_maxs,
     const float* plane_points,
     const float* plane_normals,
+    const float* beta_support_radii,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -583,6 +717,7 @@ extern "C" void aura_render_rays_launcher(
         element_maxs,
         plane_points,
         plane_normals,
+        beta_support_radii,
         carrier_ids,
         colors,
         opacities,
