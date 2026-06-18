@@ -96,6 +96,9 @@ native representation contract pieces:
 - model-scored native feature proposals from image/depth/mask/normal tensor
   features, producing high-frequency and compact-detail `TrainingRegion`
   evidence before decomposition;
+- dependency-free learned capture proposal weights via
+  `train_capture_proposal_model`, keeping image/depth/mask/normal feature
+  labels on the same native region proposal contract;
 - deterministic capture asset summaries built from the same tensor path for
   manifest-backed native training fixtures;
 - deterministic orthographic package preview rendering and reference
@@ -121,8 +124,8 @@ native representation contract pieces:
 
 It does **not** yet contain the full AURA-Core reconstruction engine:
 production EXR/video tensor loading, production GPU differentiable
-optimization, compiled CUDA kernels, production GPU BVH traversal, or
-end-to-end benchmark results.
+optimization, compiled CUDA kernels, production GPU BVH traversal, neural
+proposal networks trained on real captures, or end-to-end benchmark results.
 
 See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
 next milestone must be native reconstruction rather than more package polish.

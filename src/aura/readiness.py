@@ -173,14 +173,17 @@ def production_readiness_report() -> ProductionReadinessReport:
             evidence=(
                 "CPU reference rendering, ray query, reconstruction, and torch optimization scaffolds exist",
                 "capture manifest conversion and tensor target planning share deterministic contracts",
+                "capture proposal weights can be trained from labeled feature examples and reused in native region generation",
             ),
             gaps=(
                 "renderer is not production real-time",
                 "trainer is not a full reconstruction system for large real datasets",
+                "proposal model is a lightweight logistic contract, not a full neural region proposal network",
                 "secondary rays, relighting, streaming, and GPU BVH traversal are not production paths",
             ),
             next_steps=(
                 "replace CPU reference loops with GPU renderer/trainer implementations",
+                "train proposal weights on real capture labels and replace the logistic model with a neural proposal backend",
                 "add full-scene performance, memory, and correctness gates",
             ),
         ),

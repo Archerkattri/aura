@@ -116,6 +116,10 @@ This package now contains the GPU-ready skeleton for AURA:
   per-pixel capture tensor targets into the CPU reference optimization loop;
 - model-scored native feature proposals for image-detail and depth-edge regions
   before adaptive decomposition, with a replaceable learned-proposal contract;
+- learned logistic capture proposal weights through
+  `train_capture_proposal_model`, so labeled image/depth/mask/normal feature
+  examples can drive native `TrainingRegion` proposal generation before a
+  larger neural proposal backend replaces the reference contract;
 - optional PyTorch renderer contract for ordered native carrier compositing,
   first-hit depth/normal/material/semantic metadata, transmittance, opacity,
   confidence, residual, provenance, ordered per-carrier hit traces, and
@@ -197,6 +201,11 @@ Use the shared reconstruction flags `--split-image-loss-threshold`,
 `--disable-adaptive-evolution` on `reconstruct-demo` or
 `reconstruct-capture-manifest` to tune or freeze the adaptive carrier evolution
 policy recorded in the reconstruction report.
+Use `train_capture_proposal_model(...)` when labeled capture features are
+available. It emits an `AURA_CAPTURE_PROPOSAL_MODEL` payload with learned
+image-detail and depth-edge logistic weights that can be passed back into
+`propose_training_regions_from_tensors(...)`; this is still a lightweight
+proposal contract, not a trained neural proposer.
 Both commands also accept `--render-backend cpu|torch|auto`, `--device`, and
 `--require-cuda`. `--render-backend torch --device cuda --require-cuda` forces
 the reconstruction iterations through the native torch AURA ray-query contract

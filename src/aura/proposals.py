@@ -55,6 +55,28 @@ class CaptureProposalScore:
 
 
 @dataclass(frozen=True)
+class CaptureProposalTrainingExample:
+    """Supervised proposal label for the native capture proposal contract."""
+
+    features: CaptureProposalFeatures
+    image_detail_label: bool
+    depth_edge_label: bool
+    weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.weight <= 0.0:
+            raise ValueError("proposal training example weight must be positive")
+
+    def to_dict(self) -> dict:
+        return {
+            "features": self.features.to_dict(),
+            "imageDetailLabel": self.image_detail_label,
+            "depthEdgeLabel": self.depth_edge_label,
+            "weight": self.weight,
+        }
+
+
+@dataclass(frozen=True)
 class CaptureProposalModel:
     """Model-scored native region proposal contract for capture tensors.
 
@@ -73,20 +95,8 @@ class CaptureProposalModel:
             raise ValueError("proposal threshold must be in [0, 1]")
 
     def score(self, features: CaptureProposalFeatures) -> tuple[CaptureProposalScore, CaptureProposalScore]:
-        image_weights = self.image_detail_weights or {
-            "bias": -2.2,
-            "image_detail": 4.8,
-            "depth_edge": 0.6,
-            "mask_coverage": 0.2,
-            "normal_present": 0.15,
-        }
-        depth_weights = self.depth_edge_weights or {
-            "bias": -2.0,
-            "image_detail": 0.7,
-            "depth_edge": 5.0,
-            "mask_coverage": 0.15,
-            "normal_present": 0.2,
-        }
+        image_weights = self.image_detail_weights or _reference_image_detail_weights()
+        depth_weights = self.depth_edge_weights or _reference_depth_edge_weights()
         return (
             CaptureProposalScore(
                 frame_id=features.frame_id,
@@ -106,9 +116,75 @@ class CaptureProposalModel:
             ),
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "format": "AURA_CAPTURE_PROPOSAL_MODEL",
+            "id": self.id,
+            "threshold": self.threshold,
+            "imageDetailWeights": dict(self.image_detail_weights or _reference_image_detail_weights()),
+            "depthEdgeWeights": dict(self.depth_edge_weights or _reference_depth_edge_weights()),
+            "featureOrder": list(_PROPOSAL_FEATURE_NAMES),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CaptureProposalModel":
+        if payload.get("format") != "AURA_CAPTURE_PROPOSAL_MODEL":
+            raise ValueError("capture proposal model format must be AURA_CAPTURE_PROPOSAL_MODEL")
+        image_weights = _validate_weight_mapping(payload.get("imageDetailWeights"), "imageDetailWeights")
+        depth_weights = _validate_weight_mapping(payload.get("depthEdgeWeights"), "depthEdgeWeights")
+        return cls(
+            id=str(payload.get("id", "aura-learned-capture-proposal")),
+            image_detail_weights=image_weights,
+            depth_edge_weights=depth_weights,
+            threshold=float(payload.get("threshold", 0.55)),
+        )
+
 
 def default_capture_proposal_model() -> CaptureProposalModel:
     return CaptureProposalModel()
+
+
+def train_capture_proposal_model(
+    examples: Sequence[CaptureProposalTrainingExample],
+    *,
+    iterations: int = 64,
+    learning_rate: float = 0.5,
+    threshold: float = 0.5,
+    model_id: str = "aura-learned-capture-proposal-v1",
+) -> CaptureProposalModel:
+    """Fit deterministic logistic proposal weights from labeled captures.
+
+    This is intentionally small and dependency-free so real capture projects can
+    persist learned proposal weights before replacing this contract with a
+    larger neural proposal network.
+    """
+
+    if not examples:
+        raise ValueError("proposal model training requires at least one example")
+    if iterations <= 0:
+        raise ValueError("proposal model training iterations must be positive")
+    if learning_rate <= 0.0:
+        raise ValueError("proposal model training learning_rate must be positive")
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("proposal model threshold must be in [0, 1]")
+    image_weights = _fit_logistic_weights(
+        examples,
+        label_name="image_detail",
+        iterations=iterations,
+        learning_rate=learning_rate,
+    )
+    depth_weights = _fit_logistic_weights(
+        examples,
+        label_name="depth_edge",
+        iterations=iterations,
+        learning_rate=learning_rate,
+    )
+    return CaptureProposalModel(
+        id=model_id,
+        image_detail_weights=image_weights,
+        depth_edge_weights=depth_weights,
+        threshold=threshold,
+    )
 
 
 def score_capture_proposals(
@@ -240,6 +316,82 @@ def _score_logistic(weights: Mapping[str, float], features: CaptureProposalFeatu
     value += float(weights.get("mask_coverage", 0.0)) * features.mask_coverage
     value += float(weights.get("normal_present", 0.0)) * (1.0 if features.normal_present else 0.0)
     return _clamp_unit(1.0 / (1.0 + exp(-value)))
+
+
+_PROPOSAL_FEATURE_NAMES = ("bias", "image_detail", "depth_edge", "mask_coverage", "normal_present")
+
+
+def _reference_image_detail_weights() -> dict[str, float]:
+    return {
+        "bias": -2.2,
+        "image_detail": 4.8,
+        "depth_edge": 0.6,
+        "mask_coverage": 0.2,
+        "normal_present": 0.15,
+    }
+
+
+def _reference_depth_edge_weights() -> dict[str, float]:
+    return {
+        "bias": -2.0,
+        "image_detail": 0.7,
+        "depth_edge": 5.0,
+        "mask_coverage": 0.15,
+        "normal_present": 0.2,
+    }
+
+
+def _fit_logistic_weights(
+    examples: Sequence[CaptureProposalTrainingExample],
+    *,
+    label_name: str,
+    iterations: int,
+    learning_rate: float,
+) -> dict[str, float]:
+    weights = {name: 0.0 for name in _PROPOSAL_FEATURE_NAMES}
+    for _ in range(iterations):
+        gradients = {name: 0.0 for name in _PROPOSAL_FEATURE_NAMES}
+        total_weight = 0.0
+        for example in examples:
+            label = 1.0 if _example_label(example, label_name) else 0.0
+            values = _feature_values(example.features)
+            prediction = _score_logistic(weights, example.features)
+            error = (prediction - label) * example.weight
+            total_weight += example.weight
+            for name in _PROPOSAL_FEATURE_NAMES:
+                gradients[name] += error * values[name]
+        scale = learning_rate / max(total_weight, 1e-12)
+        for name in _PROPOSAL_FEATURE_NAMES:
+            weights[name] -= scale * gradients[name]
+    return weights
+
+
+def _example_label(example: CaptureProposalTrainingExample, label_name: str) -> bool:
+    if label_name == "image_detail":
+        return example.image_detail_label
+    if label_name == "depth_edge":
+        return example.depth_edge_label
+    raise ValueError(f"unknown proposal label: {label_name}")
+
+
+def _feature_values(features: CaptureProposalFeatures) -> dict[str, float]:
+    return {
+        "bias": 1.0,
+        "image_detail": features.image_detail,
+        "depth_edge": features.depth_edge,
+        "mask_coverage": features.mask_coverage,
+        "normal_present": 1.0 if features.normal_present else 0.0,
+    }
+
+
+def _validate_weight_mapping(value: Any, name: str) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{name} must be a mapping")
+    weights = {str(key): float(weight) for key, weight in value.items()}
+    missing = sorted(set(_PROPOSAL_FEATURE_NAMES).difference(weights))
+    if missing:
+        raise ValueError(f"{name} missing weights: {', '.join(missing)}")
+    return weights
 
 
 def _average_tensor_rgb(image: Any) -> tuple[float, float, float]:

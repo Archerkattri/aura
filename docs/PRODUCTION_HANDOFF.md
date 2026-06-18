@@ -135,9 +135,10 @@ compiled CUDA renderer dispatch is available and benchmarked.
    forward passes, gradients, and carrier updates.
 3. Replace the packed host capture tensor buffers with tiled, memory-mapped, or
    GPU-native asset loading for full-resolution image/video datasets.
-4. Replace the current reference-weight `CaptureProposalModel` with learned
-   region proposal generation for COLMAP/capture image, depth, mask, and normal
-   tensors.
+4. Train and validate capture proposal weights with
+   `train_capture_proposal_model` on labeled COLMAP/capture image, depth, mask,
+   and normal features, then replace the lightweight logistic contract with a
+   neural region proposal backend once real labels exist.
 5. Replace the torch autograd carrier specs with CUDA kernels for every carrier.
    Surface, volume, beta, gabor, neural residual, semantic, and Gaussian
    fallback carriers have tested torch autograd paths only; `aura

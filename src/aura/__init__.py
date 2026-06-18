@@ -128,10 +128,12 @@ from aura.proposals import (
     CaptureProposalFeatures,
     CaptureProposalModel,
     CaptureProposalScore,
+    CaptureProposalTrainingExample,
     capture_proposal_features,
     default_capture_proposal_model,
     propose_training_regions_from_tensors,
     score_capture_proposals,
+    train_capture_proposal_model,
 )
 from aura.ray import Ray, RayQueryResult
 from aura.readiness import ProductionReadinessReport, ReadinessPillar, production_readiness_report
@@ -218,6 +220,7 @@ __all__ = [
     "CaptureProposalFeatures",
     "CaptureProposalModel",
     "CaptureProposalScore",
+    "CaptureProposalTrainingExample",
     "CaptureTensor",
     "CarrierKind",
     "CarrierSpec",
@@ -348,6 +351,7 @@ __all__ = [
     "run_visual_quality_benchmark",
     "runtime_export_report",
     "score_capture_proposals",
+    "train_capture_proposal_model",
     "inspect_ray",
     "inspect_scene_rays",
     "semantic_masks_to_evidence",

@@ -5,11 +5,14 @@ import pytest
 from aura import (
     CaptureFrameTensors,
     CaptureProposalModel,
+    CaptureProposalFeatures,
+    CaptureProposalTrainingExample,
     CaptureTensor,
     TrainingFrame,
     capture_proposal_features,
     propose_training_regions_from_tensors,
     score_capture_proposals,
+    train_capture_proposal_model,
 )
 
 
@@ -53,6 +56,127 @@ def test_capture_proposal_model_threshold_controls_native_regions():
     assert accepted[1].evidence.compact_detail >= 0.8
     assert all(region.fallback_source == "capture-feature-proposal" for region in accepted)
     assert rejected == ()
+
+
+def test_train_capture_proposal_model_learns_labeled_feature_contract():
+    examples = (
+        CaptureProposalTrainingExample(
+            features=CaptureProposalFeatures(
+                frame_id="image_positive",
+                image_detail=0.95,
+                depth_edge=0.05,
+                mask_coverage=0.2,
+                normal_present=False,
+                depth=1.0,
+            ),
+            image_detail_label=True,
+            depth_edge_label=False,
+        ),
+        CaptureProposalTrainingExample(
+            features=CaptureProposalFeatures(
+                frame_id="depth_positive",
+                image_detail=0.05,
+                depth_edge=0.95,
+                mask_coverage=0.2,
+                normal_present=True,
+                depth=1.0,
+            ),
+            image_detail_label=False,
+            depth_edge_label=True,
+        ),
+        CaptureProposalTrainingExample(
+            features=CaptureProposalFeatures(
+                frame_id="negative",
+                image_detail=0.02,
+                depth_edge=0.02,
+                mask_coverage=0.0,
+                normal_present=False,
+                depth=1.0,
+            ),
+            image_detail_label=False,
+            depth_edge_label=False,
+            weight=2.0,
+        ),
+    )
+
+    model = train_capture_proposal_model(examples, iterations=160, learning_rate=1.0, threshold=0.5)
+    round_tripped = CaptureProposalModel.from_dict(model.to_dict())
+    image_scores = round_tripped.score(examples[0].features)
+    depth_scores = round_tripped.score(examples[1].features)
+    negative_scores = round_tripped.score(examples[2].features)
+
+    assert round_tripped.id == "aura-learned-capture-proposal-v1"
+    assert image_scores[0].accepted is True
+    assert image_scores[1].accepted is False
+    assert depth_scores[0].accepted is False
+    assert depth_scores[1].accepted is True
+    assert all(score.accepted is False for score in negative_scores)
+    assert model.to_dict()["format"] == "AURA_CAPTURE_PROPOSAL_MODEL"
+    assert model.to_dict()["featureOrder"] == ["bias", "image_detail", "depth_edge", "mask_coverage", "normal_present"]
+
+
+def test_learned_capture_proposal_model_feeds_native_region_generation():
+    frame = _frame()
+    tensors = _tensors()
+    asset = _asset()
+    features = capture_proposal_features(frame, tensors, asset)
+    model = train_capture_proposal_model(
+        (
+            CaptureProposalTrainingExample(features=features, image_detail_label=True, depth_edge_label=True),
+            CaptureProposalTrainingExample(
+                features=CaptureProposalFeatures(
+                    frame_id="negative",
+                    image_detail=0.0,
+                    depth_edge=0.0,
+                    mask_coverage=0.0,
+                    normal_present=False,
+                    depth=2.0,
+                ),
+                image_detail_label=False,
+                depth_edge_label=False,
+            ),
+        ),
+        iterations=120,
+        learning_rate=1.0,
+        threshold=0.5,
+    )
+
+    regions = propose_training_regions_from_tensors(
+        (frame,),
+        {"frame": tensors},
+        {"frame": asset},
+        model=model,
+    )
+
+    assert [region.id for region in regions] == ["frame_image_detail_proposal", "frame_depth_edge_proposal"]
+    assert all(region.fallback_source == "capture-feature-proposal" for region in regions)
+
+
+def test_capture_proposal_training_validates_input():
+    with pytest.raises(ValueError, match="at least one example"):
+        train_capture_proposal_model(())
+    with pytest.raises(ValueError, match="weight"):
+        CaptureProposalTrainingExample(
+            features=CaptureProposalFeatures(
+                frame_id="bad",
+                image_detail=0.0,
+                depth_edge=0.0,
+                mask_coverage=0.0,
+                normal_present=False,
+                depth=1.0,
+            ),
+            image_detail_label=False,
+            depth_edge_label=False,
+            weight=0.0,
+        )
+    with pytest.raises(ValueError, match="missing weights"):
+        CaptureProposalModel.from_dict(
+            {
+                "format": "AURA_CAPTURE_PROPOSAL_MODEL",
+                "imageDetailWeights": {"bias": 0.0},
+                "depthEdgeWeights": {"bias": 0.0},
+            }
+        )
 
 
 def _frame() -> TrainingFrame:
