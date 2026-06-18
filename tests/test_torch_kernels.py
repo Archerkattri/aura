@@ -832,13 +832,17 @@ def test_neural_kernel_keeps_residual_scale_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["neural"]) == {"min_corner", "max_corner", "color", "residual_scale"}
+    assert set(carrier_parameters["neural"]) == {"min_corner", "max_corner", "color", "opacity", "confidence", "residual_scale"}
     assert carrier_parameters["neural"]["color"].grad is not None
+    assert carrier_parameters["neural"]["opacity"].grad is not None
+    assert carrier_parameters["neural"]["confidence"].grad is not None
     assert carrier_parameters["neural"]["residual_scale"].grad is not None
     assert carrier_parameters["neural"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
     assert carrier_parameters["neural"]["residual_scale"].grad.item() == pytest.approx(-0.5 - 0.25 * 0.75)
-    assert opacities.grad is not None
-    assert confidences.grad is not None
+    assert carrier_parameters["neural"]["opacity"].grad.item() == pytest.approx(-0.4)
+    assert carrier_parameters["neural"]["confidence"].grad.item() == pytest.approx(0.9)
+    assert opacities.grad is None
+    assert confidences.grad is None
     assert residual.tolist() == [True]
 
 

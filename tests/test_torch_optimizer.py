@@ -676,6 +676,77 @@ def test_torch_optimize_capture_batch_trains_neural_residual_scale_from_image_lo
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_trains_neural_opacity_from_mask_loss():
+    scene = AuraScene(
+        name="torch_optimizer_neural_opacity_scene",
+        elements=(
+            AuraElement(
+                id="neural",
+                carrier_id="neural",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.1, 0.2, 0.3),
+                opacity=0.1,
+                confidence=0.8,
+                payload={"type": "neural_residual", "latent_dim": 8, "residual_scale": 1.0, "opacity": 0.1},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.1, 0.2, 0.3),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=3,
+                    values=(0.1, 0.2, 0.3),
+                ),
+                mask=CaptureTensor(
+                    path="frame-mask.pgm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=1,
+                    values=(1.0,),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.25,
+            loss_weights=TrainingLossWeights(image=0.0, depth=0.0, query=0.0, normal=0.0, mask=1.0),
+            gradient_clip_norm=10.0,
+            max_samples_per_batch=1,
+        ),
+    )
+
+    payload = result.scene.elements[0].payload
+    assert result.steps[0].mask_loss > result.steps[-1].mask_loss
+    assert result.scene.elements[0].opacity > 0.1
+    assert payload["opacity"] == pytest.approx(result.scene.elements[0].opacity)
+    assert payload["confidence"] == pytest.approx(result.scene.elements[0].confidence)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batch_trains_volume_opacity_from_mask_loss():
     scene = AuraScene(
         name="torch_optimizer_volume_opacity_scene",

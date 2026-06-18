@@ -555,11 +555,11 @@ def _scene_from_carrier_parameters(
             color = _tensor_vec3(fields["color"])
         if "opacity" in fields:
             opacity = _clamp_unit(_tensor_scalar(fields["opacity"]))
-            if payload.get("type") == "volume_cell":
+            if payload.get("type") in {"volume_cell", "neural_residual"}:
                 payload["opacity"] = opacity
         if "confidence" in fields:
             confidence = _clamp_unit(_tensor_scalar(fields["confidence"]))
-            if payload.get("type") == "semantic_feature":
+            if payload.get("type") in {"neural_residual", "semantic_feature"}:
                 payload["confidence"] = confidence
         for name in ("density", "alpha", "beta", "phase", "bandwidth", "residual_scale"):
             if name in fields:

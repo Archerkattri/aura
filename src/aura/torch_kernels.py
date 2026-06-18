@@ -81,7 +81,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
         TorchCarrierKernelSpec(
             payload_type="neural_residual",
             carrier_id="neural",
-            differentiable_fields=("color", "residual_scale"),
+            differentiable_fields=("color", "opacity", "confidence", "residual_scale"),
             description="Residual primitive torch autograd kernel for residual confidence scaling; CUDA production kernel is still required.",
             implementation_stage="torch_autograd_neural_residual_kernel",
             autograd_kernel=True,
@@ -263,6 +263,16 @@ def torch_carrier_response_tensors(
             confidence[mask] = torch.clamp(gabor_confidence * bandwidth, min=0.0, max=1.0)
         elif payload_type == "neural_residual":
             neural_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
+            neural_opacity = torch.clamp(
+                _carrier_parameter(torch, element, "opacity", carrier_parameters, device, default=element.payload.get("opacity", element.opacity)),
+                min=0.0,
+                max=1.0,
+            )
+            neural_confidence = torch.clamp(
+                _carrier_parameter(torch, element, "confidence", carrier_parameters, device, default=element.payload.get("confidence", element.confidence)),
+                min=0.0,
+                max=1.0,
+            )
             residual_scale = _carrier_parameter(
                 torch,
                 element,
@@ -273,8 +283,8 @@ def torch_carrier_response_tensors(
             )
             residual_strength = torch.clamp(residual_scale, min=0.0, max=1.0)
             carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
-            transmittance[mask] = torch.clamp(1.0 - opacities[element_index] * residual_strength, min=0.0, max=1.0)
-            confidence[mask] = torch.clamp(confidences[element_index] * (1.0 - residual_strength * 0.25), min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - neural_opacity * residual_strength, min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(neural_confidence * (1.0 - residual_strength * 0.25), min=0.0, max=1.0)
             residual[mask] = True
         elif payload_type == "semantic_feature":
             semantic_confidence = _carrier_parameter(
@@ -464,6 +474,18 @@ def torch_carrier_parameter_tensors(
                 **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "opacity": torch.tensor(
+                    float(element.payload.get("opacity", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,
