@@ -4,6 +4,7 @@ import sys
 
 import pytest
 import aura.render as render_module
+import aura.torch_renderer as torch_renderer_module
 
 from aura import (
     AuraElement,
@@ -138,6 +139,35 @@ def test_render_orthographic_torch_builds_rays_as_tensors(monkeypatch):
         raise AssertionError("torch orthographic render should not build Python ray tuples")
 
     monkeypatch.setattr(render_module, "orthographic_camera_rays", fail_python_ray_grid)
+
+    image = render_orthographic_torch(scene, width=2, height=2, device="cpu")
+
+    assert image.width == 2
+    assert image.height == 2
+    assert all(pixel == pytest.approx((1.0, 0.0, 0.0)) for pixel in image.pixels)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_render_orthographic_torch_skips_ordered_trace_serialization(monkeypatch):
+    scene = AuraScene(
+        name="torch_trace_free_preview",
+        elements=(
+            AuraElement(
+                id="red",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    def fail_ordered_trace_serialization(*_args, **_kwargs):
+        raise AssertionError("torch preview render should not serialize ordered hit traces")
+
+    monkeypatch.setattr(torch_renderer_module, "_torch_ordered_hit_traces", fail_ordered_trace_serialization)
 
     image = render_orthographic_torch(scene, width=2, height=2, device="cpu")
 

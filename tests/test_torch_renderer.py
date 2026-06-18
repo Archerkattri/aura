@@ -439,6 +439,42 @@ def test_torch_render_rays_renders_raw_tensor_inputs_without_render_targets():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_rays_can_skip_ordered_trace_serialization(monkeypatch):
+    scene = AuraScene(
+        name="torch_raw_ray_no_trace_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    def fail_ordered_trace_serialization(*_args, **_kwargs):
+        raise AssertionError("trace-free torch render should not serialize ordered hits")
+
+    monkeypatch.setattr(torch_renderer_module, "_torch_ordered_hit_traces", fail_ordered_trace_serialization)
+
+    batch = torch_render_rays(
+        scene,
+        ((0.0, 0.0, -1.0),),
+        ((0.0, 0.0, 1.0),),
+        device="cpu",
+        collect_traces=False,
+    )
+
+    assert batch.element_ids == ("surface",)
+    assert batch.ordered_hits == ((),)
+    assert batch.provenance == ("surface",)
+    assert batch.predicted_color[0] == pytest.approx((1.0, 0.0, 0.0))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_tensor_targets_accepts_raw_target_tensors():
     scene = AuraScene(
         name="torch_tensor_target_scene",

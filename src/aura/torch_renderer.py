@@ -711,6 +711,7 @@ def torch_render_rays(
     frame_id_prefix: str = "ray",
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
     scene_tensors: TorchSceneTensors | None = None,
+    collect_traces: bool = True,
 ) -> TorchRenderBatch:
     """Render raw ray tensors through the native torch AURA renderer."""
 
@@ -742,6 +743,7 @@ def torch_render_rays(
         device=str(resolved_device),
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
+        collect_traces=collect_traces,
     )
 
 
@@ -762,6 +764,7 @@ def torch_render_tensor_targets(
     device: str | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
     scene_tensors: TorchSceneTensors | None = None,
+    collect_traces: bool = True,
 ) -> TorchRenderBatch:
     """Render caller-provided tensor targets without building RenderTarget objects."""
 
@@ -823,6 +826,7 @@ def torch_render_tensor_targets(
         device=str(resolved_device),
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
+        collect_traces=collect_traces,
     )
 
 
@@ -927,6 +931,7 @@ def _torch_render_tensor_targets(
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
     scene_tensors: TorchSceneTensors | None = None,
+    collect_traces: bool = True,
 ) -> TorchRenderBatch:
     torch = require_torch()
     if not scene.elements:
@@ -1009,7 +1014,7 @@ def _torch_render_tensor_targets(
         beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
-        collect_traces=True,
+        collect_traces=collect_traces,
     )
     has_hit = composited["has_hit"]
     first_index = composited["first_index"]
@@ -1045,6 +1050,21 @@ def _torch_render_tensor_targets(
             target_material_ids,
         )
     )
+    ordered_hits = (
+        _torch_ordered_hit_traces(
+            elements,
+            composited["hit_indices"],
+            composited["hit_depths"],
+            composited["hit_transmittance"],
+        )
+        if collect_traces
+        else tuple(() for _ in frame_ids)
+    )
+    provenance = (
+        tuple(_torch_hit_provenance(elements, indices) for indices in composited["hit_indices"])
+        if collect_traces
+        else tuple(elements[index].id if hit else "miss" for index, hit in zip(best_indices, hit_flags))
+    )
     return TorchRenderBatch(
         device=device,
         frame_ids=tuple(frame_ids),
@@ -1052,12 +1072,7 @@ def _torch_render_tensor_targets(
         ray_directions=_tensor_vec3_tuple(directions.detach().cpu().tolist()),
         element_ids=tuple(elements[index].id if hit else None for index, hit in zip(best_indices, hit_flags)),
         carrier_ids=tuple(elements[index].carrier_id if hit else None for index, hit in zip(best_indices, hit_flags)),
-        ordered_hits=_torch_ordered_hit_traces(
-            elements,
-            composited["hit_indices"],
-            composited["hit_depths"],
-            composited["hit_transmittance"],
-        ),
+        ordered_hits=ordered_hits,
         predicted_color=_tensor_vec3_tuple(predicted_colors.detach().cpu().tolist()),
         predicted_depth=tuple(float(value) if hit else None for value, hit in zip(predicted_depths.detach().cpu().tolist(), hit_flags)),
         transmittance=tuple(float(value) for value in transmittance.detach().cpu().tolist()),
@@ -1067,7 +1082,7 @@ def _torch_render_tensor_targets(
         material_ids=material_ids,
         residual=tuple(bool(value) for value in residual_flags.detach().cpu().tolist()),
         semantic_ids=semantic_ids,
-        provenance=tuple(_torch_hit_provenance(elements, indices) for indices in composited["hit_indices"]),
+        provenance=provenance,
         target_color=_tensor_vec3_tuple(target_colors.detach().cpu().tolist()),
         target_depth=tuple(float(value) for value in target_depths.detach().cpu().tolist()),
         target_normal=_optional_target_normal_tuple(target_normals, target_normal_present),

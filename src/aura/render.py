@@ -177,6 +177,7 @@ def render_orthographic_torch(
         device=resolved_device,
         frame_id_prefix="orthographic",
         scene_tensors=scene_tensors,
+        collect_traces=False,
     )
     return RenderImage(width=width, height=height, pixels=batch.predicted_color)
 
