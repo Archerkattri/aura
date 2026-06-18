@@ -1891,11 +1891,10 @@ def _torch_mask_loss(torch: Any, predicted_opacity: Any, target_mask: Any | None
 def _torch_confidence_loss(torch: Any, predicted_confidence: Any, target_confidence: Any | None, target_confidence_present: Any | None) -> Any:
     if target_confidence is None or target_confidence_present is None:
         return torch.zeros((), dtype=torch.float32, device=predicted_confidence.device)
-    present = target_confidence_present.to(dtype=torch.bool)
-    if not bool(torch.any(present).detach().cpu().item()):
-        return torch.zeros((), dtype=torch.float32, device=predicted_confidence.device)
+    present = target_confidence_present.to(dtype=predicted_confidence.dtype)
     clamped_target = torch.clamp(target_confidence, min=0.0, max=1.0)
-    return torch.mean((predicted_confidence[present] - clamped_target[present]) ** 2)
+    squared_error = (predicted_confidence - clamped_target) ** 2
+    return torch.sum(squared_error * present) / torch.clamp(torch.sum(present), min=1.0)
 
 
 def _torch_query_contract_loss(

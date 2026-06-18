@@ -656,6 +656,36 @@ def test_torch_render_target_objective_backpropagates_confidence_target():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_confidence_loss_reduces_present_targets_on_device():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    predicted = torch.tensor([0.2, 0.8, 0.4], dtype=torch.float32, device=device)
+    target = torch.tensor([1.0, 0.0, 0.9], dtype=torch.float32, device=device)
+    present = torch.tensor([True, False, True], dtype=torch.bool, device=device)
+
+    loss = torch_renderer_module._torch_confidence_loss(torch, predicted, target, present)
+
+    assert loss.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert loss.detach().cpu().item() == pytest.approx(((0.2 - 1.0) ** 2 + (0.4 - 0.9) ** 2) / 2.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_confidence_loss_returns_zero_when_no_targets_present():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    predicted = torch.tensor([0.2, 0.8], dtype=torch.float32, device=device)
+    target = torch.tensor([1.0, 0.0], dtype=torch.float32, device=device)
+    present = torch.tensor([False, False], dtype=torch.bool, device=device)
+
+    loss = torch_renderer_module._torch_confidence_loss(torch, predicted, target, present)
+
+    assert loss.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert loss.detach().cpu().item() == pytest.approx(0.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_target_objective_backpropagates_surface_geometry_parameters():
     scene = AuraScene(
         name="torch_surface_geometry_objective_scene",
