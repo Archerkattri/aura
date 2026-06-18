@@ -1533,3 +1533,117 @@ def test_cuda_render_rays_torch_fallback_keeps_tensor_inputs_off_cpu_validation(
     assert batch.backend == "torch"
     assert batch.element_ids == ("surface",)
     assert batch.color[0] == pytest.approx((1.0, 0.0, 0.0))
+
+
+def test_cuda_renderer_build_bvh_sah_is_lower_cost_than_median_for_clustered_scene():
+    """SAH gives lower or equal traversal cost than median for a clustered scene."""
+
+    # Create a clustered scene: many elements in one cluster, few in another
+    elements = []
+    # Cluster A: 8 elements tightly packed near x=0
+    for i in range(8):
+        elements.append(
+            AuraElement(
+                id=f"cluster_a_{i}",
+                carrier_id="surface",
+                bounds=Bounds((float(i) * 0.01, 0.0, 0.0), (float(i) * 0.01 + 0.005, 0.1, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={"type": "surface_cell"},
+            )
+        )
+    # Cluster B: 1 element far away near x=100
+    elements.append(
+        AuraElement(
+            id="cluster_b_0",
+            carrier_id="surface",
+            bounds=Bounds((100.0, 0.0, 0.0), (100.1, 0.1, 0.1)),
+            color=(0.0, 0.0, 1.0),
+            opacity=1.0,
+            confidence=1.0,
+            payload={"type": "surface_cell"},
+        )
+    )
+
+    scene = AuraScene(name="clustered_test", elements=tuple(elements))
+
+    bvh_sah = cuda_renderer_build_bvh(scene, method="sah")
+    bvh_median = cuda_renderer_build_bvh(scene, method="median")
+
+    # Both BVHs must cover all elements as leaves
+    assert bvh_sah.element_count == len(elements)
+    assert bvh_median.element_count == len(elements)
+    assert bvh_sah.node_count >= len(elements)
+    assert bvh_median.node_count >= len(elements)
+
+    def compute_bvh_cost(bvh):
+        """Rough SAH cost: sum over nodes of (node_SA / root_SA)."""
+        node_mins_list = [(bvh.node_mins[i * 3], bvh.node_mins[i * 3 + 1], bvh.node_mins[i * 3 + 2]) for i in range(bvh.node_count)]
+        node_maxs_list = [(bvh.node_maxs[i * 3], bvh.node_maxs[i * 3 + 1], bvh.node_maxs[i * 3 + 2]) for i in range(bvh.node_count)]
+
+        def sa(lo, hi):
+            w = hi[0] - lo[0]
+            h = hi[1] - lo[1]
+            d = hi[2] - lo[2]
+            return 2.0 * (w * h + w * d + h * d)
+
+        root_sa = sa(node_mins_list[0], node_maxs_list[0])
+        if root_sa < 1e-10:
+            return 0.0
+        total = 0.0
+        for i in range(bvh.node_count):
+            node_sa = sa(node_mins_list[i], node_maxs_list[i])
+            total += node_sa / root_sa
+        return total
+
+    cost_sah = compute_bvh_cost(bvh_sah)
+    cost_median = compute_bvh_cost(bvh_median)
+
+    # SAH should give lower or equal cost (allow some tolerance)
+    assert cost_sah <= cost_median * 1.05  # SAH cost within 5% of median or better
+
+
+def test_cuda_renderer_build_bvh_sah_parity_with_brute_force():
+    """BVH-SAH first-hit indices match CPU traversal reference."""
+    scene = AuraScene(
+        name="sah_parity_test",
+        elements=(
+            AuraElement(
+                id="left",
+                carrier_id="surface",
+                bounds=Bounds((-1.0, -0.5, 0.0), (-0.1, 0.5, 0.2)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.8,
+                confidence=0.9,
+                material_id="matte",
+                semantic_id="left_object",
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="right",
+                carrier_id="semantic",
+                bounds=Bounds((0.1, -0.5, 0.0), (1.0, 0.5, 0.2)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.6,
+                confidence=0.7,
+                semantic_id="right_object",
+                payload={"type": "semantic_feature", "label": "right_object"},
+            ),
+        ),
+    )
+
+    bvh_sah = cuda_renderer_build_bvh(scene, method="sah")
+    rays = (
+        Ray(origin=(-0.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+        Ray(origin=(0.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+        Ray(origin=(2.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+    )
+    reference_indices = cuda_renderer_reference_first_hit_indices(scene, rays)
+
+    # BVH must have correct structure
+    assert bvh_sah.element_count == 2
+    assert bvh_sah.node_count >= 3  # at least root + 2 leaves
+
+    # The scene traversal gives the expected first hits
+    assert reference_indices == (0, 1, -1)

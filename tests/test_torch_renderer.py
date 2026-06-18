@@ -2333,3 +2333,289 @@ def _fake_capture_training_batch():
             "target_depth": None,
         },
     )()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_mip_splatting_3d_frequency_cap_reduces_gaussian_support():
+    # A gaussian carrier with large support radius should have its support clamped
+    # when mip_splatting=True with a small focal_length_pixels
+    import torch
+    from aura.torch_renderer import _torch_composite_carrier_hits
+    from aura import AuraElement, AuraScene, Bounds
+
+    scene = AuraScene(
+        name="mip_splatting_test",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-2.0, -2.0, -0.5), (2.0, 2.0, 3.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 1.0],
+                    "covariance": [[4.0, 0.0, 0.0], [0.0, 4.0, 0.0], [0.0, 0.0, 4.0]],
+                    "support_sigma": 3.0,  # large support
+                },
+            ),
+        ),
+    )
+    from aura.torch_renderer import _resolve_scene_tensors, _torch_geometry_from_carrier_parameters
+
+    st = _resolve_scene_tensors(scene, scene_tensors=None, device="cpu")
+    (mins, maxs, sp_points, gab_points, g_means, g_inv_cov, b_radii, sp_normals, gab_normals, el_normals) = (
+        _torch_geometry_from_carrier_parameters(
+            torch, tuple(scene.elements), st.carrier_parameters,
+            st.mins, st.maxs, st.surface_plane_points, st.gabor_plane_points,
+            st.gaussian_means, st.gaussian_inverse_covariances, st.beta_support_radii,
+            st.surface_normals, st.gabor_normals, st.element_normals,
+        )
+    )
+    origins = torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32)
+    directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+
+    # Without mip_splatting: hits the gaussian (support_radius_sq=9.0)
+    result_off = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        mip_splatting=False, focal_length_pixels=1.0,
+    )
+
+    # With mip_splatting + tiny focal length: clamps support drastically
+    result_on = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        mip_splatting=True, focal_length_pixels=0.01,  # tiny focal length = huge cone angle = tiny nyquist
+    )
+
+    # With mip_splatting on and very small focal length, support gets clamped to tiny value
+    # which should reduce the gaussian's effective range, possibly causing a miss
+    # At minimum, the outputs should differ when support is meaningfully clamped
+    # The gaussian with support_sigma=3.0 -> support_radius_sq=9.0
+    # With focal=0.01, pixel_cone_angle ~= 2*atan(50) ~= pi, nyquist_sigma very small
+    # So with mip_splatting=True, the gaussian support is clamped, and the ray may miss
+    assert result_off is not None  # basic structure
+    assert result_on is not None
+    # The has_hit should differ or transmittance should differ
+    # OFF: gaussian has large support so likely hits
+    # ON with tiny focal: clamped support, so might miss
+    transmittance_off = float(result_off["transmittance"][0])
+    transmittance_on = float(result_on["transmittance"][0])
+    # With large support OFF -> low transmittance (high opacity hit)
+    # With clamped support ON -> higher transmittance (miss or reduced hit)
+    assert transmittance_on >= transmittance_off - 1e-6  # mip-splatting can only reduce hits
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cone_prefilter_reduces_opacity_at_far_distances():
+    import torch
+    from aura.torch_renderer import _torch_composite_carrier_hits, _resolve_scene_tensors, _torch_geometry_from_carrier_parameters
+    from aura import AuraElement, AuraScene, Bounds
+
+    scene = AuraScene(
+        name="cone_prefilter_test",
+        elements=(
+            AuraElement(
+                id="small_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.01, -0.01, 0.0), (0.01, 0.01, 0.01)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    st = _resolve_scene_tensors(scene, scene_tensors=None, device="cpu")
+    (mins, maxs, sp_points, gab_points, g_means, g_inv_cov, b_radii, sp_normals, gab_normals, el_normals) = (
+        _torch_geometry_from_carrier_parameters(
+            torch, tuple(scene.elements), st.carrier_parameters,
+            st.mins, st.maxs, st.surface_plane_points, st.gabor_plane_points,
+            st.gaussian_means, st.gaussian_inverse_covariances, st.beta_support_radii,
+            st.surface_normals, st.gabor_normals, st.element_normals,
+        )
+    )
+
+    # Ray at close distance
+    origins_near = torch.tensor([[0.0, 0.0, -0.1]], dtype=torch.float32)
+    directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+
+    # Ray at far distance
+    origins_far = torch.tensor([[0.0, 0.0, -1000.0]], dtype=torch.float32)
+
+    # Without prefilter: same opacity regardless of distance
+    result_near_off = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins_near, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        cone_prefilter=False, focal_length_pixels=1.0,
+    )
+
+    # With prefilter at close distance: small footprint, carrier larger, full opacity
+    result_near_on = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins_near, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        cone_prefilter=True, focal_length_pixels=100.0,  # large focal = small cone = carrier larger than footprint
+    )
+
+    # With prefilter at far distance with wide cone: large footprint, carrier smaller -> reduced opacity
+    result_far_on = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins_far, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        cone_prefilter=True, focal_length_pixels=0.001,  # tiny focal = huge cone angle
+    )
+
+    # Far with huge cone should give higher transmittance (less opacity) than near with tight cone
+    transmittance_near = float(result_near_on["transmittance"][0])
+    transmittance_far = float(result_far_on["transmittance"][0])
+    assert transmittance_far >= transmittance_near - 1e-6
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_ssaa_2x2_averages_four_subsamples():
+    import torch
+    from aura import AuraElement, AuraScene, Bounds
+    from aura.torch_renderer import torch_render_ray_color_tensor
+
+    scene = AuraScene(
+        name="ssaa_test",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.8, 0.2, 0.4),
+                opacity=1.0,
+                confidence=1.0,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    ray_origins = torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32)
+    ray_directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+
+    # Without SSAA
+    color_no_ssaa = torch_render_ray_color_tensor(scene, ray_origins, ray_directions, device="cpu")
+
+    # With SSAA (should return same shape but averaged over 4 subsamples)
+    color_ssaa = torch_render_ray_color_tensor(
+        scene, ray_origins, ray_directions, device="cpu",
+        ssaa_2x2=True, focal_length_pixels=100.0,  # large focal = tiny jitter
+    )
+
+    assert color_no_ssaa.shape == color_ssaa.shape
+    # With very large focal (tiny jitter), SSAA result should be very close to no-SSAA
+    assert torch.allclose(color_no_ssaa, color_ssaa, atol=0.1)
+    # SSAA should still produce valid colors
+    assert color_ssaa.shape == (1, 3)
+    assert float(color_ssaa[0, 0]) >= 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_early_transmittance_termination_conserves_energy():
+    import torch
+    from aura.torch_renderer import _torch_composite_carrier_hits, _resolve_scene_tensors, _torch_geometry_from_carrier_parameters
+    from aura import AuraElement, AuraScene, Bounds
+
+    # Scene with fully opaque front carrier - energy should stop at first hit
+    scene = AuraScene(
+        name="early_termination_test",
+        elements=(
+            AuraElement(
+                id="front_opaque",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="back_carrier",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 1.0), (0.5, 0.5, 1.1)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.5,
+                confidence=1.0,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    st = _resolve_scene_tensors(scene, scene_tensors=None, device="cpu")
+    (mins, maxs, sp_points, gab_points, g_means, g_inv_cov, b_radii, sp_normals, gab_normals, el_normals) = (
+        _torch_geometry_from_carrier_parameters(
+            torch, tuple(scene.elements), st.carrier_parameters,
+            st.mins, st.maxs, st.surface_plane_points, st.gabor_plane_points,
+            st.gaussian_means, st.gaussian_inverse_covariances, st.beta_support_radii,
+            st.surface_normals, st.gabor_normals, st.element_normals,
+        )
+    )
+    origins = torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32)
+    directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+
+    # With threshold=0 (no termination)
+    result_no_threshold = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        transmittance_threshold=0.0,
+    )
+
+    # With default threshold (1e-4) - fully opaque front terminates early
+    result_with_threshold = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        transmittance_threshold=1e-4,
+    )
+
+    # For fully opaque front carrier: color should be red in both cases
+    # (back carrier doesn't contribute since transmittance is 0 after front)
+    color_no_th = result_no_threshold["color"][0].tolist()
+    color_with_th = result_with_threshold["color"][0].tolist()
+
+    assert color_no_th[0] == pytest.approx(1.0, abs=0.01)  # red channel
+    assert color_with_th[0] == pytest.approx(1.0, abs=0.01)  # red channel
+    # Colors should match since fully opaque front stops both paths
+    assert color_no_th == pytest.approx(color_with_th, abs=1e-5)
+
+    # threshold=0 gives same result as no threshold
+    result_zero = _torch_composite_carrier_hits(
+        torch, tuple(scene.elements), origins, directions,
+        mins, maxs, st.colors, st.opacities, st.confidences,
+        st.chunk_mins, st.chunk_maxs, st.element_chunk_indices,
+        sp_points, sp_normals, gab_points, gab_normals, g_means, g_inv_cov,
+        st.gaussian_support_radius_sq, b_radii,
+        device="cpu", carrier_parameters=st.carrier_parameters, collect_traces=False,
+        transmittance_threshold=0.0,
+    )
+    assert result_zero["color"][0].tolist() == pytest.approx(result_no_threshold["color"][0].tolist())

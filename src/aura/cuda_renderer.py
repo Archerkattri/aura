@@ -513,8 +513,12 @@ class CudaRendererBvh:
         }
 
 
-def cuda_renderer_build_bvh(scene: AuraScene) -> CudaRendererBvh:
-    """Build a flattened median-split BVH over the scene element AABBs."""
+def cuda_renderer_build_bvh(scene: AuraScene, *, method: str = "sah") -> CudaRendererBvh:
+    """Build a flattened BVH over the scene element AABBs.
+
+    When method='sah' (default), uses 16-bin Surface Area Heuristic.
+    When method='median', uses median centroid split.
+    """
 
     element_count = len(scene.elements)
     mins = [tuple(float(value) for value in element.bounds.min_corner) for element in scene.elements]
@@ -526,7 +530,7 @@ def cuda_renderer_build_bvh(scene: AuraScene) -> CudaRendererBvh:
     node_right: list[int] = []
     node_element: list[int] = []
 
-    def _bounds_of(indices: list[int]) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    def _bounds_of(indices):
         lo = [float("inf"), float("inf"), float("inf")]
         hi = [float("-inf"), float("-inf"), float("-inf")]
         for index in indices:
@@ -535,9 +539,15 @@ def cuda_renderer_build_bvh(scene: AuraScene) -> CudaRendererBvh:
                 hi[axis] = max(hi[axis], maxs[index][axis])
         return (lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])
 
+    def _aabb_surface_area(lo, hi):
+        w = hi[0] - lo[0]
+        h = hi[1] - lo[1]
+        d = hi[2] - lo[2]
+        return 2.0 * (w * h + w * d + h * d)
+
     max_depth = 0
 
-    def _build(indices: list[int], depth: int) -> int:
+    def _build(indices, depth):
         nonlocal max_depth
         max_depth = max(max_depth, depth)
         node_index = len(node_mins)
@@ -552,6 +562,76 @@ def cuda_renderer_build_bvh(scene: AuraScene) -> CudaRendererBvh:
         if len(indices) == 1:
             node_element[node_index] = indices[0]
             return node_index
+
+        if method == "sah":
+            # SAH with 16 bins
+            NUM_BINS = 16
+            best_cost = float("inf")
+            best_left = None
+            best_right = None
+            parent_sa = _aabb_surface_area(lo, hi)
+
+            for axis in range(3):
+                centroids = [0.5 * (mins[i][axis] + maxs[i][axis]) for i in indices]
+                c_min = min(centroids)
+                c_max = max(centroids)
+                if c_max - c_min < 1e-10:
+                    continue
+                bin_size = (c_max - c_min) / NUM_BINS
+                bins_lo = [[float("inf")] * 3 for _ in range(NUM_BINS)]
+                bins_hi = [[float("-inf")] * 3 for _ in range(NUM_BINS)]
+                bins_count = [0] * NUM_BINS
+                for idx, i in enumerate(indices):
+                    b = int((centroids[idx] - c_min) / bin_size)
+                    b = min(b, NUM_BINS - 1)
+                    bins_count[b] += 1
+                    for ax in range(3):
+                        bins_lo[b][ax] = min(bins_lo[b][ax], mins[i][ax])
+                        bins_hi[b][ax] = max(bins_hi[b][ax], maxs[i][ax])
+
+                # Evaluate 15 split planes
+                for split in range(1, NUM_BINS):
+                    left_lo = [float("inf")] * 3
+                    left_hi = [float("-inf")] * 3
+                    left_count = 0
+                    for b in range(split):
+                        if bins_count[b] > 0:
+                            left_count += bins_count[b]
+                            for ax in range(3):
+                                left_lo[ax] = min(left_lo[ax], bins_lo[b][ax])
+                                left_hi[ax] = max(left_hi[ax], bins_hi[b][ax])
+                    right_lo = [float("inf")] * 3
+                    right_hi = [float("-inf")] * 3
+                    right_count = 0
+                    for b in range(split, NUM_BINS):
+                        if bins_count[b] > 0:
+                            right_count += bins_count[b]
+                            for ax in range(3):
+                                right_lo[ax] = min(right_lo[ax], bins_lo[b][ax])
+                                right_hi[ax] = max(right_hi[ax], bins_hi[b][ax])
+
+                    if left_count == 0 or right_count == 0:
+                        continue
+
+                    left_sa = _aabb_surface_area(left_lo, left_hi) if left_count > 0 else 0.0
+                    right_sa = _aabb_surface_area(right_lo, right_hi) if right_count > 0 else 0.0
+                    cost = (left_count * left_sa + right_count * right_sa) / max(parent_sa, 1e-10)
+                    if cost < best_cost:
+                        best_cost = cost
+                        split_centroid = c_min + split * bin_size
+                        left_part = [i for idx, i in enumerate(indices) if 0.5 * (mins[i][axis] + maxs[i][axis]) < split_centroid]
+                        right_part = [i for i in indices if i not in set(left_part)]
+                        if left_part and right_part:
+                            best_left = left_part
+                            best_right = right_part
+
+            if best_left is not None and best_right is not None:
+                node_left[node_index] = _build(best_left, depth + 1)
+                node_right[node_index] = _build(best_right, depth + 1)
+                return node_index
+            # Fall through to median split if SAH failed
+
+        # Median split (fallback or method='median')
         extent = tuple(hi[axis] - lo[axis] for axis in range(3))
         axis = max(range(3), key=lambda candidate: extent[candidate])
         centroid = lambda index: 0.5 * (mins[index][axis] + maxs[index][axis])  # noqa: E731
@@ -867,7 +947,7 @@ def cuda_renderer_symbol_probe(
     )
 
 
-def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> CudaRendererKernelSimulation:
+def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers, *, transmittance_threshold: float = 1e-4) -> CudaRendererKernelSimulation:
     """Run the packaged CUDA renderer ABI on CPU for parity tests."""
 
     out_color: list[float] = []
@@ -963,6 +1043,8 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
         confidence_den = 0.0
         residual = 0
         for _depth, _exit_depth, _normal, element_index in stored_hits:
+            if transmittance_threshold > 0.0 and remaining < transmittance_threshold:
+                break
             transmittance, carrier_confidence, carrier_color, carrier_residual = _simulate_cuda_carrier_response(
                 inputs,
                 origin=origin,
