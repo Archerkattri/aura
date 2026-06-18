@@ -602,8 +602,13 @@ class TestTrainableAllocationLogits:
 
         store = TrainableAllocationLogits(["e1"], device="cpu", temperature=0.5)
         probs = store.gumbel_softmax_probs("e1", hard=True)
-        # Compute a loss using the one-hot
-        loss = probs.sum()  # trivial but still flows gradients
+        # The loss must depend on the SHAPE of the distribution, not just its
+        # total mass: probs always sums to 1.0, so probs.sum() is a constant
+        # with zero gradient. A weighted sum over the carrier index genuinely
+        # depends on which class the STE selected, so a non-zero gradient here
+        # proves the straight-through estimator routes gradient to the logits.
+        weights = torch.arange(probs.shape[0], dtype=probs.dtype, device=probs.device)
+        loss = (probs * weights).sum()
         loss.backward()
         grad = store.logit_params["e1"].grad
         assert grad is not None, "STE must allow gradient to flow to logits"
