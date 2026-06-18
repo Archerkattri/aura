@@ -1148,6 +1148,47 @@ def test_torch_render_targets_reports_query_contract_loss():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_includes_differentiable_query_loss():
+    torch = require_torch()
+    scene = AuraScene(
+        name="torch_query_objective_scene",
+        elements=(
+            AuraElement(
+                id="panel",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 1.0, 1.0),
+                opacity=0.25,
+                semantic_id="panel",
+                material_id="mat_surface",
+            ),
+        ),
+    )
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+    objective = torch_render_target_objective(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 1.0, 1.0),
+                target_depth=2.0,
+                target_semantic_id="panel",
+                target_material_id="mat_surface",
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+    objective.query_loss.backward()
+
+    assert objective.query_loss.detach().cpu().item() == pytest.approx(0.75)
+    assert objective.to_dict()["queryLoss"] == pytest.approx(0.75)
+    assert carrier_parameters["panel"]["opacity"].grad is not None
+    assert carrier_parameters["panel"]["opacity"].grad.detach().cpu().item() < 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_reports_normal_target_loss():
     scene = AuraScene(
         name="torch_normal_loss_scene",

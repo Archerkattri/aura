@@ -92,6 +92,7 @@ class TorchRenderObjective:
     total_loss: Any
     image_loss: Any
     depth_loss: Any
+    query_loss: Any
     normal_loss: Any
     mask_loss: Any
 
@@ -102,6 +103,7 @@ class TorchRenderObjective:
             "totalLoss": float(self.total_loss.detach().cpu().item()),
             "imageLoss": float(self.image_loss.detach().cpu().item()),
             "depthLoss": float(self.depth_loss.detach().cpu().item()),
+            "queryLoss": float(self.query_loss.detach().cpu().item()),
             "normalLoss": float(self.normal_loss.detach().cpu().item()),
             "maskLoss": float(self.mask_loss.detach().cpu().item()),
             "carrierParameterIds": sorted(self.carrier_parameters),
@@ -200,6 +202,8 @@ class TorchCaptureTrainingBatch:
     target_mask: Any | None
     target_normal: Any | None
     target_normal_present: Any | None
+    target_semantic_ids: tuple[str | None, ...] = ()
+    target_material_ids: tuple[str | None, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -214,6 +218,8 @@ class TorchCaptureTrainingBatch:
             "targetMask": _torch_tensor_metadata(self.target_mask),
             "targetNormal": _torch_tensor_metadata(self.target_normal),
             "targetNormalPresent": _torch_tensor_metadata(self.target_normal_present),
+            "targetSemanticIds": list(self.target_semantic_ids),
+            "targetMaterialIds": list(self.target_material_ids),
         }
 
 
@@ -419,6 +425,8 @@ def torch_capture_training_batch(
         target_mask=target_mask,
         target_normal=target_normal,
         target_normal_present=target_normal_present,
+        target_semantic_ids=tuple(by_frame[assets.frame_ids[index]].semantic_label for index in frame_indices),
+        target_material_ids=(None,) * len(frame_indices),
     )
 
 
@@ -464,6 +472,8 @@ def torch_capture_training_batch_from_packed(
         target_mask=target_mask,
         target_normal=target_normal,
         target_normal_present=target_normal_present,
+        target_semantic_ids=tuple(batch.frame_semantic_ids[int(index)] for index in frame_indices.detach().cpu().tolist()),
+        target_material_ids=(None,) * target_count,
     )
 
 
@@ -490,8 +500,8 @@ def torch_render_capture_training_batch(
         target_depths=batch.target_depth,
         target_normals=batch.target_normal,
         target_normal_present=batch.target_normal_present,
-        target_semantic_ids=(None,) * len(sample_frame_ids),
-        target_material_ids=(None,) * len(sample_frame_ids),
+        target_semantic_ids=batch.target_semantic_ids,
+        target_material_ids=batch.target_material_ids,
         device=str(batch.ray_origins.device),
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
@@ -521,6 +531,8 @@ def torch_render_capture_training_objective(
         target_mask=batch.target_mask,
         target_normals=batch.target_normal,
         target_normal_present=batch.target_normal_present,
+        target_semantic_ids=batch.target_semantic_ids,
+        target_material_ids=batch.target_material_ids,
         device=str(batch.ray_origins.device),
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
@@ -608,6 +620,8 @@ def torch_render_target_objective(
             device=resolved_device,
         ),
         target_normal_present=torch.tensor([target.target_normal is not None for target in targets], dtype=torch.bool, device=resolved_device),
+        target_semantic_ids=tuple(target.target_semantic_id for target in targets),
+        target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
@@ -758,12 +772,18 @@ def _torch_render_objective_tensor_targets(
     target_mask: Any | None = None,
     target_normals: Any | None = None,
     target_normal_present: Any | None = None,
+    target_semantic_ids: Sequence[str | None] = (),
+    target_material_ids: Sequence[str | None] = (),
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
     scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderObjective:
     torch = require_torch()
     if int(origins.shape[0]) != len(frame_ids):
         raise ValueError("torch tensor target count must match frame ids")
+    if target_semantic_ids and len(target_semantic_ids) != len(frame_ids):
+        raise ValueError("torch target semantic id count must match frame ids")
+    if target_material_ids and len(target_material_ids) != len(frame_ids):
+        raise ValueError("torch target material id count must match frame ids")
 
     scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
     colors = scene_tensors.colors
@@ -819,13 +839,22 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.element_normal_present,
     )
     normal_loss = torch.mean(_torch_normal_loss(torch, predicted_normals, predicted_normal_present, target_normals, target_normal_present))
+    query_loss = _torch_query_contract_loss(
+        torch,
+        tuple(scene.elements),
+        composited["element_weights"],
+        target_semantic_ids=target_semantic_ids or (None,) * len(frame_ids),
+        target_material_ids=target_material_ids or (None,) * len(frame_ids),
+        device=device,
+    )
     return TorchRenderObjective(
         device=device,
         frame_ids=tuple(frame_ids),
         carrier_parameters=carrier_parameters,
-        total_loss=image_loss + depth_loss + normal_loss + mask_loss,
+        total_loss=image_loss + depth_loss + query_loss + normal_loss + mask_loss,
         image_loss=image_loss,
         depth_loss=depth_loss,
+        query_loss=query_loss,
         normal_loss=normal_loss,
         mask_loss=mask_loss,
     )
@@ -942,6 +971,7 @@ def _torch_composite_carrier_hits(
     confidence_num = torch.zeros((ray_count,), dtype=torch.float32, device=device)
     confidence_den = torch.zeros((ray_count,), dtype=torch.float32, device=device)
     residual = torch.zeros((ray_count,), dtype=torch.bool, device=device)
+    element_weights = torch.zeros((ray_count, len(elements)), dtype=torch.float32, device=device)
     ordered_transmittance: list[Any] = []
 
     for order in range(len(elements)):
@@ -980,6 +1010,7 @@ def _torch_composite_carrier_hits(
         color = color + weight.unsqueeze(1) * carrier_colors
         confidence_num = confidence_num + weight * confidence
         confidence_den = confidence_den + weight
+        element_weights = element_weights.scatter_add(1, current_index.unsqueeze(1), weight.unsqueeze(1))
         remaining = torch.where(active, remaining * transmittance, remaining)
         residual = residual | (active & residual_flags)
         if collect_traces:
@@ -1006,6 +1037,7 @@ def _torch_composite_carrier_hits(
         "first_depth": first_depth,
         "first_index": first_index,
         "has_hit": has_hit,
+        "element_weights": element_weights,
         "hit_indices": tuple(hit_indices),
         "hit_depths": tuple(hit_depths),
         "hit_transmittance": hit_transmittance,
@@ -1505,6 +1537,36 @@ def _torch_mask_loss(torch: Any, predicted_opacity: Any, target_mask: Any | None
     if target_mask is None:
         return torch.zeros((), dtype=torch.float32, device=predicted_opacity.device)
     return torch.mean((predicted_opacity - torch.clamp(target_mask, min=0.0, max=1.0)) ** 2)
+
+
+def _torch_query_contract_loss(
+    torch: Any,
+    elements: Sequence[Any],
+    element_weights: Any,
+    *,
+    target_semantic_ids: Sequence[str | None],
+    target_material_ids: Sequence[str | None],
+    device: str,
+) -> Any:
+    losses = []
+    for targets, element_values in (
+        (target_semantic_ids, tuple(_semantic_id_for(element) for element in elements)),
+        (target_material_ids, tuple(element.material_id for element in elements)),
+    ):
+        supervised = [index for index, target in enumerate(targets) if target is not None]
+        if not supervised:
+            continue
+        match_rows = []
+        for target in targets:
+            match_rows.append([1.0 if target is not None and value == target else 0.0 for value in element_values])
+        match_mask = torch.tensor(match_rows, dtype=torch.float32, device=device)
+        matched = torch.sum(element_weights * match_mask, dim=1)
+        supervised_indices = torch.tensor(supervised, dtype=torch.long, device=device)
+        supervised_match = torch.clamp(matched[supervised_indices], min=0.0, max=1.0)
+        losses.append(torch.mean(1.0 - supervised_match))
+    if not losses:
+        return torch.zeros((), dtype=torch.float32, device=element_weights.device)
+    return torch.mean(torch.stack(tuple(losses)))
 
 
 def _optional_target_normal_tuple(target_normals: Any | None, target_normal_present: Any | None) -> tuple[tuple[float, float, float] | None, ...]:

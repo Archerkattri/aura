@@ -215,12 +215,13 @@ def _optimization_step_from_rendered(
     source_windows: tuple[dict[str, Any], ...],
     loss_weights: TrainingLossWeights,
     mask_loss: float,
+    query_loss: float | None,
     update: "_TorchGradientStepState",
     max_samples_per_batch: int | None,
 ) -> TorchOptimizationStep:
     image_loss = _mean(rendered.image_loss)
     depth_loss = _mean(rendered.depth_loss)
-    query_loss = _mean(rendered.query_loss)
+    query_loss = _mean(rendered.query_loss) if query_loss is None else query_loss
     normal_loss = _mean(rendered.normal_loss)
     return TorchOptimizationStep(
         iteration=iteration,
@@ -317,6 +318,7 @@ def _optimize_torch_batches(
                     source_windows=source_windows,
                     loss_weights=config.loss_weights,
                     mask_loss=_tensor_scalar(checkpoint_objective.mask_loss),
+                    query_loss=_tensor_scalar(checkpoint_objective.query_loss),
                     update=update,
                     max_samples_per_batch=config.max_samples_per_batch,
                 )
@@ -610,6 +612,7 @@ def _weighted_torch_loss(objective: Any, loss_weights: TrainingLossWeights) -> A
     return (
         loss_weights.image * objective.image_loss
         + loss_weights.depth * objective.depth_loss
+        + loss_weights.query * objective.query_loss
         + loss_weights.normal * objective.normal_loss
         + loss_weights.mask * objective.mask_loss
     )

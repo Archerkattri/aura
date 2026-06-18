@@ -210,6 +210,80 @@ def test_torch_optimize_capture_batch_updates_surface_geometry_from_depth_loss()
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batches_optimizes_semantic_query_loss():
+    scene = AuraScene(
+        name="torch_optimizer_query_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.2,
+                semantic_id="tooth",
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        semantic_label="tooth",
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    tensors = (
+        CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(
+                path="frame.ppm",
+                format="Netpbm",
+                backend="stdlib",
+                width=1,
+                height=1,
+                channels=3,
+                values=(1.0, 0.0, 0.0),
+            ),
+            depth=CaptureTensor(
+                path="frame.pgm",
+                format="Netpbm",
+                backend="stdlib",
+                width=1,
+                height=1,
+                channels=1,
+                values=(2.0,),
+            ),
+        ),
+    )
+    packed_batches = capture_tensors_to_packed_render_batches(
+        (frame,),
+        tensors,
+        tile_size=1,
+        max_targets_per_batch=1,
+    )
+
+    result = torch_optimize_capture_batches(
+        scene,
+        packed_batches,
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.5,
+            loss_weights=TrainingLossWeights(image=0.0, depth=0.0, query=1.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+        device="cpu",
+    )
+
+    assert result.steps[0].query_loss > result.steps[1].query_loss
+    assert result.steps[0].loss_weights["query"] == 1.0
+    assert result.scene.elements[0].opacity > scene.elements[0].opacity
+    assert result.scene.elements[0].confidence_map["torch_query_loss"] < result.steps[0].query_loss
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_stream_packed_source_windows():
     scene = AuraScene(
         name="torch_packed_optimizer_scene",
