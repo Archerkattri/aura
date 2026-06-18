@@ -258,7 +258,6 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
     assert len(report["iterations"][0]["predictions"]) == len(report["frames"])
     assert {item["carrier_id"] for item in report["iterations"][0]["predictions"]} >= {"surface", "volume", "gabor", "semantic"}
     assert {item["action"] for item in report["iterations"][0]["carrier_evolution"]} >= {
-        "refine_radiance",
         "split_beta_detail",
         "promote_neural_residual",
     }
@@ -266,7 +265,7 @@ def test_reconstruct_demo_builds_native_aura_core_scene_without_3dgs():
         "soft_volume_beta_detail",
         "semantic_object_neural_residual",
     }
-    assert report["iterations"][0]["carrier_evolution_report"]["actionCounts"]["split_beta_detail"] == 1
+    assert report["iterations"][0]["carrier_evolution_report"]["actionCounts"]["split_beta_detail"] >= 2
     assert report["iterations"][0]["carrier_evolution_report"]["actionCounts"]["promote_neural_residual"] == 1
     assert set(report["iterations"][0]["carrier_evolution_report"]["createdElementIds"]) >= {
         "soft_volume_beta_detail",

@@ -70,6 +70,24 @@ def test_policy_splits_high_residual_volume_into_beta_child():
     assert child.confidence_map["optimization_residual"] == 0.2
 
 
+@pytest.mark.parametrize("carrier_id", ("surface", "gabor"))
+def test_policy_splits_high_residual_radiance_carrier_into_beta_child(carrier_id):
+    parent = _element(f"{carrier_id}_carrier", carrier_id, material_id="mat_radiance")
+    prediction = _prediction(f"{carrier_id}_carrier", carrier_id, image_loss=0.2, target_point=(0.75, 0.5, 0.5))
+
+    decision = carrier_evolution_decisions((prediction,), (parent,), policy=CarrierEvolutionPolicy(), iteration=0)[0]
+    child = evolved_element_for(parent, decision, prediction)
+
+    assert decision.action == "split_beta_detail"
+    assert decision.created_element_id == f"{carrier_id}_carrier_beta_detail"
+    assert decision.reason == f"{carrier_id} evidence benefits from compact bounded support"
+    assert child is not None
+    assert child.carrier_id == "beta"
+    assert child.material_id == "mat_radiance"
+    assert child.bounds.max_corner[0] == pytest.approx(0.975)
+    assert child.payload["type"] == "beta_kernel"
+
+
 def test_split_child_bounds_localize_around_residual_target_point():
     parent = _element("soft_volume", "volume", material_id="mat_soft")
     prediction = _prediction("soft_volume", "volume", image_loss=0.2, target_point=(0.85, 0.2, 0.4))

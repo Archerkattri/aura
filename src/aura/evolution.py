@@ -294,7 +294,7 @@ def _classify_prediction(
         thresholds = _thresholds(policy, "demote")
     elif _needs_detail_carrier(evidence, policy=policy) and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
         thresholds = _thresholds(policy, "split")
-        if prediction.carrier_id == "volume":
+        if prediction.carrier_id in {"surface", "volume", "gabor"}:
             if beta_child_id in element_ids:
                 action = "retain_carrier"
                 reason = "existing beta detail carries residual evidence"
@@ -303,7 +303,7 @@ def _classify_prediction(
                 reason = "merged beta detail remains below re-split hysteresis"
             else:
                 action = "split_beta_detail"
-                reason = "volume evidence benefits from compact bounded support"
+                reason = f"{prediction.carrier_id} evidence benefits from compact bounded support"
         elif prediction.carrier_id == "semantic":
             if neural_child_id in element_ids:
                 action = "retain_semantic_carrier"

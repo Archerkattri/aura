@@ -686,6 +686,83 @@ def test_torch_optimize_capture_batches_localizes_evolved_child_to_high_error_ra
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batches_splits_surface_residual_during_training():
+    scene = AuraScene(
+        name="torch_optimizer_surface_evolution_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-1.5, -1.0, 0.0), (1.5, 1.0, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=0.8,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 1.0, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+    tensors = (
+        CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(
+                path="frame.ppm",
+                format="Netpbm",
+                backend="stdlib",
+                width=2,
+                height=1,
+                channels=3,
+                values=(1.0, 0.0, 0.0, 0.05, 0.0, 0.0),
+            ),
+            depth=CaptureTensor(
+                path="frame.pgm",
+                format="Netpbm",
+                backend="stdlib",
+                width=2,
+                height=1,
+                channels=1,
+                values=(2.0, 2.0),
+            ),
+        ),
+    )
+    packed_batches = capture_tensors_to_packed_render_batches(
+        (frame,),
+        tensors,
+        tile_size=1,
+        max_targets_per_batch=1,
+    )
+
+    result = torch_optimize_capture_batches(
+        scene,
+        packed_batches,
+        TorchOptimizationConfig(
+            iterations=1,
+            color_learning_rate=0.05,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            evolution_policy=CarrierEvolutionPolicy(split_image_loss_threshold=0.0),
+            max_samples_per_batch=1,
+        ),
+        device="cpu",
+    )
+    by_id = {element.id: element for element in result.scene.elements}
+
+    assert "surface_beta_detail" in by_id
+    assert result.steps[-1].carrier_evolution[0]["action"] == "split_beta_detail"
+    assert result.steps[-1].carrier_evolution[0]["reason"] == "surface evidence benefits from compact bounded support"
+    assert by_id["surface_beta_detail"].carrier_id == "beta"
+    assert by_id["surface_beta_detail"].metadata["parent"] == "surface"
+    assert by_id["surface_beta_detail"].payload["type"] == "beta_kernel"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_stream_packed_source_windows():
     scene = AuraScene(
         name="torch_packed_optimizer_scene",
