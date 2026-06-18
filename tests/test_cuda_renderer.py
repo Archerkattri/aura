@@ -1238,3 +1238,46 @@ def test_cuda_render_rays_torch_fallback_matches_aura_ray_query_contract():
     assert batch.normal[0] == expected.result.normal
     assert batch.element_ids[0] == expected.ordered_hits[0].element_id
     assert batch.ordered_hits[0][0]["elementId"] == expected.ordered_hits[0].element_id
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_torch_fallback_keeps_tensor_inputs_off_cpu_validation():
+    import torch
+
+    class _TensorOnlyRays:
+        def __init__(self, values):
+            self._tensor = torch.tensor(values, dtype=torch.float32)
+            self.shape = self._tensor.shape
+
+        def to(self, *, device=None, dtype=None):
+            return self._tensor.to(device=device, dtype=dtype)
+
+        def detach(self):  # pragma: no cover - should not be reached.
+            raise AssertionError("torch fallback should not convert tensor rays through CPU validation")
+
+    scene = AuraScene(
+        name="cuda_torch_tensor_fallback_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=_TensorOnlyRays([[0.0, 0.0, -1.0]]),
+        ray_directions=_TensorOnlyRays([[0.0, 0.0, 1.0]]),
+        fallback_backend="torch",
+        device="cpu",
+    )
+
+    assert batch.backend == "torch"
+    assert batch.element_ids == ("surface",)
+    assert batch.color[0] == pytest.approx((1.0, 0.0, 0.0))

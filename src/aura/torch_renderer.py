@@ -702,6 +702,49 @@ def torch_render_targets(
     )
 
 
+def torch_render_rays(
+    scene: AuraScene,
+    ray_origins: Any,
+    ray_directions: Any,
+    *,
+    device: str | None = None,
+    frame_id_prefix: str = "ray",
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
+) -> TorchRenderBatch:
+    """Render raw ray tensors through the native torch AURA renderer."""
+
+    if not scene.elements:
+        raise ValueError("torch renderer requires at least one scene element")
+    status = torch_renderer_status()
+    resolved_device = device or (scene_tensors.device if scene_tensors is not None else None) or status.default_device or "cpu"
+    torch = require_torch()
+    origins = _torch_ray_tensor(torch, ray_origins, name="ray_origins", device=resolved_device)
+    directions = _torch_ray_tensor(torch, ray_directions, name="ray_directions", device=resolved_device)
+    ray_count = int(origins.shape[0])
+    if int(directions.shape[0]) != ray_count:
+        raise ValueError(f"ray_origins count {ray_count} does not match ray_directions count {int(directions.shape[0])}")
+    if ray_count <= 0:
+        raise ValueError("ray_count must be positive")
+    return _torch_render_tensor_targets(
+        scene,
+        frame_ids=tuple(f"{frame_id_prefix}_{index}" for index in range(ray_count)),
+        origins=origins,
+        directions=directions,
+        target_colors=torch.zeros((ray_count, 3), dtype=torch.float32, device=resolved_device),
+        target_depths=torch.ones((ray_count,), dtype=torch.float32, device=resolved_device),
+        target_normals=None,
+        target_normal_present=None,
+        target_confidence=None,
+        target_confidence_present=None,
+        target_semantic_ids=(None,) * ray_count,
+        target_material_ids=(None,) * ray_count,
+        device=str(resolved_device),
+        carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
+    )
+
+
 def torch_render_target_objective(
     scene: AuraScene,
     targets: Sequence[RenderTarget],
@@ -745,6 +788,19 @@ def torch_render_target_objective(
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
     )
+
+
+def _torch_ray_tensor(torch: Any, values: Any, *, name: str, device: str) -> Any:
+    if values is None:
+        raise ValueError(f"{name} is required")
+    if hasattr(values, "shape") and hasattr(values, "to"):
+        tensor = values.to(device=device, dtype=torch.float32)
+    else:
+        tensor = torch.as_tensor(values, dtype=torch.float32, device=device)
+    shape = tuple(int(dim) for dim in tensor.shape)
+    if len(shape) != 2 or shape[1] != 3:
+        raise ValueError(f"{name} must have shape rayCount x 3")
+    return tensor.contiguous()
 
 
 def _torch_render_tensor_targets(

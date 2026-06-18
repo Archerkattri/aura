@@ -19,6 +19,7 @@ from aura import (
     torch_carrier_parameter_tensors,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
+    torch_render_rays,
     torch_render_target_objective,
     torch_render_targets,
     torch_renderer_status,
@@ -404,6 +405,36 @@ def test_torch_render_capture_training_batch_matches_render_target_path():
     assert rendered.depth_loss == direct_batch.depth_loss
     assert rendered.target_normal == direct_batch.target_normal
     assert rendered.normal_loss == direct_batch.normal_loss
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_rays_renders_raw_tensor_inputs_without_render_targets():
+    import torch
+
+    scene = AuraScene(
+        name="torch_raw_ray_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.25, 0.5, 0.75),
+                opacity=0.8,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    origins = torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32)
+    directions = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+
+    batch = torch_render_rays(scene, origins, directions, device="cpu", frame_id_prefix="raw")
+
+    assert batch.frame_ids == ("raw_0",)
+    assert batch.element_ids == ("surface",)
+    assert batch.predicted_color[0] == pytest.approx((0.2, 0.4, 0.6))
+    assert batch.opacity[0] == pytest.approx(0.8)
+    assert batch.predicted_depth[0] == pytest.approx(1.0)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

@@ -15,7 +15,6 @@ from aura.cuda_kernels import (
     cuda_kernel_extension_status,
     cuda_renderer_source_report,
 )
-from aura.optimize import RenderTarget
 from aura.ray import Ray
 from aura.scene import AuraScene, RayTraversal
 
@@ -1191,10 +1190,10 @@ def cuda_render_rays(
     if require_cuda or fallback_backend == "none":
         raise RuntimeError(f"CUDA renderer extension is unavailable: {extension.reason or 'not_available'}")
 
-    rays = _validated_rays(ray_origins, ray_directions)
     resolved_backend = _resolve_fallback_backend(fallback_backend, scene=scene)
     if resolved_backend == "torch":
-        return _torch_fallback_batch(scene, rays, launch_config, extension, device=device, symbol_probe=symbol_probe)
+        return _torch_fallback_batch(scene, ray_origins, ray_directions, launch_config, extension, device=device, symbol_probe=symbol_probe)
+    rays = _validated_rays(ray_origins, ray_directions)
     return _cpu_fallback_batch(scene, rays, launch_config, extension, symbol_probe=symbol_probe)
 
 
@@ -1414,25 +1413,23 @@ def _cpu_fallback_batch(
 
 def _torch_fallback_batch(
     scene: AuraScene,
-    rays: Sequence[Ray],
+    ray_origins: Sequence[Sequence[float]] | Any,
+    ray_directions: Sequence[Sequence[float]] | Any,
     launch_config: CudaRendererLaunchConfig,
     extension: CudaExtensionStatus,
     *,
     device: str | None,
     symbol_probe: CudaRendererSymbolProbe | None = None,
 ) -> CudaRendererBatch:
-    from aura.torch_renderer import torch_render_targets
+    from aura.torch_renderer import torch_render_rays
 
-    targets = tuple(
-        RenderTarget(
-            frame_id=f"cuda_fallback_ray_{index}",
-            ray=ray,
-            target_color=(0.0, 0.0, 0.0),
-            target_depth=1.0,
-        )
-        for index, ray in enumerate(rays)
+    torch_batch = torch_render_rays(
+        scene,
+        ray_origins,
+        ray_directions,
+        device=device,
+        frame_id_prefix="cuda_fallback_ray",
     )
-    torch_batch = torch_render_targets(scene, targets, device=device)
     ordered_hits, overflow = _trim_hits(torch_batch.ordered_hits, launch_config.max_hits)
     reason = "cuda_extension_unavailable_torch_fallback"
     if extension.available and symbol_probe is not None and not symbol_probe.dispatch_symbols_ready:
