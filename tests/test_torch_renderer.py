@@ -231,6 +231,42 @@ def test_torch_capture_training_batch_filters_masked_pixels_before_limit():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_builds_ray_tensors_on_asset_device():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    frame = TrainingFrame(
+        id="frame_a",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        semantic_label="surface_region",
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 1.0, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                image_values=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+                depth_values=(2.0, 2.0),
+                mask_values=None,
+            ),
+        ),
+        device=device,
+    )
+
+    batch = torch_capture_training_batch((frame,), assets)
+
+    assert batch.ray_origins.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert batch.ray_directions.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert batch.target_semantic_ids == ("surface_region", "surface_region")
+    assert batch.ray_origins.detach().cpu().tolist() == [[0.0, 0.0, -2.0], [0.0, 0.0, -2.0]]
+    assert batch.ray_directions[0].detach().cpu().tolist() == pytest.approx([0.4472135901, 0.0, 0.8944271803])
+    assert batch.ray_directions[1].detach().cpu().tolist() == pytest.approx([-0.4472135901, 0.0, 0.8944271803])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_capture_training_batch_rejects_fully_masked_targets():
     frame = TrainingFrame(
         id="frame_a",

@@ -401,10 +401,11 @@ def torch_capture_training_batch(
     device = assets.image.device
     height = int(assets.image.shape[1])
     width = int(assets.image.shape[2])
-    frame_indices: list[int] = []
-    pixels: list[tuple[int, int]] = []
-    origins: list[tuple[float, float, float]] = []
-    directions: list[tuple[float, float, float]] = []
+    frame_index_tensors = []
+    pixel_tensors = []
+    origin_tensors = []
+    direction_tensors = []
+    target_semantic_ids: list[str | None] = []
     for frame_index, frame_id in enumerate(assets.frame_ids):
         frame = by_frame[frame_id]
         sampled_pixels = _sampled_training_pixels_for_frame(
@@ -417,17 +418,22 @@ def torch_capture_training_batch(
             max_targets_per_frame=max_targets_per_frame,
             include_masked_targets=include_masked_targets,
         )
-        for x, y in sampled_pixels.detach().cpu().tolist():
-            x_int = int(x)
-            y_int = int(y)
-            frame_indices.append(frame_index)
-            pixels.append((x_int, y_int))
-            origins.append(frame.camera_origin)
-            directions.append(_pixel_ray_direction(frame, x_int, y_int))
-    if not frame_indices:
+        sample_count = int(sampled_pixels.shape[0])
+        if sample_count == 0:
+            continue
+        frame_index_tensors.append(torch.full((sample_count,), frame_index, dtype=torch.long, device=device))
+        pixel_tensors.append(sampled_pixels)
+        origin_tensors.append(
+            torch.as_tensor(frame.camera_origin, dtype=torch.float32, device=device).reshape(1, 3).expand(sample_count, 3)
+        )
+        direction_tensors.append(_pixel_ray_directions_tensor(torch, frame, sampled_pixels, device=device))
+        target_semantic_ids.extend([frame.semantic_label] * sample_count)
+    if not frame_index_tensors:
         raise ValueError("torch capture training batch produced no sampled pixels")
-    index_tensor = torch.tensor(frame_indices, dtype=torch.long, device=device)
-    pixel_tensor = torch.tensor(pixels, dtype=torch.long, device=device)
+    index_tensor = torch.cat(tuple(frame_index_tensors), dim=0)
+    pixel_tensor = torch.cat(tuple(pixel_tensors), dim=0)
+    ray_origins = torch.cat(tuple(origin_tensors), dim=0)
+    ray_directions = torch.cat(tuple(direction_tensors), dim=0)
     y_index = pixel_tensor[:, 1]
     x_index = pixel_tensor[:, 0]
     target_color = assets.image[index_tensor, y_index, x_index, :3]
@@ -442,15 +448,16 @@ def torch_capture_training_batch(
     target_mask = assets.mask[index_tensor, y_index, x_index, 0] if assets.mask is not None else None
     target_normal = assets.normal[index_tensor, y_index, x_index, :3] if assets.normal is not None else None
     target_normal_present = assets.normal_present[index_tensor] if assets.normal_present is not None else None
-    target_confidence = torch.clamp(target_mask, min=0.0, max=1.0) if target_mask is not None else torch.ones((len(frame_indices),), dtype=torch.float32, device=device)
-    target_confidence_present = torch.ones((len(frame_indices),), dtype=torch.bool, device=device)
+    target_count = int(index_tensor.shape[0])
+    target_confidence = torch.clamp(target_mask, min=0.0, max=1.0) if target_mask is not None else torch.ones((target_count,), dtype=torch.float32, device=device)
+    target_confidence_present = torch.ones((target_count,), dtype=torch.bool, device=device)
     return TorchCaptureTrainingBatch(
         device=str(device),
         frame_ids=tuple(assets.frame_ids),
         frame_indices=index_tensor,
         pixel_xy=pixel_tensor,
-        ray_origins=torch.tensor(origins, dtype=torch.float32, device=device),
-        ray_directions=torch.tensor(directions, dtype=torch.float32, device=device),
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
         target_color=target_color,
         target_depth=target_depth,
         target_mask=target_mask,
@@ -458,8 +465,8 @@ def torch_capture_training_batch(
         target_normal_present=target_normal_present,
         target_confidence=target_confidence,
         target_confidence_present=target_confidence_present,
-        target_semantic_ids=tuple(by_frame[assets.frame_ids[index]].semantic_label for index in frame_indices),
-        target_material_ids=(None,) * len(frame_indices),
+        target_semantic_ids=tuple(target_semantic_ids),
+        target_material_ids=(None,) * target_count,
     )
 
 
@@ -488,6 +495,29 @@ def _sampled_training_pixels_for_frame(
     if max_targets_per_frame is not None:
         pixel_xy = pixel_xy[:max_targets_per_frame]
     return pixel_xy
+
+
+def _pixel_ray_directions_tensor(torch: Any, frame: TrainingFrame, pixel_xy: Any, *, device: str) -> Any:
+    forward = _normalize(tuple(frame.look_at[index] - frame.camera_origin[index] for index in range(3)))
+    if frame.intrinsics is None:
+        return torch.as_tensor(forward, dtype=torch.float32, device=device).reshape(1, 3).expand(int(pixel_xy.shape[0]), 3)
+    right_raw = _cross(forward, (0.0, 1.0, 0.0))
+    if _norm(right_raw) <= 1e-12:
+        right_raw = _cross(forward, (1.0, 0.0, 0.0))
+    right = _normalize(right_raw)
+    up = _normalize(_cross(right, forward))
+    fx = float(frame.intrinsics["fx"])
+    fy = float(frame.intrinsics["fy"])
+    cx = float(frame.intrinsics["cx"])
+    cy = float(frame.intrinsics["cy"])
+    pixels = pixel_xy.to(dtype=torch.float32)
+    px = ((pixels[:, 0] + 0.5) - cx) / fx
+    py = ((pixels[:, 1] + 0.5) - cy) / fy
+    forward_tensor = torch.as_tensor(forward, dtype=torch.float32, device=device).reshape(1, 3)
+    right_tensor = torch.as_tensor(right, dtype=torch.float32, device=device).reshape(1, 3)
+    up_tensor = torch.as_tensor(up, dtype=torch.float32, device=device).reshape(1, 3)
+    directions = forward_tensor + right_tensor * px.unsqueeze(1) - up_tensor * py.unsqueeze(1)
+    return directions / torch.clamp(torch.linalg.norm(directions, dim=1, keepdim=True), min=1e-8)
 
 
 def torch_capture_training_batch_from_packed(
