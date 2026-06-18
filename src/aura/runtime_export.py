@@ -1,3 +1,5 @@
+"""AURA runtime export readiness report for native, glTF, and USD targets."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +12,7 @@ from aura.scene import BVH_CHUNK_THRESHOLD
 
 @dataclass(frozen=True)
 class RuntimeExportReport:
+    """Structured export readiness assessment for an AURA package."""
     asset: str
     native_contract: dict[str, bool]
     fallback_targets: dict[str, dict[str, Any]]
@@ -36,6 +39,7 @@ class RuntimeExportReport:
 
 
 def runtime_export_report(package: AuraPackage) -> RuntimeExportReport:
+    """Build a :class:`RuntimeExportReport` for ``package`` covering all export targets."""
     scene = package.scene
     exchange = dict(package.exchange or exchange_plan(package.asset))
     carriers = tuple(scene.carrier_ids())

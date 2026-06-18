@@ -1,3 +1,5 @@
+"""Ingest adapter registry and depth-evidence helpers for bridging raw observations to AURA evidence samples."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -11,6 +13,8 @@ from aura.ray import Vec3
 
 @dataclass(frozen=True)
 class IngestAdapterSpec:
+    """Descriptor for a supported ingest adapter and its current implementation status."""
+
     id: str
     status: str
     output: str = "EvidenceSample"
@@ -22,6 +26,8 @@ class IngestAdapterSpec:
 
 @dataclass(frozen=True)
 class DepthEvidencePoint:
+    """A single observed depth point convertible to an AURA surface evidence sample."""
+
     id: str
     position: Vec3
     normal: Vec3
@@ -45,6 +51,8 @@ class DepthEvidencePoint:
 
 @dataclass(frozen=True)
 class SemanticMaskRegion:
+    """A bounded semantic segmentation region convertible to an AURA semantic evidence sample."""
+
     id: str
     label: str
     bounds: Bounds
@@ -64,6 +72,8 @@ class SemanticMaskRegion:
 
 @dataclass(frozen=True)
 class SparsePointPrior:
+    """A COLMAP or SLAM sparse point convertible to an AURA geometry evidence sample."""
+
     id: str
     position: Vec3
     confidence: float
@@ -82,6 +92,7 @@ class SparsePointPrior:
 
 
 def supported_ingest_adapters() -> tuple[IngestAdapterSpec, ...]:
+    """Return descriptors for all supported and planned AURA ingest adapters."""
     return (
         IngestAdapterSpec(id="3dgs", status="implemented", notes="PLY/JSON splats are converted to EvidenceSample before AURA decomposition."),
         IngestAdapterSpec(id="depth-prior", status="contract", notes="Depth points become surface evidence samples."),
@@ -97,14 +108,17 @@ def supported_ingest_adapters() -> tuple[IngestAdapterSpec, ...]:
 
 
 def depth_points_to_evidence(points: Sequence[DepthEvidencePoint]) -> tuple[EvidenceSample, ...]:
+    """Convert a sequence of depth evidence points to AURA evidence samples."""
     return tuple(point.to_evidence_sample() for point in points)
 
 
 def semantic_masks_to_evidence(regions: Sequence[SemanticMaskRegion]) -> tuple[EvidenceSample, ...]:
+    """Convert a sequence of semantic mask regions to AURA evidence samples."""
     return tuple(region.to_evidence_sample() for region in regions)
 
 
 def sparse_points_to_evidence(points: Sequence[SparsePointPrior]) -> tuple[EvidenceSample, ...]:
+    """Convert a sequence of sparse point priors to AURA evidence samples."""
     return tuple(point.to_evidence_sample() for point in points)
 
 

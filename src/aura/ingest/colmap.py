@@ -1,3 +1,5 @@
+"""COLMAP binary and text model ingest: camera, image, and point-cloud parsing into AURA capture manifests."""
+
 from __future__ import annotations
 
 import struct
@@ -27,6 +29,8 @@ _COLMAP_CAMERA_MODELS = {
 
 @dataclass(frozen=True)
 class ColmapCamera:
+    """A parsed COLMAP camera entry with model name, image dimensions, and intrinsic parameters."""
+
     id: str
     model: str
     width: int
@@ -51,6 +55,8 @@ class ColmapCamera:
 
 @dataclass(frozen=True)
 class ColmapImage:
+    """A parsed COLMAP registered image with quaternion rotation, translation, and camera reference."""
+
     id: str
     qw: float
     qx: float
@@ -76,12 +82,15 @@ class ColmapImage:
 
 @dataclass(frozen=True)
 class ColmapPoint3D:
+    """A parsed COLMAP sparse 3-D point with world position and RGB color."""
+
     id: str
     xyz: Vec3
     rgb: Vec3
 
 
 def load_colmap_text_model(path: Path | str) -> tuple[dict[str, ColmapCamera], tuple[ColmapImage, ...], tuple[ColmapPoint3D, ...]]:
+    """Load a COLMAP text-format sparse model from ``path`` containing ``cameras.txt`` and ``images.txt``."""
     root = Path(path)
     cameras = _read_cameras(root / "cameras.txt")
     images = _read_images(root / "images.txt")
@@ -90,6 +99,7 @@ def load_colmap_text_model(path: Path | str) -> tuple[dict[str, ColmapCamera], t
 
 
 def load_colmap_binary_model(path: Path | str) -> tuple[dict[str, ColmapCamera], tuple[ColmapImage, ...], tuple[ColmapPoint3D, ...]]:
+    """Load a COLMAP binary sparse model from ``path`` containing ``cameras.bin`` and ``images.bin``."""
     root = Path(path)
     cameras = _read_cameras_binary(root / "cameras.bin")
     images = _read_images_binary(root / "images.bin")
@@ -98,6 +108,7 @@ def load_colmap_binary_model(path: Path | str) -> tuple[dict[str, ColmapCamera],
 
 
 def load_colmap_model(path: Path | str) -> tuple[dict[str, ColmapCamera], tuple[ColmapImage, ...], tuple[ColmapPoint3D, ...], str]:
+    """Auto-detect and load a COLMAP sparse model from ``path``, returning cameras, images, points, and format label."""
     root = Path(path)
     if (root / "cameras.bin").exists() and (root / "images.bin").exists():
         cameras, images, points = load_colmap_binary_model(root)
@@ -116,6 +127,7 @@ def colmap_to_capture_manifest(
     target_color: Vec3 = (0.5, 0.5, 0.5),
     default_depth: float = 2.0,
 ) -> CaptureManifest:
+    """Convert a COLMAP sparse model directory (binary or text) into an AURA capture manifest."""
     cameras, images, points, source = load_colmap_model(path)
     return _colmap_to_capture_manifest(
         Path(path),
@@ -138,6 +150,7 @@ def colmap_text_to_capture_manifest(
     target_color: Vec3 = (0.5, 0.5, 0.5),
     default_depth: float = 2.0,
 ) -> CaptureManifest:
+    """Convert a COLMAP text-format sparse model into an AURA capture manifest."""
     cameras, images, points = load_colmap_text_model(path)
     return _colmap_to_capture_manifest(
         Path(path),
@@ -160,6 +173,7 @@ def colmap_binary_to_capture_manifest(
     target_color: Vec3 = (0.5, 0.5, 0.5),
     default_depth: float = 2.0,
 ) -> CaptureManifest:
+    """Convert a COLMAP binary sparse model into an AURA capture manifest."""
     cameras, images, points = load_colmap_binary_model(path)
     return _colmap_to_capture_manifest(
         Path(path),
@@ -225,6 +239,7 @@ def write_colmap_capture_manifest(
     root: str,
     image_dir: str = "images",
 ) -> Path:
+    """Convert a COLMAP sparse model to a capture manifest and write it to ``output``."""
     manifest = colmap_to_capture_manifest(path, root=root, image_dir=image_dir)
     return write_capture_manifest(manifest, output)
 

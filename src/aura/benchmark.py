@@ -1,3 +1,5 @@
+"""AURA benchmark suite: visual quality, ray-query correctness, ablation, CUDA ABI parity, and production gate reports."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -59,6 +61,8 @@ CALLABLE_CUDA_RENDERER_OUTPUT_FIELDS = (
 
 @dataclass(frozen=True)
 class BenchmarkCase:
+    """A single named benchmark case with its measurement purpose and metric set."""
+
     id: str
     purpose: str
     metrics: tuple[str, ...]
@@ -76,6 +80,8 @@ class BenchmarkCase:
 
 @dataclass(frozen=True)
 class AblationConfig:
+    """Configuration for a single carrier-ablation experiment."""
+
     id: str
     disabled_carriers: tuple[str, ...] = field(default_factory=tuple)
     notes: str = ""
@@ -90,6 +96,8 @@ class AblationConfig:
 
 @dataclass(frozen=True)
 class BenchmarkSuite:
+    """A complete benchmark suite: ordered cases and carrier ablation configurations."""
+
     cases: Sequence[BenchmarkCase]
     ablations: Sequence[AblationConfig]
 
@@ -102,6 +110,8 @@ class BenchmarkSuite:
 
 @dataclass(frozen=True)
 class RayQueryExpectation:
+    """Expected outcome for a single labelled scene ray query used in correctness benchmarks."""
+
     label: str
     ray: Ray
     expected_first_hit: bool
@@ -149,6 +159,7 @@ class RayQueryExpectation:
 
 
 def native_demo_ray_query_expectations() -> tuple[RayQueryExpectation, ...]:
+    """Return deterministic per-carrier ray expectations for the native demo scene."""
     return (
         RayQueryExpectation(
             label="surface_first_hit",
@@ -209,6 +220,12 @@ def run_ray_query_correctness_benchmark(
     scene: AuraScene,
     expectations: Sequence[RayQueryExpectation],
 ) -> dict:
+    """Check each :class:`RayQueryExpectation` against live ray queries on ``scene``.
+
+    Returns a JSON-serialisable report with per-probe pass/fail details and
+    aggregate accuracy rates for first-hit, element/carrier ID, depth, transmittance,
+    semantic ID, material ID, ordered trace, and surface normal readiness.
+    """
     if not expectations:
         raise ValueError("ray query correctness benchmark requires expectations")
     element_by_id = {element.id: element for element in scene.elements}
@@ -240,6 +257,12 @@ def run_cuda_renderer_abi_parity_benchmark(
     *,
     max_hits: int = 4,
 ) -> dict:
+    """Validate CPU-oracle first-hit index parity against the packaged CUDA renderer ABI.
+
+    Packs scene elements and rays into flat kernel input buffers, runs a CPU
+    simulation of the CUDA first-hit traversal, and cross-checks results against
+    the reference ``AuraScene.traverse_ray`` path. Does not compile or launch CUDA.
+    """
     if not expectations:
         raise ValueError("CUDA renderer ABI parity benchmark requires expectations")
     rays = tuple(expectation.ray for expectation in expectations)
@@ -491,6 +514,12 @@ def run_reference_benchmark(
     render_width: int = 16,
     render_height: int = 16,
 ) -> dict:
+    """Run the deterministic AURA reference benchmark on ``package``.
+
+    Renders a preview image, casts scene-centre ray probes, evaluates ray-query
+    correctness, CUDA renderer ABI parity, backend readiness, native carrier
+    coverage, and runtime export contracts. Returns a JSON-serialisable report.
+    """
     scene = package.scene
     carrier_counts = {carrier_id: 0 for carrier_id in scene.carrier_ids()}
     for element in scene.elements:
@@ -591,6 +620,12 @@ def run_visual_quality_benchmark(
     render_height: int | None = None,
     min_psnr: float | None = None,
 ) -> dict:
+    """Render ``package`` at reference resolution and score against ``reference_image``.
+
+    Computes PSNR, SSIM, and an LPIPS-proxy metric. Returns a JSON-serialisable
+    report that includes the visual claim boundary, backend readiness, and
+    production gate status.
+    """
     width = render_width or reference_image.width
     height = render_height or reference_image.height
     render_start = perf_counter()
@@ -1071,6 +1106,12 @@ def run_production_gate_report(
     visual_baseline_label: str = "reference_preview_self",
     visual_self_reference: bool = True,
 ) -> dict:
+    """Evaluate the production gate for ``package`` without running a full benchmark.
+
+    Assesses CUDA renderer ABI parity, backend readiness, native carrier coverage,
+    and visual claim boundary. Returns a JSON-serialisable report with the
+    ``productionGate`` and ``claimBoundary`` keys that enumerate production blockers.
+    """
     scene = package.scene
     runtime_export = runtime_export_report(package).to_dict()
     traversals = _scene_center_traversals(scene)
@@ -1125,6 +1166,11 @@ def run_ablation_benchmarks(
     render_width: int = 16,
     render_height: int = 16,
 ) -> dict:
+    """Run carrier ablation experiments for every :class:`AblationConfig` in ``suite``.
+
+    Each ablation disables a set of carriers, rebuilds the scene, and records
+    reference benchmark deltas relative to the full baseline package.
+    """
     suite = suite or default_benchmark_suite()
     baseline = run_reference_benchmark(package, package_dir=package_dir, render_width=render_width, render_height=render_height)
     results = []
@@ -1154,6 +1200,12 @@ def run_ablation_benchmarks(
 
 
 def run_core_reconstruction_benchmark(*, iterations: int = 6) -> dict:
+    """Benchmark adaptive-evolution vs static reconstruction on the native demo scene.
+
+    Runs ``iterations`` of the reference AURA-Core reconstruction with and without
+    adaptive carrier evolution, then reports loss curves, element counts, and carrier
+    composition deltas between the two configurations.
+    """
     adaptive = reconstruct_demo_scene(
         ReconstructionConfig(iterations=iterations, enable_adaptive_evolution=True)
     )
@@ -1192,6 +1244,11 @@ def run_core_reconstruction_benchmark(*, iterations: int = 6) -> dict:
 
 
 def apply_ablation(package: AuraPackage, ablation: AblationConfig) -> AuraPackage:
+    """Return a copy of ``package`` with ``ablation.disabled_carriers`` removed.
+
+    Elements, chunk element lists, semantic nodes, and semantic edges referencing
+    disabled-carrier elements are filtered out so the result is self-consistent.
+    """
     disabled = set(ablation.disabled_carriers)
     elements = tuple(element for element in package.scene.elements if element.carrier_id not in disabled)
     element_ids = {element.id for element in elements}
@@ -1232,6 +1289,7 @@ def apply_ablation(package: AuraPackage, ablation: AblationConfig) -> AuraPackag
 
 
 def default_benchmark_suite() -> BenchmarkSuite:
+    """Return the canonical AURA benchmark suite covering all planned measurement cases."""
     return BenchmarkSuite(
         cases=(
             BenchmarkCase(
@@ -1335,6 +1393,12 @@ def evaluate_backend_readiness(
     runtime_export: dict[str, Any] | None = None,
     traversals: Sequence[Any] = (),
 ) -> dict:
+    """Evaluate CPU-verifiable backend readiness for torch/CUDA deployment without executing either.
+
+    Checks torch autograd and CUDA kernel spec coverage for every scene carrier,
+    validates ray-query contract field completeness, and measures chunk/LOD
+    assignment and traversal rates. Returns a JSON-serialisable report.
+    """
     runtime_export = runtime_export or _scene_runtime_contract_view(scene)
     carrier_ids = tuple(scene.carrier_ids())
     kernel_specs = torch_carrier_kernel_specs()
@@ -1402,6 +1466,11 @@ def evaluate_native_carrier_coverage(
     *,
     required_native_carrier_ids: Sequence[str] = NATIVE_PRODUCTION_CARRIER_IDS,
 ) -> dict:
+    """Check which native production carrier families are present in ``scene``.
+
+    Reports coverage of the required carrier set, Gaussian fallback fraction, and
+    production blockers that prevent broad AURA-first claims.
+    """
     carrier_counts = _scene_carrier_counts(scene)
     element_count = len(scene.elements)
     required = tuple(required_native_carrier_ids)
@@ -1441,6 +1510,12 @@ def evaluate_native_carrier_coverage(
 
 
 def cuda_renderer_callable_boundary_report(scene: AuraScene) -> dict:
+    """Report the callable CUDA renderer ABI boundary and CPU fallback readiness for ``scene``.
+
+    Probes the packaged ``aura.cuda_renderer`` entry point, validates output field
+    coverage, and reports whether the callable boundary executes successfully on a
+    CPU fallback. Does not compile or launch CUDA hardware.
+    """
     boundary = cuda_renderer_boundary_report(
         scene,
         probe_ray_origin=(0.0, 0.0, -2.0),

@@ -1,3 +1,5 @@
+"""AURA asset manifest dataclass and carrier capability helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
