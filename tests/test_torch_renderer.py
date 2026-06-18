@@ -908,6 +908,56 @@ def test_torch_render_targets_composites_ordered_carrier_hits():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_batches_ordered_carrier_responses(monkeypatch):
+    scene = AuraScene(
+        name="torch_batched_composite_scene",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.5,
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="back_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.2), (0.5, 0.5, 0.3)),
+                color=(0.0, 0.0, 1.0),
+                opacity=0.5,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    call_counts = []
+    original = torch_renderer_module.torch_carrier_response_tensors_batched
+
+    def count_batched_response(torch, elements, best_index, *args, **kwargs):
+        call_counts.append(int(best_index.shape[0]))
+        return original(torch, elements, best_index, *args, **kwargs)
+
+    monkeypatch.setattr(torch_renderer_module, "torch_carrier_response_tensors_batched", count_batched_response)
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.5, 0.0, 0.25),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert call_counts == [2]
+    assert batch.predicted_color[0] == pytest.approx((0.5, 0.0, 0.25))
+    assert batch.transmittance == pytest.approx((0.25,))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_target_objective_backpropagates_ordered_carrier_hits():
     scene = AuraScene(
         name="torch_composite_objective_scene",

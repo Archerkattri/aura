@@ -1217,55 +1217,63 @@ def _torch_composite_carrier_hits(
     sorted_depths, sorted_indices = torch.sort(hit_depths, dim=1)
 
     ray_count = int(origins.shape[0])
-    color = torch.zeros((ray_count, 3), dtype=torch.float32, device=device)
-    remaining = torch.ones((ray_count,), dtype=torch.float32, device=device)
-    confidence_num = torch.zeros((ray_count,), dtype=torch.float32, device=device)
-    confidence_den = torch.zeros((ray_count,), dtype=torch.float32, device=device)
-    residual = torch.zeros((ray_count,), dtype=torch.bool, device=device)
-    element_weights = torch.zeros((ray_count, len(elements)), dtype=torch.float32, device=device)
-    ordered_transmittance: list[Any] = []
-
-    for order in range(len(elements)):
-        current_index = sorted_indices[:, order]
-        current_depth = sorted_depths[:, order]
-        active = torch.isfinite(current_depth)
-        safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
-        hit_points = _torch_carrier_sample_points(
-            torch,
-            current_index,
-            safe_depth,
-            exit_depth,
-            origins,
-            directions,
-            gaussian_means,
-            device=device,
-        )
-        carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors_batched(
-            torch,
-            elements,
-            current_index,
-            safe_depth,
-            exit_depth,
-            hit_points,
-            colors,
-            opacities,
-            confidences,
-            mins,
-            maxs,
-            device,
-            carrier_parameters=carrier_parameters,
-        )
-        transmittance = torch.clamp(torch.where(active, transmittance, torch.ones_like(transmittance)), min=0.0, max=1.0)
-        alpha = 1.0 - transmittance
-        weight = torch.where(active, remaining * alpha, torch.zeros_like(remaining))
-        color = color + weight.unsqueeze(1) * carrier_colors
-        confidence_num = confidence_num + weight * confidence
-        confidence_den = confidence_den + weight
-        element_weights = element_weights.scatter_add(1, current_index.unsqueeze(1), weight.unsqueeze(1))
-        remaining = torch.where(active, remaining * transmittance, remaining)
-        residual = residual | (active & residual_flags)
-        if collect_traces:
-            ordered_transmittance.append(torch.where(active, transmittance, torch.ones_like(transmittance)))
+    order_count = len(elements)
+    active_by_order = torch.isfinite(sorted_depths)
+    flat_indices = sorted_indices.reshape(-1)
+    flat_active = active_by_order.reshape(-1)
+    flat_depths = torch.where(flat_active, sorted_depths.reshape(-1), torch.zeros_like(sorted_depths.reshape(-1)))
+    flat_origins = origins[:, None, :].expand(ray_count, order_count, 3).reshape(ray_count * order_count, 3)
+    flat_directions = directions[:, None, :].expand(ray_count, order_count, 3).reshape(ray_count * order_count, 3)
+    flat_exit_depth = exit_depth[:, None, :].expand(ray_count, order_count, len(elements)).reshape(ray_count * order_count, len(elements))
+    flat_hit_points = _torch_carrier_sample_points(
+        torch,
+        flat_indices,
+        flat_depths,
+        flat_exit_depth,
+        flat_origins,
+        flat_directions,
+        gaussian_means,
+        device=device,
+    )
+    flat_colors, flat_transmittance, flat_confidence, flat_residual = torch_carrier_response_tensors_batched(
+        torch,
+        elements,
+        flat_indices,
+        flat_depths,
+        flat_exit_depth,
+        flat_hit_points,
+        colors,
+        opacities,
+        confidences,
+        mins,
+        maxs,
+        device,
+        carrier_parameters=carrier_parameters,
+    )
+    carrier_colors_by_order = flat_colors.reshape(ray_count, order_count, 3)
+    confidence_by_order = flat_confidence.reshape(ray_count, order_count)
+    residual_by_order = flat_residual.reshape(ray_count, order_count)
+    transmittance_by_order = torch.clamp(
+        torch.where(active_by_order, flat_transmittance.reshape(ray_count, order_count), torch.ones_like(sorted_depths)),
+        min=0.0,
+        max=1.0,
+    )
+    alpha_by_order = 1.0 - transmittance_by_order
+    inclusive_remaining = torch.cumprod(transmittance_by_order, dim=1)
+    exclusive_remaining = torch.cat(
+        (
+            torch.ones((ray_count, 1), dtype=transmittance_by_order.dtype, device=device),
+            inclusive_remaining[:, :-1],
+        ),
+        dim=1,
+    )
+    weight_by_order = torch.where(active_by_order, exclusive_remaining * alpha_by_order, torch.zeros_like(alpha_by_order))
+    color = torch.sum(weight_by_order.unsqueeze(2) * carrier_colors_by_order, dim=1)
+    confidence_num = torch.sum(weight_by_order * confidence_by_order, dim=1)
+    confidence_den = torch.sum(weight_by_order, dim=1)
+    remaining = inclusive_remaining[:, -1] if order_count else torch.ones((ray_count,), dtype=torch.float32, device=device)
+    residual = torch.any(active_by_order & residual_by_order, dim=1)
+    element_weights = torch.zeros((ray_count, len(elements)), dtype=torch.float32, device=device).scatter_add(1, sorted_indices, weight_by_order)
 
     if collect_traces:
         hit_indices = []
@@ -1273,7 +1281,7 @@ def _torch_composite_carrier_hits(
         for indices, depths in zip(sorted_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
             hit_indices.append(tuple(int(index) for index, depth in zip(indices, depths) if depth != float("inf")))
             hit_depths.append(tuple(float(depth) for depth in depths if depth != float("inf")))
-        hit_transmittance = _torch_hit_transmittance_traces(torch, sorted_depths, ordered_transmittance)
+        hit_transmittance = _torch_hit_transmittance_traces_from_matrix(torch, sorted_depths, transmittance_by_order)
     else:
         hit_indices = tuple()
         hit_depths = tuple()
@@ -1648,6 +1656,18 @@ def _torch_hit_transmittance_traces(
     if not ordered_transmittance:
         return tuple(() for _index in range(int(sorted_depths.shape[0])))
     transmittance_by_order = torch.stack(tuple(ordered_transmittance), dim=1)
+    active_by_order = torch.isfinite(sorted_depths)
+    traces: list[tuple[float, ...]] = []
+    for active, values in zip(active_by_order.detach().cpu().tolist(), transmittance_by_order.detach().cpu().tolist()):
+        traces.append(tuple(float(value) for is_active, value in zip(active, values) if is_active))
+    return tuple(tuple(ray_trace) for ray_trace in traces)
+
+
+def _torch_hit_transmittance_traces_from_matrix(
+    torch: Any,
+    sorted_depths: Any,
+    transmittance_by_order: Any,
+) -> tuple[tuple[float, ...], ...]:
     active_by_order = torch.isfinite(sorted_depths)
     traces: list[tuple[float, ...]] = []
     for active, values in zip(active_by_order.detach().cpu().tolist(), transmittance_by_order.detach().cpu().tolist()):
