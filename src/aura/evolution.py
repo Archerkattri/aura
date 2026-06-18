@@ -26,6 +26,7 @@ class EvolutionPrediction(Protocol):
     query_loss: float
     normal_loss: float
     target_color: Vec3
+    target_point: Vec3 | None
 
 
 @dataclass(frozen=True)
@@ -111,8 +112,7 @@ def carrier_evolution_decisions(
 ) -> tuple[CarrierEvolutionDecision, ...]:
     """Classify one deterministic evolution action per predicted element."""
 
-    decisions = []
-    seen = set()
+    best_by_key: dict[tuple[str, str], EvolutionPrediction] = {}
     element_ids = {element.id for element in elements}
     element_by_id = {element.id: element for element in elements}
     for prediction in predictions:
@@ -121,9 +121,11 @@ def carrier_evolution_decisions(
         if prediction.element_id not in element_by_id:
             continue
         key = (prediction.element_id, prediction.carrier_id)
-        if key in seen:
-            continue
-        seen.add(key)
+        current = best_by_key.get(key)
+        if current is None or prediction_residual(prediction) > prediction_residual(current):
+            best_by_key[key] = prediction
+    decisions = []
+    for prediction in best_by_key.values():
         decisions.append(
             _classify_prediction(
                 prediction,
@@ -165,7 +167,7 @@ def evolved_element_for(
     prediction: EvolutionPrediction,
 ) -> AuraElement | None:
     if decision.action == "split_beta_detail":
-        bounds = _shrink_bounds(element.bounds, scale=0.45)
+        bounds = _localized_bounds(element.bounds, prediction, scale=0.45)
         return AuraElement(
             id=decision.created_element_id or f"{element.id}_beta_detail",
             carrier_id="beta",
@@ -185,7 +187,7 @@ def evolved_element_for(
             payload=BetaKernelPayload(alpha=3.0, beta=3.0, support_radius=_half_extent(bounds)).to_dict(),
         )
     if decision.action == "promote_neural_residual":
-        bounds = _shrink_bounds(element.bounds, scale=0.65)
+        bounds = _localized_bounds(element.bounds, prediction, scale=0.65)
         return AuraElement(
             id=decision.created_element_id or f"{element.id}_neural_residual",
             carrier_id="neural",
@@ -497,6 +499,37 @@ def _shrink_bounds(bounds: Bounds, *, scale: float) -> Bounds:
     return Bounds(
         min_corner=tuple(value - radius for value, radius in zip(center, half)),  # type: ignore[arg-type]
         max_corner=tuple(value + radius for value, radius in zip(center, half)),  # type: ignore[arg-type]
+    )
+
+
+def _localized_bounds(bounds: Bounds, prediction: EvolutionPrediction, *, scale: float) -> Bounds:
+    target_point = getattr(prediction, "target_point", None)
+    if target_point is None:
+        return _shrink_bounds(bounds, scale=scale)
+    min_corner = tuple(float(value) for value in bounds.min_corner)
+    max_corner = tuple(float(value) for value in bounds.max_corner)
+    center = tuple(
+        min(max(float(value), lo), hi)
+        for value, lo, hi in zip(target_point, min_corner, max_corner)
+    )
+    parent_extent = tuple(max(hi - lo, 1e-4) for lo, hi in zip(min_corner, max_corner))
+    half = tuple(extent * scale * 0.5 for extent in parent_extent)
+    child_min = []
+    child_max = []
+    for axis_center, axis_half, lo, hi in zip(center, half, min_corner, max_corner):
+        lower = axis_center - axis_half
+        upper = axis_center + axis_half
+        if lower < lo:
+            upper = min(hi, upper + (lo - lower))
+            lower = lo
+        if upper > hi:
+            lower = max(lo, lower - (upper - hi))
+            upper = hi
+        child_min.append(lower)
+        child_max.append(upper)
+    return Bounds(
+        min_corner=tuple(child_min),  # type: ignore[arg-type]
+        max_corner=tuple(child_max),  # type: ignore[arg-type]
     )
 
 

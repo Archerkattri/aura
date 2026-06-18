@@ -17,6 +17,7 @@ from aura import (
     torch_optimize_capture_batch,
     torch_optimize_capture_batches,
 )
+from aura.evolution import CarrierEvolutionPolicy
 from aura.optimize import TrainingLossWeights
 
 
@@ -281,6 +282,80 @@ def test_torch_optimize_capture_batches_optimizes_semantic_query_loss():
     assert result.steps[0].loss_weights["query"] == 1.0
     assert result.scene.elements[0].opacity > scene.elements[0].opacity
     assert result.scene.elements[0].confidence_map["torch_query_loss"] < result.steps[0].query_loss
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batches_localizes_evolved_child_to_high_error_ray():
+    scene = AuraScene(
+        name="torch_optimizer_local_evolution_scene",
+        elements=(
+            AuraElement(
+                id="soft_volume",
+                carrier_id="volume",
+                bounds=Bounds((-1.5, -1.0, -0.5), (1.5, 1.0, 0.5)),
+                color=(0.0, 0.0, 0.0),
+                opacity=0.5,
+                confidence=0.8,
+                payload={"type": "volume_cell", "density": 0.5},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 1.0, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+    tensors = (
+        CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(
+                path="frame.ppm",
+                format="Netpbm",
+                backend="stdlib",
+                width=2,
+                height=1,
+                channels=3,
+                values=(1.0, 0.0, 0.0, 0.05, 0.0, 0.0),
+            ),
+            depth=CaptureTensor(
+                path="frame.pgm",
+                format="Netpbm",
+                backend="stdlib",
+                width=2,
+                height=1,
+                channels=1,
+                values=(2.0, 2.0),
+            ),
+        ),
+    )
+    packed_batches = capture_tensors_to_packed_render_batches(
+        (frame,),
+        tensors,
+        tile_size=1,
+        max_targets_per_batch=1,
+    )
+
+    result = torch_optimize_capture_batches(
+        scene,
+        packed_batches,
+        TorchOptimizationConfig(
+            iterations=1,
+            color_learning_rate=0.05,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            evolution_policy=CarrierEvolutionPolicy(split_image_loss_threshold=0.0),
+            max_samples_per_batch=1,
+        ),
+        device="cpu",
+    )
+    by_id = {element.id: element for element in result.scene.elements}
+
+    assert "soft_volume_beta_detail" in by_id
+    assert result.steps[-1].carrier_evolution[0]["action"] == "split_beta_detail"
+    assert by_id["soft_volume_beta_detail"].bounds.max_corner[0] < 0.0
+    assert by_id["soft_volume_beta_detail"].metadata["parent"] == "soft_volume"
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

@@ -134,6 +134,7 @@ class _TorchEvolutionPrediction:
     query_loss: float
     normal_loss: float
     target_color: tuple[float, float, float]
+    target_point: tuple[float, float, float] | None = None
 
 
 def torch_optimize_capture_batch(
@@ -398,8 +399,9 @@ def _evolution_predictions_from_rendered(rendered: TorchRenderBatch) -> tuple[_T
             query_loss=float(query_loss),
             normal_loss=float(normal_loss),
             target_color=target_color,
+            target_point=_target_point_from_rendered(rendered, index),
         )
-        for element_id, carrier_id, image_loss, depth_loss, query_loss, normal_loss, target_color in zip(
+        for index, (element_id, carrier_id, image_loss, depth_loss, query_loss, normal_loss, target_color) in enumerate(zip(
             rendered.element_ids,
             rendered.carrier_ids,
             rendered.image_loss,
@@ -407,8 +409,19 @@ def _evolution_predictions_from_rendered(rendered: TorchRenderBatch) -> tuple[_T
             rendered.query_loss,
             rendered.normal_loss,
             rendered.target_color,
-        )
+        ))
     )
+
+
+def _target_point_from_rendered(rendered: TorchRenderBatch, index: int) -> tuple[float, float, float] | None:
+    if index >= len(rendered.ray_origins) or index >= len(rendered.ray_directions) or index >= len(rendered.target_depth):
+        return None
+    depth = rendered.target_depth[index]
+    if depth <= 0.0:
+        return None
+    origin = rendered.ray_origins[index]
+    direction = rendered.ray_directions[index]
+    return tuple(origin[axis] + direction[axis] * depth for axis in range(3))  # type: ignore[return-value]
 
 
 def _evolve_scene(

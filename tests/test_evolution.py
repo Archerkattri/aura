@@ -38,6 +38,7 @@ def _prediction(element_id: str, carrier_id: str, **kwargs):
         query_loss=kwargs.pop("query_loss", 0.0),
         normal_loss=kwargs.pop("normal_loss", 0.0),
         target_color=kwargs.pop("target_color", (0.9, 0.2, 0.1)),
+        target_point=kwargs.pop("target_point", None),
     )
 
 
@@ -67,6 +68,32 @@ def test_policy_splits_high_residual_volume_into_beta_child():
         "evolution": "split_beta_detail",
     }
     assert child.confidence_map["optimization_residual"] == 0.2
+
+
+def test_split_child_bounds_localize_around_residual_target_point():
+    parent = _element("soft_volume", "volume", material_id="mat_soft")
+    prediction = _prediction("soft_volume", "volume", image_loss=0.2, target_point=(0.85, 0.2, 0.4))
+
+    decision = carrier_evolution_decisions((prediction,), (parent,), policy=CarrierEvolutionPolicy(), iteration=0)[0]
+    child = evolved_element_for(parent, decision, prediction)
+
+    assert child is not None
+    assert child.bounds.min_corner == pytest.approx((0.55, 0.0, 0.175))
+    assert child.bounds.max_corner == pytest.approx((1.0, 0.45, 0.625))
+    assert child.payload["support_radius"] == pytest.approx((0.225, 0.225, 0.225))
+
+
+def test_policy_uses_strongest_residual_prediction_per_element():
+    parent = _element("soft_volume", "volume", material_id="mat_soft")
+    low = _prediction("soft_volume", "volume", image_loss=0.04, target_point=(0.1, 0.1, 0.1))
+    high = _prediction("soft_volume", "volume", image_loss=0.2, target_point=(0.9, 0.9, 0.9))
+
+    decision = carrier_evolution_decisions((low, high), (parent,), policy=CarrierEvolutionPolicy(), iteration=0)[0]
+    child = evolved_element_for(parent, decision, high)
+
+    assert decision.metrics["imageLoss"] == 0.2
+    assert child is not None
+    assert child.bounds.max_corner == pytest.approx((1.0, 1.0, 1.0))
 
 
 def test_policy_promotes_semantic_residual_into_neural_child():

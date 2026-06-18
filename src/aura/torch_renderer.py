@@ -32,6 +32,8 @@ class TorchRendererStatus:
 class TorchRenderBatch:
     device: str
     frame_ids: tuple[str, ...]
+    ray_origins: tuple[tuple[float, float, float], ...]
+    ray_directions: tuple[tuple[float, float, float], ...]
     element_ids: tuple[str | None, ...]
     carrier_ids: tuple[str | None, ...]
     ordered_hits: tuple[tuple[dict[str, object], ...], ...]
@@ -59,6 +61,8 @@ class TorchRenderBatch:
         return {
             "device": self.device,
             "frameIds": list(self.frame_ids),
+            "rayOrigins": [list(origin) for origin in self.ray_origins],
+            "rayDirections": [list(direction) for direction in self.ray_directions],
             "elementIds": list(self.element_ids),
             "carrierIds": list(self.carrier_ids),
             "orderedHits": [[dict(hit) for hit in ray_hits] for ray_hits in self.ordered_hits],
@@ -730,6 +734,8 @@ def _torch_render_tensor_targets(
     return TorchRenderBatch(
         device=device,
         frame_ids=tuple(frame_ids),
+        ray_origins=_tensor_vec3_tuple(origins.detach().cpu().tolist()),
+        ray_directions=_tensor_vec3_tuple(directions.detach().cpu().tolist()),
         element_ids=tuple(elements[index].id if hit else None for index, hit in zip(best_indices, hit_flags)),
         carrier_ids=tuple(elements[index].carrier_id if hit else None for index, hit in zip(best_indices, hit_flags)),
         ordered_hits=_torch_ordered_hit_traces(
