@@ -284,6 +284,65 @@ def test_torch_optimize_capture_batch_persists_beta_support_radius():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_trains_neural_residual_scale_from_image_loss():
+    scene = AuraScene(
+        name="torch_optimizer_neural_residual_scene",
+        elements=(
+            AuraElement(
+                id="neural",
+                carrier_id="neural",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                payload={"type": "neural_residual", "latent_dim": 8, "residual_scale": 0.1},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=3,
+                    values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.25,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            gradient_clip_norm=10.0,
+            max_samples_per_batch=1,
+        ),
+    )
+
+    payload = result.scene.elements[0].payload
+    assert result.steps[0].image_loss > result.steps[-1].image_loss
+    assert payload["residual_scale"] > 0.1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_optimizes_semantic_query_loss():
     scene = AuraScene(
         name="torch_optimizer_query_scene",

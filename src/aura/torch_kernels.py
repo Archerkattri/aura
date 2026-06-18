@@ -255,9 +255,10 @@ def torch_carrier_response_tensors(
                 device,
                 default=element.payload.get("residual_scale", 0.0),
             )
+            residual_strength = torch.clamp(residual_scale, min=0.0, max=1.0)
             carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
-            transmittance[mask] = torch.clamp(1.0 - opacities[element_index], min=0.0, max=1.0)
-            confidence[mask] = torch.clamp(confidences[element_index] * (1.0 - residual_scale * 0.25), min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - opacities[element_index] * residual_strength, min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(confidences[element_index] * (1.0 - residual_strength * 0.25), min=0.0, max=1.0)
             residual[mask] = True
         elif payload_type == "semantic_feature":
             semantic_confidence = _carrier_parameter(
