@@ -37,6 +37,8 @@ class TorchOptimizationConfig:
     gradient_clip_norm: float | None = None
     max_samples_per_batch: int | None = None
     evolution_policy: CarrierEvolutionPolicy | None = None
+    iteration_offset: int = 0
+    checkpoint_interval: int | None = None
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -53,6 +55,10 @@ class TorchOptimizationConfig:
             raise ValueError("torch max_samples_per_batch must be positive when set")
         if self.evolution_policy is not None and not isinstance(self.evolution_policy, CarrierEvolutionPolicy):
             raise TypeError("torch evolution_policy must be a CarrierEvolutionPolicy or None")
+        if self.iteration_offset < 0:
+            raise ValueError("torch iteration_offset must be non-negative")
+        if self.checkpoint_interval is not None and self.checkpoint_interval <= 0:
+            raise ValueError("torch checkpoint_interval must be positive when set")
 
 
 @dataclass(frozen=True)
@@ -87,6 +93,7 @@ class TorchOptimizationStep:
 class TorchOptimizationResult:
     scene: AuraScene
     steps: tuple[TorchOptimizationStep, ...]
+    scene_checkpoints: tuple["TorchSceneCheckpoint", ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -94,7 +101,26 @@ class TorchOptimizationResult:
             "steps": [step.to_dict() for step in self.steps],
             "lossCurve": _loss_curve(self.steps),
             "checkpoints": [_checkpoint_from_step(index, step) for index, step in enumerate(self.steps)],
+            "sceneCheckpoints": [checkpoint.to_dict() for checkpoint in self.scene_checkpoints],
             "finalLoss": self.steps[-1].total_loss if self.steps else None,
+        }
+
+
+@dataclass(frozen=True)
+class TorchSceneCheckpoint:
+    checkpoint_index: int
+    iteration: int
+    step_count: int
+    scene: AuraScene
+
+    def to_dict(self) -> dict:
+        return {
+            "checkpointIndex": self.checkpoint_index,
+            "iteration": self.iteration,
+            "stepCount": self.step_count,
+            "scene": self.scene.name,
+            "elementCount": len(self.scene.elements),
+            "carrierCounts": _carrier_counts(self.scene.elements),
         }
 
 
@@ -126,13 +152,13 @@ def torch_optimize_capture_batch(
             f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
             f"{config.max_samples_per_batch}"
         )
-    optimized_scene, steps = _optimize_torch_batches(
+    optimized_scene, steps, scene_checkpoints = _optimize_torch_batches(
         scene,
         ((batch, None, None, ()),),
         config=config,
         device=str(batch.ray_origins.device),
     )
-    return TorchOptimizationResult(scene=optimized_scene, steps=steps)
+    return TorchOptimizationResult(scene=optimized_scene, steps=steps, scene_checkpoints=scene_checkpoints)
 
 
 def torch_optimize_capture_batches(
@@ -175,13 +201,13 @@ def torch_optimize_capture_batches(
         )
     if not prepared_batches:
         raise ValueError("torch optimization requires at least one non-empty packed capture batch")
-    optimized_scene, steps = _optimize_torch_batches(
+    optimized_scene, steps, scene_checkpoints = _optimize_torch_batches(
         scene,
         tuple(prepared_batches),
         config=config,
         device=str(prepared_batches[0][0].ray_origins.device),
     )
-    return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps))
+    return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps), scene_checkpoints=scene_checkpoints)
 
 
 def _optimization_step_from_rendered(
@@ -237,14 +263,16 @@ def _optimize_torch_batches(
     *,
     config: TorchOptimizationConfig,
     device: str,
-) -> tuple[AuraScene, tuple[TorchOptimizationStep, ...]]:
+) -> tuple[AuraScene, tuple[TorchOptimizationStep, ...], tuple[TorchSceneCheckpoint, ...]]:
     torch = require_torch()
     current_scene = scene
     steps: list[TorchOptimizationStep] = []
+    scene_checkpoints: list[TorchSceneCheckpoint] = []
     rendered: TorchRenderBatch | None = None
     scene_tensors = torch_scene_tensors(current_scene, device=device)
     carrier_parameters = scene_tensors.carrier_parameters
     for iteration in range(config.iterations):
+        absolute_iteration = config.iteration_offset + iteration
         iteration_rendered: list[TorchRenderBatch] = []
         for batch, batch_index, target_offset, source_windows in batches:
             sample_count = _batch_sample_count(batch)
@@ -285,7 +313,7 @@ def _optimize_torch_batches(
             iteration_rendered.append(rendered)
             steps.append(
                 _optimization_step_from_rendered(
-                    iteration,
+                    absolute_iteration,
                     rendered,
                     current_scene.elements,
                     batch_index=batch_index,
@@ -308,7 +336,7 @@ def _optimize_torch_batches(
                 predictions,
                 current_scene.elements,
                 policy=config.evolution_policy,
-                iteration=iteration,
+                iteration=absolute_iteration,
             )
             if decisions:
                 current_scene = _evolve_scene(current_scene, predictions, decisions, learning_rate=config.color_learning_rate)
@@ -321,9 +349,23 @@ def _optimize_torch_batches(
                 scene_tensors = torch_scene_tensors(current_scene, device=device)
                 carrier_parameters = scene_tensors.carrier_parameters
                 rendered = None
+        checkpoint_due = (
+            config.checkpoint_interval is not None
+            and (iteration + 1) % config.checkpoint_interval == 0
+        )
+        if checkpoint_due:
+            current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
+            scene_checkpoints.append(
+                TorchSceneCheckpoint(
+                    checkpoint_index=len(scene_checkpoints),
+                    iteration=absolute_iteration,
+                    step_count=len(steps),
+                    scene=current_scene,
+                )
+            )
     if rendered is not None:
         current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
-    return current_scene, tuple(steps)
+    return current_scene, tuple(steps), tuple(scene_checkpoints)
 
 
 def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:

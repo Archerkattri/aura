@@ -150,6 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--max-targets-per-batch", type=int, default=1024)
     train.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
     train.add_argument("--color-learning-rate", type=float, default=0.25)
+    train.add_argument("--checkpoint-dir", type=Path, default=None)
+    train.add_argument("--checkpoint-interval", type=int, default=None)
+    train.add_argument("--resume-from", type=Path, default=None, help="Resume training from a checkpoint or trained .aura package")
     train.add_argument("--disable-evolution", action="store_true")
     train.add_argument("--split-image-loss-threshold", type=float, default=0.03)
     train.add_argument("--depth-anchor-loss-threshold", type=float, default=0.10)
@@ -671,7 +674,12 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         tile_size=args.tile_size,
         max_targets_per_batch=args.max_targets_per_batch,
     )
-    scene = _scene_from_training_dataset(dataset, name="aura_train")
+    if args.resume_from is not None:
+        scene = load_package(args.resume_from).scene
+        resume_iteration_offset = _resume_iteration_offset(args.resume_from)
+    else:
+        scene = _scene_from_training_dataset(dataset, name="aura_train")
+        resume_iteration_offset = 0
     result = torch_optimize_capture_batches(
         scene,
         packed_batches,
@@ -679,6 +687,8 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
             iterations=args.iterations,
             color_learning_rate=args.color_learning_rate,
             max_samples_per_batch=sampling_plan.max_targets_per_batch,
+            iteration_offset=resume_iteration_offset,
+            checkpoint_interval=args.checkpoint_interval,
             evolution_policy=None
             if args.disable_evolution
             else CarrierEvolutionPolicy(
@@ -694,16 +704,26 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         device=args.device,
     )
     package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/aura-train-preview.glb"}).write(args.output)
+    checkpoint_records = _write_training_checkpoints(
+        result,
+        checkpoint_dir=args.checkpoint_dir,
+        fallback_dir=package_dir / "checkpoints",
+    )
     report = {
         "format": "AURA_TRAINING_REPORT",
         "name": result.scene.name,
         "manifest": str(args.manifest),
         "device": args.device,
+        "resumeFrom": str(args.resume_from) if args.resume_from is not None else None,
+        "resumeIterationOffset": resume_iteration_offset,
+        "checkpointInterval": args.checkpoint_interval,
+        "checkpointDir": str(args.checkpoint_dir or package_dir / "checkpoints") if args.checkpoint_interval is not None else None,
         "stages": [
             "capture_manifest_assets",
             "native_evidence_initialization",
             "packed_capture_batches",
             "torch_native_differentiable_render_train",
+            "training_checkpoint_export" if checkpoint_records else "training_checkpoint_export_disabled",
             "adaptive_carrier_evolution" if not args.disable_evolution else "adaptive_carrier_evolution_disabled",
             "aura_package_export",
         ],
@@ -713,10 +733,56 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         "torch": torch_renderer_status().to_dict(),
         "adaptiveEvolutionEnabled": not args.disable_evolution,
         **result.to_dict(),
+        "sceneCheckpoints": checkpoint_records,
     }
     report_path = package_dir / "training_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return package_dir
+
+
+def _resume_iteration_offset(package_dir: Path) -> int:
+    report_path = package_dir / "training_report.json"
+    checkpoint_path = package_dir / "training_checkpoint.json"
+    if report_path.exists():
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            report = {}
+    elif checkpoint_path.exists():
+        try:
+            report = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            report = {}
+        completed_iteration = report.get("iteration")
+        if isinstance(completed_iteration, int):
+            return completed_iteration + 1
+    else:
+        return 0
+    steps = report.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return 0
+    iterations = []
+    for step in steps:
+        if isinstance(step, dict) and isinstance(step.get("iteration"), int):
+            iterations.append(int(step["iteration"]))
+    return max(iterations) + 1 if iterations else len(steps)
+
+
+def _write_training_checkpoints(result, *, checkpoint_dir: Path | None, fallback_dir: Path) -> list[dict]:
+    if not result.scene_checkpoints:
+        return []
+    root = checkpoint_dir or fallback_dir
+    records = []
+    for checkpoint in result.scene_checkpoints:
+        output_dir = root / f"iter_{checkpoint.iteration:06d}.aura"
+        package_scene(checkpoint.scene, fallbacks={"mesh": "fallback/aura-train-checkpoint.glb"}).write(output_dir)
+        record = {**checkpoint.to_dict(), "packageDir": str(output_dir)}
+        (output_dir / "training_checkpoint.json").write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        records.append(record)
+    return records
 
 
 def _scene_from_training_dataset(dataset, *, name: str) -> AuraScene:
