@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import sys
 
@@ -17,6 +18,7 @@ from aura import (
     read_ppm,
     render_orthographic,
     render_orthographic_cuda,
+    render_orthographic_torch,
 )
 from aura.cli import demo_scene
 
@@ -84,6 +86,32 @@ def test_render_orthographic_cuda_cpu_fallback_matches_cpu_preview():
 
     assert image.width == 4
     assert image.height == 4
+    for pixel, expected_pixel in zip(image.pixels, expected.pixels):
+        assert pixel == pytest.approx(expected_pixel)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_render_orthographic_torch_matches_cpu_preview():
+    scene = AuraScene(
+        name="torch_preview",
+        elements=(
+            AuraElement(
+                id="red",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    image = render_orthographic_torch(scene, width=3, height=3, device="cpu")
+    expected = render_orthographic(scene, width=3, height=3)
+
+    assert image.width == 3
+    assert image.height == 3
     for pixel, expected_pixel in zip(image.pixels, expected.pixels):
         assert pixel == pytest.approx(expected_pixel)
 
@@ -205,6 +233,40 @@ def test_render_cli_can_use_cuda_boundary_cpu_fallback(tmp_path):
             "4",
             "--backend",
             "auto",
+            "--device",
+            "cpu",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert str(preview_path) in result.stdout
+    assert preview_path.read_text(encoding="ascii").startswith("P3\n4 4\n255\n")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_render_cli_can_use_direct_torch_backend(tmp_path):
+    package_dir = tmp_path / "demo.aura"
+    preview_path = tmp_path / "render_torch.ppm"
+    package_scene(demo_scene()).write(package_dir)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "render",
+            str(package_dir),
+            "--output",
+            str(preview_path),
+            "--width",
+            "4",
+            "--height",
+            "4",
+            "--backend",
+            "torch",
             "--device",
             "cpu",
         ],

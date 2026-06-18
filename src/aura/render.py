@@ -140,6 +140,44 @@ def render_orthographic_cuda(
     return RenderImage(width=width, height=height, pixels=batch.color)
 
 
+def render_orthographic_torch(
+    scene: AuraScene,
+    *,
+    width: int = 64,
+    height: int = 64,
+    bounds: Bounds | None = None,
+    camera_z: float | None = None,
+    device: str | None = None,
+    require_cuda: bool = False,
+    scene_tensors: Any | None = None,
+) -> RenderImage:
+    """Render an orthographic preview through the native tensor torch renderer."""
+
+    from aura.torch_renderer import torch_render_rays, torch_renderer_status
+
+    status = torch_renderer_status()
+    resolved_device = device or status.default_device or "cpu"
+    if require_cuda and not str(resolved_device).startswith("cuda"):
+        raise RuntimeError("torch orthographic render requires a CUDA torch device")
+    ray_origins, ray_directions = orthographic_camera_rays(
+        scene,
+        width=width,
+        height=height,
+        bounds=bounds,
+        camera_z=camera_z,
+    )
+
+    batch = torch_render_rays(
+        scene,
+        ray_origins,
+        ray_directions,
+        device=resolved_device,
+        frame_id_prefix="orthographic",
+        scene_tensors=scene_tensors,
+    )
+    return RenderImage(width=width, height=height, pixels=batch.predicted_color)
+
+
 def orthographic_camera_rays(
     scene: AuraScene,
     *,

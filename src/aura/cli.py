@@ -40,7 +40,7 @@ from aura.package import load_package, package_scene
 from aura.optimize import TrainingLossWeights
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
-from aura.render import compare_images, read_ppm, render_orthographic, render_orthographic_cuda
+from aura.render import compare_images, read_ppm, render_orthographic, render_orthographic_cuda, render_orthographic_torch
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
@@ -684,12 +684,17 @@ def _render_package_image(scene: AuraScene, args: argparse.Namespace):
         if args.require_cuda:
             raise SystemExit("--require-cuda cannot be used with --backend cpu")
         return render_orthographic(scene, width=args.width, height=args.height)
+    if args.backend == "torch":
+        return render_orthographic_torch(
+            scene,
+            width=args.width,
+            height=args.height,
+            device=args.device,
+            require_cuda=args.require_cuda,
+        )
     if args.backend == "cuda":
         fallback_backend = "none"
         require_cuda = True
-    elif args.backend == "torch":
-        fallback_backend = "torch"
-        require_cuda = args.require_cuda
     else:
         fallback_backend = "auto"
         require_cuda = args.require_cuda
