@@ -208,6 +208,12 @@ def main(argv: list[str] | None = None) -> int:
     colmap_to_manifest.add_argument("--output", type=Path, default=Path("outputs/capture-from-colmap.json"))
     colmap_to_manifest.add_argument("--root", default="data/custom-captures/colmap-scene")
     colmap_to_manifest.add_argument("--image-dir", default="images")
+    colmap_to_manifest.add_argument(
+        "--max-seed-regions",
+        type=int,
+        default=2048,
+        help="Maximum carrier-seed regions (occupied voxels) from the sparse point cloud",
+    )
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -553,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "colmap-to-capture-manifest":
-        print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir))
+        print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir, max_seed_regions=args.max_seed_regions))
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))
@@ -782,7 +788,13 @@ def _add_reconstruction_config_args(parser: argparse.ArgumentParser) -> None:
 def _add_loss_weight_args(parser: argparse.ArgumentParser) -> None:
     defaults = TrainingLossWeights()
     parser.add_argument("--image-loss-weight", type=float, default=defaults.image)
-    parser.add_argument("--depth-loss-weight", type=float, default=defaults.depth)
+    parser.add_argument(
+        "--depth-loss-weight",
+        type=float,
+        default=None,
+        help="Depth loss weight; defaults to 0 when the scene has no depth maps "
+        "(no per-pixel depth ground truth to supervise) and 1 otherwise",
+    )
     parser.add_argument("--query-loss-weight", type=float, default=defaults.query)
     parser.add_argument("--normal-loss-weight", type=float, default=defaults.normal)
     parser.add_argument("--mask-loss-weight", type=float, default=defaults.mask)
@@ -790,9 +802,12 @@ def _add_loss_weight_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _loss_weights_from_args(args: argparse.Namespace) -> TrainingLossWeights:
+    depth_weight = args.depth_loss_weight
+    if depth_weight is None:
+        depth_weight = TrainingLossWeights().depth
     return TrainingLossWeights(
         image=args.image_loss_weight,
-        depth=args.depth_loss_weight,
+        depth=depth_weight,
         query=args.query_loss_weight,
         normal=args.normal_loss_weight,
         mask=args.mask_loss_weight,
@@ -904,6 +919,12 @@ def _reconstruction_config_from_args(args: argparse.Namespace) -> Reconstruction
 
 def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     manifest = load_capture_manifest(args.manifest)
+    # Without per-pixel depth maps, the per-frame depth scalar is not ground
+    # truth, so depth supervision would penalise rays against a meaningless
+    # constant. Default depth loss to 0 in that case (overridable explicitly).
+    if args.depth_loss_weight is None:
+        has_depth = any(getattr(frame, "depth_path", None) for frame in manifest.frames)
+        args.depth_loss_weight = 1.0 if has_depth else 0.0
     tensors = load_capture_asset_tensors(manifest)
     dataset = capture_tensors_to_training_dataset(manifest, tensors)
     sampling_plan = plan_capture_tensor_sampling(

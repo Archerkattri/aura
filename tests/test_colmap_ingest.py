@@ -424,3 +424,27 @@ def test_intrinsics_scaled_to_actual_image_resolution(tmp_path):
     # Matching resolution is a no-op; missing file leaves intrinsics unchanged.
     assert _intrinsics_for_image(dict(scaled), img) == scaled
     assert _intrinsics_for_image(cam, tmp_path / "missing.jpg") == cam
+
+
+def test_sparse_prior_regions_dense_voxel_seeding():
+    """Real point clouds seed one carrier-region per occupied voxel (not 2 boxes)."""
+    from aura.ingest.colmap import _sparse_prior_regions, ColmapPoint3D
+    pts = [
+        ColmapPoint3D(id=str(i), xyz=(float(i % 10), float((i // 10) % 10), float((i // 100) % 10)), rgb=(0.5, 0.5, 0.5))
+        for i in range(1000)
+    ]
+    regions = _sparse_prior_regions("f0", pts, None, 2.0, "colmap-binary", max_seed_regions=512)
+    assert len(regions) > 2  # dense seeding, not the legacy near/far split
+    assert len(regions) <= 512  # respects the budget cap
+    assert all(r["id"].startswith("colmap_sparse_voxel_") for r in regions)
+    # Each region has real local extent (min < max on at least one axis).
+    r = regions[0]
+    assert any(lo < hi for lo, hi in zip(r["bounds"]["min"], r["bounds"]["max"]))
+
+
+def test_sparse_prior_regions_small_model_keeps_legacy_path():
+    """Small synthetic models keep the legacy near/far seeding (unchanged)."""
+    from aura.ingest.colmap import _sparse_prior_regions, ColmapPoint3D
+    pts = [ColmapPoint3D(id=str(i), xyz=(0.0, 0.0, float(i)), rgb=(0.5, 0.5, 0.5)) for i in range(4)]
+    regions = _sparse_prior_regions("f0", pts, None, 2.0, "colmap-text")
+    assert all(not r["id"].startswith("colmap_sparse_voxel_") for r in regions)

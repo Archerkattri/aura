@@ -1071,3 +1071,18 @@ def _write_colmap_depth_map(path, width, height, values):
 def _write_colmap_normal_map(path, width, height, values):
     flat = [component for normal in values for component in normal]
     path.write_bytes(f"{width}&{height}&3&".encode("ascii") + struct.pack("<" + "f" * len(flat), *flat))
+
+
+def test_depth_loss_weight_none_resolves_to_default():
+    """--depth-loss-weight defaults to None and resolves to the dataclass default."""
+    import argparse
+    from aura.cli import _loss_weights_from_args
+    ns = argparse.Namespace(
+        image_loss_weight=1.0, depth_loss_weight=None, query_loss_weight=0.0,
+        normal_loss_weight=0.0, mask_loss_weight=0.0, confidence_loss_weight=0.0,
+    )
+    assert _loss_weights_from_args(ns).depth == 1.0
+    ns.depth_loss_weight = 0.0
+    assert _loss_weights_from_args(ns).depth == 0.0
+    ns.depth_loss_weight = 0.5
+    assert _loss_weights_from_args(ns).depth == 0.5
