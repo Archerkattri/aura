@@ -15,7 +15,7 @@ posed capture assets and exports a queryable `.aura` scene package.
 
 ## Current Status
 
-Internal completion estimate: **85%**.
+Internal completion estimate: **90%**.
 
 Implemented now:
 
@@ -32,9 +32,13 @@ Implemented now:
   construction, confidence target handling, carrier validity checks, gradient
   clipping, and reusable packed training batches for the torch optimization
   path;
-- ordered front-to-back native torch carrier compositing with color, alpha,
-  transmittance, depth, normal, confidence, material, semantic, residual, and
-  ordered hit outputs;
+- grouped native torch ray/carrier intersections for surface, beta, Gaussian,
+  and bounded fallback carriers, with ordered front-to-back compositing across
+  color, alpha, transmittance, depth, normal, confidence, material, semantic,
+  residual, and ordered hit outputs;
+- batched torch carrier response evaluation, so render batches avoid the older
+  Python per-hit response loop for native carrier colors, opacity, confidence,
+  semantics, materials, residuals, and Gaussian fallback weights;
 - trainable native carrier parameters for color, opacity/density, shape,
   normals, confidence, residual scale, and frequency fields where supported;
 - configurable image, depth, query, normal, mask, and confidence loss weights;
@@ -43,6 +47,8 @@ Implemented now:
 - deterministic packed batch preparation, so repeated optimization iterations
   reuse the same bounded capture/ray buffers instead of rebuilding them every
   step;
+- deferred package/scene materialization during non-evolution torch training,
+  so the optimizer no longer serializes full render batches on every step;
 - adaptive split, promote, merge, and demote decisions during torch training;
 - checkpoint and resume metadata for training runs;
 - deterministic CPU/torch package rendering, query demos, ray-query scoring,
@@ -52,7 +58,8 @@ Implemented now:
 Still missing before this can be called production:
 
 - compiled CUDA renderer dispatch parity and runtime benchmarks;
-- production GPU BVH/traversal instead of the current AABB-centered tensor path;
+- production GPU BVH/traversal instead of the current mixed exact-carrier and
+  bounded fallback tensor path;
 - carrier-complete CUDA kernels with measured parity against the torch renderer
   for surface, volume, beta, gabor, neural residual, semantic, and Gaussian
   fallback carriers;
@@ -180,7 +187,7 @@ aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap \
 src/aura/
   cli.py               command-line training, rendering, ingest, benchmarks
   core.py              reconstruction contracts and adaptive evolution policy
-  torch_renderer.py    native torch render batches, compositing, objectives
+  torch_renderer.py    native torch render batches, grouped hits, compositing
   torch_optimizer.py   tiled capture optimization and checkpoint snapshots
   torch_kernels.py     carrier parameter tensors and differentiable responses
   cuda_renderer.py     CUDA renderer ABI and dispatch boundary
