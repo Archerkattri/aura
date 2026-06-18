@@ -455,8 +455,13 @@ def torch_carrier_response_tensors(
                 min=0.0,
                 max=1.0,
             )
-            alpha = _carrier_parameter(torch, element, "alpha", carrier_parameters, device, default=element.payload.get("alpha", 1.0))
-            beta_value = _carrier_parameter(torch, element, "beta", carrier_parameters, device, default=element.payload.get("beta", 1.0))
+            # DBS: adaptive_alpha/adaptive_beta override base alpha/beta if set
+            _base_alpha = element.payload.get("alpha", 1.0)
+            _base_beta = element.payload.get("beta", 1.0)
+            _eff_alpha = element.payload["adaptive_alpha"] if element.payload.get("adaptive_alpha") is not None else _base_alpha
+            _eff_beta = element.payload["adaptive_beta"] if element.payload.get("adaptive_beta") is not None else _base_beta
+            alpha = _carrier_parameter(torch, element, "alpha", carrier_parameters, device, default=_eff_alpha)
+            beta_value = _carrier_parameter(torch, element, "beta", carrier_parameters, device, default=_eff_beta)
             support_radius = _carrier_vector_parameter(
                 torch,
                 element,
@@ -474,8 +479,12 @@ def torch_carrier_response_tensors(
                 alpha=alpha,
                 beta=beta_value,
             )
-            carrier_colors[mask] = torch.clamp(beta_color, min=0.0, max=1.0)
-            transmittance[mask] = torch.clamp(1.0 - beta_opacity * weight, min=0.0, max=1.0)
+            # DBS: apply frequency_scale and appearance_shift
+            _freq_scale = float(element.payload.get("frequency_scale", 1.0))
+            _app_shift = float(element.payload.get("appearance_shift", 0.0))
+            scaled_weight = weight * _freq_scale
+            carrier_colors[mask] = torch.clamp(beta_color + _app_shift, min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - beta_opacity * scaled_weight, min=0.0, max=1.0)
             confidence[mask] = beta_confidence
         elif payload_type == "gabor_frequency":
             gabor_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
@@ -503,8 +512,38 @@ def torch_carrier_response_tensors(
                 min=0.0,
                 max=1.0,
             )
-            wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * frequency, dim=1) + phase)
-            modulation = 1.0 - bandwidth + bandwidth * wave
+            # Gabor filter bank: num_filters > 1 computes weighted sum of multiple Gabor kernels
+            _num_filters = int(element.payload.get("num_filters", 1))
+            if _num_filters <= 1:
+                # Default single-filter path: identical to prior behavior
+                wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * frequency, dim=1) + phase)
+                modulation = 1.0 - bandwidth + bandwidth * wave
+            else:
+                # Multi-filter bank path: weighted sum
+                _freqs = element.payload.get("frequencies")
+                _oris = element.payload.get("orientations")
+                _phases_list = element.payload.get("phases")
+                _fweights = element.payload.get("filter_weights")
+                _base_freq = element.payload.get("frequency", (0.0, 0.0, 0.0))
+                _base_phase = element.payload.get("phase", 0.0)
+                _eq_weight = 1.0 / _num_filters
+                modulation = torch.zeros(hit_points[mask].shape[0], dtype=torch.float32, device=device)
+                for _fi in range(_num_filters):
+                    _f_freq = _freqs[_fi] if _freqs is not None else _base_freq
+                    _f_phase = _phases_list[_fi] if _phases_list is not None else _base_phase
+                    _f_weight = _fweights[_fi] if _fweights is not None else _eq_weight
+                    _ori = _oris[_fi] if _oris is not None else 0.0
+                    # Apply orientation as rotation in xy-plane if frequency is a scalar
+                    if isinstance(_f_freq, (int, float)):
+                        _f_freq_vec = torch.tensor(
+                            [_f_freq * float(__import__("math").cos(_ori)), _f_freq * float(__import__("math").sin(_ori)), 0.0],
+                            dtype=torch.float32, device=device
+                        )
+                    else:
+                        _f_freq_vec = torch.tensor(tuple(_f_freq), dtype=torch.float32, device=device)
+                    _wave_i = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * _f_freq_vec, dim=1) + _f_phase)
+                    modulation = modulation + _f_weight * _wave_i
+                modulation = 1.0 - bandwidth + bandwidth * modulation
             carrier_colors[mask] = torch.clamp(gabor_color * modulation.unsqueeze(1), min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - gabor_opacity, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(gabor_confidence * bandwidth, min=0.0, max=1.0)
@@ -529,6 +568,20 @@ def torch_carrier_response_tensors(
                 default=element.payload.get("residual_scale", 0.0),
             )
             residual_strength = torch.clamp(residual_scale, min=0.0, max=1.0)
+            # Scaffold-GS: anchor_feature_dim splits latent into anchor + residual portions
+            # use_anchor_conditioning enables cross-carrier conditioning hook (no-op if no neighbors)
+            _anchor_dim = element.payload.get("anchor_feature_dim")
+            _use_anchor = bool(element.payload.get("use_anchor_conditioning", False))
+            if _anchor_dim is not None:
+                # Anchor features drive MLP decode; residual is added on top
+                # In this reference path the anchor features modulate residual_strength
+                _latent_dim = int(element.payload.get("latent_dim", 1))
+                _anchor_ratio = min(float(_anchor_dim) / max(float(_latent_dim), 1.0), 1.0)
+                residual_strength = residual_strength * _anchor_ratio
+            if _use_anchor:
+                # Hook for cross-carrier conditioning: no-op (returns zeros) when no neighbors provided
+                _anchor_contribution = torch.zeros(1, dtype=torch.float32, device=device)
+                residual_strength = torch.clamp(residual_strength + _anchor_contribution, min=0.0, max=1.0)
             carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - neural_opacity * residual_strength, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(neural_confidence * (1.0 - residual_strength * 0.25), min=0.0, max=1.0)

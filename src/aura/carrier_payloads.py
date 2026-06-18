@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Mapping
+from typing import Any, List, Mapping, Optional
 
 from aura.ray import Vec3
 
@@ -64,23 +64,59 @@ class BetaKernelPayload:
 
     The kernel is parameterised by its shape parameters *alpha* and *beta* and
     per-axis support radii that define the ellipsoidal region of influence.
+
+    DBS upgrade (arXiv:2501.18630, GES arXiv:2402.10128):
+    - ``adaptive_alpha``: if set, overrides alpha (learnable per-carrier shape param)
+    - ``adaptive_beta``: if set, overrides beta
+    - ``frequency_scale``: multiplicative frequency modulation (1.0 = no change)
+    - ``appearance_shift``: additive color/appearance bias term (0.0 = no change)
+    All new fields default to values that reproduce exactly the prior behavior.
+    Note: new fields are only included in to_dict() when non-default, preserving
+    JSON schema compatibility (schemas use additionalProperties: false).
     """
 
     alpha: float
     beta: float
     support_radius: Vec3
+    adaptive_alpha: Optional[float] = None
+    adaptive_beta: Optional[float] = None
+    frequency_scale: float = 1.0
+    appearance_shift: float = 0.0
 
     def to_dict(self) -> dict:
         _positive("alpha", self.alpha)
         _positive("beta", self.beta)
         for item in self.support_radius:
             _positive("support_radius", item)
-        return {"type": "beta_kernel", **asdict(self)}
+        payload: dict = {
+            "type": "beta_kernel",
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "support_radius": list(self.support_radius),
+        }
+        # Only include DBS extension fields when non-default
+        if self.adaptive_alpha is not None:
+            payload["adaptive_alpha"] = self.adaptive_alpha
+        if self.adaptive_beta is not None:
+            payload["adaptive_beta"] = self.adaptive_beta
+        if self.frequency_scale != 1.0:
+            payload["frequency_scale"] = self.frequency_scale
+        if self.appearance_shift != 0.0:
+            payload["appearance_shift"] = self.appearance_shift
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "BetaKernelPayload":
         _require_type(payload, "beta_kernel")
-        return cls(alpha=float(payload["alpha"]), beta=float(payload["beta"]), support_radius=_vec3(payload["support_radius"]))
+        return cls(
+            alpha=float(payload["alpha"]),
+            beta=float(payload["beta"]),
+            support_radius=_vec3(payload["support_radius"]),
+            adaptive_alpha=float(payload["adaptive_alpha"]) if "adaptive_alpha" in payload else None,
+            adaptive_beta=float(payload["adaptive_beta"]) if "adaptive_beta" in payload else None,
+            frequency_scale=float(payload.get("frequency_scale", 1.0)),
+            appearance_shift=float(payload.get("appearance_shift", 0.0)),
+        )
 
 
 @dataclass(frozen=True)
@@ -89,29 +125,69 @@ class GaborFrequencyPayload:
 
     The carrier modulates element color with a sinusoidal Gabor function
     parameterised by spatial *frequency*, *bandwidth*, and *phase*.
+
+    Gabor Filter Bank upgrade (arXiv:2508.05343, 3DGabSplat arXiv:2504.11003):
+    - ``num_filters``: number of directional Gabor kernels (1 = current behavior)
+    - ``frequencies``: per-filter frequencies; if None, uses existing frequency for all
+    - ``orientations``: per-filter orientation angles in radians; if None, uses 0.0 for all
+    - ``phases``: per-filter phases; if None, uses existing phase for all
+    - ``filter_weights``: mixing weights; if None, equal weights (1/num_filters)
+    All new fields default to values that reproduce exactly the prior behavior.
+    Note: new fields are only included in to_dict() when non-default, preserving
+    JSON schema compatibility (schemas use additionalProperties: false).
     """
 
     frequency: Vec3
     bandwidth: float
     phase: float = 0.0
     plane_point: Vec3 | None = None
+    num_filters: int = 1
+    frequencies: Optional[List[float]] = None
+    orientations: Optional[List[float]] = None
+    phases: Optional[List[float]] = None
+    filter_weights: Optional[List[float]] = None
 
     def to_dict(self) -> dict:
         _positive("bandwidth", self.bandwidth)
-        payload = {"type": "gabor_frequency", **asdict(self)}
-        if self.plane_point is None:
-            payload.pop("plane_point")
+        payload: dict = {
+            "type": "gabor_frequency",
+            "frequency": list(self.frequency),
+            "bandwidth": self.bandwidth,
+            "phase": self.phase,
+        }
+        if self.plane_point is not None:
+            payload["plane_point"] = list(self.plane_point)
+        # Only include filter bank fields when non-default
+        if self.num_filters != 1:
+            payload["num_filters"] = self.num_filters
+        if self.frequencies is not None:
+            payload["frequencies"] = list(self.frequencies)
+        if self.orientations is not None:
+            payload["orientations"] = list(self.orientations)
+        if self.phases is not None:
+            payload["phases"] = list(self.phases)
+        if self.filter_weights is not None:
+            payload["filter_weights"] = list(self.filter_weights)
         return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "GaborFrequencyPayload":
         _require_type(payload, "gabor_frequency")
         plane_point = _vec3(payload["plane_point"]) if "plane_point" in payload else None
+        frequencies = list(payload["frequencies"]) if "frequencies" in payload else None
+        orientations = list(payload["orientations"]) if "orientations" in payload else None
+        phases = list(payload["phases"]) if "phases" in payload else None
+        filter_weights = list(payload["filter_weights"]) if "filter_weights" in payload else None
         return cls(
             frequency=_vec3(payload["frequency"]),
             bandwidth=float(payload["bandwidth"]),
             phase=float(payload["phase"]),
             plane_point=plane_point,
+            num_filters=int(payload.get("num_filters", 1)),
+            frequencies=frequencies,
+            orientations=orientations,
+            phases=phases,
+            filter_weights=filter_weights,
         )
 
 
@@ -122,30 +198,67 @@ class NeuralResidualPayload:
     Stores the latent dimension and residual scale used by the neural
     renderer path. ``model_ref`` optionally references an external model
     checkpoint for production inference.
+
+    Scaffold-GS upgrade (arXiv:2312.00109):
+    - ``anchor_feature_dim``: dimension of anchor latent features; if None, uses latent_dim
+    - ``mlp_hidden_dim``: hidden dim for the small decode MLP (default 64)
+    - ``num_mlp_layers``: number of MLP layers (default 2)
+    - ``use_anchor_conditioning``: condition on neighboring anchor features (default False)
+    All new fields default to values that reproduce exactly the prior behavior.
+    Note: new fields are only included in to_dict() when non-default, preserving
+    JSON schema compatibility (schemas use additionalProperties: false).
     """
 
     latent_dim: int
     residual_scale: float
     model_ref: str | None = None
+    anchor_feature_dim: Optional[int] = None
+    mlp_hidden_dim: int = 64
+    num_mlp_layers: int = 2
+    use_anchor_conditioning: bool = False
 
     def to_dict(self) -> dict:
         if self.latent_dim <= 0:
             raise ValueError("latent_dim must be positive")
         _unit("residual_scale", self.residual_scale)
-        return {"type": "neural_residual", **asdict(self)}
+        payload: dict = {
+            "type": "neural_residual",
+            "latent_dim": self.latent_dim,
+            "residual_scale": self.residual_scale,
+            "model_ref": self.model_ref,
+        }
+        # Only include Scaffold-GS extension fields when non-default
+        if self.anchor_feature_dim is not None:
+            payload["anchor_feature_dim"] = self.anchor_feature_dim
+        if self.mlp_hidden_dim != 64:
+            payload["mlp_hidden_dim"] = self.mlp_hidden_dim
+        if self.num_mlp_layers != 2:
+            payload["num_mlp_layers"] = self.num_mlp_layers
+        if self.use_anchor_conditioning:
+            payload["use_anchor_conditioning"] = self.use_anchor_conditioning
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "NeuralResidualPayload":
         _require_type(payload, "neural_residual")
         model_ref = payload.get("model_ref")
-        return cls(latent_dim=int(payload["latent_dim"]), residual_scale=float(payload["residual_scale"]), model_ref=None if model_ref is None else str(model_ref))
+        anchor_feature_dim = payload.get("anchor_feature_dim")
+        return cls(
+            latent_dim=int(payload["latent_dim"]),
+            residual_scale=float(payload["residual_scale"]),
+            model_ref=None if model_ref is None else str(model_ref),
+            anchor_feature_dim=int(anchor_feature_dim) if anchor_feature_dim is not None else None,
+            mlp_hidden_dim=int(payload.get("mlp_hidden_dim", 64)),
+            num_mlp_layers=int(payload.get("num_mlp_layers", 2)),
+            use_anchor_conditioning=bool(payload.get("use_anchor_conditioning", False)),
+        )
 
 
 @dataclass(frozen=True)
 class GaussianFallbackPayload:
     """Typed payload for a Gaussian-fallback carrier element.
 
-    Provides a full 3-D Gaussian parameterised by its *mean* and a 3×3
+    Provides a full 3-D Gaussian parameterised by its *mean* and a 3x3
     *covariance* matrix. Used as a compatibility path for conventional
     3-D Gaussian Splatting primitives.
     """
@@ -179,25 +292,64 @@ class SemanticFeaturePayload:
 
     Associates the element with a human-readable *label* and an optional set
     of feature references for language or object embedding look-ups.
+
+    LangSplatV2 upgrade (arXiv:2507.07136):
+    - ``use_sparse_codebook``: if False (default), existing dense path unchanged
+    - ``codebook_size``: number of dictionary atoms (default 256)
+    - ``codebook_dim``: dimension of each atom (default 64)
+    - ``sparse_indices``: indices of active atoms; if None, dense path
+    - ``sparse_weights``: weights for each active atom; if None, dense path
+    All new fields default to values that reproduce exactly the prior behavior.
+    Note: new fields are only included in to_dict() when non-default, preserving
+    JSON schema compatibility (schemas use additionalProperties: false).
     """
 
     label: str
     confidence: float
     feature_refs: tuple[str, ...] = field(default_factory=tuple)
+    use_sparse_codebook: bool = False
+    codebook_size: int = 256
+    codebook_dim: int = 64
+    sparse_indices: Optional[List[int]] = None
+    sparse_weights: Optional[List[float]] = None
 
     def to_dict(self) -> dict:
         if not self.label:
             raise ValueError("label is required")
         _unit("confidence", self.confidence)
-        return {"type": "semantic_feature", **asdict(self)}
+        payload: dict = {
+            "type": "semantic_feature",
+            "label": self.label,
+            "confidence": self.confidence,
+            "feature_refs": list(self.feature_refs),
+        }
+        # Only include sparse codebook fields when non-default
+        if self.use_sparse_codebook:
+            payload["use_sparse_codebook"] = self.use_sparse_codebook
+        if self.codebook_size != 256:
+            payload["codebook_size"] = self.codebook_size
+        if self.codebook_dim != 64:
+            payload["codebook_dim"] = self.codebook_dim
+        if self.sparse_indices is not None:
+            payload["sparse_indices"] = list(self.sparse_indices)
+        if self.sparse_weights is not None:
+            payload["sparse_weights"] = list(self.sparse_weights)
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "SemanticFeaturePayload":
         _require_type(payload, "semantic_feature")
+        sparse_indices = [int(i) for i in payload["sparse_indices"]] if "sparse_indices" in payload else None
+        sparse_weights = [float(w) for w in payload["sparse_weights"]] if "sparse_weights" in payload else None
         return cls(
             label=str(payload["label"]),
             confidence=float(payload["confidence"]),
             feature_refs=tuple(str(item) for item in payload.get("feature_refs", ())),
+            use_sparse_codebook=bool(payload.get("use_sparse_codebook", False)),
+            codebook_size=int(payload.get("codebook_size", 256)),
+            codebook_dim=int(payload.get("codebook_dim", 64)),
+            sparse_indices=sparse_indices,
+            sparse_weights=sparse_weights,
         )
 
 

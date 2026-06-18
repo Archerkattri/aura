@@ -82,3 +82,197 @@ def test_payload_validation_rejects_invalid_values():
         NeuralResidualPayload(latent_dim=0, residual_scale=0.2).to_dict()
     with pytest.raises(ValueError, match="payload type"):
         SurfaceCellPayload.from_dict({"type": "volume_cell", "normal": [0.0, 0.0, 1.0], "thickness": 0.1, "roughness": 0.5})
+
+
+# ============================================================
+# Step 4 new tests: payload-level regression tests for the
+# four carrier upgrades (DBS, Gabor bank, Scaffold-GS, LangSplatV2)
+# ============================================================
+
+
+# --- A) DBS Beta Kernel tests ---
+
+def test_dbs_beta_default_reproduces_prior():
+    """New DBS fields at defaults must produce exactly the same to_dict() as before."""
+    prior = BetaKernelPayload(alpha=2.0, beta=3.0, support_radius=(0.1, 0.2, 0.3)).to_dict()
+    new = BetaKernelPayload(
+        alpha=2.0, beta=3.0, support_radius=(0.1, 0.2, 0.3),
+        adaptive_alpha=None, adaptive_beta=None,
+        frequency_scale=1.0, appearance_shift=0.0,
+    ).to_dict()
+    assert prior == new
+    # No DBS extension keys should appear in default output
+    assert "adaptive_alpha" not in new
+    assert "adaptive_beta" not in new
+    assert "frequency_scale" not in new
+    assert "appearance_shift" not in new
+
+
+def test_dbs_beta_adaptive_shape():
+    """adaptive_alpha/beta override base alpha/beta in serialised dict."""
+    payload = BetaKernelPayload(
+        alpha=2.0, beta=3.0, support_radius=(0.1, 0.2, 0.3),
+        adaptive_alpha=4.5, adaptive_beta=1.2,
+        frequency_scale=2.0, appearance_shift=0.1,
+    )
+    d = payload.to_dict()
+    assert d["adaptive_alpha"] == pytest.approx(4.5)
+    assert d["adaptive_beta"] == pytest.approx(1.2)
+    assert d["frequency_scale"] == pytest.approx(2.0)
+    assert d["appearance_shift"] == pytest.approx(0.1)
+    # Round-trip
+    rt = BetaKernelPayload.from_dict(d)
+    assert rt.adaptive_alpha == pytest.approx(4.5)
+    assert rt.adaptive_beta == pytest.approx(1.2)
+    assert rt.frequency_scale == pytest.approx(2.0)
+    assert rt.appearance_shift == pytest.approx(0.1)
+
+
+# --- B) Gabor Filter Bank tests ---
+
+def test_gabor_bank_default_single_filter():
+    """num_filters=1 (default) must produce exactly the same to_dict() as before."""
+    prior = GaborFrequencyPayload(frequency=(1.0, 0.0, 0.0), bandwidth=0.5).to_dict()
+    new = GaborFrequencyPayload(
+        frequency=(1.0, 0.0, 0.0), bandwidth=0.5,
+        num_filters=1,
+        frequencies=None, orientations=None, phases=None, filter_weights=None,
+    ).to_dict()
+    assert prior == new
+    # No filter bank extension keys should appear in default output
+    assert "num_filters" not in new
+    assert "frequencies" not in new
+    assert "orientations" not in new
+    assert "phases" not in new
+    assert "filter_weights" not in new
+
+
+def test_gabor_bank_multi_filter():
+    """num_filters=2 activates filter bank serialization."""
+    payload = GaborFrequencyPayload(
+        frequency=(1.0, 0.0, 0.0), bandwidth=0.5, phase=0.0,
+        num_filters=2,
+        frequencies=[0.5, 1.5],
+        orientations=[0.0, 1.5707963],
+        phases=[0.0, 0.1],
+        filter_weights=[0.6, 0.4],
+    )
+    d = payload.to_dict()
+    assert d["num_filters"] == 2
+    assert d["frequencies"] == pytest.approx([0.5, 1.5])
+    assert d["orientations"] == pytest.approx([0.0, 1.5707963])
+    assert d["phases"] == pytest.approx([0.0, 0.1])
+    assert d["filter_weights"] == pytest.approx([0.6, 0.4])
+    # Round-trip
+    rt = GaborFrequencyPayload.from_dict(d)
+    assert rt.num_filters == 2
+    assert rt.frequencies == pytest.approx([0.5, 1.5])
+    assert rt.orientations == pytest.approx([0.0, 1.5707963])
+    assert rt.phases == pytest.approx([0.0, 0.1])
+    assert rt.filter_weights == pytest.approx([0.6, 0.4])
+
+
+# --- C) Neural Residual Scaffold-GS tests ---
+
+def test_neural_residual_scaffold_default():
+    """Scaffold-GS fields at defaults must produce exactly the same to_dict() as before."""
+    prior = NeuralResidualPayload(latent_dim=16, residual_scale=0.25, model_ref="models/local.pt").to_dict()
+    new = NeuralResidualPayload(
+        latent_dim=16, residual_scale=0.25, model_ref="models/local.pt",
+        anchor_feature_dim=None, mlp_hidden_dim=64, num_mlp_layers=2,
+        use_anchor_conditioning=False,
+    ).to_dict()
+    assert prior == new
+    # No Scaffold-GS extension keys should appear in default output
+    assert "anchor_feature_dim" not in new
+    assert "mlp_hidden_dim" not in new
+    assert "num_mlp_layers" not in new
+    assert "use_anchor_conditioning" not in new
+
+
+def test_neural_residual_scaffold_anchor():
+    """anchor_feature_dim and other Scaffold-GS fields are serialised when set."""
+    payload = NeuralResidualPayload(
+        latent_dim=32, residual_scale=0.5,
+        anchor_feature_dim=16, mlp_hidden_dim=128, num_mlp_layers=3,
+        use_anchor_conditioning=True,
+    )
+    d = payload.to_dict()
+    assert d["anchor_feature_dim"] == 16
+    assert d["mlp_hidden_dim"] == 128
+    assert d["num_mlp_layers"] == 3
+    assert d["use_anchor_conditioning"] is True
+    # Round-trip
+    rt = NeuralResidualPayload.from_dict(d)
+    assert rt.anchor_feature_dim == 16
+    assert rt.mlp_hidden_dim == 128
+    assert rt.num_mlp_layers == 3
+    assert rt.use_anchor_conditioning is True
+
+
+# --- D) LangSplatV2 Semantic Sparse Codebook tests ---
+
+def test_semantic_sparse_codebook_default_dense():
+    """use_sparse_codebook=False (default) must produce exactly the same to_dict() as before."""
+    prior = SemanticFeaturePayload(label="chair", confidence=0.9, feature_refs=("clip:1",)).to_dict()
+    new = SemanticFeaturePayload(
+        label="chair", confidence=0.9, feature_refs=("clip:1",),
+        use_sparse_codebook=False, codebook_size=256, codebook_dim=64,
+        sparse_indices=None, sparse_weights=None,
+    ).to_dict()
+    assert prior == new
+    # No sparse codebook extension keys should appear in default output
+    assert "use_sparse_codebook" not in new
+    assert "codebook_size" not in new
+    assert "codebook_dim" not in new
+    assert "sparse_indices" not in new
+    assert "sparse_weights" not in new
+
+
+def test_semantic_sparse_codebook_sparse():
+    """use_sparse_codebook=True serialises and round-trips sparse codebook fields."""
+    payload = SemanticFeaturePayload(
+        label="chair", confidence=0.9,
+        use_sparse_codebook=True,
+        codebook_size=128, codebook_dim=32,
+        sparse_indices=[0, 5, 12],
+        sparse_weights=[0.5, 0.3, 0.2],
+    )
+    d = payload.to_dict()
+    assert d["use_sparse_codebook"] is True
+    assert d["codebook_size"] == 128
+    assert d["codebook_dim"] == 32
+    assert d["sparse_indices"] == [0, 5, 12]
+    assert d["sparse_weights"] == pytest.approx([0.5, 0.3, 0.2])
+    # Round-trip
+    rt = SemanticFeaturePayload.from_dict(d)
+    assert rt.use_sparse_codebook is True
+    assert rt.codebook_size == 128
+    assert rt.codebook_dim == 32
+    assert rt.sparse_indices == [0, 5, 12]
+    assert rt.sparse_weights == pytest.approx([0.5, 0.3, 0.2])
+
+
+def test_semantic_sparse_codebook_decode():
+    """decode_semantic_feature reconstructs feature vector from codebook atoms."""
+    from aura.semantic import decode_semantic_feature
+
+    payload_dense = SemanticFeaturePayload(label="chair", confidence=0.9).to_dict()
+    assert decode_semantic_feature(payload_dense) is None  # dense path unchanged
+
+    payload_sparse = SemanticFeaturePayload(
+        label="chair", confidence=0.9,
+        use_sparse_codebook=True,
+        codebook_size=4, codebook_dim=3,
+        sparse_indices=[0, 2],
+        sparse_weights=[1.0, 0.5],
+    ).to_dict()
+    codebook = [
+        [1.0, 0.0, 0.0],   # atom 0
+        [0.0, 1.0, 0.0],   # atom 1
+        [0.0, 0.0, 2.0],   # atom 2
+        [1.0, 1.0, 1.0],   # atom 3
+    ]
+    result = decode_semantic_feature(payload_sparse, codebook=codebook)
+    # Expected: 1.0 * atom[0] + 0.5 * atom[2] = [1.0, 0.0, 0.0] + [0.0, 0.0, 1.0] = [1.0, 0.0, 1.0]
+    assert result == pytest.approx([1.0, 0.0, 1.0])
