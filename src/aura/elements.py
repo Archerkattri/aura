@@ -88,8 +88,10 @@ class AuraElement:
             normal = _payload_vec3(self.payload.get("normal"))
         elif payload_type == "volume_cell":
             density = _clamp_unit(float(self.payload.get("density", self.opacity)))
+            volume_opacity = _clamp_unit(float(self.payload.get("opacity", 1.0)))
             path_length = max(0.0, exit_depth - depth)
-            transmittance = _clamp_unit(exp(-density * path_length))
+            alpha = volume_opacity * (1.0 - exp(-density * path_length))
+            transmittance = _clamp_unit(1.0 - alpha)
         elif payload_type == "beta_kernel":
             hit_point = _ray_point(ray, depth)
             weight = _beta_weight(self.bounds, hit_point, self.payload)

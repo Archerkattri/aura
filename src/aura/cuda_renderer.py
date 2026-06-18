@@ -513,7 +513,7 @@ def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
 def _cuda_renderer_payload_params(element: Any) -> tuple[float, float, float, float, float]:
     payload_type = element.payload.get("type")
     if payload_type == "volume_cell" or element.carrier_id == "volume":
-        return (float(element.payload.get("density", element.opacity)), 0.0, 0.0, 0.0, 0.0)
+        return (float(element.payload.get("density", element.opacity)), float(element.payload.get("opacity", 1.0)), 0.0, 0.0, 0.0)
     if payload_type == "beta_kernel" or element.carrier_id == "beta":
         return (float(element.payload.get("alpha", 1.0)), float(element.payload.get("beta", 1.0)), 0.0, 0.0, 0.0)
     if payload_type == "gabor_frequency" or element.carrier_id == "gabor":
@@ -920,7 +920,9 @@ def _simulate_cuda_carrier_response(
     residual = carrier_id == CUDA_RENDERER_CARRIER_IDS["neural"]
     if carrier_id == CUDA_RENDERER_CARRIER_IDS["volume"]:
         density = max(payload[0], 0.0)
-        return (_clamp_unit(_exp_neg(density * max(exit_depth - depth, 0.0))), confidence, color, residual)
+        volume_opacity = _clamp_unit(payload[1])
+        alpha = volume_opacity * (1.0 - _exp_neg(density * max(exit_depth - depth, 0.0)))
+        return (_clamp_unit(1.0 - alpha), confidence, color, residual)
     if carrier_id == CUDA_RENDERER_CARRIER_IDS["beta"]:
         alpha = max(payload[0], 1e-6)
         beta = max(payload[1], 1e-6)

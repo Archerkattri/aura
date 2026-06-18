@@ -613,7 +613,7 @@ def test_volume_kernel_keeps_density_differentiable():
             bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
             opacity=0.5,
             confidence=0.75,
-            payload={"type": "volume_cell", "density": 2.0},
+            payload={"type": "volume_cell", "density": 2.0, "opacity": 0.5},
         ),
     )
     carrier_parameters = torch_carrier_parameter_tensors(torch, elements, device="cpu")
@@ -645,12 +645,14 @@ def test_volume_kernel_keeps_density_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["volume"]) == {"min_corner", "max_corner", "color", "density", "confidence"}
+    assert set(carrier_parameters["volume"]) == {"min_corner", "max_corner", "color", "density", "opacity", "confidence"}
     assert carrier_parameters["volume"]["color"].grad is not None
     assert carrier_parameters["volume"]["density"].grad is not None
+    assert carrier_parameters["volume"]["opacity"].grad is not None
     assert carrier_parameters["volume"]["confidence"].grad is not None
     assert carrier_parameters["volume"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
-    assert carrier_parameters["volume"]["density"].grad.item() == pytest.approx(-torch.exp(torch.tensor(-2.0)).item())
+    assert carrier_parameters["volume"]["density"].grad.item() == pytest.approx(-0.5 * torch.exp(torch.tensor(-2.0)).item())
+    assert carrier_parameters["volume"]["opacity"].grad.item() == pytest.approx(-(1.0 - torch.exp(torch.tensor(-2.0))).item())
     assert carrier_parameters["volume"]["confidence"].grad.item() == pytest.approx(1.0)
     assert opacities.grad is None
     assert residual.tolist() == [False]

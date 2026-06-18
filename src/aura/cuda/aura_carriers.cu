@@ -739,8 +739,10 @@ extern "C" __global__ void aura_render_rays_kernel(
         float color_b_hit = colors[element_i * 3 + 2];
         if (carrier_id == 1) {
             const float density = fmaxf(payload[0], 0.0f);
+            const float volume_opacity = aura_clamp_unit(payload[1]);
             const float path_length = fmaxf(hit_exits[hit_i] - hit_depths[hit_i], 0.0f);
-            transmittance = aura_clamp_unit(expf(-density * path_length));
+            const float alpha = volume_opacity * (1.0f - expf(-density * path_length));
+            transmittance = aura_clamp_unit(1.0f - alpha);
         } else if (carrier_id == 2) {
             float point[3] = {
                 origin[0] + direction[0] * hit_depths[hit_i],

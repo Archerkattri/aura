@@ -306,6 +306,26 @@ def test_package_validation_accepts_gabor_carrier_normal_payload(tmp_path):
     assert load_package(output).scene.elements[0].payload["normal"] == [0.0, 0.0, -1.0]
 
 
+def test_package_validation_accepts_volume_opacity_payload(tmp_path):
+    scene = AuraScene(
+        name="volume_opacity",
+        elements=(
+            AuraElement(
+                id="fog",
+                carrier_id="volume",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 1.0)),
+                color=(0.2, 0.4, 0.8),
+                opacity=0.4,
+                payload={"type": "volume_cell", "density": 0.7, "opacity": 0.4, "phase_anisotropy": 0.0},
+            ),
+        ),
+    )
+
+    output = package_scene(scene).write(tmp_path / "volume-opacity.aura")
+
+    assert load_package(output).scene.elements[0].payload["opacity"] == 0.4
+
+
 def test_package_validation_rejects_element_chunk_id_without_chunk():
     scene = AuraScene(
         name="bad",

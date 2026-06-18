@@ -239,7 +239,7 @@ def test_cuda_renderer_kernel_simulation_uses_payload_specific_carrier_responses
     volume_transmittance = __import__("math").exp(-2.0 * 0.5)
     beta_transmittance = 1.0 - 0.5 * (8.0 / 9.0)
 
-    assert inputs.scene.payload_params == pytest.approx((2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0, 0.0))
+    assert inputs.scene.payload_params == pytest.approx((2.0, 1.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0, 0.0))
     assert simulation.ordered_hits == (0, 1)
     assert simulation.out_transmittance[0] == pytest.approx(volume_transmittance * beta_transmittance)
     assert simulation.out_alpha[0] == pytest.approx(1.0 - volume_transmittance * beta_transmittance)

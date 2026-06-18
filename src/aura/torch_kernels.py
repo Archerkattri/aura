@@ -186,14 +186,20 @@ def torch_carrier_response_tensors(
         elif payload_type == "volume_cell":
             volume_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             density = _carrier_parameter(torch, element, "density", carrier_parameters, device, default=element.payload.get("density", element.opacity))
+            volume_opacity = torch.clamp(
+                _carrier_parameter(torch, element, "opacity", carrier_parameters, device, default=element.payload.get("opacity", 1.0)),
+                min=0.0,
+                max=1.0,
+            )
             volume_confidence = torch.clamp(
                 _carrier_parameter(torch, element, "confidence", carrier_parameters, device, default=element.confidence),
                 min=0.0,
                 max=1.0,
             )
             path_length = torch.clamp(exit_depth[mask, element_index] - best_depth[mask], min=0.0)
+            alpha = volume_opacity * (1.0 - torch.exp(-density * path_length))
             carrier_colors[mask] = torch.clamp(volume_color, min=0.0, max=1.0)
-            transmittance[mask] = torch.clamp(torch.exp(-density * path_length), min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - alpha, min=0.0, max=1.0)
             confidence[mask] = volume_confidence
         elif payload_type == "beta_kernel":
             beta_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
@@ -352,6 +358,12 @@ def torch_carrier_parameter_tensors(
                 ),
                 "density": torch.tensor(
                     float(element.payload.get("density", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "opacity": torch.tensor(
+                    float(element.payload.get("opacity", 1.0)),
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,
