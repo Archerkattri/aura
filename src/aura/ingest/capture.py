@@ -873,14 +873,26 @@ def _read_capture_raster(path: Path) -> _RasterImage:
     raise ValueError(f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, PGM, or COLMAP depth .bin")
 
 
+#: LDR/HDR/video raster formats loaded through the optional imageio backend.
+#: JPEG/TIFF/BMP/WebP cover the common real-capture datasets (Tanks and Temples,
+#: Mip-NeRF 360, Deep Blending) which ship 8-bit JPEG frames.
+_IMAGEIO_CAPTURE_SUFFIXES = frozenset(
+    {
+        ".exr", ".hdr", ".mp4", ".mov", ".mkv", ".avi",
+        ".jpg", ".jpeg", ".jpe", ".tif", ".tiff", ".bmp", ".webp",
+    }
+)
+
+
 def _read_capture_tensor(path: Path) -> CaptureTensor:
     suffix = path.suffix.lower()
     if suffix in {".ppm", ".pgm", ".pnm", ".png", ".bin"}:
         return _raster_to_tensor(path, _read_capture_raster(path), backend="stdlib")
-    if suffix in {".exr", ".hdr", ".mp4", ".mov", ".mkv", ".avi"}:
+    if suffix in _IMAGEIO_CAPTURE_SUFFIXES:
         return _read_imageio_tensor(path)
     raise ValueError(
-        f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, PGM, COLMAP depth .bin, EXR/HDR, or video"
+        f"unsupported capture asset extension {suffix!r}; expected PNG, PPM, PGM, "
+        "COLMAP depth .bin, JPEG/TIFF/BMP/WebP, EXR/HDR, or video"
     )
 
 
