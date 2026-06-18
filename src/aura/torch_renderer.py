@@ -208,6 +208,7 @@ class TorchCaptureTrainingBatch:
     device: str
     frame_ids: tuple[str, ...]
     frame_indices: Any
+    sample_frame_ids: tuple[str, ...]
     pixel_xy: Any
     ray_origins: Any
     ray_directions: Any
@@ -225,6 +226,7 @@ class TorchCaptureTrainingBatch:
         return {
             "device": self.device,
             "frameIds": list(self.frame_ids),
+            "sampleFrameIds": list(self.sample_frame_ids),
             "frameIndices": _torch_tensor_metadata(self.frame_indices),
             "pixelXY": _torch_tensor_metadata(self.pixel_xy),
             "rayOrigins": _torch_tensor_metadata(self.ray_origins),
@@ -405,6 +407,7 @@ def torch_capture_training_batch(
     pixel_tensors = []
     origin_tensors = []
     direction_tensors = []
+    sample_frame_ids: list[str] = []
     target_semantic_ids: list[str | None] = []
     for frame_index, frame_id in enumerate(assets.frame_ids):
         frame = by_frame[frame_id]
@@ -427,6 +430,7 @@ def torch_capture_training_batch(
             torch.as_tensor(frame.camera_origin, dtype=torch.float32, device=device).reshape(1, 3).expand(sample_count, 3)
         )
         direction_tensors.append(_pixel_ray_directions_tensor(torch, frame, sampled_pixels, device=device))
+        sample_frame_ids.extend([frame_id] * sample_count)
         target_semantic_ids.extend([frame.semantic_label] * sample_count)
     if not frame_index_tensors:
         raise ValueError("torch capture training batch produced no sampled pixels")
@@ -457,6 +461,7 @@ def torch_capture_training_batch(
         device=str(device),
         frame_ids=tuple(assets.frame_ids),
         frame_indices=index_tensor,
+        sample_frame_ids=tuple(sample_frame_ids),
         pixel_xy=pixel_tensor,
         ray_origins=ray_origins,
         ray_directions=ray_directions,
@@ -534,6 +539,7 @@ def torch_capture_training_batch_from_packed(
     status = torch_renderer_status()
     resolved_device = device or status.default_device or "cpu"
     target_count = batch.target_count
+    packed_frame_indices = tuple(int(index) for index in batch.frame_indices)
     frame_indices = torch.as_tensor(batch.frame_indices, dtype=torch.long, device=resolved_device).reshape(target_count)
     pixel_xy = torch.as_tensor(batch.pixel_xy, dtype=torch.long, device=resolved_device).reshape(target_count, 2)
     target_mask = (
@@ -557,6 +563,7 @@ def torch_capture_training_batch_from_packed(
         device=str(resolved_device),
         frame_ids=batch.frame_ids,
         frame_indices=frame_indices,
+        sample_frame_ids=tuple(batch.frame_ids[index] for index in packed_frame_indices),
         pixel_xy=pixel_xy,
         ray_origins=torch.as_tensor(batch.ray_origins, dtype=torch.float32, device=resolved_device).reshape(target_count, 3),
         ray_directions=torch.as_tensor(batch.ray_directions, dtype=torch.float32, device=resolved_device).reshape(target_count, 3),
@@ -567,7 +574,7 @@ def torch_capture_training_batch_from_packed(
         target_normal_present=target_normal_present,
         target_confidence=target_confidence,
         target_confidence_present=target_confidence_present,
-        target_semantic_ids=tuple(batch.frame_semantic_ids[int(index)] for index in frame_indices.detach().cpu().tolist()),
+        target_semantic_ids=tuple(batch.frame_semantic_ids[index] for index in packed_frame_indices),
         target_material_ids=(None,) * target_count,
     )
 
@@ -584,8 +591,7 @@ def torch_render_capture_training_batch(
     require_torch()
     if int(batch.frame_indices.numel()) == 0:
         raise ValueError("torch capture training batch requires at least one target")
-    frame_indices = batch.frame_indices.detach().cpu().tolist()
-    sample_frame_ids = tuple(batch.frame_ids[index] for index in frame_indices)
+    sample_frame_ids = batch.sample_frame_ids
     return _torch_render_tensor_targets(
         scene,
         frame_ids=sample_frame_ids,

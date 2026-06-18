@@ -1290,6 +1290,8 @@ def test_torch_optimize_capture_batches_stream_packed_source_windows():
     assert result.scene.elements[0].color[0] > scene.elements[0].color[0]
     first_batch = torch_capture_training_batch_from_packed(packed_batches[0], device="cpu")
     second_batch = torch_capture_training_batch_from_packed(packed_batches[1], device="cpu")
+    assert first_batch.sample_frame_ids == ("frame",)
+    assert second_batch.sample_frame_ids == ("frame",)
     assert first_batch.target_confidence.tolist() == [1.0]
     assert second_batch.target_confidence.tolist() == [0.5]
     assert result.to_dict()["steps"][0]["source_windows"][0]["targetCount"] == 1
@@ -1436,6 +1438,7 @@ def _fake_capture_training_batch():
         {
             "frame_indices": _FakeTensor(),
             "frame_ids": ("frame",),
+            "sample_frame_ids": ("frame",),
             "ray_origins": None,
             "ray_directions": None,
             "target_color": None,

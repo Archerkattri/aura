@@ -271,6 +271,7 @@ def test_torch_capture_training_batch_treats_absent_frame_mask_as_visible():
     batch = torch_capture_training_batch(frames, assets)
 
     assert batch.frame_indices.tolist() == [0, 1, 1]
+    assert batch.sample_frame_ids == ("frame_a", "frame_b", "frame_b")
     assert batch.pixel_xy.tolist() == [[1, 0], [0, 0], [1, 0]]
     assert batch.target_mask.tolist() == [1.0, 1.0, 1.0]
     assert batch.target_confidence.tolist() == [1.0, 1.0, 1.0]
@@ -306,6 +307,7 @@ def test_torch_capture_training_batch_builds_ray_tensors_on_asset_device():
 
     assert batch.ray_origins.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
     assert batch.ray_directions.device.type == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert batch.sample_frame_ids == ("frame_a", "frame_a")
     assert batch.target_semantic_ids == ("surface_region", "surface_region")
     assert batch.ray_origins.detach().cpu().tolist() == [[0.0, 0.0, -2.0], [0.0, 0.0, -2.0]]
     assert batch.ray_directions[0].detach().cpu().tolist() == pytest.approx([0.4472135901, 0.0, 0.8944271803])
@@ -2075,6 +2077,7 @@ def _fake_capture_training_batch():
         {
             "frame_indices": _FakeTensor(),
             "frame_ids": ("frame",),
+            "sample_frame_ids": ("frame",),
             "ray_origins": None,
             "ray_directions": None,
             "target_color": None,
