@@ -14,6 +14,7 @@ from aura.benchmark import (
     run_capture_reconstruction_benchmark,
     run_core_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
+    run_real_scene_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
 )
@@ -384,6 +385,7 @@ __all__ = [
     "run_capture_reconstruction_benchmark",
     "run_core_reconstruction_benchmark",
     "run_ray_query_correctness_benchmark",
+    "run_real_scene_benchmark",
     "run_reference_benchmark",
     "run_visual_quality_benchmark",
     "runtime_export_report",

@@ -472,6 +472,143 @@ def run_visual_quality_benchmark(
     }
 
 
+REAL_SCENE_BASELINE_LABELS = ("colmap", "nerf", "3dgs", "gsplat", "external")
+
+
+def run_real_scene_benchmark(
+    package: AuraPackage,
+    *,
+    reference_dir: Path | str | None = None,
+    baseline_label: str = "external",
+    package_dir: Path | str | None = None,
+    min_psnr: float | None = None,
+    max_views: int | None = None,
+    fixture_view_count: int = 4,
+) -> dict:
+    """Evaluate an .aura package against baseline reference renders.
+
+    When ``reference_dir`` points at a directory of baseline view images
+    (COLMAP/NeRF/3DGS renders, named ``view_*.png|ppm|exr|pfm``), each reference
+    is matched by rendering the AURA package at the reference resolution and
+    PSNR/SSIM/LPIPS-proxy metrics are aggregated into a JSON report.
+
+    When no directory is given (datasets are not shipped in the repo), the
+    harness degrades to deterministic fixtures: it renders the package at a few
+    resolutions and scores each render against itself, producing the same report
+    shape so CI and tooling exercise the full path without external data.
+    """
+
+    scene = package.scene
+    if reference_dir is not None:
+        references = _load_real_scene_references(reference_dir, max_views=max_views)
+        source = "external_reference_dir"
+        resolved_label = baseline_label
+    else:
+        references = _fixture_real_scene_references(scene, view_count=fixture_view_count)
+        source = "deterministic_fixture"
+        resolved_label = "fixture_self_reference"
+
+    views: list[dict] = []
+    psnr_values: list[float] = []
+    ssim_values: list[float] = []
+    lpips_values: list[float] = []
+    render_seconds_total = 0.0
+    for view in references:
+        reference_image = view["image"]
+        render_start = perf_counter()
+        rendered = render_orthographic(
+            scene, width=reference_image.width, height=reference_image.height
+        )
+        render_seconds = perf_counter() - render_start
+        render_seconds_total += render_seconds
+        metrics = compare_images(reference_image, rendered, min_psnr=min_psnr)
+        if metrics["psnr"] is not None:
+            psnr_values.append(metrics["psnr"])
+        ssim_values.append(metrics["ssim"])
+        lpips_values.append(metrics["lpipsProxy"])
+        views.append(
+            {
+                "name": view["name"],
+                "width": reference_image.width,
+                "height": reference_image.height,
+                "renderSeconds": render_seconds,
+                "metrics": metrics,
+                "passed": bool(metrics["passed"]),
+            }
+        )
+
+    view_count = len(views)
+    passed_views = sum(1 for view in views if view["passed"])
+    aggregate = {
+        "viewCount": view_count,
+        "passedViewCount": passed_views,
+        "meanPsnr": _mean(psnr_values) if psnr_values else None,
+        "minPsnr": min(psnr_values) if psnr_values else None,
+        "maxPsnr": max(psnr_values) if psnr_values else None,
+        "infinitePsnrViewCount": sum(1 for view in views if view["metrics"]["psnrInfinite"]),
+        "meanSsim": _mean(ssim_values),
+        "meanLpipsProxy": _mean(lpips_values),
+        "renderSeconds": render_seconds_total,
+    }
+    passed = view_count > 0 and (min_psnr is None or passed_views == view_count)
+    return {
+        "format": "AURA_REAL_SCENE_BENCHMARK",
+        "asset": package.asset.name,
+        "baseline": resolved_label,
+        "referenceSource": source,
+        "referenceDir": None if reference_dir is None else str(reference_dir),
+        "packageBytes": _package_size(package_dir) if package_dir is not None else None,
+        "minPsnr": min_psnr,
+        "aggregate": aggregate,
+        "views": views,
+        "passed": bool(passed),
+        "metricNotes": {
+            "lpipsProxy": "Deterministic mean absolute RGB distance; replace with learned LPIPS for paper claims.",
+            "ssim": "Global RGB SSIM reference metric.",
+            "fixtureCaveat": (
+                "Without an external reference directory this report scores renders against "
+                "deterministic fixtures, not real COLMAP/NeRF/3DGS baselines."
+            ),
+        },
+    }
+
+
+def _load_real_scene_references(
+    reference_dir: Path | str,
+    *,
+    max_views: int | None = None,
+) -> list[dict]:
+    from aura.imaging import SUPPORTED_REFERENCE_SUFFIXES, read_reference_image
+
+    directory = Path(reference_dir)
+    if not directory.is_dir():
+        raise ValueError(f"reference directory {directory} does not exist")
+    candidates = sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in SUPPORTED_REFERENCE_SUFFIXES
+    )
+    if not candidates:
+        raise ValueError(
+            f"no reference images found in {directory}; "
+            f"expected files with extensions {', '.join(SUPPORTED_REFERENCE_SUFFIXES)}"
+        )
+    if max_views is not None:
+        candidates = candidates[:max_views]
+    return [{"name": path.name, "image": read_reference_image(path)} for path in candidates]
+
+
+def _fixture_real_scene_references(scene: AuraScene, *, view_count: int) -> list[dict]:
+    if view_count <= 0:
+        raise ValueError("fixture view count must be positive")
+    references: list[dict] = []
+    for index in range(view_count):
+        size = 8 + index * 4
+        image = render_orthographic(scene, width=size, height=size)
+        references.append({"name": f"fixture_view_{index:03d}", "image": image})
+    return references
+
+
 def run_capture_reconstruction_benchmark(
     manifest_path: Path | str,
     *,

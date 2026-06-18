@@ -13,6 +13,7 @@ from aura.benchmark import (
     run_production_gate_report,
     run_capture_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
+    run_real_scene_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
     default_benchmark_suite,
@@ -313,6 +314,22 @@ def main(argv: list[str] | None = None) -> int:
     visual_benchmark.add_argument("--width", type=int, default=None)
     visual_benchmark.add_argument("--height", type=int, default=None)
     visual_benchmark.add_argument("--min-psnr", type=float, default=None)
+
+    real_scene_benchmark = sub.add_parser(
+        "benchmark-real-scene",
+        help="Evaluate an .aura package against external baseline renders (COLMAP/NeRF/3DGS) or fixtures",
+    )
+    real_scene_benchmark.add_argument("package_dir", type=Path)
+    real_scene_benchmark.add_argument(
+        "--reference-dir",
+        type=Path,
+        default=None,
+        help="Directory of baseline view images; omit to use deterministic fixtures",
+    )
+    real_scene_benchmark.add_argument("--baseline-label", default="external")
+    real_scene_benchmark.add_argument("--min-psnr", type=float, default=None)
+    real_scene_benchmark.add_argument("--max-views", type=int, default=None)
+    real_scene_benchmark.add_argument("--fixture-view-count", type=int, default=4)
 
     production_gate = sub.add_parser(
         "production-gate-report",
@@ -637,6 +654,19 @@ def main(argv: list[str] | None = None) -> int:
             render_width=args.width,
             render_height=args.height,
             min_psnr=args.min_psnr,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["passed"] else 1
+    if args.command == "benchmark-real-scene":
+        package = load_package(args.package_dir)
+        payload = run_real_scene_benchmark(
+            package,
+            reference_dir=args.reference_dir,
+            baseline_label=args.baseline_label,
+            package_dir=args.package_dir,
+            min_psnr=args.min_psnr,
+            max_views=args.max_views,
+            fixture_view_count=args.fixture_view_count,
         )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload["passed"] else 1

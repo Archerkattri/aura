@@ -11,3 +11,12 @@ __pycache__/
 !.env.example
 LOCAL_SECRETS.md
 
+# Generated renders, radiance exports, and videos
+*.mp4
+*.mov
+*.mkv
+*.exr
+*.pfm
+*.ppm
+*.aura/
+

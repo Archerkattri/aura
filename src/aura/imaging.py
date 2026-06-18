@@ -35,12 +35,16 @@ __all__ = [
     "VideoCapability",
     "exr_export_capability",
     "video_export_capability",
+    "read_reference_image",
+    "read_pfm_image",
     "write_exr_image",
     "write_pfm_image",
     "write_radiance_image",
     "write_frame_sequence",
     "write_video",
 ]
+
+SUPPORTED_REFERENCE_SUFFIXES = (".ppm", ".pnm", ".png", ".pfm", ".exr", ".hdr")
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +283,79 @@ def read_pfm_image(path: Path | str) -> RenderImage:
             base = col * 3
             pixels.append((line[base], line[base + 1], line[base + 2]))
     return RenderImage(width=width, height=height, pixels=tuple(pixels))
+
+
+# ---------------------------------------------------------------------------
+# Reference image loading (for benchmark harness)
+# ---------------------------------------------------------------------------
+
+
+def read_reference_image(path: Path | str) -> RenderImage:
+    """Load a baseline reference image into a normalized RGB ``RenderImage``.
+
+    Supports PPM (P3) and PNG via the stdlib loader, PFM via this module, and
+    EXR/HDR via the optional asset backend. Single-channel images are expanded
+    to RGB; alpha channels are dropped.
+    """
+
+    target = Path(path)
+    suffix = target.suffix.lower()
+    if suffix in {".ppm", ".pnm"}:
+        from aura.render import read_ppm
+
+        return read_ppm(target)
+    if suffix == ".pfm":
+        return read_pfm_image(target)
+    if suffix == ".png":
+        from aura.ingest.capture import _read_capture_raster
+
+        return _raster_image_to_render(_read_capture_raster(target))
+    if suffix in {".exr", ".hdr"}:
+        return _read_float_render_image(target)
+    raise ValueError(
+        f"unsupported reference image extension {suffix!r}; "
+        f"expected one of {', '.join(SUPPORTED_REFERENCE_SUFFIXES)}"
+    )
+
+
+def _raster_image_to_render(raster: Any) -> RenderImage:
+    width = int(raster.width)
+    height = int(raster.height)
+    channels = int(raster.channels)
+    values = list(raster.values)
+    pixels: list[tuple[float, float, float]] = []
+    for index in range(width * height):
+        base = index * channels
+        if channels == 1:
+            gray = float(values[base])
+            pixels.append((gray, gray, gray))
+        else:
+            pixels.append(
+                (float(values[base]), float(values[base + 1]), float(values[base + 2]))
+            )
+    return RenderImage(width=width, height=height, pixels=tuple(pixels))
+
+
+def _read_float_render_image(path: Path) -> RenderImage:
+    capability = exr_export_capability()
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+        import imageio.v2 as imageio  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover - import guard
+        raise ValueError(
+            f"{path} requires the optional asset backend to load EXR/HDR references "
+            f"({capability.detail})"
+        ) from exc
+    array = np.asarray(imageio.imread(path), dtype="float32")
+    if array.ndim == 2:
+        array = np.stack([array] * 3, axis=2)
+    if array.ndim != 3:
+        raise ValueError(f"{path} returned unsupported reference shape {array.shape}")
+    array = array[:, :, :3]
+    height, width = array.shape[0], array.shape[1]
+    flat = array.reshape(-1, 3)
+    pixels = tuple((float(r), float(g), float(b)) for r, g, b in flat.tolist())
+    return RenderImage(width=int(width), height=int(height), pixels=pixels)
 
 
 # ---------------------------------------------------------------------------
