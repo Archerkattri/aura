@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -717,7 +718,10 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         max_targets_per_batch=args.max_targets_per_batch,
         sampling_plan=sampling_plan,
     )
+    training_state = _training_resume_state(args, manifest, sampling_plan)
     if args.resume_from is not None:
+        previous_state = _load_resume_training_state(args.resume_from)
+        _validate_resume_training_state(training_state, previous_state, args.resume_from)
         scene = load_package(args.resume_from).scene
         resume_iteration_offset = _resume_iteration_offset(args.resume_from)
     else:
@@ -751,11 +755,14 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         result,
         checkpoint_dir=args.checkpoint_dir,
         fallback_dir=package_dir / "checkpoints",
+        training_state=training_state,
     )
     report = {
         "format": "AURA_TRAINING_REPORT",
         "name": result.scene.name,
         "manifest": str(args.manifest),
+        "trainingState": training_state,
+        "previousTrainingState": previous_state if args.resume_from is not None else None,
         "device": args.device,
         "resumeFrom": str(args.resume_from) if args.resume_from is not None else None,
         "resumeIterationOffset": resume_iteration_offset,
@@ -781,6 +788,72 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     report_path = package_dir / "training_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return package_dir
+
+
+def _training_resume_state(args: argparse.Namespace, manifest, sampling_plan) -> dict:
+    evolution_policy = None if args.disable_evolution else {
+        "splitImageLossThreshold": args.split_image_loss_threshold,
+        "depthAnchorLossThreshold": args.depth_anchor_loss_threshold,
+        "mergeImageLossThreshold": args.merge_image_loss_threshold,
+        "mergeDepthLossThreshold": args.merge_depth_loss_threshold,
+        "demoteAfterIteration": args.demote_after_iteration,
+        "demoteImageLossThreshold": args.demote_image_loss_threshold,
+        "demoteDepthLossThreshold": args.demote_depth_loss_threshold,
+    }
+    optimizer_config = {
+        "colorLearningRate": args.color_learning_rate,
+        "maxTargetsPerBatch": sampling_plan.max_targets_per_batch,
+        "adaptiveEvolutionEnabled": not args.disable_evolution,
+        "evolutionPolicy": evolution_policy,
+    }
+    compatibility = {
+        "manifestFingerprint": _stable_json_hash(manifest.to_dict()),
+        "samplingPlanFingerprint": _stable_json_hash(sampling_plan.to_dict()),
+        "optimizerConfigFingerprint": _stable_json_hash(optimizer_config),
+    }
+    return {
+        "format": "AURA_TRAINING_STATE",
+        "sourceManifest": str(args.manifest),
+        **compatibility,
+        "resumeCompatibilityFingerprint": _stable_json_hash(compatibility),
+        "optimizerConfig": optimizer_config,
+    }
+
+
+def _stable_json_hash(payload) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_resume_training_state(package_dir: Path) -> dict:
+    report_path = package_dir / "training_report.json"
+    checkpoint_path = package_dir / "training_checkpoint.json"
+    for path in (checkpoint_path, report_path):
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"resume training metadata is not valid JSON: {path}") from exc
+        state = payload.get("trainingState")
+        if isinstance(state, dict):
+            return state
+    raise ValueError(f"resume package lacks trainingState metadata: {package_dir}")
+
+
+def _validate_resume_training_state(expected: dict, previous: dict, package_dir: Path) -> None:
+    if previous.get("format") != "AURA_TRAINING_STATE":
+        raise ValueError(f"resume package has unsupported trainingState format: {package_dir}")
+    expected_fingerprint = expected.get("resumeCompatibilityFingerprint")
+    previous_fingerprint = previous.get("resumeCompatibilityFingerprint")
+    if expected_fingerprint != previous_fingerprint:
+        mismatched = [
+            key
+            for key in ("manifestFingerprint", "samplingPlanFingerprint", "optimizerConfigFingerprint")
+            if expected.get(key) != previous.get(key)
+        ]
+        details = ", ".join(mismatched) if mismatched else "resumeCompatibilityFingerprint"
+        raise ValueError(f"resume package is incompatible with this training run ({details})")
 
 
 def _resume_iteration_offset(package_dir: Path) -> int:
@@ -811,7 +884,7 @@ def _resume_iteration_offset(package_dir: Path) -> int:
     return max(iterations) + 1 if iterations else len(steps)
 
 
-def _write_training_checkpoints(result, *, checkpoint_dir: Path | None, fallback_dir: Path) -> list[dict]:
+def _write_training_checkpoints(result, *, checkpoint_dir: Path | None, fallback_dir: Path, training_state: dict) -> list[dict]:
     if not result.scene_checkpoints:
         return []
     root = checkpoint_dir or fallback_dir
@@ -819,7 +892,7 @@ def _write_training_checkpoints(result, *, checkpoint_dir: Path | None, fallback
     for checkpoint in result.scene_checkpoints:
         output_dir = root / f"iter_{checkpoint.iteration:06d}.aura"
         package_scene(checkpoint.scene, fallbacks={"mesh": "fallback/aura-train-checkpoint.glb"}).write(output_dir)
-        record = {**checkpoint.to_dict(), "packageDir": str(output_dir)}
+        record = {**checkpoint.to_dict(), "packageDir": str(output_dir), "trainingState": training_state}
         (output_dir / "training_checkpoint.json").write_text(
             json.dumps(record, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

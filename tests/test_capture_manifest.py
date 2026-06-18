@@ -709,10 +709,14 @@ def test_train_cli_writes_checkpoint_and_resumes_from_package(tmp_path):
     checkpoint_package = checkpoint_dir / "iter_000000.aura"
 
     assert report["checkpointInterval"] == 1
+    assert report["trainingState"]["format"] == "AURA_TRAINING_STATE"
+    assert len(report["trainingState"]["resumeCompatibilityFingerprint"]) == 64
     assert report["sceneCheckpoints"][0]["iteration"] == 0
     assert report["sceneCheckpoints"][0]["packageDir"] == str(checkpoint_package)
     assert (checkpoint_package / "manifest.json").exists()
     assert (checkpoint_package / "training_checkpoint.json").exists()
+    checkpoint_metadata = json.loads((checkpoint_package / "training_checkpoint.json").read_text(encoding="utf-8"))
+    assert checkpoint_metadata["trainingState"]["resumeCompatibilityFingerprint"] == report["trainingState"]["resumeCompatibilityFingerprint"]
 
     resumed_dir = tmp_path / "resumed.aura"
     subprocess.run(
@@ -746,8 +750,40 @@ def test_train_cli_writes_checkpoint_and_resumes_from_package(tmp_path):
 
     assert resumed_report["resumeFrom"] == str(checkpoint_package)
     assert resumed_report["resumeIterationOffset"] == 1
+    assert resumed_report["previousTrainingState"]["resumeCompatibilityFingerprint"] == report["trainingState"]["resumeCompatibilityFingerprint"]
     assert resumed_report["steps"][0]["iteration"] == 1
     assert load_package(resumed_dir).asset.name == "aura_train"
+
+    incompatible_dir = tmp_path / "incompatible-resume.aura"
+    incompatible = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "train",
+            str(manifest_path),
+            "--output",
+            str(incompatible_dir),
+            "--iterations",
+            "1",
+            "--max-targets-per-frame",
+            "1",
+            "--max-targets-per-batch",
+            "1",
+            "--tile-size",
+            "2",
+            "--device",
+            "cpu",
+            "--resume-from",
+            str(checkpoint_package),
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert incompatible.returncode != 0
+    assert "resume package is incompatible" in incompatible.stderr
 
 
 def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
