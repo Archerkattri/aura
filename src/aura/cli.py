@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
 
     torch_optimize_capture = sub.add_parser(
         "torch-optimize-capture-manifest",
-        help="Run the native torch AURA-Core optimization scaffold from capture tensors",
+        help="Run the native torch AURA-Core optimization path from capture tensors",
     )
     torch_optimize_capture.add_argument("manifest", type=Path)
     torch_optimize_capture.add_argument("--output-dir", type=Path, default=Path("outputs/torch-optimize-capture.aura"))
@@ -209,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     colmap_to_manifest.add_argument("--root", default="data/custom-captures/colmap-scene")
     colmap_to_manifest.add_argument("--image-dir", default="images")
 
-    demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package scaffold")
+    demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
 
     splat_demo = sub.add_parser(

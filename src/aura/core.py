@@ -549,7 +549,7 @@ def reconstruct_demo_scene(
 ) -> ReconstructionResult:
     """Run the deterministic AURA-Core fixture reconstruction path.
 
-    This is a CPU reference scaffold: it creates posed observations, initializes
+    This is a CPU reference implementation: it creates posed observations, initializes
     native evidence cells, emits mixed AURA carriers, and records loss/adaptation
     stages. It is not a production optimizer.
     """

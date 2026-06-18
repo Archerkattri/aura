@@ -30,7 +30,7 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready" in by_id["cuda_backend"]["gaps"]
     assert "callable cuda_renderer fallback is not CUDA acceleration" in by_id["cuda_backend"]["gaps"]
     assert by_id["renderer_trainer"]["productionReady"] is False
-    assert "renderer is not production real-time" in by_id["renderer_trainer"]["gaps"]
+    assert "renderer real-time performance is not yet benchmarked at production resolution" in by_id["renderer_trainer"]["gaps"]
     assert by_id["benchmarks"]["productionReady"] is False
     assert any("3DGS" in gap for gap in by_id["benchmarks"]["gaps"])
     assert payload["torchCarrierKernels"]["productionReady"] is False
@@ -55,7 +55,7 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0
     assert payload["backendReadiness"]["productionCudaReady"] is False
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
-    assert "not production ready" in payload["summary"]
+    assert "pending reproducible real-dataset baseline benchmarks" in payload["summary"]
 
 
 def test_readiness_pillar_serializes_json_safe_fields():

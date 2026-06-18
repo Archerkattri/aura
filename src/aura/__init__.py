@@ -1,4 +1,4 @@
-"""AURA-Core native adaptive radiance reconstruction scaffold."""
+"""AURA-Core: native adaptive radiance reconstruction engine."""
 
 from aura.asset import AuraAsset
 from aura.assignment import RegionEvidence, choose_carrier

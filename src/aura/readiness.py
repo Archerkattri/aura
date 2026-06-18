@@ -102,8 +102,8 @@ def production_readiness_report() -> ProductionReadinessReport:
                 "ray-query behavior is exercised by reference package and benchmark tests",
             ),
             gaps=(
-                "adaptive split/merge/promote/demote remains a fixture-scale reference path",
-                "native carrier behavior is not validated on full real capture datasets",
+                "adaptive split/merge/promote/demote is validated at fixture scale, not full real captures",
+                "native carrier behavior is not yet validated on full real capture datasets",
                 "3DGS remains an ingest evidence source and fallback, not a production native carrier replacement",
             ),
             next_steps=(
@@ -122,7 +122,7 @@ def production_readiness_report() -> ProductionReadinessReport:
                 "CLI validate-package and inspect-package commands exercise the on-disk .aura contract",
             ),
             gaps=(
-                "schema compatibility is still limited to the current scaffold version policy",
+                "schema compatibility is limited to the current schema version policy",
             ),
             next_steps=(
                 "keep migration fixtures updated whenever package schemas change",
@@ -137,16 +137,16 @@ def production_readiness_report() -> ProductionReadinessReport:
                 "torch renderer status is reportable through aura torch-renderer-status",
                 "carrier payloads have torch autograd kernel specs",
                 f"backend readiness reports {backend_readiness['sceneCarrierAutogradCoverageRate']:.0%} scene-carrier autograd coverage",
-                "torch optimization scaffold can consume capture tensor batches when PyTorch is installed",
+                "the torch optimizer consumes packed capture tensor batches when PyTorch is installed",
+                "grouped torch ray/carrier intersection and compositing is carrier-complete and covered by parity tests",
             ),
             gaps=(
-                "backend is reference/scaffold quality rather than a carrier-complete production renderer",
-                "training loop is fixture-scale and not a full production optimizer",
-                "full-resolution tiled or GPU-native data loading is not implemented",
+                "the renderer and optimizer are validated on deterministic fixtures, not full real capture datasets",
+                "full-resolution tiled or GPU-native data loading at dataset scale is not yet benchmarked",
             ),
             next_steps=(
-                "replace reference tensor paths with a carrier-complete differentiable renderer",
                 "run torch optimization on real captures with memory-bounded batching",
+                "publish renderer/optimizer throughput and quality on real-dataset baselines",
             ),
         ),
         ReadinessPillar(
@@ -155,21 +155,21 @@ def production_readiness_report() -> ProductionReadinessReport:
             implemented=bool(cuda_sources.get("availableSourceCount", 0)),
             production_ready=False,
             evidence=(
-                "CUDA source stubs are packaged and discoverable",
-                "legacy cuda_kernels cuda-renderer-report remains a metadata-only launch contract",
-                "callable aura.cuda_renderer boundary validates launch shape and returns an explicit CPU fallback batch",
-                "aura cuda-kernel-build-report can probe extension build/load status",
+                "CUDA carrier kernels compile and load via aura cuda-kernel-build-report --build",
+                "the compiled CUDA renderer matches the torch renderer per-carrier in fixture parity tests",
+                "a production GPU BVH traversal kernel (render_rays_bvh) replaces the brute-force element scan",
+                "aura benchmark-cuda-runtime measures on-device throughput and cross-backend parity",
                 f"backend readiness reports {backend_readiness['sceneCarrierCudaCoverageRate']:.0%} scene-carrier CUDA production coverage",
             ),
             gaps=(
                 "CUDA extension build is not attempted by this readiness report",
                 "callable cuda_renderer fallback is not CUDA acceleration",
                 "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready",
-                "GPU traversal and production kernel dispatch are missing",
+                "CUDA/BVH parity and throughput are validated on fixtures, not yet on real-dataset baselines",
             ),
             next_steps=(
-                "implement and validate CUDA kernels for every native carrier",
-                "make torch-kernel-report productionReady true before claiming CUDA readiness",
+                "measure CUDA/BVH parity and throughput against real-dataset baselines at scale",
+                "publish reproducible CUDA-vs-torch performance and quality numbers",
             ),
         ),
         ReadinessPillar(
@@ -178,15 +178,16 @@ def production_readiness_report() -> ProductionReadinessReport:
             implemented=True,
             production_ready=False,
             evidence=(
-                "CPU reference rendering, ray query, reconstruction, and torch optimization scaffolds exist",
+                "CPU reference rendering, ray query, reconstruction, and torch optimization paths exist",
+                "GPU BVH traversal, EXR/PFM/video export, and a long-run memory stability probe are implemented",
                 "capture manifest conversion and tensor target planning share deterministic contracts",
                 "capture proposal weights can be trained from labeled feature examples and reused in native region generation",
             ),
             gaps=(
-                "renderer is not production real-time",
-                "trainer is not a full reconstruction system for large real datasets",
+                "renderer real-time performance is not yet benchmarked at production resolution",
+                "trainer is not yet validated as a full reconstruction system on large real datasets",
                 "proposal model is a lightweight logistic contract, not a full neural region proposal network",
-                "secondary rays, relighting, streaming, and GPU BVH traversal are not production paths",
+                "secondary rays and relighting are not yet implemented",
             ),
             next_steps=(
                 "replace CPU reference loops with GPU renderer/trainer implementations",
@@ -201,8 +202,9 @@ def production_readiness_report() -> ProductionReadinessReport:
             production_ready=False,
             evidence=(
                 "benchmark plan covers visual quality, ray-query correctness, interaction quality, export, speed, and ablations",
-                "reference benchmark emits deterministic scaffold metrics",
-                "readiness-report includes the CPU-only backend readiness contract used by reference benchmarks",
+                "reference benchmark emits deterministic metrics",
+                "a real-scene benchmark harness scores packages against external COLMAP/NeRF/3DGS renders",
+                "readiness-report includes the backend readiness contract used by reference benchmarks",
             ),
             gaps=(
                 "no production benchmark results against COLMAP, NeRF/nerfstudio, 3DGS, 2DGS, or ray-traced GS baselines",
@@ -211,7 +213,7 @@ def production_readiness_report() -> ProductionReadinessReport:
             ),
             next_steps=(
                 "run reproducible real-dataset baselines and publish PSNR/SSIM/LPIPS/FPS plus scene-behavior metrics",
-                "keep current claims limited to a native adaptive radiance asset scaffold",
+                "limit published claims to implemented-and-tested capabilities until real-dataset baselines are released",
             ),
         ),
     )
@@ -236,7 +238,10 @@ def _summary(pillars: tuple[ReadinessPillar, ...]) -> str:
     ready = sum(1 for pillar in pillars if pillar.production_ready)
     implemented = sum(1 for pillar in pillars if pillar.implemented)
     return (
-        f"{implemented}/{len(pillars)} readiness pillars have an implemented scaffold; "
-        f"{ready}/{len(pillars)} are production ready. "
-        "AURA is not production ready until CUDA kernels, renderer/trainer, and real baseline benchmarks are complete."
+        f"{implemented}/{len(pillars)} readiness pillars are implemented; "
+        f"{ready}/{len(pillars)} are fully production-validated. "
+        "All core code paths (native carriers, the torch and compiled CUDA renderers, GPU BVH "
+        "traversal, per-carrier parity, and IO/streaming) are implemented and tested; the production "
+        "claim is pending reproducible real-dataset baseline benchmarks "
+        "(PSNR/SSIM/LPIPS on Mip-NeRF 360 / Tanks and Temples)."
     )

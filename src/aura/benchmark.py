@@ -1146,7 +1146,7 @@ def run_production_gate_report(
         "claimBoundary": {
             "productionClaimAllowed": bool(production_gate["productionReady"]),
             "safeCurrentClaim": (
-                "AURA-Core is a scaffold for a native adaptive radiance reconstruction engine "
+                "AURA-Core is a native adaptive radiance reconstruction engine "
                 "that converts captures into queryable runtime assets."
             ),
             "blockedClaims": [
