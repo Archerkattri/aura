@@ -380,8 +380,13 @@ class TestLearnedAssignment:
         ev = _evidence(high_frequency=0.8)
         report = semantic_graph_allocation([("e1", ev)], graph=graph, config=config)
         d = report.decisions[0]
-        # Soft scores should be computed
-        assert d.soft_scores is not None
+        # Soft scores should be computed and reflect the high-frequency evidence
+        ss = d.soft_scores
+        assert ss is not None
+        gabor_i = CARRIER_KIND_ORDER.index("gabor")
+        assert ss.from_evidence[gabor_i] == max(ss.from_evidence)
+        probs = ss.softmax_probabilities()
+        assert abs(sum(probs) - 1.0) < 1e-6 and all(0.0 <= p <= 1.0 for p in probs)
         # Reason should indicate soft_score_argmax
         assert "soft_score_argmax" in d.reason
 
@@ -389,7 +394,12 @@ class TestLearnedAssignment:
         config = AllocationConfig(use_soft_scores=True)
         ev = _evidence(high_frequency=0.9)
         report = semantic_graph_allocation([("e1", ev)], config=config)
-        assert report.decisions[0].soft_scores is not None
+        ss = report.decisions[0].soft_scores
+        assert ss is not None
+        # No graph bias, so high-frequency evidence makes gabor the argmax
+        assert ss.argmax_carrier() == "gabor"
+        probs = ss.softmax_probabilities()
+        assert abs(sum(probs) - 1.0) < 1e-6 and all(0.0 <= p <= 1.0 for p in probs)
 
     def test_soft_scores_none_when_not_requested(self):
         config = AllocationConfig(use_soft_scores=False)
@@ -726,8 +736,12 @@ class TestAblationHook:
             ablation_single_carrier="gaussian", use_soft_scores=True
         )
         report = semantic_graph_allocation([("e1", _evidence(high_frequency=0.9))], config=config)
-        # Soft scores should be populated even in ablation mode
-        assert report.decisions[0].soft_scores is not None
+        d = report.decisions[0]
+        # Soft scores still reflect the evidence (gabor) even though ablation
+        # forces the final carrier to gaussian — proving they are independent.
+        assert d.soft_scores is not None
+        assert d.soft_scores.argmax_carrier() == "gabor"
+        assert d.carrier_id == "gaussian"
 
     def test_ablation_graph_governed_false_in_override(self):
         config = AllocationConfig(ablation_single_carrier="gaussian")
@@ -837,9 +851,13 @@ class TestIntegrationRoundTrip:
         assert by_id["e_surf_1"].graph_cluster_node_id == "n_surf"
         assert by_id["e_orphan"].graph_cluster_node_id is None
 
-        # Soft scores populated for all (use_soft_scores=True)
+        # Soft scores populated and valid for all (use_soft_scores=True)
         for d in report.decisions:
-            assert d.soft_scores is not None
+            ss = d.soft_scores
+            assert ss is not None
+            assert len(ss.logits) == len(CARRIER_KIND_ORDER)
+            probs = ss.softmax_probabilities()
+            assert abs(sum(probs) - 1.0) < 1e-6 and all(0.0 <= p <= 1.0 for p in probs)
 
         # Report serializable
         import json
