@@ -174,6 +174,63 @@ def test_torch_capture_training_batch_samples_per_pixel_targets():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_filters_masked_pixels_before_limit():
+    frame = TrainingFrame(
+        id="frame_a",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 2.0, "cy": 1.0, "width": 4.0, "height": 2.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                width=4,
+                height=2,
+                image_values=(
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    0.0,
+                    0.0,
+                    3.0,
+                    0.0,
+                    0.0,
+                    4.0,
+                    0.0,
+                    0.0,
+                    5.0,
+                    0.0,
+                    0.0,
+                    6.0,
+                    0.0,
+                    0.0,
+                    7.0,
+                    0.0,
+                    0.0,
+                ),
+                depth_values=(1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7),
+                mask_values=(0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0),
+            ),
+        ),
+        device="cpu",
+    )
+
+    batch = torch_capture_training_batch((frame,), assets, max_targets_per_frame=3)
+
+    assert batch.pixel_xy.tolist() == [[1, 0], [3, 0], [0, 1]]
+    assert batch.target_color.tolist() == [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0], [4.0, 0.0, 0.0]]
+    assert batch.target_depth.tolist() == pytest.approx([1.1, 1.3, 1.4])
+    assert batch.target_mask.tolist() == [1.0, 1.0, 1.0]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_capture_training_batch_rejects_fully_masked_targets():
     frame = TrainingFrame(
         id="frame_a",

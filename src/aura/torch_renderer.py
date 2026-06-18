@@ -407,27 +407,23 @@ def torch_capture_training_batch(
     directions: list[tuple[float, float, float]] = []
     for frame_index, frame_id in enumerate(assets.frame_ids):
         frame = by_frame[frame_id]
-        has_mask = assets.mask is not None and (
-            assets.mask_present is None or bool(assets.mask_present[frame_index].detach().cpu().item())
+        sampled_pixels = _sampled_training_pixels_for_frame(
+            torch,
+            assets,
+            frame_index=frame_index,
+            height=height,
+            width=width,
+            pixel_stride=pixel_stride,
+            max_targets_per_frame=max_targets_per_frame,
+            include_masked_targets=include_masked_targets,
         )
-        produced = 0
-        for y in range(0, height, pixel_stride):
-            for x in range(0, width, pixel_stride):
-                if (
-                    has_mask
-                    and not include_masked_targets
-                    and float(assets.mask[frame_index, y, x, 0].detach().cpu().item()) <= 0.0
-                ):
-                    continue
-                frame_indices.append(frame_index)
-                pixels.append((x, y))
-                origins.append(frame.camera_origin)
-                directions.append(_pixel_ray_direction(frame, x, y))
-                produced += 1
-                if max_targets_per_frame is not None and produced >= max_targets_per_frame:
-                    break
-            if max_targets_per_frame is not None and produced >= max_targets_per_frame:
-                break
+        for x, y in sampled_pixels.detach().cpu().tolist():
+            x_int = int(x)
+            y_int = int(y)
+            frame_indices.append(frame_index)
+            pixels.append((x_int, y_int))
+            origins.append(frame.camera_origin)
+            directions.append(_pixel_ray_direction(frame, x_int, y_int))
     if not frame_indices:
         raise ValueError("torch capture training batch produced no sampled pixels")
     index_tensor = torch.tensor(frame_indices, dtype=torch.long, device=device)
@@ -465,6 +461,33 @@ def torch_capture_training_batch(
         target_semantic_ids=tuple(by_frame[assets.frame_ids[index]].semantic_label for index in frame_indices),
         target_material_ids=(None,) * len(frame_indices),
     )
+
+
+def _sampled_training_pixels_for_frame(
+    torch: Any,
+    assets: TorchCaptureAssetBatch,
+    *,
+    frame_index: int,
+    height: int,
+    width: int,
+    pixel_stride: int,
+    max_targets_per_frame: int | None,
+    include_masked_targets: bool,
+) -> Any:
+    device = assets.image.device
+    y_values = torch.arange(0, height, pixel_stride, dtype=torch.long, device=device)
+    x_values = torch.arange(0, width, pixel_stride, dtype=torch.long, device=device)
+    y_grid, x_grid = torch.meshgrid(y_values, x_values, indexing="ij")
+    pixel_xy = torch.stack((x_grid.reshape(-1), y_grid.reshape(-1)), dim=1)
+    has_mask = assets.mask is not None and (
+        assets.mask_present is None or bool(assets.mask_present[frame_index].detach().cpu().item())
+    )
+    if has_mask and not include_masked_targets:
+        mask_values = assets.mask[frame_index, pixel_xy[:, 1], pixel_xy[:, 0], 0]
+        pixel_xy = pixel_xy[mask_values > 0.0]
+    if max_targets_per_frame is not None:
+        pixel_xy = pixel_xy[:max_targets_per_frame]
+    return pixel_xy
 
 
 def torch_capture_training_batch_from_packed(
