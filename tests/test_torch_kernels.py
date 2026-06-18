@@ -20,6 +20,7 @@ from aura import (
     torch_carrier_kernel_report,
     torch_carrier_kernel_specs,
     torch_carrier_parameter_tensors,
+    torch_carrier_response_tensors_batched,
     torch_carrier_response_tensors,
 )
 
@@ -564,6 +565,125 @@ def test_carrier_response_dispatch_does_not_sync_with_torch_any(monkeypatch):
     assert transmittance.tolist() == pytest.approx([0.5])
     assert confidence.tolist() == pytest.approx([0.75])
     assert residual.tolist() == [False]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_response_matches_scalar_carriers():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    elements = (
+        AuraElement(
+            id="surface",
+            carrier_id="surface",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(1.0, 0.0, 0.0),
+            opacity=0.5,
+            confidence=0.75,
+            payload={"type": "surface_cell"},
+        ),
+        AuraElement(
+            id="volume",
+            carrier_id="volume",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.0, 1.0, 0.0),
+            opacity=0.6,
+            confidence=0.8,
+            payload={"type": "volume_cell", "density": 1.25, "opacity": 0.7},
+        ),
+        AuraElement(
+            id="beta",
+            carrier_id="beta",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.0, 0.0, 1.0),
+            opacity=0.65,
+            confidence=0.7,
+            payload={"type": "beta_kernel", "alpha": 2.0, "beta": 3.0, "support_radius": [0.5, 0.5, 0.5]},
+        ),
+        AuraElement(
+            id="gabor",
+            carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.8, 0.6, 0.2),
+            opacity=0.4,
+            confidence=0.9,
+            payload={"type": "gabor_frequency", "frequency": (0.0, 0.0, 0.5), "phase": 0.2, "bandwidth": 0.6},
+        ),
+        AuraElement(
+            id="neural",
+            carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.2, 0.4, 0.8),
+            opacity=0.7,
+            confidence=0.85,
+            payload={"type": "neural_residual", "latent_dim": 8, "residual_scale": 0.35},
+        ),
+        AuraElement(
+            id="semantic",
+            carrier_id="semantic",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.3, 0.3, 0.3),
+            opacity=0.25,
+            confidence=0.4,
+            payload={"type": "semantic_feature", "label": "object", "confidence": 0.9},
+        ),
+        AuraElement(
+            id="gaussian",
+            carrier_id="gaussian",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.9, 0.5, 0.1),
+            opacity=0.8,
+            confidence=0.6,
+            payload={
+                "type": "gaussian_fallback",
+                "mean": [0.5, 0.5, 0.5],
+                "covariance": [[0.25, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.0, 0.25]],
+            },
+        ),
+    )
+    best_index = torch.arange(len(elements), dtype=torch.long, device=device)
+    best_depth = torch.full((len(elements),), 1.0, dtype=torch.float32, device=device)
+    exit_depth = torch.full((len(elements), len(elements)), 2.0, dtype=torch.float32, device=device)
+    hit_points = torch.tensor([(0.5, 0.5, 0.5)] * len(elements), dtype=torch.float32, device=device)
+    colors = torch.tensor([element.color for element in elements], dtype=torch.float32, device=device)
+    opacities = torch.tensor([element.opacity for element in elements], dtype=torch.float32, device=device)
+    confidences = torch.tensor([element.confidence for element in elements], dtype=torch.float32, device=device)
+    mins = torch.tensor([element.bounds.min_corner for element in elements], dtype=torch.float32, device=device)
+    maxs = torch.tensor([element.bounds.max_corner for element in elements], dtype=torch.float32, device=device)
+
+    scalar = torch_carrier_response_tensors(
+        torch,
+        elements,
+        best_index,
+        best_depth,
+        exit_depth,
+        hit_points,
+        colors,
+        opacities,
+        confidences,
+        mins,
+        maxs,
+        device,
+    )
+    batched = torch_carrier_response_tensors_batched(
+        torch,
+        elements,
+        best_index,
+        best_depth,
+        exit_depth,
+        hit_points,
+        colors,
+        opacities,
+        confidences,
+        mins,
+        maxs,
+        device,
+    )
+
+    assert torch.allclose(batched[0], scalar[0])
+    assert torch.allclose(batched[1], scalar[1])
+    assert torch.allclose(batched[2], scalar[2])
+    assert batched[3].tolist() == scalar[3].tolist()
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

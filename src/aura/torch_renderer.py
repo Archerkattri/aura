@@ -9,7 +9,7 @@ from aura.optimize import RenderTarget
 from aura.core import TrainingFrame
 from aura.scene import AuraScene
 from aura.training_targets import CapturePackedRenderBatch
-from aura.torch_kernels import torch_carrier_parameter_tensors, torch_carrier_response_tensors
+from aura.torch_kernels import torch_carrier_parameter_tensors, torch_carrier_response_tensors_batched
 
 
 @dataclass(frozen=True)
@@ -1240,7 +1240,7 @@ def _torch_composite_carrier_hits(
             gaussian_means,
             device=device,
         )
-        carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors(
+        carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors_batched(
             torch,
             elements,
             current_index,

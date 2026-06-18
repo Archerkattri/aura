@@ -131,6 +131,248 @@ def _kernel_spec_report(spec: TorchCarrierKernelSpec, source: Any | None) -> dic
     return payload
 
 
+def torch_carrier_response_tensors_batched(
+    torch: Any,
+    elements: Sequence[Any],
+    best_index: Any,
+    best_depth: Any,
+    exit_depth: Any,
+    hit_points: Any,
+    colors: Any,
+    opacities: Any,
+    confidences: Any,
+    mins: Any,
+    maxs: Any,
+    device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+) -> tuple[Any, Any, Any, Any]:
+    """Evaluate native carrier responses with tensor gather/scatter math."""
+
+    element_count = len(elements)
+    if element_count == 0:
+        raise ValueError("batched carrier response requires at least one element")
+    payload_types = tuple(str(element.payload.get("type", "")) for element in elements)
+    carrier_ids = tuple(str(element.carrier_id) for element in elements)
+    surface_mask = torch.tensor(
+        [payload_type == "surface_cell" or carrier_id == "surface" for payload_type, carrier_id in zip(payload_types, carrier_ids)],
+        dtype=torch.bool,
+        device=device,
+    )
+    volume_mask = torch.tensor([payload_type == "volume_cell" for payload_type in payload_types], dtype=torch.bool, device=device)
+    beta_mask = torch.tensor([payload_type == "beta_kernel" for payload_type in payload_types], dtype=torch.bool, device=device)
+    gabor_mask = torch.tensor([payload_type == "gabor_frequency" for payload_type in payload_types], dtype=torch.bool, device=device)
+    neural_mask = torch.tensor([payload_type == "neural_residual" for payload_type in payload_types], dtype=torch.bool, device=device)
+    semantic_mask = torch.tensor([payload_type == "semantic_feature" for payload_type in payload_types], dtype=torch.bool, device=device)
+    gaussian_mask = torch.tensor([payload_type == "gaussian_fallback" for payload_type in payload_types], dtype=torch.bool, device=device)
+
+    all_colors = torch.clamp(_stack_vector_parameter(torch, elements, "color", carrier_parameters, device, defaults=tuple(element.color for element in elements)), min=0.0, max=1.0)
+    all_opacities = torch.clamp(_stack_scalar_parameter(torch, elements, "opacity", carrier_parameters, device, defaults=tuple(element.opacity for element in elements)), min=0.0, max=1.0)
+    all_confidences = torch.clamp(
+        _stack_scalar_parameter(torch, elements, "confidence", carrier_parameters, device, defaults=tuple(element.confidence for element in elements)),
+        min=0.0,
+        max=1.0,
+    )
+    selected_color = all_colors[best_index]
+    selected_opacity = all_opacities[best_index]
+    selected_confidence = all_confidences[best_index]
+    selected_payload_volume = volume_mask[best_index]
+    selected_payload_beta = beta_mask[best_index]
+    selected_payload_gabor = gabor_mask[best_index]
+    selected_payload_neural = neural_mask[best_index]
+    selected_payload_semantic = semantic_mask[best_index]
+    selected_payload_gaussian = gaussian_mask[best_index]
+
+    carrier_colors = selected_color
+    transmittance = torch.clamp(1.0 - selected_opacity, min=0.0, max=1.0)
+    confidence = selected_confidence
+    residual_by_element = torch.tensor([element.residual for element in elements], dtype=torch.bool, device=device)
+    residual = residual_by_element[best_index]
+
+    if any(payload_type == "volume_cell" for payload_type in payload_types):
+        densities = _stack_scalar_parameter(
+            torch,
+            elements,
+            "density",
+            carrier_parameters,
+            device,
+            defaults=tuple(element.payload.get("density", element.opacity) for element in elements),
+        )
+        volume_opacities = torch.clamp(
+            _stack_scalar_parameter(
+                torch,
+                elements,
+                "opacity",
+                carrier_parameters,
+                device,
+                defaults=tuple(element.payload.get("opacity", 1.0) for element in elements),
+            ),
+            min=0.0,
+            max=1.0,
+        )
+        path_length = torch.clamp(exit_depth.gather(1, best_index.unsqueeze(1)).squeeze(1) - best_depth, min=0.0)
+        alpha = volume_opacities[best_index] * (1.0 - torch.exp(-densities[best_index] * path_length))
+        transmittance = torch.where(selected_payload_volume, torch.clamp(1.0 - alpha, min=0.0, max=1.0), transmittance)
+
+    if any(payload_type == "beta_kernel" for payload_type in payload_types):
+        beta_opacities = torch.clamp(
+            _stack_scalar_parameter(
+                torch,
+                elements,
+                "opacity",
+                carrier_parameters,
+                device,
+                defaults=tuple(element.opacity for element in elements),
+            ),
+            min=0.0,
+            max=1.0,
+        )
+        alpha = _stack_scalar_parameter(torch, elements, "alpha", carrier_parameters, device, defaults=tuple(element.payload.get("alpha", 1.0) for element in elements))
+        beta_value = _stack_scalar_parameter(torch, elements, "beta", carrier_parameters, device, defaults=tuple(element.payload.get("beta", 1.0) for element in elements))
+        support_radius = _stack_vector_parameter(
+            torch,
+            elements,
+            "support_radius",
+            carrier_parameters,
+            device,
+            defaults=tuple(element.payload.get("support_radius", _half_extent(element)) for element in elements),
+        )
+        beta_weight = _torch_beta_weight_batched(
+            torch,
+            hit_points,
+            mins[best_index],
+            maxs[best_index],
+            support_radius=support_radius[best_index],
+            alpha=alpha[best_index],
+            beta=beta_value[best_index],
+        )
+        transmittance = torch.where(
+            selected_payload_beta,
+            torch.clamp(1.0 - beta_opacities[best_index] * beta_weight, min=0.0, max=1.0),
+            transmittance,
+        )
+
+    if any(payload_type == "gabor_frequency" for payload_type in payload_types):
+        gabor_opacities = torch.clamp(
+            _stack_scalar_parameter(
+                torch,
+                elements,
+                "opacity",
+                carrier_parameters,
+                device,
+                defaults=tuple(element.opacity for element in elements),
+            ),
+            min=0.0,
+            max=1.0,
+        )
+        frequencies = _stack_vector_parameter(
+            torch,
+            elements,
+            "frequency",
+            carrier_parameters,
+            device,
+            defaults=tuple(element.payload.get("frequency", (0.0, 0.0, 0.0)) for element in elements),
+        )
+        phases = _stack_scalar_parameter(torch, elements, "phase", carrier_parameters, device, defaults=tuple(element.payload.get("phase", 0.0) for element in elements))
+        bandwidths = torch.clamp(
+            _stack_scalar_parameter(torch, elements, "bandwidth", carrier_parameters, device, defaults=tuple(element.payload.get("bandwidth", 1.0) for element in elements)),
+            min=0.0,
+            max=1.0,
+        )
+        selected_bandwidth = bandwidths[best_index]
+        wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points * frequencies[best_index], dim=1) + phases[best_index])
+        modulation = 1.0 - selected_bandwidth + selected_bandwidth * wave
+        carrier_colors = torch.where(
+            selected_payload_gabor.unsqueeze(1),
+            torch.clamp(all_colors[best_index] * modulation.unsqueeze(1), min=0.0, max=1.0),
+            carrier_colors,
+        )
+        transmittance = torch.where(selected_payload_gabor, torch.clamp(1.0 - gabor_opacities[best_index], min=0.0, max=1.0), transmittance)
+        confidence = torch.where(selected_payload_gabor, torch.clamp(all_confidences[best_index] * selected_bandwidth, min=0.0, max=1.0), confidence)
+
+    if any(payload_type == "neural_residual" for payload_type in payload_types):
+        residual_scales = torch.clamp(
+            _stack_scalar_parameter(
+                torch,
+                elements,
+                "residual_scale",
+                carrier_parameters,
+                device,
+                defaults=tuple(element.payload.get("residual_scale", 0.0) for element in elements),
+            ),
+            min=0.0,
+            max=1.0,
+        )
+        neural_strength = residual_scales[best_index]
+        transmittance = torch.where(
+            selected_payload_neural,
+            torch.clamp(1.0 - all_opacities[best_index] * neural_strength, min=0.0, max=1.0),
+            transmittance,
+        )
+        confidence = torch.where(
+            selected_payload_neural,
+            torch.clamp(all_confidences[best_index] * (1.0 - neural_strength * 0.25), min=0.0, max=1.0),
+            confidence,
+        )
+        residual = residual | selected_payload_neural
+
+    if any(payload_type == "semantic_feature" for payload_type in payload_types):
+        semantic_confidences = torch.clamp(
+            _stack_scalar_parameter(
+                torch,
+                elements,
+                "confidence",
+                carrier_parameters,
+                device,
+                defaults=tuple(element.payload.get("confidence", element.confidence) for element in elements),
+            ),
+            min=0.0,
+            max=1.0,
+        )
+        confidence = torch.where(selected_payload_semantic, semantic_confidences[best_index], confidence)
+
+    if any(payload_type == "gaussian_fallback" for payload_type in payload_types):
+        gaussian_opacities = torch.clamp(
+            _stack_scalar_parameter(
+                torch,
+                elements,
+                "opacity",
+                carrier_parameters,
+                device,
+                defaults=tuple(element.opacity for element in elements),
+            ),
+            min=0.0,
+            max=1.0,
+        )
+        covariance_diag = _stack_vector_parameter(
+            torch,
+            elements,
+            "gaussian_covariance_diag",
+            carrier_parameters,
+            device,
+            defaults=tuple(_gaussian_covariance_diag(element) for element in elements),
+        )
+        gaussian_means, gaussian_has_mean = _stack_gaussian_mean_parameter(torch, elements, carrier_parameters, device)
+        gaussian_weight = _torch_gaussian_weight_batched(
+            torch,
+            hit_points,
+            mean=gaussian_means[best_index],
+            covariance_diag=covariance_diag[best_index],
+            has_mean=gaussian_has_mean[best_index],
+        )
+        transmittance = torch.where(
+            selected_payload_gaussian,
+            torch.clamp(1.0 - gaussian_opacities[best_index] * gaussian_weight, min=0.0, max=1.0),
+            transmittance,
+        )
+        confidence = torch.where(
+            selected_payload_gaussian,
+            torch.clamp(all_confidences[best_index] * gaussian_weight, min=0.0, max=1.0),
+            confidence,
+        )
+
+    return torch.clamp(carrier_colors, min=0.0, max=1.0), torch.clamp(transmittance, min=0.0, max=1.0), torch.clamp(confidence, min=0.0, max=1.0), residual
+
+
 def torch_carrier_response_tensors(
     torch: Any,
     elements: Sequence[Any],
@@ -618,6 +860,68 @@ def _carrier_geometry_parameter_tensors(
     return parameters
 
 
+def _stack_scalar_parameter(
+    torch: Any,
+    elements: Sequence[Any],
+    name: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    device: str,
+    *,
+    defaults: Sequence[Any],
+) -> Any:
+    values = []
+    for element, default in zip(elements, defaults):
+        if carrier_parameters is not None:
+            parameter = carrier_parameters.get(element.id, {}).get(name)
+            if parameter is not None:
+                values.append(parameter)
+                continue
+        values.append(torch.tensor(float(default), dtype=torch.float32, device=device))
+    return torch.stack(tuple(values), dim=0)
+
+
+def _stack_vector_parameter(
+    torch: Any,
+    elements: Sequence[Any],
+    name: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    device: str,
+    *,
+    defaults: Sequence[Any],
+) -> Any:
+    values = []
+    for element, default in zip(elements, defaults):
+        if carrier_parameters is not None:
+            parameter = carrier_parameters.get(element.id, {}).get(name)
+            if parameter is not None:
+                values.append(parameter)
+                continue
+        values.append(torch.tensor(tuple(default), dtype=torch.float32, device=device))
+    return torch.stack(tuple(values), dim=0)
+
+
+def _stack_gaussian_mean_parameter(
+    torch: Any,
+    elements: Sequence[Any],
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    device: str,
+) -> tuple[Any, Any]:
+    values = []
+    present = []
+    for element in elements:
+        parameter = carrier_parameters.get(element.id, {}).get("gaussian_mean") if carrier_parameters is not None else None
+        if parameter is not None:
+            values.append(parameter)
+            present.append(True)
+        elif _has_gaussian_mean(element):
+            values.append(torch.tensor(_gaussian_mean(element), dtype=torch.float32, device=device))
+            present.append(True)
+        else:
+            values.append(torch.zeros((3,), dtype=torch.float32, device=device))
+            present.append(False)
+    return torch.stack(tuple(values), dim=0), torch.tensor(present, dtype=torch.bool, device=device)
+
+
 def _normal_parameter(element: Any, *, fallback: tuple[float, float, float]) -> tuple[float, float, float]:
     value = element.normal or element.payload.get("normal")
     if isinstance(value, (list, tuple)) and len(value) == 3:
@@ -715,6 +1019,23 @@ def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, support
     return torch.clamp(raw, min=0.0, max=1.0)
 
 
+def _torch_beta_weight_batched(torch: Any, points: Any, mins: Any, maxs: Any, *, support_radius: Any, alpha: Any, beta: Any) -> Any:
+    center = (mins + maxs) * 0.5
+    radius = torch.clamp(support_radius, min=1e-6)
+    normalized_distance = torch.clamp(torch.abs(points - center) / radius, min=0.0, max=1.0)
+    u = torch.mean(1.0 - normalized_distance, dim=1)
+    alpha_safe = torch.clamp(alpha, min=1e-6)
+    beta_safe = torch.clamp(beta, min=1e-6)
+    raw = (u ** (alpha_safe - 1.0)) * ((1.0 - u) ** (beta_safe - 1.0))
+    normalize = (alpha_safe > 1.0) & (beta_safe > 1.0)
+    raw_mode = (alpha_safe - 1.0) / torch.clamp(alpha_safe + beta_safe - 2.0, min=1e-6)
+    mode = torch.where(normalize, raw_mode, torch.full_like(raw_mode, 0.5))
+    peak = (mode ** (alpha_safe - 1.0)) * ((1.0 - mode) ** (beta_safe - 1.0))
+    safe_peak = torch.where((peak > 0.0) & normalize, peak, torch.ones_like(peak))
+    raw = torch.where(normalize, raw / safe_peak, raw)
+    return torch.clamp(raw, min=0.0, max=1.0)
+
+
 def _torch_gaussian_weight(
     torch: Any,
     points: Any,
@@ -732,6 +1053,14 @@ def _torch_gaussian_weight(
     delta = points - mean.unsqueeze(0)
     mahalanobis = torch.sum((delta * delta) / safe_covariance_diag.unsqueeze(0), dim=1)
     return torch.clamp(torch.exp(-0.5 * torch.clamp(mahalanobis, min=0.0)), min=0.0, max=1.0)
+
+
+def _torch_gaussian_weight_batched(torch: Any, points: Any, *, mean: Any, covariance_diag: Any, has_mean: Any) -> Any:
+    safe_covariance_diag = torch.clamp(covariance_diag, min=1e-6)
+    delta = points - mean
+    mahalanobis = torch.sum((delta * delta) / safe_covariance_diag, dim=1)
+    weighted = torch.clamp(torch.exp(-0.5 * torch.clamp(mahalanobis, min=0.0)), min=0.0, max=1.0)
+    return torch.where(has_mean, weighted, torch.ones_like(weighted))
 
 
 def _gaussian_mean(element: Any) -> tuple[float, float, float]:

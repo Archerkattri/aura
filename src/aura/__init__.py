@@ -186,6 +186,7 @@ from aura.torch_kernels import (
     torch_carrier_parameter_tensors,
     torch_carrier_kernel_report,
     torch_carrier_kernel_specs,
+    torch_carrier_response_tensors_batched,
     torch_carrier_response_tensors,
 )
 from aura.torch_optimizer import (
@@ -371,6 +372,7 @@ __all__ = [
     "torch_carrier_parameter_tensors",
     "torch_carrier_kernel_report",
     "torch_carrier_kernel_specs",
+    "torch_carrier_response_tensors_batched",
     "torch_carrier_response_tensors",
     "torch_optimize_capture_batch",
     "torch_optimize_capture_batches",
