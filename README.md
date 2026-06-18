@@ -39,8 +39,27 @@ and carrier-family descriptions.
 - Compiled CUDA renderer dispatched via pybind11 `render_rays` over packed
   scene and ray tensors, with measured per-carrier parity against the PyTorch
   renderer.
-- Production GPU BVH traversal kernel (`render_rays_bvh`) using flattened
-  median-split element BVH, replacing the brute-force element scan.
+- Production GPU BVH traversal kernel (`render_rays_bvh`) using a flattened
+  binned-SAH element BVH (median-split fallback), replacing the brute-force scan.
+- Anti-aliasing for the torch renderer: Mip-Splatting-style 3D frequency cap,
+  ray-cone footprint prefilter, and 2x2 supersampling (all opt-in), plus
+  early-transmittance termination for energy-conserving compositing.
+- Per-attribute Adam optimization with per-group learning-rate schedules,
+  alongside the existing SGD path; gradient-magnitude (AbsGS) accumulation,
+  opacity reset/recovery signals, importance scores (RadSplat), carrier budget
+  ceilings, and optional depth-distortion / normal-consistency losses (2DGS).
+- SOTA carrier upgrades (opt-in, defaults preserve prior behavior): deformable
+  Beta kernels, multi-directional Gabor filter banks, Scaffold-GS-style anchored
+  neural-residual carriers, and LangSplat-style sparse-codebook semantic
+  features.
+- Semantic-graph-governed heterogeneous carrier allocation (`aura.allocation`):
+  scene-graph clustering selects the carrier type per region, with soft
+  inter-type conversion scores, cross-carrier residual hooks, and a
+  single-carrier ablation mode for typed-mix-vs-baseline studies.
+- Physically based shading and relighting (`aura.shading`): Lambertian,
+  Cook-Torrance microfacet with split-sum IBL, and BVH shadow-ray visibility
+  baking, with per-carrier albedo/roughness/metallic and a relighting demo path
+  (emissive output unchanged when shading is disabled).
 - CUDA-vs-torch runtime benchmark (`aura benchmark-cuda-runtime`) measuring
   on-device throughput and cross-backend parity.
 - EXR/PFM float radiance export and turntable video export (MP4 via
@@ -49,6 +68,19 @@ and carrier-family descriptions.
   allocations across many iterations.
 - Real-scene benchmark harness scoring an `.aura` package against external
   COLMAP/NeRF/3DGS baseline renders (PSNR/SSIM/LPIPS-proxy JSON report).
+
+## Maturity
+
+All capabilities above are implemented and covered by the deterministic test
+suite. The advanced optimization, anti-aliasing, carrier, allocation, and
+shading paths are validated on fixtures and gated behind opt-in configuration so
+that default behavior is unchanged. Quantitative quality and performance claims
+against COLMAP / NeRF / 3DGS baselines require running `aura benchmark-real-scene`
+on external datasets and have not yet been published. The
+semantic-graph-governed allocation framework provides working graph-driven
+carrier selection plus the differentiable inter-type-conversion and
+cross-carrier residual structure; learning those assignments end-to-end is a
+training-time step that runs once real captures are supplied.
 
 ## Requirements
 
