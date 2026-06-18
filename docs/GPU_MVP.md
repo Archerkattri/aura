@@ -95,6 +95,11 @@ This package now contains the GPU-ready skeleton for AURA:
   compiled source ABI; this is still not Python-callable renderer dispatch until
   the loaded extension symbol is verified, tensor bindings exist, and parity
   tests run on CUDA hardware;
+- packaged PyTorch extension binding source `cuda/aura_bindings.cpp`, exposing
+  `render_rays(...)` as the Python-callable packed tensor dispatch target for
+  `aura_render_rays_launcher`; this removes the source-level binding gap, but
+  production readiness still requires compiling/importing it on a CUDA machine,
+  running CPU/torch/CUDA parity, and reporting speed benchmarks;
 - deterministic host-side renderer ABI buffers through
   `cuda_renderer_scene_buffers(...)` and `cuda_renderer_kernel_inputs(...)`,
   packing native element bounds, carrier IDs, material/semantic dictionaries,
@@ -260,10 +265,11 @@ kernel/launcher symbols, launch shape, flat arguments, output buffer shapes, and
 missing dispatch work. Use `simulate_cuda_renderer_kernel(...)` as the CPU
 oracle for those buffers while compiled CUDA dispatch is still unavailable.
 Use `cuda_renderer_symbol_probe(...)` after a CUDA extension build/load attempt
-to verify whether the compiled module object exposes the renderer kernel and
-launcher symbols. A positive symbol probe is only one dispatch prerequisite; it
-does not make `cuda_render_rays` production-ready until the Python tensor
-binding launches the kernel and passes parity/speed gates.
+to verify whether the compiled module object exposes the renderer kernel,
+launcher, and `render_rays` binding symbols. A positive symbol probe is only one
+dispatch prerequisite; it does not make `cuda_render_rays` production-ready
+until the Python tensor binding launches the kernel on CUDA hardware and passes
+parity/speed gates.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance

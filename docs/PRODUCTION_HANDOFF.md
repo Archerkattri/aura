@@ -116,8 +116,11 @@ or torch fallback proves the launch/output contract can be exercised; it is not
 CUDA acceleration and keeps production CUDA claims blocked until compiled CUDA
 dispatch is available, parity-tested, and benchmarked.
 The packaged `aura_render_rays_kernel` renderer source symbol is the ABI target
-for that future dispatch, but source availability alone must not clear any
-production gate.
+for that future dispatch. The repo now also packages `cuda/aura_bindings.cpp`,
+which exposes a `render_rays(...)` PyTorch extension binding for packed tensor
+dispatch into `aura_render_rays_launcher`; source availability alone must not
+clear any production gate until the extension is compiled/imported on CUDA
+hardware and passes parity plus speed gates.
 `benchmark-reference` and `production-gate-report` also emit
 `cudaRendererAbiParity`, a CPU oracle that packs native scene/ray buffers for
 the packaged renderer ABI and compares first-hit indices against
@@ -139,22 +142,25 @@ compiled CUDA renderer dispatch is available and benchmarked.
    `train_capture_proposal_model` on labeled COLMAP/capture image, depth, mask,
    and normal features, then replace the lightweight logistic contract with a
    neural region proposal backend once real labels exist.
-5. Replace the torch autograd carrier specs with CUDA kernels for every carrier.
+5. Build and import the packaged CUDA/PyTorch extension, verify that
+   `aura_render_rays_kernel`, `aura_render_rays_launcher`, and `render_rays`
+   are present, then run CPU/torch/CUDA parity over `cuda_render_rays`.
+6. Replace the torch autograd carrier specs with CUDA kernels for every carrier.
    Surface, volume, beta, gabor, neural residual, semantic, and Gaussian
    fallback carriers have tested torch autograd paths only; `aura
    torch-kernel-report` must report `productionReady: true` before claiming
    this is complete.
-6. Replace the cached CPU reference chunk BVH with a production BVH/GPU
+7. Replace the cached CPU reference chunk BVH with a production BVH/GPU
    traversal path for secondary rays.
-7. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
+8. Benchmark against COLMAP/textured mesh, NeRF/nerfstudio, original 3DGS,
    2DGS, ray-traced GS, and radiance-mesh/neural-primitive baselines.
    Start with dataset manifests under `data/` and third-party baselines under
    `third_party/`; benchmark outputs belong under ignored `outputs/`.
-8. Replace the current deterministic LPIPS-proxy metric with a learned LPIPS
+9. Replace the current deterministic LPIPS-proxy metric with a learned LPIPS
    backend and report PSNR/SSIM/LPIPS/FPS, but make the paper claim around scene
    behavior: ray-query correctness, collision proxy quality, editing, relighting
    confidence, semantic grouping, runtime export, and engine workflow.
-9. Clear the benchmark `productionGate` only after production CUDA renderer
+10. Clear the benchmark `productionGate` only after production CUDA renderer
    readiness is true and visual benchmarks compare against external teacher or
    baseline renders rather than package self-reference renders.
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from aura.cuda_kernels import (
+    CUDA_RENDERER_BINDING_SYMBOL,
     CUDA_RENDERER_KERNEL_SYMBOL,
     CUDA_RENDERER_LAUNCHER_SYMBOL,
     CudaExtensionStatus,
@@ -234,8 +235,10 @@ class CudaRendererSymbolProbe:
     module_name: str
     kernel_symbol: str = CUDA_RENDERER_KERNEL_SYMBOL
     launcher_symbol: str = CUDA_RENDERER_LAUNCHER_SYMBOL
+    binding_symbol: str = CUDA_RENDERER_BINDING_SYMBOL
     kernel_symbol_available: bool = False
     launcher_symbol_available: bool = False
+    binding_symbol_available: bool = False
     module_object_available: bool = False
     reason: str | None = None
 
@@ -246,6 +249,7 @@ class CudaRendererSymbolProbe:
             and self.module_object_available
             and self.kernel_symbol_available
             and self.launcher_symbol_available
+            and self.binding_symbol_available
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -257,8 +261,10 @@ class CudaRendererSymbolProbe:
             "moduleObjectAvailable": self.module_object_available,
             "kernelSymbol": self.kernel_symbol,
             "launcherSymbol": self.launcher_symbol,
+            "bindingSymbol": self.binding_symbol,
             "kernelSymbolAvailable": self.kernel_symbol_available,
             "launcherSymbolAvailable": self.launcher_symbol_available,
+            "bindingSymbolAvailable": self.binding_symbol_available,
             "extension": self.extension.to_dict(),
             "reason": self.reason,
         }
@@ -309,8 +315,9 @@ class CudaRendererDispatchContract:
             "outputBufferShapes": {name: list(shape) for name, shape in self.inputs.output_buffer_shapes().items()},
             "parityOracle": "simulate_cuda_renderer_kernel",
             "missingDispatchWork": [
-                "verify launcher symbol in the loaded extension",
-                "bind launcher to Python tensor inputs",
+                "build and import the Python CUDA extension module",
+                "verify renderer kernel, launcher, and render_rays binding symbols in the loaded extension",
+                "validate render_rays Python tensor dispatch on CUDA hardware",
                 "run CPU oracle versus compiled CUDA parity tests",
                 "add renderer speed benchmarks before production claims",
             ],
@@ -388,7 +395,7 @@ class CudaRendererBatch:
             "format": "AURA_CUDA_RENDERER_BATCH",
             "apiName": "cuda_render_rays",
             "productionReady": False,
-            "available": False,
+            "available": self.backend == "cuda",
             "backend": self.backend,
             "device": self.device,
             "reason": self.reason,
@@ -545,16 +552,20 @@ def cuda_renderer_symbol_probe(
         )
     kernel_available = hasattr(extension_module, CUDA_RENDERER_KERNEL_SYMBOL)
     launcher_available = hasattr(extension_module, CUDA_RENDERER_LAUNCHER_SYMBOL)
+    binding_available = hasattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL)
     missing = []
     if not kernel_available:
         missing.append(CUDA_RENDERER_KERNEL_SYMBOL)
     if not launcher_available:
         missing.append(CUDA_RENDERER_LAUNCHER_SYMBOL)
+    if not binding_available:
+        missing.append(CUDA_RENDERER_BINDING_SYMBOL)
     return CudaRendererSymbolProbe(
         extension=extension_status,
         module_name=module_name,
         kernel_symbol_available=kernel_available,
         launcher_symbol_available=launcher_available,
+        binding_symbol_available=binding_available,
         module_object_available=True,
         reason=None if not missing else f"missing_symbols: {', '.join(missing)}",
     )
@@ -788,6 +799,8 @@ def cuda_render_rays(
     fallback_backend: CudaFallbackBackend = "cpu",
     device: str | None = None,
     require_cuda: bool = False,
+    extension: CudaExtensionStatus | None = None,
+    extension_module: Any | None = None,
 ) -> CudaRendererBatch:
     """Render batched rays through the CUDA renderer boundary.
 
@@ -805,16 +818,19 @@ def cuda_render_rays(
         device=device,
         require_cuda=require_cuda,
     )
-    extension = cuda_kernel_extension_status(build=False)
-    if extension.available:
-        raise NotImplementedError("compiled CUDA renderer launcher is available, but Python tensor dispatch is not implemented")
+    extension = extension or cuda_kernel_extension_status(build=False)
+    symbol_probe = cuda_renderer_symbol_probe(extension, extension_module=extension_module)
+    if extension.available and symbol_probe.dispatch_symbols_ready and extension_module is not None:
+        return _compiled_extension_batch(scene, rays, launch_config, extension, extension_module, device=device)
+    if extension.available and (require_cuda or fallback_backend == "none"):
+        raise RuntimeError(f"CUDA renderer Python dispatch is unavailable: {symbol_probe.reason or 'binding_not_ready'}")
     if require_cuda or fallback_backend == "none":
         raise RuntimeError(f"CUDA renderer extension is unavailable: {extension.reason or 'not_available'}")
 
     resolved_backend = _resolve_fallback_backend(fallback_backend, scene=scene)
     if resolved_backend == "torch":
-        return _torch_fallback_batch(scene, rays, launch_config, extension, device=device)
-    return _cpu_fallback_batch(scene, rays, launch_config, extension)
+        return _torch_fallback_batch(scene, rays, launch_config, extension, device=device, symbol_probe=symbol_probe)
+    return _cpu_fallback_batch(scene, rays, launch_config, extension, symbol_probe=symbol_probe)
 
 
 def _validated_rays(ray_origins: Sequence[Sequence[float]] | Any, ray_directions: Sequence[Sequence[float]] | Any) -> tuple[Ray, ...]:
@@ -871,14 +887,19 @@ def _cpu_fallback_batch(
     rays: Sequence[Ray],
     launch_config: CudaRendererLaunchConfig,
     extension: CudaExtensionStatus,
+    *,
+    symbol_probe: CudaRendererSymbolProbe | None = None,
 ) -> CudaRendererBatch:
     traversals = tuple(scene.traverse_ray(ray) for ray in rays)
+    reason = "cuda_extension_unavailable_cpu_fallback"
+    if extension.available and symbol_probe is not None and not symbol_probe.dispatch_symbols_ready:
+        reason = f"cuda_extension_available_python_binding_unavailable_cpu_fallback: {symbol_probe.reason or 'binding_not_ready'}"
     return _batch_from_traversals(
         launch_config,
         extension,
         backend="cpu",
         device="cpu",
-        reason="cuda_extension_unavailable_cpu_fallback",
+        reason=reason,
         traversals=traversals,
     )
 
@@ -890,6 +911,7 @@ def _torch_fallback_batch(
     extension: CudaExtensionStatus,
     *,
     device: str | None,
+    symbol_probe: CudaRendererSymbolProbe | None = None,
 ) -> CudaRendererBatch:
     from aura.torch_renderer import torch_render_targets
 
@@ -904,12 +926,15 @@ def _torch_fallback_batch(
     )
     torch_batch = torch_render_targets(scene, targets, device=device)
     ordered_hits, overflow = _trim_hits(torch_batch.ordered_hits, launch_config.max_hits)
+    reason = "cuda_extension_unavailable_torch_fallback"
+    if extension.available and symbol_probe is not None and not symbol_probe.dispatch_symbols_ready:
+        reason = f"cuda_extension_available_python_binding_unavailable_torch_fallback: {symbol_probe.reason or 'binding_not_ready'}"
     return CudaRendererBatch(
         launch_config=launch_config,
         backend="torch",
         device=torch_batch.device,
         extension=extension,
-        reason="cuda_extension_unavailable_torch_fallback",
+        reason=reason,
         element_ids=torch_batch.element_ids,
         carrier_ids=torch_batch.carrier_ids,
         color=torch_batch.predicted_color,
@@ -922,6 +947,92 @@ def _torch_fallback_batch(
         material_ids=torch_batch.material_ids,
         semantic_ids=torch_batch.semantic_ids,
         provenance=torch_batch.provenance,
+        ordered_hits=ordered_hits,
+        ordered_hit_overflow=overflow,
+    )
+
+
+def _compiled_extension_batch(
+    scene: AuraScene,
+    rays: Sequence[Ray],
+    launch_config: CudaRendererLaunchConfig,
+    extension: CudaExtensionStatus,
+    extension_module: Any,
+    *,
+    device: str | None,
+) -> CudaRendererBatch:
+    torch = _require_torch_for_cuda_dispatch()
+    resolved_device = device or "cuda"
+    inputs = cuda_renderer_kernel_inputs(
+        scene,
+        ray_origins=tuple(ray.origin for ray in rays),
+        ray_directions=tuple(ray.direction for ray in rays),
+        max_hits=launch_config.max_hits,
+    )
+    scene_buffers = inputs.scene
+    outputs = getattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL)(
+        torch.tensor(inputs.ray_origins, dtype=torch.float32, device=resolved_device).reshape(inputs.ray_count, 3).contiguous(),
+        torch.tensor(inputs.ray_directions, dtype=torch.float32, device=resolved_device).reshape(inputs.ray_count, 3).contiguous(),
+        torch.tensor(scene_buffers.element_mins, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.element_maxs, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.carrier_kernel_ids, dtype=torch.int32, device=resolved_device).contiguous(),
+        torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
+        torch.tensor(scene_buffers.confidences, dtype=torch.float32, device=resolved_device).contiguous(),
+        torch.tensor(scene_buffers.material_ids, dtype=torch.int32, device=resolved_device).contiguous(),
+        torch.tensor(scene_buffers.semantic_ids, dtype=torch.int32, device=resolved_device).contiguous(),
+        int(launch_config.max_hits),
+        int(launch_config.threads_per_block),
+    )
+    return _batch_from_compiled_outputs(
+        inputs,
+        outputs,
+        launch_config,
+        extension,
+        scene_buffers,
+        device=str(resolved_device),
+    )
+
+
+def _batch_from_compiled_outputs(
+    inputs: CudaRendererKernelInputBuffers,
+    outputs: Mapping[str, Any],
+    launch_config: CudaRendererLaunchConfig,
+    extension: CudaExtensionStatus,
+    scene_buffers: CudaRendererSceneBuffers,
+    *,
+    device: str,
+) -> CudaRendererBatch:
+    out_color = _tensor_to_nested_float_tuple(outputs["out_color"], width=3)
+    out_alpha = _tensor_to_float_tuple(outputs["out_alpha"])
+    out_transmittance = _tensor_to_float_tuple(outputs["out_transmittance"])
+    out_depth_raw = _tensor_to_float_tuple(outputs["out_depth"])
+    out_normal_raw = _tensor_to_nested_float_tuple(outputs["out_normal"], width=3)
+    out_confidence = _tensor_to_float_tuple(outputs["out_confidence"])
+    out_residual = tuple(bool(value) for value in _tensor_to_int_tuple(outputs["out_residual"]))
+    out_material = _tensor_to_int_tuple(outputs["out_material_id"])
+    out_semantic = _tensor_to_int_tuple(outputs["out_semantic_id"])
+    ordered_indices = _tensor_to_int_tuple(outputs["ordered_hits"])
+    ordered_hits, overflow = _compiled_ordered_hits(scene_buffers, ordered_indices, launch_config.max_hits)
+    first_indices = tuple(ordered_indices[index * launch_config.max_hits] for index in range(inputs.ray_count))
+    return CudaRendererBatch(
+        launch_config=launch_config,
+        backend="cuda",
+        device=device,
+        extension=extension,
+        reason="compiled_cuda_renderer_python_binding",
+        element_ids=tuple(scene_buffers.element_ids[index] if index >= 0 else None for index in first_indices),
+        carrier_ids=tuple(scene_buffers.carrier_ids[index] if index >= 0 else None for index in first_indices),
+        color=out_color,
+        opacity=out_alpha,
+        transmittance=out_transmittance,
+        depth=tuple(None if value >= CUDA_RENDERER_INF_SENTINEL * 0.5 else value for value in out_depth_raw),
+        normal=tuple(None if first < 0 else out_normal_raw[index] for index, first in enumerate(first_indices)),
+        confidence=out_confidence,
+        residual=out_residual,
+        material_ids=tuple(_table_value(scene_buffers.material_id_table, index) for index in out_material),
+        semantic_ids=tuple(_table_value(scene_buffers.semantic_id_table, index) for index in out_semantic),
+        provenance=tuple(scene_buffers.element_ids[index] if index >= 0 else "miss" for index in first_indices),
         ordered_hits=ordered_hits,
         ordered_hit_overflow=overflow,
     )
@@ -972,6 +1083,86 @@ def _trim_hits(
         tuple(tuple(dict(hit) for hit in ray_hits[:max_hits]) for ray_hits in ordered_hits),
         tuple(len(ray_hits) > max_hits for ray_hits in ordered_hits),
     )
+
+
+def _compiled_ordered_hits(
+    scene_buffers: CudaRendererSceneBuffers,
+    ordered_indices: Sequence[int],
+    max_hits: int,
+) -> tuple[tuple[tuple[dict[str, object], ...], ...], tuple[bool, ...]]:
+    ray_count = len(ordered_indices) // max_hits
+    traces: list[tuple[dict[str, object], ...]] = []
+    overflow: list[bool] = []
+    for ray_index in range(ray_count):
+        ray_hits = []
+        for hit_offset in range(max_hits):
+            element_index = int(ordered_indices[ray_index * max_hits + hit_offset])
+            if element_index < 0:
+                continue
+            ray_hits.append(
+                {
+                    "elementId": scene_buffers.element_ids[element_index],
+                    "carrierId": scene_buffers.carrier_ids[element_index],
+                    "kernelElementIndex": element_index,
+                }
+            )
+        traces.append(tuple(ray_hits))
+        overflow.append(False)
+    return tuple(traces), tuple(overflow)
+
+
+def _tensor_to_float_tuple(value: Any) -> tuple[float, ...]:
+    return tuple(float(item) for item in _tensor_to_flat_list(value))
+
+
+def _tensor_to_int_tuple(value: Any) -> tuple[int, ...]:
+    return tuple(int(item) for item in _tensor_to_flat_list(value))
+
+
+def _tensor_to_nested_float_tuple(value: Any, *, width: int) -> tuple[tuple[float, ...], ...]:
+    flat = _tensor_to_float_tuple(value)
+    if len(flat) % width != 0:
+        raise ValueError("compiled CUDA renderer output tensor has invalid flat length")
+    return tuple(tuple(flat[index : index + width]) for index in range(0, len(flat), width))
+
+
+def _tensor_to_flat_list(value: Any) -> list[Any]:
+    try:
+        value = value.detach().cpu()
+    except AttributeError:
+        pass
+    try:
+        value = value.reshape(-1)
+    except AttributeError:
+        pass
+    try:
+        return list(value.tolist())
+    except AttributeError:
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            flattened: list[Any] = []
+            for item in value:
+                if isinstance(item, Sequence) and not isinstance(item, (str, bytes)):
+                    flattened.extend(item)
+                else:
+                    flattened.append(item)
+            return flattened
+    raise ValueError("compiled CUDA renderer output is not tensor-like")
+
+
+def _table_value(table: Sequence[str], index: int) -> str | None:
+    if index < 0:
+        return None
+    if index >= len(table):
+        raise ValueError("compiled CUDA renderer returned an out-of-range dictionary id")
+    return table[index]
+
+
+def _require_torch_for_cuda_dispatch() -> Any:
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - depends on optional torch install state.
+        raise RuntimeError(f"PyTorch is required for compiled CUDA renderer dispatch: {exc}") from exc
+    return torch
 
 
 def _carrier_kernel_id(carrier_id: str) -> int:

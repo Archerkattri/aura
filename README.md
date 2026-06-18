@@ -89,6 +89,9 @@ native representation contract pieces:
 - a packaged CUDA renderer source entry point, `aura_render_rays_kernel`, for
   batched native AABB first-hit ray-query outputs, reported separately from
   carrier kernels and not yet compiled or production-ready;
+- a packaged PyTorch extension binding source, `cuda/aura_bindings.cpp`, that
+  exposes `render_rays(...)` as the Python-callable target for the CUDA renderer
+  launcher once built on a CUDA machine;
 - an explicit `cuda-kernel-build-report --build` probe for GPU machines to
   compile/load the packaged carrier extension and keep readiness claims gated;
 - capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
@@ -158,7 +161,10 @@ aura cuda-kernel-build-report --build
 The PyTorch renderer is currently a native AABB reference path with ordered
 front-to-back carrier compositing, first-hit query metadata, ordered per-carrier
 hit traces, and export-report acceleration metadata. It is not yet production
-CUDA rendering or production GPU BVH traversal.
+CUDA rendering or production GPU BVH traversal. The CUDA renderer now has
+packaged kernel, launcher, and Python binding sources, but production readiness
+still requires compiling/importing the extension, parity tests, and speed
+benchmarks on CUDA hardware.
 
 ## Quick Smoke Commands
 

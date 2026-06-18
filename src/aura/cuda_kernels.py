@@ -11,6 +11,8 @@ from importlib.resources.abc import Traversable
 CUDA_EXTENSION_MODULE_NAME = "aura_cuda_carriers"
 CUDA_RENDERER_KERNEL_SYMBOL = "aura_render_rays_kernel"
 CUDA_RENDERER_LAUNCHER_SYMBOL = "aura_render_rays_launcher"
+CUDA_RENDERER_BINDING_SOURCE = "cuda/aura_bindings.cpp"
+CUDA_RENDERER_BINDING_SYMBOL = "render_rays"
 
 
 @dataclass(frozen=True)
@@ -181,6 +183,7 @@ def cuda_kernel_source_report() -> dict:
 
 def cuda_renderer_source_report() -> dict:
     path = "cuda/aura_carriers.cu"
+    binding_path = CUDA_RENDERER_BINDING_SOURCE
     symbol = CUDA_RENDERER_KERNEL_SYMBOL
     launcher_symbol = CUDA_RENDERER_LAUNCHER_SYMBOL
     contract_outputs = (
@@ -196,6 +199,7 @@ def cuda_renderer_source_report() -> dict:
         "ordered_hits",
     )
     source_text = _cuda_kernel_source_text(path)
+    binding_text = _cuda_kernel_source_text(binding_path)
     expected_fragments = (
         f'extern "C" __global__ void {symbol}',
         f'extern "C" void {launcher_symbol}',
@@ -211,19 +215,38 @@ def cuda_renderer_source_report() -> dict:
         if source_text is None
         else [fragment for fragment in expected_fragments if fragment not in source_text]
     )
+    binding_fragments = (
+        "PYBIND11_MODULE",
+        CUDA_RENDERER_BINDING_SYMBOL,
+        "aura_render_rays_launcher",
+        "torch::Tensor",
+        "out_color",
+        "ordered_hits",
+    )
+    missing_binding_fragments = (
+        list(binding_fragments)
+        if binding_text is None
+        else [fragment for fragment in binding_fragments if fragment not in binding_text]
+    )
     return {
         "format": "AURA_CUDA_RENDERER_SOURCE_REPORT",
         "path": path,
+        "bindingPath": binding_path,
         "symbol": symbol,
         "launcherSymbol": launcher_symbol,
+        "bindingSymbol": CUDA_RENDERER_BINDING_SYMBOL,
         "available": cuda_kernel_source_available(path),
+        "bindingAvailable": cuda_kernel_source_available(binding_path),
         "sourceSymbolAvailable": source_text is not None and not missing_fragments,
-        "contractComplete": not missing_fragments,
+        "bindingSymbolAvailable": binding_text is not None and not missing_binding_fragments,
+        "contractComplete": not missing_fragments and not missing_binding_fragments,
         "missingSourceFragments": missing_fragments,
+        "missingBindingFragments": missing_binding_fragments,
         "productionReady": False,
         "extensionModuleName": CUDA_EXTENSION_MODULE_NAME,
-        "extensionSymbols": [symbol, launcher_symbol],
-        "dispatchBindingAvailable": False,
+        "extensionSymbols": [symbol, launcher_symbol, CUDA_RENDERER_BINDING_SYMBOL],
+        "dispatchBindingAvailable": binding_text is not None and not missing_binding_fragments,
+        "pythonBindingSourceAvailable": binding_text is not None and not missing_binding_fragments,
         "pythonBindingAvailable": False,
         "arguments": [
             _renderer_kernel_argument("ray_origins", "const float*", "input", "rayCount x 3"),
@@ -251,9 +274,10 @@ def cuda_renderer_source_report() -> dict:
             "first-hit color, opacity, transmittance, depth, normal, confidence, material, semantic, residual outputs",
             "ordered hit buffer initialized with -1 miss sentinel and first-hit element index",
             "compiled host launcher ABI that computes a grid and launches aura_render_rays_kernel",
+            "pybind11 torch extension binding source for render_rays packed tensor dispatch",
         ],
         "productionBlockers": [
-            "python binding dispatch missing",
+            "compiled Python extension not built or loaded in this process",
             "compiled CUDA extension parity tests missing",
             "multi-hit ordered compositing and chunk/BVH traversal missing",
             "performance benchmarks missing",
@@ -265,10 +289,22 @@ def cuda_renderer_source_report() -> dict:
     }
 
 
+def _cuda_extension_source_paths() -> tuple[str, ...]:
+    return tuple(sorted({source.path for source in cuda_kernel_sources()} | {CUDA_RENDERER_BINDING_SOURCE}))
+
+
+def _cuda_extension_symbols() -> tuple[str, ...]:
+    return (
+        *tuple(source.symbol for source in cuda_kernel_sources()),
+        CUDA_RENDERER_KERNEL_SYMBOL,
+        CUDA_RENDERER_LAUNCHER_SYMBOL,
+        CUDA_RENDERER_BINDING_SYMBOL,
+    )
+
+
 def cuda_kernel_extension_status(*, build: bool = False, verbose: bool = False) -> CudaExtensionStatus:
-    sources = cuda_kernel_sources()
-    source_paths = tuple(sorted({source.path for source in sources}))
-    symbols = (*tuple(source.symbol for source in sources), CUDA_RENDERER_KERNEL_SYMBOL, CUDA_RENDERER_LAUNCHER_SYMBOL)
+    source_paths = _cuda_extension_source_paths()
+    symbols = _cuda_extension_symbols()
     module_name = CUDA_EXTENSION_MODULE_NAME
     if not build:
         return CudaExtensionStatus(
@@ -311,7 +347,7 @@ def cuda_kernel_extension_status(*, build: bool = False, verbose: bool = False) 
                 name=module_name,
                 sources=resolved_sources,
                 with_cuda=True,
-                is_python_module=False,
+                is_python_module=True,
                 verbose=verbose,
             )
     except Exception as exc:  # pragma: no cover - requires a CUDA compiler/runtime matrix.
@@ -333,7 +369,9 @@ def cuda_kernel_extension_report(*, build: bool = False, verbose: bool = False) 
         "format": "AURA_CUDA_EXTENSION_REPORT",
         "productionReady": status.available and status.compiled and status.loadable,
         "carrierSymbolCount": len(cuda_kernel_sources()),
-        "rendererSymbolCount": 2,
+        "rendererSymbolCount": 3,
+        "pythonBindingSource": CUDA_RENDERER_BINDING_SOURCE,
+        "pythonBindingSymbol": CUDA_RENDERER_BINDING_SYMBOL,
         **status.to_dict(),
     }
 
@@ -377,16 +415,17 @@ def cuda_renderer_api_contract() -> dict:
             "launcherSymbol": CUDA_RENDERER_LAUNCHER_SYMBOL,
             "extensionModuleName": CUDA_EXTENSION_MODULE_NAME,
             "compiledLauncherContract": True,
+            "pythonBindingSourceAvailable": cuda_renderer_source_report()["pythonBindingSourceAvailable"],
             "pythonBindingAvailable": False,
-            "dispatchImplemented": False,
+            "dispatchImplemented": True,
             "productionReady": False,
-            "reason": "compiled source now declares a renderer launcher, but Python tensor dispatch is still missing",
+            "reason": "renderer Python binding source exists, but compiled extension build/load and parity gates are still required",
         },
         "unavailableUntil": [
             "CUDA extension is compiled from packaged sources",
             "compiled extension is loadable in the current process",
             "renderer launcher symbol is verified in the loaded extension",
-            "renderer binding dispatches cuda_render_rays over batched ray tensors",
+            "renderer Python binding is imported and dispatches cuda_render_rays over batched CUDA tensors",
             "CPU/torch/CUDA parity and benchmark tests pass",
         ],
     }

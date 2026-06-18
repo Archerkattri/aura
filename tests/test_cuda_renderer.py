@@ -246,7 +246,7 @@ def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
     assert payload["kernelArgs"]["ray_count"] == 1
     assert payload["kernelArgs"]["element_count"] == 1
     assert payload["outputBufferShapes"]["ordered_hits"] == [1, 2]
-    assert "bind launcher to Python tensor inputs" in payload["missingDispatchWork"]
+    assert "validate render_rays Python tensor dispatch on CUDA hardware" in payload["missingDispatchWork"]
 
 
 def test_cuda_renderer_symbol_probe_distinguishes_loaded_symbol_states():
@@ -256,14 +256,14 @@ def test_cuda_renderer_symbol_probe_distinguishes_loaded_symbol_states():
         compiled=True,
         loadable=True,
         module_name="aura_cuda_carriers",
-        source_paths=("cuda/aura_carriers.cu",),
-        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher"),
+        source_paths=("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays"),
     )
 
     unavailable_module = cuda_renderer_symbol_probe(extension)
     missing_launcher = cuda_renderer_symbol_probe(
         extension,
-        extension_module=type("FakeCudaModule", (), {"aura_render_rays_kernel": object()})(),
+        extension_module=type("FakeCudaModule", (), {"aura_render_rays_kernel": object(), "render_rays": object()})(),
     )
     ready_symbols = cuda_renderer_symbol_probe(
         extension,
@@ -273,6 +273,7 @@ def test_cuda_renderer_symbol_probe_distinguishes_loaded_symbol_states():
             {
                 "aura_render_rays_kernel": object(),
                 "aura_render_rays_launcher": object(),
+                "render_rays": object(),
             },
         )(),
     )
@@ -282,6 +283,7 @@ def test_cuda_renderer_symbol_probe_distinguishes_loaded_symbol_states():
     assert missing_launcher.dispatch_symbols_ready is False
     assert missing_launcher.to_dict()["kernelSymbolAvailable"] is True
     assert missing_launcher.to_dict()["launcherSymbolAvailable"] is False
+    assert missing_launcher.to_dict()["bindingSymbolAvailable"] is True
     assert missing_launcher.to_dict()["reason"] == "missing_symbols: aura_render_rays_launcher"
     assert ready_symbols.dispatch_symbols_ready is True
     assert ready_symbols.to_dict()["dispatchSymbolsReady"] is True
@@ -295,8 +297,8 @@ def test_cuda_renderer_dispatch_contract_keeps_gate_closed_after_symbol_verifica
         compiled=True,
         loadable=True,
         module_name="aura_cuda_carriers",
-        source_paths=("cuda/aura_carriers.cu",),
-        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher"),
+        source_paths=("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays"),
     )
     extension_module = type(
         "FakeCudaModule",
@@ -304,6 +306,7 @@ def test_cuda_renderer_dispatch_contract_keeps_gate_closed_after_symbol_verifica
         {
             "aura_render_rays_kernel": object(),
             "aura_render_rays_launcher": object(),
+            "render_rays": object(),
         },
     )()
     scene = AuraScene(
@@ -333,7 +336,96 @@ def test_cuda_renderer_dispatch_contract_keeps_gate_closed_after_symbol_verifica
     assert payload["dispatchReady"] is False
     assert payload["productionReady"] is False
     assert payload["reason"] == "python_cuda_renderer_binding_missing"
-    assert "bind launcher to Python tensor inputs" in payload["missingDispatchWork"]
+    assert "validate render_rays Python tensor dispatch on CUDA hardware" in payload["missingDispatchWork"]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_uses_verified_python_binding_module():
+    import torch
+
+    extension = CudaExtensionStatus(
+        available=True,
+        build_attempted=True,
+        compiled=True,
+        loadable=True,
+        module_name="aura_cuda_carriers",
+        source_paths=("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays"),
+    )
+
+    class FakeCudaModule:
+        aura_render_rays_kernel = object()
+        aura_render_rays_launcher = object()
+
+        @staticmethod
+        def render_rays(
+            ray_origins,
+            ray_directions,
+            element_mins,
+            element_maxs,
+            carrier_ids,
+            colors,
+            opacities,
+            confidences,
+            material_ids,
+            semantic_ids,
+            max_hits,
+            threads_per_block,
+        ):
+            del ray_directions, element_mins, element_maxs, carrier_ids, threads_per_block
+            ray_count = int(ray_origins.shape[0])
+            ordered_hits = torch.full((ray_count, max_hits), -1, dtype=torch.int32)
+            ordered_hits[0, 0] = 0
+            return {
+                "out_color": colors[:1].repeat(ray_count, 1),
+                "out_alpha": opacities[:1].repeat(ray_count),
+                "out_transmittance": 1.0 - opacities[:1].repeat(ray_count),
+                "out_depth": torch.tensor([1.0, 3.402823466e38], dtype=torch.float32),
+                "out_normal": torch.tensor([[0.0, 0.0, -1.0], [0.0, 0.0, 0.0]], dtype=torch.float32),
+                "out_confidence": confidences[:1].repeat(ray_count),
+                "out_residual": torch.tensor([0, 0], dtype=torch.uint8),
+                "out_material_id": torch.tensor([int(material_ids[0].item()), -1], dtype=torch.int32),
+                "out_semantic_id": torch.tensor([int(semantic_ids[0].item()), -1], dtype=torch.int32),
+                "ordered_hits": ordered_hits,
+            }
+
+    scene = AuraScene(
+        name="cuda_fake_binding_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                color=(0.9, 0.2, 0.1),
+                opacity=0.75,
+                confidence=0.8,
+                material_id="paint",
+                semantic_id="front",
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=((0.0, 0.0, -1.0), (2.0, 0.0, -1.0)),
+        ray_directions=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
+        extension=extension,
+        extension_module=FakeCudaModule(),
+        device="cpu",
+        max_hits=2,
+    )
+
+    assert batch.backend == "cuda"
+    assert batch.reason == "compiled_cuda_renderer_python_binding"
+    assert batch.element_ids == ("surface", None)
+    assert batch.carrier_ids == ("surface", None)
+    assert batch.depth == (1.0, None)
+    assert batch.material_ids == ("paint", None)
+    assert batch.semantic_ids == ("front", None)
+    assert batch.ordered_hits[0][0]["elementId"] == "surface"
+    assert batch.to_dict()["available"] is True
+    assert batch.to_dict()["productionReady"] is False
 
 
 def test_cuda_renderer_scene_buffers_reject_unknown_carrier_for_kernel_abi():

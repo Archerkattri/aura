@@ -159,22 +159,29 @@ def test_cuda_kernel_sources_cover_every_native_carrier_symbol():
 def test_cuda_renderer_source_report_declares_native_ray_query_kernel():
     report = cuda_renderer_source_report()
     source_text = files("aura").joinpath(report["path"]).read_text(encoding="utf-8")
+    binding_text = files("aura").joinpath(report["bindingPath"]).read_text(encoding="utf-8")
     kernel_text = _cuda_kernel_text(source_text, report["symbol"])
 
     assert report["format"] == "AURA_CUDA_RENDERER_SOURCE_REPORT"
     assert report["symbol"] == "aura_render_rays_kernel"
     assert report["launcherSymbol"] == "aura_render_rays_launcher"
+    assert report["bindingSymbol"] == "render_rays"
     assert report["available"] is True
+    assert report["bindingAvailable"] is True
     assert report["sourceSymbolAvailable"] is True
+    assert report["bindingSymbolAvailable"] is True
     assert report["contractComplete"] is True
     assert report["missingSourceFragments"] == []
+    assert report["missingBindingFragments"] == []
     assert report["productionReady"] is False
-    assert report["extensionSymbols"] == ["aura_render_rays_kernel", "aura_render_rays_launcher"]
-    assert report["dispatchBindingAvailable"] is False
+    assert report["extensionSymbols"] == ["aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays"]
+    assert report["dispatchBindingAvailable"] is True
+    assert report["pythonBindingSourceAvailable"] is True
     assert report["pythonBindingAvailable"] is False
-    assert "python binding dispatch missing" in report["productionBlockers"]
+    assert "compiled Python extension not built or loaded in this process" in report["productionBlockers"]
     assert "AABB first-hit traversal over native element bounds" in report["implementedSemantics"]
     assert "compiled host launcher ABI that computes a grid and launches aura_render_rays_kernel" in report["implementedSemantics"]
+    assert "pybind11 torch extension binding source for render_rays packed tensor dispatch" in report["implementedSemantics"]
     assert set(report["contractOutputs"]) == {
         "out_color",
         "out_alpha",
@@ -204,6 +211,14 @@ def test_cuda_renderer_source_report_declares_native_ray_query_kernel():
         "out_residual[ray_i]",
     ):
         assert fragment in kernel_text
+    for fragment in (
+        "PYBIND11_MODULE",
+        "render_rays",
+        "aura_render_rays_launcher",
+        "torch::Tensor",
+        "ordered_hits",
+    ):
+        assert fragment in binding_text
 
 
 def test_cuda_kernel_source_metadata_declares_carrier_complete_argument_schema():
@@ -304,13 +319,15 @@ def test_cuda_kernel_extension_status_does_not_build_by_default():
     assert status.loadable is False
     assert status.reason == "build_not_attempted"
     assert status.module_name == "aura_cuda_carriers"
-    assert status.source_paths == ("cuda/aura_carriers.cu",)
-    assert len(status.symbols) == 9
-    assert status.symbols[-2:] == ("aura_render_rays_kernel", "aura_render_rays_launcher")
+    assert status.source_paths == ("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu")
+    assert len(status.symbols) == 10
+    assert status.symbols[-3:] == ("aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays")
     assert report["format"] == "AURA_CUDA_EXTENSION_REPORT"
     assert report["productionReady"] is False
     assert report["carrierSymbolCount"] == 7
-    assert report["rendererSymbolCount"] == 2
+    assert report["rendererSymbolCount"] == 3
+    assert report["pythonBindingSource"] == "cuda/aura_bindings.cpp"
+    assert report["pythonBindingSymbol"] == "render_rays"
     assert report["buildAttempted"] is False
 
 
@@ -328,7 +345,8 @@ def test_cuda_renderer_api_contract_declares_batched_ray_outputs_without_cuda():
     assert contract["rendererBinding"]["kernelSymbol"] == "aura_render_rays_kernel"
     assert contract["rendererBinding"]["launcherSymbol"] == "aura_render_rays_launcher"
     assert contract["rendererBinding"]["compiledLauncherContract"] is True
-    assert contract["rendererBinding"]["dispatchImplemented"] is False
+    assert contract["rendererBinding"]["pythonBindingSourceAvailable"] is True
+    assert contract["rendererBinding"]["dispatchImplemented"] is True
     assert contract["rendererBinding"]["pythonBindingAvailable"] is False
     inputs = {item["name"]: item for item in contract["inputTensors"]}
     outputs = {item["name"]: item for item in contract["outputTensors"]}
@@ -342,7 +360,7 @@ def test_cuda_renderer_api_contract_declares_batched_ray_outputs_without_cuda():
     assert outputs["out_normal"]["shape"] == "rayCount x 3"
     assert outputs["ordered_hits"]["shape"] == "rayCount x maxHits"
     assert any("renderer launcher symbol is verified" in item for item in contract["unavailableUntil"])
-    assert any("renderer binding dispatches cuda_render_rays" in item for item in contract["unavailableUntil"])
+    assert any("renderer Python binding is imported" in item for item in contract["unavailableUntil"])
 
 
 def test_cuda_render_rays_callable_scaffold_validates_batches_but_does_not_compile():
