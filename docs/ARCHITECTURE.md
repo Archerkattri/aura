@@ -125,8 +125,8 @@ An `.aura` scene package is a directory containing:
 - `capture_manifest.json` — source capture asset references (training input)
 - `training_dataset.json` — tiled training batch records
 
-JSON schemas for all files live under `docs/schemas/` and are also embedded
-in `src/aura/schemas/` for runtime validation.
+JSON schemas for all files are shipped in `src/aura/schemas/` and are applied
+for runtime validation when a package is loaded.
 
 ## 3DGS as Evidence Ingest Only
 

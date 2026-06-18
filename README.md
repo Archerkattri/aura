@@ -216,8 +216,6 @@ src/aura/
 tests/                 Deterministic contract, optimizer, renderer, CLI tests
 docs/
   ARCHITECTURE.md      Design rationale, carrier families, pipeline overview
-  DATASETS.md          Dataset conventions, baseline methods, capture contracts
-  schemas/             Schema reference (mirrors src/aura/schemas/)
 ```
 
 `src/aura/ingest/` is an adapter boundary. 3DGS exports become `EvidenceSample`
@@ -245,8 +243,10 @@ third_party/
 outputs/          (generated packages, renders, and reports — git-ignored)
 ```
 
-See [docs/DATASETS.md](docs/DATASETS.md) for dataset conventions and benchmark
-harness details.
+Baseline datasets (Mip-NeRF 360, Tanks and Temples, Deep Blending, and 3DGS /
+nerfstudio exports) are obtained from their original sources and kept under the
+git-ignored `data/` and `third_party/` directories. Score a trained package
+against external baseline renders with `aura benchmark-real-scene`.
 
 ## Development
 
@@ -261,8 +261,6 @@ python -m pytest -q
   inputs, not native representation elements.
 - New ingest sources must produce `EvidenceSample` records before
   decomposition.
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions and branch
-  workflow.
 
 ## License
 

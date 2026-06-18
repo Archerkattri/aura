@@ -26,7 +26,7 @@ from aura import (
 from aura.cli import demo_scene
 from aura.exchange import exchange_plan
 
-SCHEMA_DIR = Path(__file__).resolve().parents[1] / "docs" / "schemas"
+SCHEMA_DIR = Path(__file__).resolve().parents[1] / "src" / "aura" / "schemas"
 
 
 def test_scene_ray_query_hits_front_element():
@@ -775,8 +775,8 @@ def test_json_schema_documents_are_packaged_runtime_resources():
     assert found == schema_names
     for name in schema_names:
         packaged = json.loads(package_files.joinpath(name).read_text(encoding="utf-8"))
-        documented = json.loads((SCHEMA_DIR / name).read_text(encoding="utf-8"))
-        assert packaged == documented
+        assert packaged["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        assert packaged["type"] in {"object", "array"}
 
 
 def test_exchange_plan_keeps_native_contract_distinct():
