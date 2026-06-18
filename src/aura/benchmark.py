@@ -8,13 +8,27 @@ from typing import Any, Sequence
 
 from aura.asset import AuraAsset
 from aura.core import ReconstructionConfig, ReconstructionReport, reconstruct_demo_scene
+from aura.decomposition import decompose_evidence
+from aura.ingest.capture import (
+    CaptureManifest,
+    capture_tensors_to_training_dataset,
+    load_capture_asset_tensors,
+    load_capture_manifest,
+)
 from aura.inspection import RayInspection, inspect_ray
-from aura.package import AuraPackage
+from aura.package import AuraPackage, package_scene
 from aura.ray import Ray
 from aura.render import RenderImage, compare_images, render_orthographic
 from aura.runtime_export import runtime_export_report
 from aura.scene import BVH_CHUNK_THRESHOLD, AuraScene
 from aura.semantic import SemanticGraph
+from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batches
+from aura.torch_renderer import (
+    TorchRenderBatch,
+    torch_capture_training_batch_from_packed,
+    torch_render_capture_training_batch,
+)
+from aura.training_targets import capture_tensors_to_packed_render_batches, plan_capture_tensor_sampling
 from aura.cuda_kernels import cuda_renderer_report
 from aura.cuda_renderer import (
     cuda_renderer_boundary_report,
@@ -457,6 +471,233 @@ def run_visual_quality_benchmark(
             "ssim": "Global RGB SSIM reference metric for deterministic smoke benchmarks.",
         },
     }
+
+
+def run_capture_reconstruction_benchmark(
+    manifest_path: Path | str,
+    *,
+    output_dir: Path | str,
+    iterations: int = 4,
+    device: str | None = None,
+    pixel_stride: int = 1,
+    max_targets_per_frame: int | None = 4096,
+    tile_size: int = 256,
+    max_targets_per_batch: int | None = 1024,
+    color_learning_rate: float = 0.25,
+    baseline_package: AuraPackage | None = None,
+    baseline_label: str = "external_baseline",
+) -> dict:
+    """Train native AURA carriers from a capture manifest and score capture targets."""
+
+    manifest = load_capture_manifest(manifest_path)
+    tensors = load_capture_asset_tensors(manifest)
+    dataset = capture_tensors_to_training_dataset(manifest, tensors)
+    initial_scene = _scene_from_capture_manifest_dataset(manifest, name="aura_capture_initial")
+    sampling_plan = plan_capture_tensor_sampling(
+        dataset.frames,
+        tensors,
+        pixel_stride=pixel_stride,
+        max_targets_per_frame=max_targets_per_frame,
+        tile_size=tile_size,
+        max_targets_per_batch=max_targets_per_batch,
+    )
+    packed_batches = capture_tensors_to_packed_render_batches(
+        dataset.frames,
+        tensors,
+        pixel_stride=pixel_stride,
+        max_targets_per_frame=max_targets_per_frame,
+        tile_size=tile_size,
+        max_targets_per_batch=max_targets_per_batch,
+    )
+    if not packed_batches:
+        raise ValueError("capture benchmark requires at least one sampled target")
+
+    train_start = perf_counter()
+    result = torch_optimize_capture_batches(
+        initial_scene,
+        packed_batches,
+        TorchOptimizationConfig(
+            iterations=iterations,
+            color_learning_rate=color_learning_rate,
+            max_samples_per_batch=sampling_plan.max_targets_per_batch,
+        ),
+        device=device,
+    )
+    train_seconds = perf_counter() - train_start
+    package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/aura-capture-benchmark.glb"}).write(output_dir)
+
+    initial_eval = _evaluate_capture_scene_predictions(
+        "aura_initial_reference",
+        initial_scene,
+        packed_batches,
+        device=device,
+    )
+    trained_eval = _evaluate_capture_scene_predictions(
+        "aura_native_trained",
+        result.scene,
+        packed_batches,
+        device=device,
+    )
+    baseline_eval = (
+        _evaluate_capture_scene_predictions(
+            baseline_label,
+            baseline_package.scene,
+            packed_batches,
+            device=device,
+        )
+        if baseline_package is not None
+        else None
+    )
+    query_expectations = _capture_ray_query_expectations(result.scene, packed_batches, device=device)
+    ray_query = run_ray_query_correctness_benchmark(result.scene, query_expectations) if query_expectations else None
+
+    return {
+        "format": "AURA_CAPTURE_RECONSTRUCTION_BENCHMARK",
+        "manifest": str(manifest_path),
+        "packageDir": str(package_dir),
+        "device": trained_eval["device"],
+        "iterations": iterations,
+        "trainingSeconds": train_seconds,
+        "trainingSteps": len(result.steps),
+        "captureSamplingPlan": sampling_plan.to_dict(),
+        "packedBatchCount": len(packed_batches),
+        "packedTargetCount": sum(batch.target_count for batch in packed_batches),
+        "initialReference": initial_eval,
+        "trained": trained_eval,
+        "baseline": baseline_eval,
+        "improvement": _capture_metric_delta(initial_eval, trained_eval),
+        "rayQueryCorrectness": ray_query,
+        "training": result.to_dict(),
+        "notes": {
+            "visualMetrics": "PSNR/SSIM/LPIPS-proxy are computed against capture image samples, not self-reference renders.",
+            "baseline": "3DGS or another external package is only reported when --baseline-package is supplied.",
+        },
+    }
+
+
+def _evaluate_capture_scene_predictions(
+    label: str,
+    scene: AuraScene,
+    packed_batches: Sequence[Any],
+    *,
+    device: str | None,
+) -> dict:
+    render_start = perf_counter()
+    rendered_batches = tuple(
+        torch_render_capture_training_batch(
+            scene,
+            torch_capture_training_batch_from_packed(packed_batch, device=device),
+        )
+        for packed_batch in packed_batches
+        if packed_batch.target_count > 0
+    )
+    render_seconds = perf_counter() - render_start
+    if not rendered_batches:
+        raise ValueError("capture evaluation requires at least one rendered batch")
+    predicted_colors = tuple(color for batch in rendered_batches for color in batch.predicted_color)
+    target_colors = tuple(color for batch in rendered_batches for color in batch.target_color)
+    target_count = len(target_colors)
+    predicted_image = RenderImage(width=target_count, height=1, pixels=predicted_colors)
+    target_image = RenderImage(width=target_count, height=1, pixels=target_colors)
+    metrics = compare_images(target_image, predicted_image)
+    depth_errors = tuple(
+        abs((predicted if predicted is not None else 0.0) - target)
+        for batch in rendered_batches
+        for predicted, target in zip(batch.predicted_depth, batch.target_depth)
+    )
+    normal_losses = tuple(value for batch in rendered_batches for value in batch.normal_loss)
+    transmittance = tuple(value for batch in rendered_batches for value in batch.transmittance)
+    trace_lengths = tuple(len(trace) for batch in rendered_batches for trace in batch.ordered_hits)
+    hit_count = sum(1 for batch in rendered_batches for element_id in batch.element_ids if element_id is not None)
+    return {
+        "label": label,
+        "device": rendered_batches[0].device,
+        "sampleCount": target_count,
+        "renderSeconds": render_seconds,
+        "samplesPerSecond": 0.0 if render_seconds <= 0.0 else target_count / render_seconds,
+        "metrics": metrics,
+        "depthMeanAbsoluteError": _mean(depth_errors),
+        "normalLossMean": _mean(normal_losses),
+        "hitRate": 0.0 if target_count == 0 else hit_count / target_count,
+        "orderedTraceMeanLength": _mean(trace_lengths),
+        "transmittanceMean": _mean(transmittance),
+    }
+
+
+def _capture_metric_delta(initial: dict, trained: dict) -> dict:
+    initial_metrics = initial["metrics"]
+    trained_metrics = trained["metrics"]
+    return {
+        "psnrDelta": _metric_value(trained_metrics, "psnr") - _metric_value(initial_metrics, "psnr"),
+        "ssimDelta": _metric_value(trained_metrics, "ssim") - _metric_value(initial_metrics, "ssim"),
+        "lpipsProxyDelta": _metric_value(trained_metrics, "lpipsProxy") - _metric_value(initial_metrics, "lpipsProxy"),
+        "mseDelta": _metric_value(trained_metrics, "mse") - _metric_value(initial_metrics, "mse"),
+        "depthMeanAbsoluteErrorDelta": trained["depthMeanAbsoluteError"] - initial["depthMeanAbsoluteError"],
+        "normalLossMeanDelta": trained["normalLossMean"] - initial["normalLossMean"],
+    }
+
+
+def _metric_value(metrics: dict, key: str) -> float:
+    if key == "psnr" and metrics.get("psnrInfinite"):
+        return 100.0
+    value = metrics.get(key)
+    return 0.0 if value is None else float(value)
+
+
+def _capture_ray_query_expectations(
+    scene: AuraScene,
+    packed_batches: Sequence[Any],
+    *,
+    device: str | None,
+) -> tuple[RayQueryExpectation, ...]:
+    expectations: list[RayQueryExpectation] = []
+    for packed_batch in packed_batches:
+        if packed_batch.target_count <= 0:
+            continue
+        torch_batch = torch_capture_training_batch_from_packed(packed_batch, device=device)
+        rendered = torch_render_capture_training_batch(scene, torch_batch)
+        origins = torch_batch.ray_origins.detach().cpu().tolist()
+        directions = torch_batch.ray_directions.detach().cpu().tolist()
+        for index, (origin, direction, element_id, carrier_id, depth, transmittance, normal) in enumerate(
+            zip(
+                origins,
+                directions,
+                rendered.element_ids,
+                rendered.carrier_ids,
+                rendered.predicted_depth,
+                rendered.transmittance,
+                rendered.normal,
+            )
+        ):
+            expectations.append(
+                RayQueryExpectation(
+                    label=f"capture_batch_{packed_batch.batch_index}_sample_{index}",
+                    ray=Ray(origin=tuple(float(value) for value in origin), direction=tuple(float(value) for value in direction)),
+                    expected_first_hit=element_id is not None,
+                    expected_element_id=element_id,
+                    expected_carrier_id=carrier_id,
+                    expected_depth=depth,
+                    depth_tolerance=1e-4,
+                    transmittance_min=max(0.0, transmittance - 1e-4),
+                    transmittance_max=min(1.0, transmittance + 1e-4),
+                    require_normal=normal is not None,
+                )
+            )
+    return tuple(expectations)
+
+
+def _scene_from_capture_manifest_dataset(manifest: CaptureManifest, *, name: str) -> AuraScene:
+    dataset = manifest.to_training_dataset(load_assets=False)
+    by_frame = {frame.id: frame for frame in dataset.frames}
+    evidence = []
+    for region in dataset.regions:
+        frame = by_frame.get(region.frame_id)
+        if frame is None:
+            raise ValueError(f"training region {region.id} references unknown frame {region.frame_id}")
+        evidence.append(region.to_evidence_sample(frame))
+    if not evidence:
+        raise ValueError("capture benchmark requires at least one training region")
+    return decompose_evidence(tuple(evidence), name=name)
 
 
 def run_production_gate_report(

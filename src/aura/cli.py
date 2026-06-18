@@ -10,6 +10,7 @@ from aura.benchmark import (
     run_ablation_benchmarks,
     run_core_reconstruction_benchmark,
     run_production_gate_report,
+    run_capture_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
@@ -247,6 +248,22 @@ def main(argv: list[str] | None = None) -> int:
     reference_benchmark.add_argument("--width", type=int, default=16)
     reference_benchmark.add_argument("--height", type=int, default=16)
     reference_benchmark.add_argument("--include-ablations", action="store_true")
+
+    capture_benchmark = sub.add_parser(
+        "benchmark-capture",
+        help="Train native AURA from a capture manifest and benchmark against capture targets",
+    )
+    capture_benchmark.add_argument("manifest", type=Path)
+    capture_benchmark.add_argument("--output-dir", type=Path, default=Path("outputs/benchmark-capture.aura"))
+    capture_benchmark.add_argument("--iterations", type=int, default=4)
+    capture_benchmark.add_argument("--pixel-stride", type=int, default=1)
+    capture_benchmark.add_argument("--max-targets-per-frame", type=int, default=4096)
+    capture_benchmark.add_argument("--tile-size", type=int, default=256)
+    capture_benchmark.add_argument("--max-targets-per-batch", type=int, default=1024)
+    capture_benchmark.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
+    capture_benchmark.add_argument("--color-learning-rate", type=float, default=0.25)
+    capture_benchmark.add_argument("--baseline-package", type=Path, default=None)
+    capture_benchmark.add_argument("--baseline-label", default="external_baseline")
 
     visual_benchmark = sub.add_parser("benchmark-visual", help="Compare a rendered .aura package preview against a teacher/reference PPM")
     visual_benchmark.add_argument("package_dir", type=Path)
@@ -517,6 +534,22 @@ def main(argv: list[str] | None = None) -> int:
             payload = run_ablation_benchmarks(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
         else:
             payload = run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "benchmark-capture":
+        payload = run_capture_reconstruction_benchmark(
+            args.manifest,
+            output_dir=args.output_dir,
+            iterations=args.iterations,
+            device=args.device,
+            pixel_stride=args.pixel_stride,
+            max_targets_per_frame=args.max_targets_per_frame,
+            tile_size=args.tile_size,
+            max_targets_per_batch=args.max_targets_per_batch,
+            color_learning_rate=args.color_learning_rate,
+            baseline_package=load_package(args.baseline_package) if args.baseline_package is not None else None,
+            baseline_label=args.baseline_label,
+        )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     if args.command == "benchmark-visual":

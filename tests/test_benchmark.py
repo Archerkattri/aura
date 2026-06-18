@@ -15,6 +15,7 @@ from aura import (
     package_scene,
     render_orthographic,
     run_ablation_benchmarks,
+    run_capture_reconstruction_benchmark,
     run_core_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
@@ -161,6 +162,73 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["previewRender"]["referenceVisualQuality"]["lpipsProxy"] == 0.0
     assert payload["previewRender"]["visualClaimBoundary"]["selfReference"] is True
     assert payload["previewRender"]["visualClaimBoundary"]["productionClaimAllowed"] is False
+
+
+def test_capture_reconstruction_benchmark_trains_and_scores_capture_targets(tmp_path):
+    manifest_path = _write_capture_benchmark_manifest(tmp_path)
+    output_dir = tmp_path / "capture-benchmark.aura"
+
+    payload = run_capture_reconstruction_benchmark(
+        manifest_path,
+        output_dir=output_dir,
+        iterations=2,
+        device="cpu",
+        tile_size=1,
+        max_targets_per_frame=1,
+        max_targets_per_batch=1,
+    )
+
+    assert payload["format"] == "AURA_CAPTURE_RECONSTRUCTION_BENCHMARK"
+    assert payload["packageDir"] == str(output_dir)
+    assert payload["device"] == "cpu"
+    assert payload["packedTargetCount"] == 1
+    assert payload["trainingSteps"] == 2
+    assert payload["initialReference"]["metrics"]["psnrInfinite"] is False
+    assert payload["trained"]["metrics"]["psnr"] is not None
+    assert payload["trained"]["metrics"]["ssim"] >= 0.0
+    assert payload["trained"]["metrics"]["lpipsProxy"] >= 0.0
+    assert payload["rayQueryCorrectness"]["passed"] is True
+    assert payload["baseline"] is None
+    assert (output_dir / "manifest.json").exists()
+
+
+def test_capture_benchmark_cli_prints_json(tmp_path):
+    manifest_path = _write_capture_benchmark_manifest(tmp_path)
+    output_dir = tmp_path / "capture-cli-benchmark.aura"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "benchmark-capture",
+            str(manifest_path),
+            "--output-dir",
+            str(output_dir),
+            "--iterations",
+            "1",
+            "--device",
+            "cpu",
+            "--tile-size",
+            "1",
+            "--max-targets-per-frame",
+            "1",
+            "--max-targets-per-batch",
+            "1",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_CAPTURE_RECONSTRUCTION_BENCHMARK"
+    assert payload["packageDir"] == str(output_dir)
+    assert payload["trained"]["label"] == "aura_native_trained"
+    assert payload["trained"]["sampleCount"] == 1
+    assert payload["trained"]["metrics"]["mse"] >= 0.0
+    assert payload["notes"]["baseline"].startswith("3DGS")
 
 
 def test_visual_quality_benchmark_compares_package_render_to_reference():
@@ -543,3 +611,67 @@ def test_reference_benchmark_cli_can_include_ablation_results(tmp_path):
     assert payload["format"] == "AURA_ABLATION_BENCHMARK"
     assert payload["baseline"]["asset"] == "native_demo"
     assert {item["id"] for item in payload["ablations"]} >= {"gaussian_only", "no_frequency_carrier"}
+
+
+def _write_capture_benchmark_manifest(tmp_path):
+    root = tmp_path / "capture"
+    (root / "images").mkdir(parents=True)
+    (root / "depth").mkdir()
+    (root / "masks").mkdir()
+    (root / "normal").mkdir()
+    (root / "images" / "frame_000001.ppm").write_text(
+        "P3\n2 1\n4\n4 0 0 0 2 2\n",
+        encoding="ascii",
+    )
+    (root / "depth" / "frame_000001.pgm").write_text(
+        "P2\n2 1\n4\n2 4\n",
+        encoding="ascii",
+    )
+    (root / "masks" / "frame_000001.pgm").write_text(
+        "P2\n2 1\n2\n2 0\n",
+        encoding="ascii",
+    )
+    _write_colmap_normal_map(root / "normal" / "frame_000001.bin", 2, 1, ((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)))
+    payload = {
+        "format": "AURA_CAPTURE_MANIFEST",
+        "root": str(root),
+        "frames": [
+            {
+                "id": "frame_000001",
+                "image_path": "images/frame_000001.ppm",
+                "depth_path": "depth/frame_000001.pgm",
+                "mask_path": "masks/frame_000001.pgm",
+                "normal_path": "normal/frame_000001.bin",
+                "camera_origin": [0.0, 0.0, -2.0],
+                "look_at": [0.0, 0.0, 0.0],
+                "target_color": [0.1, 0.1, 0.1],
+                "target_depth": 2.0,
+                "semantic_label": "fixture",
+                "intrinsics": {"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 2.0, "height": 1.0},
+            }
+        ],
+        "regions": [
+            {
+                "id": "surface_000001",
+                "frame_id": "frame_000001",
+                "bounds": {"min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 0.1]},
+                "evidence": {"geometry_confidence": 0.9, "edit_need": 0.5},
+                "opacity": 0.9,
+                "confidence": 0.8,
+                "normal": [0.0, 0.0, -1.0],
+                "fallback_source": "capture-benchmark-fixture",
+            }
+        ],
+    }
+    manifest_path = tmp_path / "capture_manifest.json"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    return manifest_path
+
+
+def _write_colmap_normal_map(path, width, height, normals):
+    import struct
+
+    with path.open("wb") as handle:
+        handle.write(f"{width}&{height}&3&".encode("ascii"))
+        for normal in normals:
+            handle.write(struct.pack("<fff", *normal))
