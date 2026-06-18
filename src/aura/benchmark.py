@@ -720,12 +720,10 @@ def _capture_ray_query_expectations(
             continue
         torch_batch = torch_capture_training_batch_from_packed(packed_batch, device=device)
         rendered = torch_render_capture_training_batch(scene, torch_batch)
-        origins = torch_batch.ray_origins.detach().cpu().tolist()
-        directions = torch_batch.ray_directions.detach().cpu().tolist()
         for index, (origin, direction, element_id, carrier_id, depth, transmittance, normal) in enumerate(
             zip(
-                origins,
-                directions,
+                rendered.ray_origins,
+                rendered.ray_directions,
                 rendered.element_ids,
                 rendered.carrier_ids,
                 rendered.predicted_depth,
@@ -736,7 +734,7 @@ def _capture_ray_query_expectations(
             expectations.append(
                 RayQueryExpectation(
                     label=f"capture_batch_{packed_batch.batch_index}_sample_{index}",
-                    ray=Ray(origin=tuple(float(value) for value in origin), direction=tuple(float(value) for value in direction)),
+                    ray=Ray(origin=origin, direction=direction),
                     expected_first_hit=element_id is not None,
                     expected_element_id=element_id,
                     expected_carrier_id=carrier_id,

@@ -2,6 +2,8 @@ import json
 import subprocess
 import sys
 
+import pytest
+import aura.benchmark as benchmark_module
 from aura import (
     AuraElement,
     AuraScene,
@@ -23,6 +25,7 @@ from aura import (
 )
 from aura.benchmark import evaluate_backend_readiness, evaluate_native_carrier_coverage, run_production_gate_report
 from aura.cli import native_demo_scene
+from aura.torch_renderer import TorchRenderBatch
 
 
 def test_default_benchmark_suite_covers_required_mvp_axes():
@@ -409,6 +412,75 @@ def test_ray_query_correctness_benchmark_scores_ordered_hit_trace():
     assert probe["actual"]["orderedElementIds"] == ["front_surface", "rear_volume"]
     assert probe["actual"]["orderedCarrierIds"] == ["surface", "volume"]
     assert probe["actual"]["orderedHits"][1]["carrierId"] == "volume"
+
+
+def test_capture_ray_query_expectations_reuse_rendered_ray_metadata(monkeypatch):
+    class _NoCpuRayTensor:
+        def detach(self):
+            raise AssertionError("benchmark should reuse rendered ray metadata instead of syncing tensors again")
+
+    class _PackedBatch:
+        batch_index = 2
+        target_count = 1
+
+    class _TorchBatch:
+        ray_origins = _NoCpuRayTensor()
+        ray_directions = _NoCpuRayTensor()
+
+    scene = AuraScene(
+        name="capture_expectation_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(benchmark_module, "torch_capture_training_batch_from_packed", lambda *_args, **_kwargs: _TorchBatch())
+    monkeypatch.setattr(
+        benchmark_module,
+        "torch_render_capture_training_batch",
+        lambda *_args, **_kwargs: TorchRenderBatch(
+            device="cpu",
+            frame_ids=("frame",),
+            ray_origins=((0.0, 0.0, -1.0),),
+            ray_directions=((0.0, 0.0, 1.0),),
+            element_ids=("surface",),
+            carrier_ids=("surface",),
+            ordered_hits=(({"elementId": "surface", "carrierId": "surface"},),),
+            predicted_color=((1.0, 0.0, 0.0),),
+            predicted_depth=(1.0,),
+            transmittance=(0.0,),
+            opacity=(1.0,),
+            confidence=(1.0,),
+            normal=((0.0, 0.0, -1.0),),
+            material_ids=(None,),
+            residual=(False,),
+            semantic_ids=(None,),
+            provenance=("surface",),
+            target_color=((1.0, 0.0, 0.0),),
+            target_depth=(1.0,),
+            target_normal=(None,),
+            target_confidence=(None,),
+            target_semantic_ids=(None,),
+            target_material_ids=(None,),
+            image_loss=(0.0,),
+            depth_loss=(0.0,),
+            normal_loss=(0.0,),
+            query_loss=(0.0,),
+        ),
+    )
+
+    expectations = benchmark_module._capture_ray_query_expectations(scene, (_PackedBatch(),), device="cpu")
+
+    assert len(expectations) == 1
+    assert expectations[0].label == "capture_batch_2_sample_0"
+    assert expectations[0].ray.origin == (0.0, 0.0, -1.0)
+    assert expectations[0].ray.direction == (0.0, 0.0, 1.0)
 
 
 def test_backend_readiness_evaluation_is_cpu_contract_not_cuda_claim():
