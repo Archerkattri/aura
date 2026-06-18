@@ -19,6 +19,12 @@ EVOLUTION_SIMPLIFICATION_ACTIONS = {
 
 
 class EvolutionPrediction(Protocol):
+    """Structural protocol for per-sample prediction objects consumed by the evolution system.
+
+    Any object that exposes these attributes can be passed to
+    :func:`evaluate_evolution_decisions` without subclassing.
+    """
+
     element_id: str | None
     carrier_id: str | None
     image_loss: float

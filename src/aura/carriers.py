@@ -6,6 +6,8 @@ from typing import Dict
 
 
 class CarrierKind(Enum):
+    """Enumeration of the AURA carrier primitives."""
+
     SURFACE_CELL = "surface_cell"
     VOLUME_CELL = "volume_cell"
     BETA_KERNEL = "beta_kernel"
@@ -17,6 +19,13 @@ class CarrierKind(Enum):
 
 @dataclass(frozen=True)
 class CarrierSpec:
+    """Immutable descriptor for one AURA carrier type.
+
+    Combines capability flags (ray query, collision proxy, direct relighting,
+    etc.) with a relative computational complexity weight used by the
+    assignment and evolution systems.
+    """
+
     id: str
     kind: CarrierKind
     description: str

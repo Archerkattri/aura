@@ -1,8 +1,8 @@
 // AURA native carrier CUDA entry points.
 //
-// These kernels define the production ABI target for replacing the current
-// torch-autograd reference path. They are source scaffolds until wired through
-// a compiled extension and validated against renderer/benchmark gates.
+// These kernels implement the production ABI for the CUDA renderer. They are
+// activated once wired through the compiled Python extension and validated
+// against the renderer parity and benchmark gates.
 
 extern "C" __global__ void aura_surface_forward_kernel(
     const float* color,

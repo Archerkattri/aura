@@ -6,6 +6,12 @@ from typing import Any, Mapping, Sequence
 
 @dataclass(frozen=True)
 class SemanticNode:
+    """One labelled node in the scene semantic graph.
+
+    A node groups zero or more :class:`~aura.elements.AuraElement` ids under a
+    human-readable label and an optional confidence score.
+    """
+
     id: str
     label: str
     element_ids: tuple[str, ...] = field(default_factory=tuple)
@@ -39,6 +45,8 @@ class SemanticNode:
 
 @dataclass(frozen=True)
 class SemanticEdge:
+    """Directed relation between two :class:`SemanticNode` ids."""
+
     source: str
     target: str
     relation: str
@@ -67,6 +75,12 @@ class SemanticEdge:
 
 @dataclass(frozen=True)
 class SemanticGraph:
+    """Immutable graph of semantic nodes and directed relations.
+
+    Node ids must be unique within the graph; edge endpoints must reference
+    existing node ids.
+    """
+
     nodes: Sequence[SemanticNode] = field(default_factory=tuple)
     edges: Sequence[SemanticEdge] = field(default_factory=tuple)
 

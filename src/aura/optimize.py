@@ -11,6 +11,11 @@ from aura.scene import AuraScene
 
 @dataclass(frozen=True)
 class RenderTarget:
+    """One supervised training sample: a ray paired with ground-truth targets.
+
+    Used as input to the torch and CUDA renderers for loss computation.
+    """
+
     frame_id: str
     ray: Ray
     target_color: Vec3
@@ -34,6 +39,8 @@ class RenderTarget:
 
 @dataclass(frozen=True)
 class TrainingLossWeights:
+    """Per-term scalar weights for the combined AURA training objective."""
+
     image: float = 1.0
     depth: float = 1.0
     query: float = 1.0
@@ -73,6 +80,12 @@ class TrainingLossWeights:
 
 @dataclass(frozen=True)
 class DifferentiableRaySample:
+    """Scalar record of predicted vs. target quantities for one rendered ray.
+
+    Aggregated into :class:`DifferentiableRenderBatch` for batch-level
+    loss inspection and gradient-descent updates.
+    """
+
     frame_id: str
     element_id: str | None
     carrier_id: str | None
@@ -206,6 +219,7 @@ def _differentiate_target(
 
 
 def gradient_descent_color_step(color: Vec3, gradient: Vec3, *, learning_rate: float) -> Vec3:
+    """Apply one gradient-descent step to an RGB color and clamp the result to [0, 1]."""
     if not 0.0 < learning_rate <= 1.0:
         raise ValueError("learning_rate must be in (0, 1]")
     return tuple(_clamp_unit(channel - learning_rate * delta) for channel, delta in zip(color, gradient))  # type: ignore[return-value]

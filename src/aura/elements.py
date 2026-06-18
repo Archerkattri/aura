@@ -20,6 +20,7 @@ class Bounds:
                 raise ValueError("bounds must satisfy min <= max per axis")
 
     def intersect_ray(self, ray: Ray) -> tuple[float, float] | None:
+        """Return ``(entry_depth, exit_depth)`` for the ray/AABB intersection, or ``None`` on miss."""
         t_min = 0.0
         t_max = float("inf")
         for origin, direction, lower, upper in zip(ray.origin, ray.direction, self.min_corner, self.max_corner):
@@ -41,6 +42,13 @@ class Bounds:
 
 @dataclass(frozen=True)
 class AuraElement:
+    """One primitive in an AURA scene.
+
+    Each element occupies an axis-aligned bounding box, is assigned to a
+    single carrier type (``carrier_id``), and carries optional per-element
+    attributes such as color, opacity, normals, and a typed payload dict.
+    """
+
     id: str
     carrier_id: str
     bounds: Bounds
@@ -72,6 +80,10 @@ class AuraElement:
                 raise ValueError(f"confidence_map value for {name!r} must be in [0, 1]")
 
     def ray_query(self, ray: Ray) -> RayQueryResult | None:
+        """Intersect a ray with this element and return the compositing result.
+
+        Returns ``None`` when the ray misses the element's bounding box.
+        """
         hit = self.bounds.intersect_ray(ray)
         if hit is None:
             return None

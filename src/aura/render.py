@@ -14,6 +14,12 @@ Pixel = tuple[float, float, float]
 
 @dataclass(frozen=True)
 class RenderImage:
+    """Immutable pixel buffer for rendered output.
+
+    Pixels are stored in row-major order (top-left origin) as floating-point
+    RGB triples in [0, 1].
+    """
+
     width: int
     height: int
     pixels: tuple[Pixel, ...]
@@ -25,11 +31,13 @@ class RenderImage:
             raise ValueError("pixel count must equal width * height")
 
     def pixel(self, x: int, y: int) -> Pixel:
+        """Return the RGB pixel at column *x*, row *y* (zero-indexed)."""
         if not 0 <= x < self.width or not 0 <= y < self.height:
             raise IndexError("pixel coordinate out of bounds")
         return self.pixels[y * self.width + x]
 
     def write_ppm(self, path: Path | str) -> Path:
+        """Write the image to an ASCII P3 PPM file and return the resolved path."""
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
         lines = ["P3", f"{self.width} {self.height}", "255"]
@@ -40,6 +48,7 @@ class RenderImage:
 
 
 def read_ppm(path: Path | str) -> RenderImage:
+    """Load an ASCII P3 PPM file and return a :class:`RenderImage`."""
     tokens = _ppm_tokens(Path(path).read_text(encoding="ascii"))
     if len(tokens) < 4 or tokens[0] != "P3":
         raise ValueError("PPM must use ASCII P3 format")
@@ -59,6 +68,7 @@ def read_ppm(path: Path | str) -> RenderImage:
 
 
 def compare_images(left: RenderImage, right: RenderImage, *, min_psnr: float | None = None) -> dict:
+    """Return a dict of image quality metrics (MSE, PSNR, SSIM, LPIPS proxy) comparing *left* and *right*."""
     mse = image_mse(left, right)
     psnr = image_psnr(left, right)
     ssim = image_ssim(left, right)
@@ -85,6 +95,11 @@ def render_orthographic(
     bounds: Bounds | None = None,
     camera_z: float | None = None,
 ) -> RenderImage:
+    """Render the scene with an orthographic projection along the +Z axis.
+
+    The camera shoots parallel rays from *camera_z* through the XY plane.
+    If *bounds* is omitted the scene's element bounding box is used.
+    """
     if width <= 0 or height <= 0:
         raise ValueError("render dimensions must be positive")
     frame = bounds or _scene_bounds(scene)
@@ -215,6 +230,11 @@ def orthographic_camera_rays(
     bounds: Bounds | None = None,
     camera_z: float | None = None,
 ) -> tuple[tuple[Vec3, ...], tuple[Vec3, ...]]:
+    """Return ``(origins, directions)`` tuples for an orthographic camera grid.
+
+    Rays are parallel along +Z. The pixel grid uses a center-sample convention
+    and the output order matches ``render_orthographic`` (row-major, top to bottom).
+    """
     if width <= 0 or height <= 0:
         raise ValueError("render dimensions must be positive")
     frame = bounds or _scene_bounds(scene)
@@ -281,6 +301,7 @@ def render_turntable_frames(
 
 
 def image_mse(left: RenderImage, right: RenderImage) -> float:
+    """Return the mean squared error across all channels of two images."""
     if left.width != right.width or left.height != right.height:
         raise ValueError("images must have matching dimensions")
     total = 0.0
@@ -293,6 +314,10 @@ def image_mse(left: RenderImage, right: RenderImage) -> float:
 
 
 def image_psnr(left: RenderImage, right: RenderImage) -> float:
+    """Return the peak signal-to-noise ratio (dB) between two images.
+
+    Returns ``float('inf')`` when the images are identical.
+    """
     mse = image_mse(left, right)
     if mse == 0.0:
         return float("inf")
@@ -300,6 +325,11 @@ def image_psnr(left: RenderImage, right: RenderImage) -> float:
 
 
 def image_ssim(left: RenderImage, right: RenderImage) -> float:
+    """Return the structural similarity index (SSIM) between two images.
+
+    Uses the standard luminance/contrast/structure decomposition with
+    ``c1 = 0.01^2`` and ``c2 = 0.03^2`` (as in Wang et al. 2004).
+    """
     _require_matching_dimensions(left, right)
     left_values = _flat_channels(left)
     right_values = _flat_channels(right)

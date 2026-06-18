@@ -8,6 +8,12 @@ from aura.ray import Vec3
 
 @dataclass(frozen=True)
 class SurfaceCellPayload:
+    """Typed payload for a surface carrier element.
+
+    Encodes the surface normal, slab thickness, roughness, and an optional
+    anchor point on the surface plane.
+    """
+
     normal: Vec3
     thickness: float
     roughness: float = 0.5
@@ -35,6 +41,8 @@ class SurfaceCellPayload:
 
 @dataclass(frozen=True)
 class VolumeCellPayload:
+    """Typed payload for a volumetric density carrier element."""
+
     density: float
     phase_anisotropy: float = 0.0
 
@@ -52,6 +60,12 @@ class VolumeCellPayload:
 
 @dataclass(frozen=True)
 class BetaKernelPayload:
+    """Typed payload for a Beta-distribution kernel carrier element.
+
+    The kernel is parameterised by its shape parameters *alpha* and *beta* and
+    per-axis support radii that define the ellipsoidal region of influence.
+    """
+
     alpha: float
     beta: float
     support_radius: Vec3
@@ -71,6 +85,12 @@ class BetaKernelPayload:
 
 @dataclass(frozen=True)
 class GaborFrequencyPayload:
+    """Typed payload for a Gabor-frequency carrier element.
+
+    The carrier modulates element color with a sinusoidal Gabor function
+    parameterised by spatial *frequency*, *bandwidth*, and *phase*.
+    """
+
     frequency: Vec3
     bandwidth: float
     phase: float = 0.0
@@ -97,6 +117,13 @@ class GaborFrequencyPayload:
 
 @dataclass(frozen=True)
 class NeuralResidualPayload:
+    """Typed payload for a neural residual carrier element.
+
+    Stores the latent dimension and residual scale used by the neural
+    renderer path. ``model_ref`` optionally references an external model
+    checkpoint for production inference.
+    """
+
     latent_dim: int
     residual_scale: float
     model_ref: str | None = None
@@ -116,6 +143,13 @@ class NeuralResidualPayload:
 
 @dataclass(frozen=True)
 class GaussianFallbackPayload:
+    """Typed payload for a Gaussian-fallback carrier element.
+
+    Provides a full 3-D Gaussian parameterised by its *mean* and a 3×3
+    *covariance* matrix. Used as a compatibility path for conventional
+    3-D Gaussian Splatting primitives.
+    """
+
     mean: Vec3
     covariance: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
     source: str = "ingest"
@@ -141,6 +175,12 @@ class GaussianFallbackPayload:
 
 @dataclass(frozen=True)
 class SemanticFeaturePayload:
+    """Typed payload for a semantic-feature carrier element.
+
+    Associates the element with a human-readable *label* and an optional set
+    of feature references for language or object embedding look-ups.
+    """
+
     label: str
     confidence: float
     feature_refs: tuple[str, ...] = field(default_factory=tuple)

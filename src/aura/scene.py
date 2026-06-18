@@ -133,6 +133,13 @@ class RayHitTrace:
 
 @dataclass(frozen=True)
 class RayTraversal:
+    """Complete diagnostic record for one ray traversal through an :class:`AuraScene`.
+
+    ``result`` holds the composited front-to-back output; ``ordered_hits``
+    contains the per-element traces in depth order. The BVH and chunk
+    counters are populated when spatial acceleration is active.
+    """
+
     result: RayQueryResult
     ordered_hits: tuple[RayHitTrace, ...]
     tested_chunk_ids: tuple[str, ...]
@@ -194,6 +201,12 @@ class RayTraversal:
 
 @dataclass(frozen=True)
 class SceneAccelerationMetadata:
+    """Serializable snapshot of scene spatial-acceleration statistics.
+
+    Returned by :meth:`AuraScene.traversal_acceleration`. Useful for
+    diagnostic reports and renderer readiness checks.
+    """
+
     element_count: int
     chunk_count: int
     chunked_element_count: int
@@ -233,6 +246,11 @@ class SceneAccelerationMetadata:
 
 
 def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
+    """Composite an ordered sequence of ray hits front-to-back into a single result.
+
+    Blending uses the standard over-operator: each hit's transmittance
+    attenuates remaining light for all subsequent hits.
+    """
     color: Vec3 = (0.0, 0.0, 0.0)
     transmittance = 1.0
     confidence_num = 0.0
