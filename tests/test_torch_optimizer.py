@@ -219,19 +219,26 @@ def test_torch_optimize_capture_batch_avoids_per_step_render_serialization_witho
     )
     batch = torch_capture_training_batch((frame,), assets)
     original_render = torch_optimizer_module.torch_render_capture_training_batch
+    original_summary = torch_optimizer_module.torch_render_capture_training_summary
     original_scene_from_parameters = torch_optimizer_module._scene_from_carrier_parameters
     render_batch_calls = []
+    summary_calls = []
     scene_materialization_calls = []
 
     def counted_render(*args, **kwargs):
         render_batch_calls.append(1)
         return original_render(*args, **kwargs)
 
+    def counted_summary(*args, **kwargs):
+        summary_calls.append(1)
+        return original_summary(*args, **kwargs)
+
     def counted_scene_from_parameters(*args, **kwargs):
         scene_materialization_calls.append(1)
         return original_scene_from_parameters(*args, **kwargs)
 
     monkeypatch.setattr(torch_optimizer_module, "torch_render_capture_training_batch", counted_render)
+    monkeypatch.setattr(torch_optimizer_module, "torch_render_capture_training_summary", counted_summary)
     monkeypatch.setattr(torch_optimizer_module, "_scene_from_carrier_parameters", counted_scene_from_parameters)
 
     result = torch_optimize_capture_batch(
@@ -246,7 +253,8 @@ def test_torch_optimize_capture_batch_avoids_per_step_render_serialization_witho
     )
 
     assert len(result.steps) == 3
-    assert render_batch_calls == [1]
+    assert render_batch_calls == []
+    assert summary_calls == [1]
     assert scene_materialization_calls == [1]
     assert result.scene.elements[0].metadata["optimized_by"] == "aura-core-torch-autograd"
 
@@ -329,8 +337,8 @@ def test_torch_optimize_capture_batch_uses_compact_summaries_for_evolution(monke
         ),
     )
 
-    assert summary_calls == [1, 1, 1]
-    assert render_batch_calls == [1]
+    assert summary_calls == [1, 1, 1, 1]
+    assert render_batch_calls == []
     assert any(step.carrier_evolution for step in result.steps)
 
 

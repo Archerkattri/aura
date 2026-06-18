@@ -450,10 +450,11 @@ def _optimize_torch_batches(
                     scene=current_scene,
                 )
             )
+    final_summary: TorchCaptureRenderSummary | None = None
     if rendered is None and prepared_batches:
         final_batch = prepared_batches[-1][0]
         with torch.no_grad():
-            rendered = torch_render_capture_training_batch(
+            final_summary = torch_render_capture_training_summary(
                 current_scene,
                 final_batch,
                 carrier_parameters=carrier_parameters,
@@ -461,6 +462,8 @@ def _optimize_torch_batches(
             )
     if rendered is not None:
         current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
+    elif final_summary is not None:
+        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, None, summary=final_summary)
     return current_scene, tuple(steps), tuple(scene_checkpoints)
 
 
@@ -674,9 +677,12 @@ def _scene_from_carrier_parameters(
     scene: AuraScene,
     carrier_parameters: dict[str, dict[str, Any]],
     rendered: TorchRenderBatch | None,
+    *,
+    summary: TorchCaptureRenderSummary | None = None,
 ) -> AuraScene:
     elements = []
-    loss_by_element = _loss_by_element(rendered) if rendered is not None else {}
+    loss_by_element = _loss_by_element(rendered) if rendered is not None else _loss_by_element_summary(summary)
+    device = rendered.device if rendered is not None else (summary.device if summary is not None else None)
     for element in scene.elements:
         fields = carrier_parameters.get(element.id, {})
         color = element.color
@@ -734,7 +740,7 @@ def _scene_from_carrier_parameters(
             metadata = {
                 **element.metadata,
                 "optimized_by": "aura-core-torch-autograd",
-                "torch_device": rendered.device,
+                "torch_device": device,
             }
         elements.append(
             replace(
@@ -762,6 +768,32 @@ def _loss_by_element(rendered: TorchRenderBatch) -> dict[str, dict[str, float]]:
         rendered.depth_loss,
         rendered.query_loss,
         rendered.normal_loss,
+    ):
+        if element_id is None:
+            continue
+        totals.setdefault(element_id, {"image": 0.0, "depth": 0.0, "query": 0.0, "normal": 0.0})
+        counts[element_id] = counts.get(element_id, 0) + 1
+        totals[element_id]["image"] += image
+        totals[element_id]["depth"] += depth
+        totals[element_id]["query"] += query
+        totals[element_id]["normal"] += normal
+    return {
+        element_id: {name: value / counts[element_id] for name, value in losses.items()}
+        for element_id, losses in totals.items()
+    }
+
+
+def _loss_by_element_summary(summary: TorchCaptureRenderSummary | None) -> dict[str, dict[str, float]]:
+    if summary is None:
+        return {}
+    totals: dict[str, dict[str, float]] = {}
+    counts: dict[str, int] = {}
+    for element_id, image, depth, query, normal in zip(
+        summary.element_ids,
+        summary.image_loss,
+        summary.depth_loss,
+        summary.query_loss,
+        summary.normal_loss,
     ):
         if element_id is None:
             continue
