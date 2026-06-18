@@ -245,6 +245,36 @@ __device__ bool aura_ray_aabb_intersect(
     return true;
 }
 
+__device__ float aura_clamp_unit(float value) {
+    return fminf(fmaxf(value, 0.0f), 1.0f);
+}
+
+__device__ float aura_beta_support(
+    const float* point,
+    const float* box_min,
+    const float* box_max,
+    float alpha,
+    float beta
+) {
+    const float safe_alpha = fmaxf(alpha, 1.0e-6f);
+    const float safe_beta = fmaxf(beta, 1.0e-6f);
+    float u = 0.0f;
+    for (int axis = 0; axis < 3; ++axis) {
+        const float extent = fmaxf(box_max[axis] - box_min[axis], 1.0e-6f);
+        u += aura_clamp_unit((point[axis] - box_min[axis]) / extent);
+    }
+    u /= 3.0f;
+    float raw = powf(u, safe_alpha - 1.0f) * powf(1.0f - u, safe_beta - 1.0f);
+    if (safe_alpha > 1.0f && safe_beta > 1.0f) {
+        const float mode = aura_clamp_unit((safe_alpha - 1.0f) / fmaxf(safe_alpha + safe_beta - 2.0f, 1.0e-6f));
+        const float peak = powf(mode, safe_alpha - 1.0f) * powf(1.0f - mode, safe_beta - 1.0f);
+        if (peak > 0.0f) {
+            raw /= peak;
+        }
+    }
+    return aura_clamp_unit(raw);
+}
+
 extern "C" __global__ void aura_render_rays_kernel(
     const float* ray_origins,
     const float* ray_directions,
@@ -254,6 +284,7 @@ extern "C" __global__ void aura_render_rays_kernel(
     const float* colors,
     const float* opacities,
     const float* confidences,
+    const float* payload_params,
     const int* material_ids,
     const int* semantic_ids,
     float* out_color,
@@ -370,17 +401,57 @@ extern "C" __global__ void aura_render_rays_kernel(
 
     for (int hit_i = 0; hit_i < stored_hit_count; ++hit_i) {
         const int element_i = hit_elements[hit_i];
-        const float opacity = fminf(fmaxf(opacities[element_i], 0.0f), 1.0f);
-        const float transmittance = fminf(fmaxf(1.0f - opacity, 0.0f), 1.0f);
+        const int carrier_id = carrier_ids[element_i];
+        const float opacity = aura_clamp_unit(opacities[element_i]);
+        const float* payload = payload_params + element_i * 4;
+        float transmittance = aura_clamp_unit(1.0f - opacity);
+        float confidence_value = aura_clamp_unit(confidences[element_i]);
+        float color_r_hit = colors[element_i * 3 + 0];
+        float color_g_hit = colors[element_i * 3 + 1];
+        float color_b_hit = colors[element_i * 3 + 2];
+        if (carrier_id == 1) {
+            const float density = fmaxf(payload[0], 0.0f);
+            const float path_length = fmaxf(hit_exits[hit_i] - hit_depths[hit_i], 0.0f);
+            transmittance = aura_clamp_unit(expf(-density * path_length));
+        } else if (carrier_id == 2) {
+            float point[3] = {
+                origin[0] + direction[0] * hit_depths[hit_i],
+                origin[1] + direction[1] * hit_depths[hit_i],
+                origin[2] + direction[2] * hit_depths[hit_i],
+            };
+            const float support = aura_beta_support(
+                point,
+                element_mins + element_i * 3,
+                element_maxs + element_i * 3,
+                payload[0],
+                payload[1]
+            );
+            transmittance = aura_clamp_unit(1.0f - opacity * support);
+        } else if (carrier_id == 3) {
+            float point[3] = {
+                origin[0] + direction[0] * hit_depths[hit_i],
+                origin[1] + direction[1] * hit_depths[hit_i],
+                origin[2] + direction[2] * hit_depths[hit_i],
+            };
+            const float bandwidth = aura_clamp_unit(payload[3]);
+            const float dot = point[0] * payload[0] + point[1] * payload[1] + point[2] * payload[2];
+            const float modulation = 1.0f - bandwidth + bandwidth * (0.5f + 0.5f * sinf(6.28318530718f * dot));
+            color_r_hit = aura_clamp_unit(color_r_hit * modulation);
+            color_g_hit = aura_clamp_unit(color_g_hit * modulation);
+            color_b_hit = aura_clamp_unit(color_b_hit * modulation);
+            confidence_value = aura_clamp_unit(confidence_value * bandwidth);
+        } else if (carrier_id == 4) {
+            confidence_value = aura_clamp_unit(confidence_value * (1.0f - payload[0] * 0.25f));
+        }
         const float alpha = 1.0f - transmittance;
         const float weight = remaining * alpha;
-        color_r += weight * colors[element_i * 3 + 0];
-        color_g += weight * colors[element_i * 3 + 1];
-        color_b += weight * colors[element_i * 3 + 2];
-        confidence_num += weight * fminf(fmaxf(confidences[element_i], 0.0f), 1.0f);
+        color_r += weight * color_r_hit;
+        color_g += weight * color_g_hit;
+        color_b += weight * color_b_hit;
+        confidence_num += weight * confidence_value;
         confidence_den += weight;
         remaining *= transmittance;
-        residual = residual || (carrier_ids[element_i] == 4);
+        residual = residual || (carrier_id == 4);
         ordered_hits[ray_i * max_hits + hit_i] = element_i;
     }
 
@@ -411,6 +482,7 @@ extern "C" void aura_render_rays_launcher(
     const float* colors,
     const float* opacities,
     const float* confidences,
+    const float* payload_params,
     const int* material_ids,
     const int* semantic_ids,
     float* out_color,
@@ -448,6 +520,7 @@ extern "C" void aura_render_rays_launcher(
         colors,
         opacities,
         confidences,
+        payload_params,
         material_ids,
         semantic_ids,
         out_color,

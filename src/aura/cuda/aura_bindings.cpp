@@ -15,6 +15,7 @@ extern "C" void aura_render_rays_launcher(
     const float* colors,
     const float* opacities,
     const float* confidences,
+    const float* payload_params,
     const int* material_ids,
     const int* semantic_ids,
     float* out_color,
@@ -77,6 +78,7 @@ pybind11::dict render_rays(
     torch::Tensor colors,
     torch::Tensor opacities,
     torch::Tensor confidences,
+    torch::Tensor payload_params,
     torch::Tensor material_ids,
     torch::Tensor semantic_ids,
     int64_t max_hits,
@@ -90,6 +92,7 @@ pybind11::dict render_rays(
     require_cuda_float_tensor(colors, "colors");
     require_cuda_float_tensor(opacities, "opacities");
     require_cuda_float_tensor(confidences, "confidences");
+    require_cuda_float_tensor(payload_params, "payload_params");
     require_cuda_int_tensor(material_ids, "material_ids");
     require_cuda_int_tensor(semantic_ids, "semantic_ids");
     require_same_cuda_device(ray_directions, ray_origins, "ray_directions", "ray_origins");
@@ -99,6 +102,7 @@ pybind11::dict render_rays(
     require_same_cuda_device(colors, ray_origins, "colors", "ray_origins");
     require_same_cuda_device(opacities, ray_origins, "opacities", "ray_origins");
     require_same_cuda_device(confidences, ray_origins, "confidences", "ray_origins");
+    require_same_cuda_device(payload_params, ray_origins, "payload_params", "ray_origins");
     require_same_cuda_device(material_ids, ray_origins, "material_ids", "ray_origins");
     require_same_cuda_device(semantic_ids, ray_origins, "semantic_ids", "ray_origins");
 
@@ -114,6 +118,7 @@ pybind11::dict render_rays(
     require_shape2(colors, "colors", element_count_64, 3);
     require_shape1(opacities, "opacities", element_count_64);
     require_shape1(confidences, "confidences", element_count_64);
+    require_shape2(payload_params, "payload_params", element_count_64, 4);
     require_shape1(material_ids, "material_ids", element_count_64);
     require_shape1(semantic_ids, "semantic_ids", element_count_64);
     TORCH_CHECK(ray_count_64 <= static_cast<int64_t>(std::numeric_limits<int>::max()), "ray_count exceeds int32 launcher ABI");
@@ -150,6 +155,7 @@ pybind11::dict render_rays(
         colors.data_ptr<float>(),
         opacities.data_ptr<float>(),
         confidences.data_ptr<float>(),
+        payload_params.data_ptr<float>(),
         material_ids.data_ptr<int>(),
         semantic_ids.data_ptr<int>(),
         out_color.data_ptr<float>(),

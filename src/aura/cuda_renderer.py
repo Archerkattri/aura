@@ -49,6 +49,7 @@ class CudaRendererSceneBuffers:
     colors: tuple[float, ...]
     opacities: tuple[float, ...]
     confidences: tuple[float, ...]
+    payload_params: tuple[float, ...]
 
     def __post_init__(self) -> None:
         element_count = len(self.element_ids)
@@ -62,6 +63,7 @@ class CudaRendererSceneBuffers:
             ("element_mins", self.element_mins, element_count * 3),
             ("element_maxs", self.element_maxs, element_count * 3),
             ("colors", self.colors, element_count * 3),
+            ("payload_params", self.payload_params, element_count * 4),
         ):
             if len(values) != expected:
                 raise ValueError(f"CUDA scene buffer {name} length {len(values)} does not match expected {expected}")
@@ -86,6 +88,7 @@ class CudaRendererSceneBuffers:
             "colors": _flat_buffer_metadata(self.colors, "float32", (self.element_count, 3)),
             "opacities": _flat_buffer_metadata(self.opacities, "float32", (self.element_count,)),
             "confidences": _flat_buffer_metadata(self.confidences, "float32", (self.element_count,)),
+            "payloadParams": _flat_buffer_metadata(self.payload_params, "float32", (self.element_count, 4)),
         }
 
 
@@ -138,6 +141,7 @@ class CudaRendererKernelInputBuffers:
             "colors": self.scene.colors,
             "opacities": self.scene.opacities,
             "confidences": self.scene.confidences,
+            "payload_params": self.scene.payload_params,
             "material_ids": self.scene.material_ids,
             "semantic_ids": self.scene.semantic_ids,
             "ray_count": self.ray_count,
@@ -463,7 +467,29 @@ def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
         colors=tuple(value for element in scene.elements for value in element.color),
         opacities=tuple(float(element.opacity) for element in scene.elements),
         confidences=tuple(float(element.confidence) for element in scene.elements),
+        payload_params=tuple(value for element in scene.elements for value in _cuda_renderer_payload_params(element)),
     )
+
+
+def _cuda_renderer_payload_params(element: Any) -> tuple[float, float, float, float]:
+    payload_type = element.payload.get("type")
+    if payload_type == "volume_cell" or element.carrier_id == "volume":
+        return (float(element.payload.get("density", element.opacity)), 0.0, 0.0, 0.0)
+    if payload_type == "beta_kernel" or element.carrier_id == "beta":
+        return (float(element.payload.get("alpha", 1.0)), float(element.payload.get("beta", 1.0)), 0.0, 0.0)
+    if payload_type == "gabor_frequency" or element.carrier_id == "gabor":
+        frequency = element.payload.get("frequency", (0.0, 0.0, 0.0))
+        if not isinstance(frequency, (list, tuple)) or len(frequency) != 3:
+            frequency = (0.0, 0.0, 0.0)
+        return (
+            float(frequency[0]),
+            float(frequency[1]),
+            float(frequency[2]),
+            float(element.payload.get("bandwidth", 1.0)),
+        )
+    if payload_type == "neural_residual" or element.carrier_id == "neural":
+        return (float(element.payload.get("residual_scale", 0.0)), 0.0, 0.0, 0.0)
+    return (0.0, 0.0, 0.0, 0.0)
 
 
 def cuda_renderer_kernel_inputs(
@@ -640,17 +666,22 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
         confidence_den = 0.0
         residual = 0
         for _depth, _exit_depth, _normal, element_index in stored_hits:
-            opacity = _clamp_unit(inputs.scene.opacities[element_index])
-            transmittance = _clamp_unit(1.0 - opacity)
+            transmittance, carrier_confidence, carrier_color, carrier_residual = _simulate_cuda_carrier_response(
+                inputs,
+                origin=origin,
+                direction=direction,
+                depth=_depth,
+                exit_depth=_exit_depth,
+                element_index=element_index,
+            )
             weight = remaining * (1.0 - transmittance)
-            hit_color = _flat_vec3(inputs.scene.colors, element_index)
-            color[0] += weight * hit_color[0]
-            color[1] += weight * hit_color[1]
-            color[2] += weight * hit_color[2]
-            confidence_num += weight * _clamp_unit(inputs.scene.confidences[element_index])
+            color[0] += weight * carrier_color[0]
+            color[1] += weight * carrier_color[1]
+            color[2] += weight * carrier_color[2]
+            confidence_num += weight * carrier_confidence
             confidence_den += weight
             remaining = _clamp_unit(remaining * transmittance)
-            if inputs.scene.carrier_kernel_ids[element_index] == CUDA_RENDERER_CARRIER_IDS["neural"]:
+            if carrier_residual:
                 residual = 1
 
         first_depth, _first_exit, first_normal, first_element = stored_hits[0]
@@ -679,6 +710,84 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
         out_semantic_id=tuple(out_semantic_id),
         ordered_hits=tuple(ordered_hits),
     )
+
+
+def _simulate_cuda_carrier_response(
+    inputs: CudaRendererKernelInputBuffers,
+    *,
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    depth: float,
+    exit_depth: float,
+    element_index: int,
+) -> tuple[float, float, tuple[float, float, float], bool]:
+    carrier_id = inputs.scene.carrier_kernel_ids[element_index]
+    opacity = _clamp_unit(inputs.scene.opacities[element_index])
+    confidence = _clamp_unit(inputs.scene.confidences[element_index])
+    color = _flat_vec3(inputs.scene.colors, element_index)
+    payload = _flat_payload4(inputs.scene.payload_params, element_index)
+    residual = carrier_id == CUDA_RENDERER_CARRIER_IDS["neural"]
+    if carrier_id == CUDA_RENDERER_CARRIER_IDS["volume"]:
+        density = max(payload[0], 0.0)
+        return (_clamp_unit(_exp_neg(density * max(exit_depth - depth, 0.0))), confidence, color, residual)
+    if carrier_id == CUDA_RENDERER_CARRIER_IDS["beta"]:
+        alpha = max(payload[0], 1e-6)
+        beta = max(payload[1], 1e-6)
+        point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
+        support = _cuda_beta_support(point, _flat_vec3(inputs.scene.element_mins, element_index), _flat_vec3(inputs.scene.element_maxs, element_index), alpha, beta)
+        return (_clamp_unit(1.0 - opacity * support), confidence, color, residual)
+    if carrier_id == CUDA_RENDERER_CARRIER_IDS["gabor"]:
+        point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
+        bandwidth = _clamp_unit(payload[3])
+        dot = point[0] * payload[0] + point[1] * payload[1] + point[2] * payload[2]
+        modulation = 1.0 - bandwidth + bandwidth * (0.5 + 0.5 * _sin_tau(dot))
+        return (
+            _clamp_unit(1.0 - opacity),
+            _clamp_unit(confidence * bandwidth),
+            tuple(_clamp_unit(channel * modulation) for channel in color),  # type: ignore[return-value]
+            residual,
+        )
+    if carrier_id == CUDA_RENDERER_CARRIER_IDS["neural"]:
+        return (_clamp_unit(1.0 - opacity), _clamp_unit(confidence * (1.0 - payload[0] * 0.25)), color, True)
+    return (_clamp_unit(1.0 - opacity), confidence, color, residual)
+
+
+def _flat_payload4(values: Sequence[float], index: int) -> tuple[float, float, float, float]:
+    start = index * 4
+    return (float(values[start]), float(values[start + 1]), float(values[start + 2]), float(values[start + 3]))
+
+
+def _cuda_beta_support(
+    point: tuple[float, float, float],
+    mins: tuple[float, float, float],
+    maxs: tuple[float, float, float],
+    alpha: float,
+    beta: float,
+) -> float:
+    coords = []
+    for axis in range(3):
+        extent = max(maxs[axis] - mins[axis], 1e-6)
+        coords.append(_clamp_unit((point[axis] - mins[axis]) / extent))
+    u = sum(coords) / 3.0
+    raw = (u ** (alpha - 1.0)) * ((1.0 - u) ** (beta - 1.0))
+    if alpha > 1.0 and beta > 1.0:
+        mode = _clamp_unit((alpha - 1.0) / max(alpha + beta - 2.0, 1e-6))
+        peak = (mode ** (alpha - 1.0)) * ((1.0 - mode) ** (beta - 1.0))
+        if peak > 0.0:
+            raw /= peak
+    return _clamp_unit(raw)
+
+
+def _exp_neg(value: float) -> float:
+    from math import exp
+
+    return float(exp(-value))
+
+
+def _sin_tau(value: float) -> float:
+    from math import pi, sin
+
+    return float(sin(2.0 * pi * value))
 
 
 def cuda_renderer_boundary_report(
@@ -1139,6 +1248,7 @@ def _compiled_extension_batch(
         torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.confidences, dtype=torch.float32, device=resolved_device).contiguous(),
+        torch.tensor(scene_buffers.payload_params, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 4).contiguous(),
         torch.tensor(scene_buffers.material_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.semantic_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         int(launch_config.max_hits),

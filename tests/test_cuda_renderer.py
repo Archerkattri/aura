@@ -95,8 +95,10 @@ def test_cuda_renderer_scene_buffers_match_renderer_kernel_abi():
     assert buffers.semantic_ids == (0, 1)
     assert buffers.element_mins == pytest.approx((-1.0, -0.5, 0.0, 0.0, -0.5, 0.1))
     assert buffers.element_maxs == pytest.approx((0.0, 0.5, 0.2, 1.0, 0.5, 0.3))
+    assert buffers.payload_params == pytest.approx((0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0))
     assert payload["colors"]["shape"] == [2, 3]
     assert payload["opacities"]["dtype"] == "float32"
+    assert payload["payloadParams"]["shape"] == [2, 4]
 
 
 def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
@@ -144,6 +146,7 @@ def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
     assert kernel_args["max_hits"] == 3
     assert kernel_args["ray_origins"] == pytest.approx((-0.5, 0.0, -1.0, 0.5, 0.0, -1.0, 2.0, 0.0, -1.0))
     assert kernel_args["carrier_ids"] == (0, 5)
+    assert kernel_args["payload_params"] == pytest.approx((0.0,) * 8)
     assert kernel_args["material_ids"] == (0, -1)
     assert kernel_args["semantic_ids"] == (0, 1)
     assert cuda_renderer_reference_first_hit_indices(scene, rays) == (0, 1, -1)
@@ -194,11 +197,53 @@ def test_cuda_renderer_kernel_simulation_matches_flat_abi_ordered_compositing_ou
     assert simulation.out_depth[1] == pytest.approx(0.05)
     assert simulation.out_depth[2] > 1.0e30
     assert simulation.out_normal == pytest.approx((0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0))
-    assert simulation.out_confidence == pytest.approx((0.7714285714, 0.6, 0.0))
+    assert simulation.out_confidence == pytest.approx((0.7671428571, 0.57, 0.0))
     assert simulation.out_residual == (1, 1, 0)
     assert simulation.out_material_id == (0, -1, -1)
     assert simulation.out_semantic_id == (0, 1, -1)
     assert payload["orderedHits"]["shape"] == [3, 2]
+
+
+def test_cuda_renderer_kernel_simulation_uses_payload_specific_carrier_responses():
+    scene = AuraScene(
+        name="cuda_payload_simulation_test",
+        elements=(
+            AuraElement(
+                id="fog",
+                carrier_id="volume",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.5)),
+                color=(0.2, 0.4, 0.8),
+                opacity=0.9,
+                confidence=0.7,
+                payload={"type": "volume_cell", "density": 2.0},
+            ),
+            AuraElement(
+                id="detail",
+                carrier_id="beta",
+                bounds=Bounds((-0.5, -0.5, 0.6), (0.5, 0.5, 1.6)),
+                color=(0.8, 0.1, 0.1),
+                opacity=0.5,
+                confidence=0.6,
+                payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0},
+            ),
+        ),
+    )
+    inputs = cuda_renderer_kernel_inputs(
+        scene,
+        ((0.0, 0.0, -1.0),),
+        ((0.0, 0.0, 1.0),),
+        max_hits=2,
+    )
+
+    simulation = simulate_cuda_renderer_kernel(inputs)
+    volume_transmittance = __import__("math").exp(-2.0 * 0.5)
+    beta_transmittance = 1.0 - 0.5 * (8.0 / 9.0)
+
+    assert inputs.scene.payload_params == pytest.approx((2.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0))
+    assert simulation.ordered_hits == (0, 1)
+    assert simulation.out_transmittance[0] == pytest.approx(volume_transmittance * beta_transmittance)
+    assert simulation.out_alpha[0] == pytest.approx(1.0 - volume_transmittance * beta_transmittance)
+    assert simulation.out_color[0] > 0.0
 
 
 def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
@@ -367,12 +412,13 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
             colors,
             opacities,
             confidences,
+            payload_params,
             material_ids,
             semantic_ids,
             max_hits,
             threads_per_block,
         ):
-            del ray_directions, element_mins, element_maxs, carrier_ids, threads_per_block
+            del ray_directions, element_mins, element_maxs, carrier_ids, payload_params, threads_per_block
             ray_count = int(ray_origins.shape[0])
             ordered_hits = torch.full((ray_count, max_hits), -1, dtype=torch.int32)
             ordered_hits[0, 0] = 0
