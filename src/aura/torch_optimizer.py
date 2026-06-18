@@ -21,12 +21,10 @@ from aura.training_targets import CapturePackedRenderBatch
 from aura.torch_renderer import (
     TorchCaptureRenderSummary,
     TorchCaptureTrainingBatch,
-    TorchRenderBatch,
     require_torch,
     torch_renderer_status,
     torch_capture_training_batch_from_packed,
     torch_scene_tensors,
-    torch_render_capture_training_batch,
     torch_render_capture_training_summary,
     torch_render_capture_training_objective,
 )
@@ -209,57 +207,6 @@ def torch_optimize_capture_batches(
     return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps), scene_checkpoints=scene_checkpoints)
 
 
-def _optimization_step_from_rendered(
-    iteration: int,
-    rendered: TorchRenderBatch,
-    elements: Sequence[AuraElement],
-    *,
-    batch_index: int | None,
-    target_offset: int | None,
-    source_windows: tuple[dict[str, Any], ...],
-    loss_weights: TrainingLossWeights,
-    mask_loss: float,
-    confidence_loss: float,
-    query_loss: float | None,
-    update: "_TorchGradientStepState",
-    max_samples_per_batch: int | None,
-) -> TorchOptimizationStep:
-    image_loss = _mean(rendered.image_loss)
-    depth_loss = _mean(rendered.depth_loss)
-    query_loss = _mean(rendered.query_loss) if query_loss is None else query_loss
-    normal_loss = _mean(rendered.normal_loss)
-    return TorchOptimizationStep(
-        iteration=iteration,
-        batch_index=batch_index,
-        device=rendered.device,
-        sample_count=len(rendered.frame_ids),
-        target_offset=target_offset,
-        image_loss=image_loss,
-        depth_loss=depth_loss,
-        query_loss=query_loss,
-        normal_loss=normal_loss,
-        mask_loss=mask_loss,
-        confidence_loss=confidence_loss,
-        total_loss=loss_weights.total(
-            image_loss=image_loss,
-            depth_loss=depth_loss,
-            query_loss=query_loss,
-            normal_loss=normal_loss,
-            mask_loss=mask_loss,
-            confidence_loss=confidence_loss,
-        ),
-        carrier_counts=_carrier_counts(elements),
-        loss_weights=loss_weights.to_dict(),
-        optimizer="sgd",
-        gradient_norm=update.gradient_norm,
-        applied_gradient_norm=update.applied_gradient_norm,
-        gradient_clip_norm=update.gradient_clip_norm,
-        updated_parameter_count=update.updated_parameter_count,
-        max_samples_per_batch=max_samples_per_batch,
-        source_windows=source_windows,
-    )
-
-
 def _optimization_step_from_objective(
     iteration: int,
     objective: Any,
@@ -322,7 +269,7 @@ def _optimize_torch_batches(
     current_scene = scene
     steps: list[TorchOptimizationStep] = []
     scene_checkpoints: list[TorchSceneCheckpoint] = []
-    rendered: TorchRenderBatch | None = None
+    materialization_summary: TorchCaptureRenderSummary | None = None
     scene_tensors = torch_scene_tensors(current_scene, device=device)
     carrier_parameters = scene_tensors.carrier_parameters
     prepared_batches = tuple(_prepared_optimization_batch(batch_item, device=device) for batch_item in batches)
@@ -336,6 +283,7 @@ def _optimize_torch_batches(
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
         iteration_summaries: list[TorchCaptureRenderSummary] = []
+        iteration_materialization_summary: TorchCaptureRenderSummary | None = None
         evolution_enabled = config.evolution_policy is not None and config.evolution_policy.enabled
         checkpoint_due = (
             config.checkpoint_interval is not None
@@ -365,42 +313,18 @@ def _optimize_torch_batches(
                     carrier_parameters=carrier_parameters,
                     scene_tensors=scene_tensors,
                 )
-                if evolution_enabled:
-                    iteration_summaries.append(
-                        torch_render_capture_training_summary(
-                            current_scene,
-                            batch,
-                            carrier_parameters=carrier_parameters,
-                            scene_tensors=scene_tensors,
-                        )
-                    )
-                if checkpoint_due:
-                    rendered = torch_render_capture_training_batch(
+                if evolution_enabled or checkpoint_due:
+                    summary = torch_render_capture_training_summary(
                         current_scene,
                         batch,
                         carrier_parameters=carrier_parameters,
                         scene_tensors=scene_tensors,
                     )
-                else:
-                    rendered = None
-            if rendered is not None:
-                steps.append(
-                    _optimization_step_from_rendered(
-                        absolute_iteration,
-                        rendered,
-                        current_scene.elements,
-                        batch_index=batch_index,
-                        target_offset=target_offset,
-                        source_windows=source_windows,
-                        loss_weights=config.loss_weights,
-                        mask_loss=_tensor_scalar(checkpoint_objective.mask_loss),
-                        confidence_loss=_tensor_scalar(checkpoint_objective.confidence_loss),
-                        query_loss=_tensor_scalar(checkpoint_objective.query_loss),
-                        update=update,
-                        max_samples_per_batch=config.max_samples_per_batch,
-                    )
-                )
-            else:
+                    if evolution_enabled:
+                        iteration_summaries.append(summary)
+                    if checkpoint_due:
+                        iteration_materialization_summary = summary
+            if checkpoint_objective is not None:
                 steps.append(
                     _optimization_step_from_objective(
                         absolute_iteration,
@@ -416,7 +340,12 @@ def _optimize_torch_batches(
                     )
                 )
         if evolution_enabled or checkpoint_due:
-            current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
+            current_scene = _scene_from_carrier_parameters(
+                current_scene,
+                carrier_parameters,
+                summary=iteration_materialization_summary,
+            )
+            materialization_summary = iteration_materialization_summary
         if evolution_enabled and iteration_summaries:
             predictions = tuple(
                 prediction
@@ -439,9 +368,8 @@ def _optimize_torch_batches(
                     )
                 scene_tensors = torch_scene_tensors(current_scene, device=device)
                 carrier_parameters = scene_tensors.carrier_parameters
-                rendered = None
+                materialization_summary = None
         if checkpoint_due:
-            current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
             scene_checkpoints.append(
                 TorchSceneCheckpoint(
                     checkpoint_index=len(scene_checkpoints),
@@ -451,7 +379,7 @@ def _optimize_torch_batches(
                 )
             )
     final_summary: TorchCaptureRenderSummary | None = None
-    if rendered is None and prepared_batches:
+    if materialization_summary is None and prepared_batches:
         final_batch = prepared_batches[-1][0]
         with torch.no_grad():
             final_summary = torch_render_capture_training_summary(
@@ -460,10 +388,8 @@ def _optimize_torch_batches(
                 carrier_parameters=carrier_parameters,
                 scene_tensors=scene_tensors,
             )
-    if rendered is not None:
-        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
-    elif final_summary is not None:
-        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, None, summary=final_summary)
+    if final_summary is not None:
+        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, summary=final_summary)
     return current_scene, tuple(steps), tuple(scene_checkpoints)
 
 
@@ -489,30 +415,6 @@ def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]])
                 parameter.grad.zero_()
 
 
-def _evolution_predictions_from_rendered(rendered: TorchRenderBatch) -> tuple[_TorchEvolutionPrediction, ...]:
-    return tuple(
-        _TorchEvolutionPrediction(
-            element_id=element_id,
-            carrier_id=carrier_id,
-            image_loss=float(image_loss),
-            depth_loss=float(depth_loss),
-            query_loss=float(query_loss),
-            normal_loss=float(normal_loss),
-            target_color=target_color,
-            target_point=_target_point_from_rendered(rendered, index),
-        )
-        for index, (element_id, carrier_id, image_loss, depth_loss, query_loss, normal_loss, target_color) in enumerate(zip(
-            rendered.element_ids,
-            rendered.carrier_ids,
-            rendered.image_loss,
-            rendered.depth_loss,
-            rendered.query_loss,
-            rendered.normal_loss,
-            rendered.target_color,
-        ))
-    )
-
-
 def _evolution_predictions_from_summary(summary: TorchCaptureRenderSummary) -> tuple[_TorchEvolutionPrediction, ...]:
     return tuple(
         _TorchEvolutionPrediction(
@@ -536,17 +438,6 @@ def _evolution_predictions_from_summary(summary: TorchCaptureRenderSummary) -> t
             summary.target_point,
         )
     )
-
-
-def _target_point_from_rendered(rendered: TorchRenderBatch, index: int) -> tuple[float, float, float] | None:
-    if index >= len(rendered.ray_origins) or index >= len(rendered.ray_directions) or index >= len(rendered.target_depth):
-        return None
-    depth = rendered.target_depth[index]
-    if depth <= 0.0:
-        return None
-    origin = rendered.ray_origins[index]
-    direction = rendered.ray_directions[index]
-    return tuple(origin[axis] + direction[axis] * depth for axis in range(3))  # type: ignore[return-value]
 
 
 def _evolve_scene(
@@ -676,13 +567,12 @@ def _gradient_step_carrier_parameters(
 def _scene_from_carrier_parameters(
     scene: AuraScene,
     carrier_parameters: dict[str, dict[str, Any]],
-    rendered: TorchRenderBatch | None,
     *,
     summary: TorchCaptureRenderSummary | None = None,
 ) -> AuraScene:
     elements = []
-    loss_by_element = _loss_by_element(rendered) if rendered is not None else _loss_by_element_summary(summary)
-    device = rendered.device if rendered is not None else (summary.device if summary is not None else None)
+    loss_by_element = _loss_by_element_summary(summary)
+    device = summary.device if summary is not None else None
     for element in scene.elements:
         fields = carrier_parameters.get(element.id, {})
         color = element.color
@@ -757,30 +647,6 @@ def _scene_from_carrier_parameters(
         )
     chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(elements))
     return AuraScene(name=scene.name, elements=chunked_elements, chunks=chunks, semantic_graph=scene.semantic_graph)
-
-
-def _loss_by_element(rendered: TorchRenderBatch) -> dict[str, dict[str, float]]:
-    totals: dict[str, dict[str, float]] = {}
-    counts: dict[str, int] = {}
-    for element_id, image, depth, query, normal in zip(
-        rendered.element_ids,
-        rendered.image_loss,
-        rendered.depth_loss,
-        rendered.query_loss,
-        rendered.normal_loss,
-    ):
-        if element_id is None:
-            continue
-        totals.setdefault(element_id, {"image": 0.0, "depth": 0.0, "query": 0.0, "normal": 0.0})
-        counts[element_id] = counts.get(element_id, 0) + 1
-        totals[element_id]["image"] += image
-        totals[element_id]["depth"] += depth
-        totals[element_id]["query"] += query
-        totals[element_id]["normal"] += normal
-    return {
-        element_id: {name: value / counts[element_id] for name, value in losses.items()}
-        for element_id, losses in totals.items()
-    }
 
 
 def _loss_by_element_summary(summary: TorchCaptureRenderSummary | None) -> dict[str, dict[str, float]]:
