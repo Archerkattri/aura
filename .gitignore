@@ -28,7 +28,6 @@ htmlcov/
 /third_party/
 .env
 .env.*
-!.env.example
 LOCAL_SECRETS.md
 
 # Editor / OS
