@@ -57,7 +57,7 @@ from aura.render import (
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
-from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batches
+from aura.torch_optimizer import DensificationConfig, TorchOptimizationConfig, torch_optimize_capture_batches
 from aura.torch_renderer import torch_renderer_status
 from aura.torch_kernels import torch_carrier_kernel_report
 from aura.training_targets import (
@@ -178,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--demote-after-iteration", type=int, default=3)
     train.add_argument("--demote-image-loss-threshold", type=float, default=0.045)
     train.add_argument("--demote-depth-loss-threshold", type=float, default=0.02)
+    # 3DGS-style adaptive densification + pruning (off by default)
+    _add_densification_args(train)
 
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
@@ -765,6 +767,53 @@ def demo_scene() -> AuraScene:
     return AuraScene(name="demo", elements=(element,), chunks=(chunk,))
 
 
+def _add_densification_args(parser: argparse.ArgumentParser) -> None:
+    """Add 3DGS-style adaptive densification flags to a training parser."""
+    defaults = DensificationConfig()
+    parser.add_argument(
+        "--densify",
+        action="store_true",
+        help="Enable 3DGS-style adaptive densification and pruning (off by default)",
+    )
+    parser.add_argument("--densify-start-iter", type=int, default=defaults.start_iteration,
+                        help="Iteration to start densification (default: %(default)s)")
+    parser.add_argument("--densify-end-iter", type=int, default=defaults.end_iteration,
+                        help="Iteration to stop densification (default: %(default)s)")
+    parser.add_argument("--densify-interval", type=int, default=defaults.interval,
+                        help="Densification interval in iterations (default: %(default)s)")
+    parser.add_argument("--grad-threshold", type=float, default=defaults.grad_threshold,
+                        help="AbsGS gradient threshold for clone/split (default: %(default)s)")
+    parser.add_argument("--split-scale", type=float, default=defaults.split_threshold_scale,
+                        help="Carriers larger than split-scale*median are split vs cloned (default: %(default)s)")
+    parser.add_argument("--prune-threshold", type=float, default=defaults.prune_importance_threshold,
+                        help="RadSplat importance threshold for pruning (default: %(default)s)")
+    parser.add_argument("--prune-opacity-threshold", type=float, default=defaults.prune_opacity_threshold,
+                        help="Opacity threshold below which carriers are pruned (default: %(default)s)")
+    parser.add_argument("--max-carriers", type=int, default=None,
+                        help="Maximum carrier count cap for densification budget")
+    parser.add_argument("--scale-reg", type=float, default=defaults.scale_reg_weight,
+                        help="Scale/anisotropy regularization weight (default: %(default)s, disabled)")
+    parser.add_argument("--opacity-entropy-reg", type=float, default=defaults.opacity_entropy_reg_weight,
+                        help="Opacity entropy regularization weight (default: %(default)s, disabled)")
+
+
+def _densification_config_from_args(args: argparse.Namespace) -> DensificationConfig:
+    """Build DensificationConfig from CLI args."""
+    return DensificationConfig(
+        enabled=getattr(args, "densify", False),
+        start_iteration=args.densify_start_iter,
+        end_iteration=args.densify_end_iter,
+        interval=args.densify_interval,
+        grad_threshold=args.grad_threshold,
+        split_threshold_scale=args.split_scale,
+        prune_importance_threshold=args.prune_threshold,
+        prune_opacity_threshold=args.prune_opacity_threshold,
+        max_carriers=args.max_carriers,
+        scale_reg_weight=args.scale_reg,
+        opacity_entropy_reg_weight=args.opacity_entropy_reg,
+    )
+
+
 def _add_reconstruction_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--color-learning-rate", type=float, default=0.35)
     parser.add_argument(
@@ -953,6 +1002,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     else:
         scene = _scene_from_training_dataset(dataset, name="aura_train")
         resume_iteration_offset = 0
+    densification_config = _densification_config_from_args(args)
     result = torch_optimize_capture_batches(
         scene,
         packed_batches,
@@ -982,6 +1032,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
                 demote_image_loss_threshold=args.demote_image_loss_threshold,
                 demote_depth_loss_threshold=args.demote_depth_loss_threshold,
             ),
+            densification=densification_config,
         ),
         device=args.device,
     )
@@ -1018,6 +1069,23 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         "lossWeights": _loss_weights_from_args(args).to_dict(),
         "torch": torch_renderer_status().to_dict(),
         "adaptiveEvolutionEnabled": not args.disable_evolution,
+        "densificationEnabled": densification_config.enabled,
+        "densificationConfig": {
+            "enabled": densification_config.enabled,
+            "startIteration": densification_config.start_iteration,
+            "endIteration": densification_config.end_iteration,
+            "interval": densification_config.interval,
+            "gradThreshold": densification_config.grad_threshold,
+            "pruneThreshold": densification_config.prune_importance_threshold,
+            "scaleRegWeight": densification_config.scale_reg_weight,
+            "opacityEntropyRegWeight": densification_config.opacity_entropy_reg_weight,
+        },
+        "densificationStats": {
+            "totalDensified": sum(s.densified_count for s in result.steps),
+            "totalPruned": sum(s.pruned_count for s in result.steps),
+            "initialCarrierCount": result.steps[0].carrier_count if result.steps else 0,
+            "finalCarrierCount": result.steps[-1].carrier_count if result.steps else 0,
+        },
         **result.to_dict(),
         "sceneCheckpoints": checkpoint_records,
     }

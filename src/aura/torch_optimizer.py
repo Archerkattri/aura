@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import asdict, dataclass, field, replace
 from math import exp, isfinite, log, sqrt
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from aura.decomposition import carrier_lod_elements_and_chunks
 from aura.elements import AuraElement, Bounds
@@ -28,6 +29,57 @@ from aura.torch_renderer import (
     torch_render_capture_training_summary,
     torch_render_capture_training_objective,
 )
+
+
+@dataclass(frozen=True)
+class DensificationConfig:
+    """3DGS-style adaptive densification + pruning + regularization schedule.
+
+    All new behavior is opt-in: with enabled=False (the default) the training
+    loop is completely unchanged and all existing tests remain green.
+    """
+
+    enabled: bool = False
+    # Iteration range for densification
+    start_iteration: int = 500
+    end_iteration: int = 15000
+    interval: int = 100
+    # AbsGS gradient threshold: carriers above this are cloned/split
+    grad_threshold: float = 0.0002
+    # Carriers with scale larger than this multiple of scene median are split,
+    # otherwise cloned (3DGS ADC criterion)
+    split_threshold_scale: float = 1.0
+    # RadSplat importance (opacity * transmittance) threshold for pruning
+    prune_importance_threshold: float = 0.005
+    # Opacity threshold below which carriers are pruned
+    prune_opacity_threshold: float = 0.005
+    # Extra opacity-reset wait before pruning starts (prevents pruning
+    # carriers that are simply in a recovery phase)
+    recovery_prune_delay: int = 2
+    # Optional max-carrier budget override (None = use TorchOptimizationConfig.max_carriers)
+    max_carriers: Optional[int] = None
+    # Scale/anisotropy regularization: penalises large aspect-ratio Gaussians
+    scale_reg_weight: float = 0.0
+    # Opacity entropy regularization: pushes opacities toward 0 or 1
+    opacity_entropy_reg_weight: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.start_iteration < 0:
+            raise ValueError("densification start_iteration must be non-negative")
+        if self.end_iteration < self.start_iteration:
+            raise ValueError("densification end_iteration must be >= start_iteration")
+        if self.interval <= 0:
+            raise ValueError("densification interval must be positive")
+        if self.grad_threshold < 0:
+            raise ValueError("densification grad_threshold must be non-negative")
+        if not (0.0 <= self.prune_importance_threshold <= 1.0):
+            raise ValueError("prune_importance_threshold must be in [0, 1]")
+        if not (0.0 <= self.prune_opacity_threshold <= 1.0):
+            raise ValueError("prune_opacity_threshold must be in [0, 1]")
+        if self.scale_reg_weight < 0.0:
+            raise ValueError("scale_reg_weight must be non-negative")
+        if self.opacity_entropy_reg_weight < 0.0:
+            raise ValueError("opacity_entropy_reg_weight must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -59,6 +111,8 @@ class TorchOptimizationConfig:
     recovery_window: int = 100
     # Deliverable 6: Budget ceiling
     max_carriers: int = 0
+    # Deliverable: Adaptive densification + pruning + regularization (3DGS ADC)
+    densification: DensificationConfig = field(default_factory=DensificationConfig)
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -89,6 +143,8 @@ class TorchOptimizationConfig:
             raise ValueError("torch lr_decay_steps must be non-negative")
         if self.position_lr_final <= 0.0:
             raise ValueError("torch position_lr_final must be positive")
+        if not isinstance(self.densification, DensificationConfig):
+            raise TypeError("torch densification must be a DensificationConfig instance")
 
 
 @dataclass(frozen=True)
@@ -122,6 +178,9 @@ class TorchOptimizationStep:
     importance_scores: tuple = ()
     carrier_count: int = 0
     over_budget: bool = False
+    # Densification reporting
+    densified_count: int = 0
+    pruned_count: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -216,6 +275,310 @@ def _carrier_importance_scores(
         fields = carrier_parameters.get(element.id, {})
         opacities[element.id] = _live_opacity(fields.get("opacity"), element.opacity)
     return compute_importance_scores(opacities, {})
+
+
+class DensificationEngine:
+    """3DGS-style adaptive densification and pruning.
+
+    Implements:
+    - Clone: duplicate carriers with high AbsGS gradient norm (under-reconstruction)
+    - Split: subdivide large carriers with high gradient into two smaller children
+    - Prune: remove carriers below RadSplat importance or opacity threshold
+
+    References:
+    - 3DGS ADC: Kerbl et al. arXiv:2308.04079
+    - AbsGS: Ye et al. arXiv:2404.10484
+    - RadSplat: Niemeyer et al. arXiv:2403.13806
+    - EDC: arXiv:2411.10133
+    """
+
+    @staticmethod
+    def should_run(
+        absolute_iteration: int,
+        densification_config: DensificationConfig,
+    ) -> bool:
+        """Return True when densification should run at this iteration."""
+        if not densification_config.enabled:
+            return False
+        if absolute_iteration < densification_config.start_iteration:
+            return False
+        if absolute_iteration > densification_config.end_iteration:
+            return False
+        return (absolute_iteration - densification_config.start_iteration) % densification_config.interval == 0
+
+    @staticmethod
+    def densify_and_prune(
+        scene: AuraScene,
+        carrier_parameters: dict[str, dict[str, Any]],
+        grad_accumulator: dict[str, float],
+        absolute_iteration: int,
+        densification_config: DensificationConfig,
+        steps_since_reset: int,
+        max_carriers_budget: int,
+        *,
+        torch: Any,
+    ) -> tuple[AuraScene, dict[str, dict[str, Any]], int, int]:
+        """Perform one densification+pruning pass.
+
+        Returns (new_scene, new_carrier_parameters, num_densified, num_pruned).
+        """
+        num_densified = 0
+        num_pruned = 0
+
+        # Compute per-element grad norms from accumulator
+        grad_by_element: dict[str, float] = {}
+        for key, grad_val in grad_accumulator.items():
+            element_id = key.split(".")[0]
+            grad_by_element[element_id] = max(grad_by_element.get(element_id, 0.0), grad_val)
+
+        # Compute per-element opacity from carrier_parameters
+        opacity_by_element: dict[str, float] = {}
+        for element in scene.elements:
+            fields = carrier_parameters.get(element.id, {})
+            opacity_by_element[element.id] = _live_opacity(fields.get("opacity"), element.opacity)
+
+        # Compute per-element scale (use support_radius or bounds extent as proxy)
+        scale_by_element: dict[str, float] = {}
+        for element in scene.elements:
+            fields = carrier_parameters.get(element.id, {})
+            if "support_radius" in fields:
+                sr = fields["support_radius"]
+                detached = sr.detach().cpu().tolist() if hasattr(sr, 'detach') else list(sr)
+                scale_by_element[element.id] = max(float(v) for v in detached)
+            elif "gaussian_covariance_diag" in fields:
+                gcd = fields["gaussian_covariance_diag"]
+                detached = gcd.detach().cpu().tolist() if hasattr(gcd, 'detach') else list(gcd)
+                scale_by_element[element.id] = max(float(v) ** 0.5 for v in detached)
+            else:
+                # Use bounds extent as a scale proxy
+                b = element.bounds
+                extents = [hi - lo for lo, hi in zip(b.min_corner, b.max_corner)]
+                scale_by_element[element.id] = max(extents)
+
+        # Compute median scale for split/clone decision
+        scales = list(scale_by_element.values())
+        if scales:
+            sorted_scales = sorted(scales)
+            median_scale = sorted_scales[len(sorted_scales) // 2]
+        else:
+            median_scale = 1.0
+
+        effective_max = densification_config.max_carriers if densification_config.max_carriers is not None else max_carriers_budget
+        current_count = len(scene.elements)
+
+        grad_threshold = densification_config.grad_threshold
+
+        # ---- DENSIFICATION PASS ----
+        elements_to_clone: list[AuraElement] = []
+        elements_to_split: list[AuraElement] = []
+
+        for element in scene.elements:
+            grad_norm = grad_by_element.get(element.id, 0.0)
+            if grad_norm < grad_threshold:
+                continue
+            # Check budget
+            if effective_max > 0 and (current_count + num_densified + len(elements_to_clone) + len(elements_to_split)) >= effective_max:
+                break
+            scale = scale_by_element.get(element.id, 0.0)
+            if scale > densification_config.split_threshold_scale * median_scale:
+                elements_to_split.append(element)
+            else:
+                elements_to_clone.append(element)
+
+        # Execute clones
+        new_elements: list[AuraElement] = []
+        new_parameters: dict[str, dict[str, Any]] = {}
+        existing_ids = {element.id for element in scene.elements}
+
+        for element in elements_to_clone:
+            clone_id = f"{element.id}_clone_{uuid.uuid4().hex[:8]}"
+            if clone_id in existing_ids:
+                continue
+            # Clone: same bounds and parameters as parent
+            clone = replace(
+                element,
+                id=clone_id,
+                metadata={
+                    **element.metadata,
+                    "densification": "clone",
+                    "parent": element.id,
+                    "source": "aura-densify-3dgs",
+                },
+            )
+            new_elements.append(clone)
+            existing_ids.add(clone_id)
+            num_densified += 1
+            # Clone parameters from parent (create new tensors)
+            parent_fields = carrier_parameters.get(element.id, {})
+            clone_fields: dict[str, Any] = {}
+            for pname, ptensor in parent_fields.items():
+                if hasattr(ptensor, 'detach'):
+                    new_tensor = ptensor.detach().clone().requires_grad_(ptensor.requires_grad)
+                    clone_fields[pname] = new_tensor
+                else:
+                    clone_fields[pname] = ptensor
+            new_parameters[clone_id] = clone_fields
+
+        for element in elements_to_split:
+            # Split: two children at half the parent's size, offset in opposite directions
+            b = element.bounds
+            center = tuple((lo + hi) / 2.0 for lo, hi in zip(b.min_corner, b.max_corner))
+            half = tuple((hi - lo) / 4.0 for lo, hi in zip(b.min_corner, b.max_corner))
+            # Child A: negative offset
+            child_a_min = tuple(c - h for c, h in zip(center, half))
+            child_a_max = tuple(c + h for c, h in zip(center, half))
+            # Child B: positive offset (try axis with largest extent)
+            axis = max(range(3), key=lambda i: b.max_corner[i] - b.min_corner[i])
+            offset = [0.0, 0.0, 0.0]
+            offset[axis] = half[axis]
+            child_b_min = tuple(c - h + offset[i] for i, (c, h) in enumerate(zip(center, half)))
+            child_b_max = tuple(c + h + offset[i] for i, (c, h) in enumerate(zip(center, half)))
+
+            parent_fields = carrier_parameters.get(element.id, {})
+            for child_suffix, child_min, child_max in [
+                ("_split_a", child_a_min, child_a_max),
+                ("_split_b", child_b_min, child_b_max),
+            ]:
+                child_id = f"{element.id}{child_suffix}_{uuid.uuid4().hex[:8]}"
+                if child_id in existing_ids:
+                    continue
+                if effective_max > 0 and (current_count + num_densified + len(new_elements)) >= effective_max:
+                    break
+                try:
+                    child_bounds = Bounds(min_corner=child_min, max_corner=child_max)
+                except ValueError:
+                    continue
+                child = replace(
+                    element,
+                    id=child_id,
+                    bounds=child_bounds,
+                    metadata={
+                        **element.metadata,
+                        "densification": "split",
+                        "parent": element.id,
+                        "source": "aura-densify-3dgs",
+                    },
+                )
+                new_elements.append(child)
+                existing_ids.add(child_id)
+                num_densified += 1
+                # Split: child parameters from parent with scaled support
+                child_fields: dict[str, Any] = {}
+                for pname, ptensor in parent_fields.items():
+                    if hasattr(ptensor, 'detach'):
+                        new_tensor = ptensor.detach().clone()
+                        # Scale down support_radius/covariance for split children
+                        if pname in {"support_radius", "gaussian_covariance_diag", "bandwidth"}:
+                            new_tensor = new_tensor * 0.7
+                            new_tensor = new_tensor.clamp(min=1e-4)
+                        new_tensor = new_tensor.requires_grad_(ptensor.requires_grad)
+                        child_fields[pname] = new_tensor
+                    else:
+                        child_fields[pname] = ptensor
+                new_parameters[child_id] = child_fields
+
+        # ---- PRUNING PASS ----
+        pruned_ids: set[str] = set()
+        prune_importance = densification_config.prune_importance_threshold
+        prune_opacity = densification_config.prune_opacity_threshold
+        prune_delay = densification_config.recovery_prune_delay
+
+        # Don't prune if we're still in the opacity reset recovery window
+        in_recovery = steps_since_reset < prune_delay
+
+        if not in_recovery:
+            for element in scene.elements:
+                opacity = opacity_by_element.get(element.id, element.opacity)
+                # RadSplat importance proxy (opacity * transmittance, transmittance=1.0)
+                importance = opacity
+                if opacity < prune_opacity or importance < prune_importance:
+                    pruned_ids.add(element.id)
+                    num_pruned += 1
+
+        # ---- BUILD NEW SCENE ----
+        # Keep elements that weren't pruned, add newly densified elements
+        retained_elements = [e for e in scene.elements if e.id not in pruned_ids]
+        all_elements = retained_elements + new_elements
+
+        if not all_elements:
+            # Never prune to zero — keep the element with highest opacity
+            best = max(scene.elements, key=lambda e: opacity_by_element.get(e.id, e.opacity))
+            all_elements = [best]
+            num_pruned = len(scene.elements) - 1
+
+        # Update carrier_parameters: remove pruned, add new
+        new_carrier_parameters = {
+            eid: params
+            for eid, params in carrier_parameters.items()
+            if eid not in pruned_ids
+        }
+        new_carrier_parameters.update(new_parameters)
+
+        chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(all_elements))
+        new_scene = AuraScene(
+            name=scene.name,
+            elements=chunked_elements,
+            chunks=chunks,
+            semantic_graph=scene.semantic_graph,
+        )
+        return new_scene, new_carrier_parameters, num_densified, num_pruned
+
+
+def _compute_regularization_loss(
+    carrier_parameters: dict[str, dict[str, Any]],
+    densification_config: DensificationConfig,
+    *,
+    torch: Any,
+) -> Any:
+    """Compute optional scale/anisotropy and opacity-entropy regularization terms.
+
+    Returns a scalar tensor (or 0.0 as a plain float when both weights are zero
+    and torch is not needed).
+    """
+    scale_weight = densification_config.scale_reg_weight
+    entropy_weight = densification_config.opacity_entropy_reg_weight
+    if scale_weight == 0.0 and entropy_weight == 0.0:
+        return None  # Skip entirely — no extra overhead
+
+    scale_terms = []
+    opacity_terms = []
+
+    for fields in carrier_parameters.values():
+        # Scale anisotropy: penalise large ratio between max and min scale dim
+        if scale_weight > 0.0:
+            for pname in ("support_radius", "gaussian_covariance_diag", "bandwidth"):
+                if pname in fields:
+                    s = fields[pname]
+                    if hasattr(s, 'reshape'):
+                        sv = s.reshape(-1)
+                        if sv.numel() >= 2:
+                            # Penalise aspect ratio > 1: (max/min - 1)^2
+                            s_max = sv.max()
+                            s_min = sv.min().clamp(min=1e-8)
+                            aniso = (s_max / s_min - 1.0) ** 2
+                            scale_terms.append(aniso)
+                    break
+
+        # Opacity entropy: push opacities toward 0 or 1
+        if entropy_weight > 0.0:
+            for pname in ("opacity", "density"):
+                if pname in fields:
+                    o = fields[pname].reshape(-1).clamp(1e-6, 1.0 - 1e-6)
+                    entropy = -(o * torch.log(o) + (1.0 - o) * torch.log(1.0 - o))
+                    opacity_terms.append(entropy.mean())
+                    break
+
+    reg_loss = None
+    if scale_terms and scale_weight > 0.0:
+        stacked = torch.stack(scale_terms)
+        contribution = scale_weight * stacked.mean()
+        reg_loss = contribution if reg_loss is None else reg_loss + contribution
+    if opacity_terms and entropy_weight > 0.0:
+        stacked = torch.stack(opacity_terms)
+        contribution = entropy_weight * stacked.mean()
+        reg_loss = contribution if reg_loss is None else reg_loss + contribution
+
+    return reg_loss
 
 
 def torch_optimize_capture_batch(
@@ -385,6 +748,8 @@ def _optimization_step_from_objective(
     recovery_phase: bool = False,
     importance_scores: tuple = (),
     max_carriers: int = 0,
+    densified_count: int = 0,
+    pruned_count: int = 0,
 ) -> TorchOptimizationStep:
     image_loss = _tensor_scalar(objective.image_loss)
     depth_loss = _tensor_scalar(objective.depth_loss)
@@ -430,6 +795,8 @@ def _optimization_step_from_objective(
         importance_scores=importance_scores,
         carrier_count=carrier_count,
         over_budget=over_budget,
+        densified_count=densified_count,
+        pruned_count=pruned_count,
     )
 
 
@@ -468,6 +835,11 @@ def _optimize_torch_batches(
 
     # Opacity reset tracking (Deliverable 4)
     steps_since_reset: int = 0
+
+    # Densification tracking
+    densify_cfg = config.densification
+    # Always accumulate gradients when densification is enabled (even if grad_accum_window=0)
+    _track_grads_for_densify = densify_cfg.enabled
 
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
@@ -523,6 +895,10 @@ def _optimize_torch_batches(
                 scene_tensors=scene_tensors,
             )
             weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
+            # Add optional regularization terms (scale anisotropy + opacity entropy)
+            reg_loss = _compute_regularization_loss(carrier_parameters, densify_cfg, torch=torch)
+            if reg_loss is not None:
+                weighted_loss = weighted_loss + reg_loss
             weighted_loss.backward()
 
             # Replace non-finite gradients with zero so a degenerate carrier
@@ -561,8 +937,8 @@ def _optimize_torch_batches(
                     gradient_norm_tensor = None
                     scale_tensor = None
 
-                # Deliverable 3: Accumulate absolute gradients
-                if config.grad_accum_window > 0:
+                # Deliverable 3: Accumulate absolute gradients (also used by densification)
+                if config.grad_accum_window > 0 or _track_grads_for_densify:
                     grad_accum_step_count += 1
                     for element_id, fields in carrier_parameters.items():
                         for param_name, parameter in fields.items():
@@ -597,8 +973,8 @@ def _optimize_torch_batches(
                             min_corner.copy_(lower)
                             max_corner.copy_(upper)
             else:
-                # SGD path: Deliverable 3 grad accumulation
-                if config.grad_accum_window > 0:
+                # SGD path: Deliverable 3 grad accumulation (also used by densification)
+                if config.grad_accum_window > 0 or _track_grads_for_densify:
                     grad_accum_step_count += 1
                     for element_id, fields in carrier_parameters.items():
                         for param_name, parameter in fields.items():
@@ -675,6 +1051,46 @@ def _optimize_torch_batches(
                     max_carriers=config.max_carriers,
                 )
             )
+
+        # ---- DENSIFICATION + PRUNING ----
+        if densify_cfg.enabled and DensificationEngine.should_run(absolute_iteration, densify_cfg):
+            densify_grad_accum = dict(grad_accumulator)
+            # Normalize by step count for fair comparison
+            if grad_accum_step_count > 0:
+                densify_grad_accum = {k: v / grad_accum_step_count for k, v in densify_grad_accum.items()}
+            max_bud = densify_cfg.max_carriers if densify_cfg.max_carriers is not None else config.max_carriers
+            new_scene, new_carrier_parameters, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+                current_scene,
+                carrier_parameters,
+                densify_grad_accum,
+                absolute_iteration,
+                densify_cfg,
+                steps_since_reset,
+                max_bud,
+                torch=torch,
+            )
+            if num_densified > 0 or num_pruned > 0:
+                current_scene = new_scene
+                carrier_parameters = new_carrier_parameters
+                scene_tensors = torch_scene_tensors(current_scene, device=device)
+                carrier_parameters = scene_tensors.carrier_parameters
+                # Re-copy the optimized values back into scene_tensors parameters
+                # (scene_tensors re-initializes from element defaults, so we need
+                # to restore the in-memory trained values for retained carriers)
+                _restore_trained_parameters(carrier_parameters, new_carrier_parameters)
+                if use_adam:
+                    adam_optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
+                # Patch last step with densification counts
+                if steps:
+                    steps[-1] = replace(
+                        steps[-1],
+                        densified_count=num_densified,
+                        pruned_count=num_pruned,
+                        carrier_counts=_carrier_counts(current_scene.elements),
+                        carrier_count=len(current_scene.elements),
+                    )
+                materialization_summary = None
+
         if evolution_enabled or checkpoint_due:
             current_scene = _scene_from_carrier_parameters(
                 current_scene,
@@ -745,6 +1161,31 @@ def _prepared_optimization_batch(
             tuple(window.to_dict() for window in batch_item.source_windows),
         )
     return batch_item
+
+
+def _restore_trained_parameters(
+    new_carrier_parameters: dict[str, dict[str, Any]],
+    trained_parameters: dict[str, dict[str, Any]],
+) -> None:
+    """After scene_tensors is rebuilt from element defaults, restore the in-memory
+    optimized parameter values for carriers that were retained (not pruned or newly added).
+
+    This prevents the scene_tensors re-initialization from wiping out all the training
+    progress that happened before densification.
+    """
+    for element_id, fields in new_carrier_parameters.items():
+        trained_fields = trained_parameters.get(element_id)
+        if trained_fields is None:
+            continue  # New carrier — keep fresh init from scene_tensors
+        for pname, new_tensor in fields.items():
+            trained_tensor = trained_fields.get(pname)
+            if trained_tensor is None:
+                continue
+            if hasattr(new_tensor, 'data') and hasattr(trained_tensor, 'detach'):
+                try:
+                    new_tensor.data.copy_(trained_tensor.detach())
+                except (RuntimeError, ValueError):
+                    pass  # Shape mismatch — leave as-is
 
 
 def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:

@@ -2160,3 +2160,494 @@ def test_scene_materialization_keeps_finite_bounds_when_params_diverge():
     # Chunk bounds (the union) are therefore finite too.
     for chunk in out.chunks:
         assert _all_finite(chunk.bounds.min_corner) and _all_finite(chunk.bounds.max_corner)
+
+
+# ---- Densification / Pruning / Regularization Tests ----
+
+def test_densification_config_defaults_are_disabled():
+    """DensificationConfig must be off by default — ensures back-compat."""
+    from aura.torch_optimizer import DensificationConfig
+    cfg = DensificationConfig()
+    assert cfg.enabled is False
+    assert cfg.scale_reg_weight == 0.0
+    assert cfg.opacity_entropy_reg_weight == 0.0
+
+
+def test_densification_config_validates():
+    from aura.torch_optimizer import DensificationConfig
+    with pytest.raises(ValueError, match="interval"):
+        DensificationConfig(enabled=True, interval=0)
+    with pytest.raises(ValueError, match="end_iteration"):
+        DensificationConfig(enabled=True, start_iteration=1000, end_iteration=100)
+    with pytest.raises(ValueError, match="scale_reg_weight"):
+        DensificationConfig(scale_reg_weight=-1.0)
+
+
+def test_torch_optimization_config_accepts_densification_config():
+    from aura.torch_optimizer import DensificationConfig
+    dcfg = DensificationConfig(enabled=True, grad_threshold=0.001)
+    cfg = TorchOptimizationConfig(densification=dcfg)
+    assert cfg.densification.enabled is True
+    assert cfg.densification.grad_threshold == pytest.approx(0.001)
+
+
+def test_densification_disabled_by_default_in_optimization_config():
+    cfg = TorchOptimizationConfig()
+    assert cfg.densification.enabled is False
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_clone_increases_carrier_count():
+    """When AbsGS gradient exceeds threshold, DensificationEngine must clone carriers."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="densify_test",
+        elements=(
+            AuraElement(
+                id="carrier_a",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+            ),
+        ),
+    )
+    # Simulate high gradient for carrier_a (well above threshold)
+    carrier_parameters = {
+        "carrier_a": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "opacity": torch.tensor([0.8], requires_grad=True),
+        }
+    }
+    grad_accumulator = {
+        "carrier_a.color": 0.01,  # 10x above threshold 0.001
+        "carrier_a.opacity": 0.005,
+    }
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        prune_importance_threshold=0.0,  # Don't prune
+        prune_opacity_threshold=0.0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_densified >= 1, f"Expected densification but got {num_densified}"
+    assert len(new_scene.elements) > len(scene.elements), (
+        f"Expected more elements after densification, got {len(new_scene.elements)}"
+    )
+    assert num_pruned == 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_split_increases_carrier_count():
+    """Large carriers with high gradient should be SPLIT (not cloned)."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    # Create a "large" carrier by giving it a large support radius
+    scene = AuraScene(
+        name="split_test",
+        elements=(
+            AuraElement(
+                id="big_carrier",
+                carrier_id="beta",
+                bounds=Bounds((-2.0, -2.0, 0.0), (2.0, 2.0, 0.5)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+                payload={"type": "beta_kernel", "alpha": 3.0, "beta": 3.0, "support_radius": [2.0, 2.0, 0.25]},
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "big_carrier": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "opacity": torch.tensor([0.8], requires_grad=True),
+            "support_radius": torch.tensor([2.0, 2.0, 0.25], requires_grad=True),
+        }
+    }
+    # High gradient — should trigger densification
+    grad_accumulator = {"big_carrier.color": 0.05}
+    # split_threshold_scale=0.5 means any carrier > 0.5 * median scale is split
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        split_threshold_scale=0.5,
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_densified >= 1
+    assert len(new_scene.elements) > len(scene.elements)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_prunes_low_importance_carriers():
+    """Carriers with opacity below prune threshold must be removed."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="prune_test",
+        elements=(
+            AuraElement(
+                id="opaque",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.8, 0.0, 0.0),
+                opacity=0.9,
+            ),
+            AuraElement(
+                id="faint",
+                carrier_id="surface",
+                bounds=Bounds((1.0, -0.5, 0.0), (2.0, 0.5, 0.1)),
+                color=(0.1, 0.1, 0.1),
+                opacity=0.001,  # Well below threshold
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "opaque": {
+            "opacity": torch.tensor([0.9], requires_grad=True),
+            "color": torch.tensor([0.8, 0.0, 0.0], requires_grad=True),
+        },
+        "faint": {
+            "opacity": torch.tensor([0.001], requires_grad=True),
+            "color": torch.tensor([0.1, 0.1, 0.1], requires_grad=True),
+        },
+    }
+    # No high gradients — only pruning should happen
+    grad_accumulator = {}
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=1.0,  # Very high — no densification
+        prune_importance_threshold=0.005,
+        prune_opacity_threshold=0.005,
+        recovery_prune_delay=0,  # No delay
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_pruned >= 1, f"Expected pruning but got {num_pruned}"
+    assert len(new_scene.elements) < len(scene.elements), (
+        f"Expected fewer elements after pruning, got {len(new_scene.elements)}"
+    )
+    element_ids = {e.id for e in new_scene.elements}
+    assert "opaque" in element_ids, "High-opacity carrier should not be pruned"
+    # The faint carrier should be gone
+    assert "faint" not in element_ids, "Low-opacity carrier should have been pruned"
+    assert num_densified == 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_new_parameters_are_trainable():
+    """After densification, cloned parameters must have requires_grad=True."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="trainable_params_test",
+        elements=(
+            AuraElement(
+                id="carrier",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "carrier": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "opacity": torch.tensor([0.8], requires_grad=True),
+        }
+    }
+    grad_accumulator = {"carrier.color": 0.1}  # High gradient
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_densified >= 1
+    # All new parameters in new_params must be trainable
+    new_carrier_ids = {e.id for e in new_scene.elements} - {e.id for e in scene.elements}
+    assert len(new_carrier_ids) >= 1, "No new carriers created"
+    for cid in new_carrier_ids:
+        params = new_params.get(cid, {})
+        assert len(params) > 0, f"New carrier {cid} has no parameters"
+        for pname, tensor in params.items():
+            if hasattr(tensor, 'requires_grad'):
+                assert tensor.requires_grad, (
+                    f"New carrier {cid} parameter {pname} is not trainable"
+                )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_disabled_leaves_scene_unchanged():
+    """With densification disabled, DensificationEngine.should_run must return False."""
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    cfg = DensificationConfig(enabled=False)
+    # should_run must return False regardless of iteration
+    for iteration in [0, 500, 1000, 15000]:
+        assert DensificationEngine.should_run(iteration, cfg) is False
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_respects_max_carriers_budget():
+    """Densification must not exceed max_carriers budget."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="budget_test",
+        elements=tuple(
+            AuraElement(
+                id=f"carrier_{i}",
+                carrier_id="surface",
+                bounds=Bounds((-0.5 + i, -0.5, 0.0), (0.5 + i, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+            )
+            for i in range(3)
+        ),
+    )
+    carrier_parameters = {
+        f"carrier_{i}": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "opacity": torch.tensor([0.8], requires_grad=True),
+        }
+        for i in range(3)
+    }
+    # High gradient on all carriers — would densify all without budget
+    grad_accumulator = {f"carrier_{i}.color": 0.1 for i in range(3)}
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+        max_carriers=4,  # Only allow up to 4 total (3 original + at most 1 new)
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=4,
+        torch=torch,
+    )
+    assert len(new_scene.elements) <= 4, (
+        f"Budget exceeded: got {len(new_scene.elements)} elements, max=4"
+    )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_regularization_loss_is_zero_by_default():
+    """When both reg weights are 0.0, _compute_regularization_loss returns None."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, _compute_regularization_loss
+
+    carrier_parameters = {
+        "e1": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "opacity": torch.tensor([0.8], requires_grad=True),
+            "support_radius": torch.tensor([0.1, 0.2, 0.15], requires_grad=True),
+        }
+    }
+    cfg = DensificationConfig(scale_reg_weight=0.0, opacity_entropy_reg_weight=0.0)
+    result = _compute_regularization_loss(carrier_parameters, cfg, torch=torch)
+    assert result is None, "Reg loss should be None (disabled) when weights are 0"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_scale_regularization_is_nonzero_when_enabled():
+    """Scale/anisotropy regularization must produce a positive loss for anisotropic carriers."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, _compute_regularization_loss
+
+    carrier_parameters = {
+        "e1": {
+            "support_radius": torch.tensor([2.0, 0.01, 0.01], requires_grad=True),
+        }
+    }
+    cfg = DensificationConfig(scale_reg_weight=0.01, opacity_entropy_reg_weight=0.0)
+    result = _compute_regularization_loss(carrier_parameters, cfg, torch=torch)
+    assert result is not None
+    loss_val = float(result.detach())
+    assert loss_val > 0.0, f"Scale reg loss should be > 0 for anisotropic carrier, got {loss_val}"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_opacity_entropy_regularization_is_nonzero_when_enabled():
+    """Opacity entropy reg must produce positive loss for mid-range opacities."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, _compute_regularization_loss
+
+    carrier_parameters = {
+        "e1": {
+            "opacity": torch.tensor([0.5], requires_grad=True),  # max entropy at 0.5
+        }
+    }
+    cfg = DensificationConfig(scale_reg_weight=0.0, opacity_entropy_reg_weight=0.1)
+    result = _compute_regularization_loss(carrier_parameters, cfg, torch=torch)
+    assert result is not None
+    loss_val = float(result.detach())
+    assert loss_val > 0.0, f"Opacity entropy loss should be > 0 for opacity=0.5, got {loss_val}"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_integrated_in_training_loop_increases_count():
+    """End-to-end: with densification enabled in a training run, carrier count must increase."""
+    from aura.torch_optimizer import DensificationConfig
+
+    scene = AuraScene(
+        name="integrated_densify_test",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    initial_count = len(scene.elements)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=10,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+            densification=DensificationConfig(
+                enabled=True,
+                start_iteration=2,
+                end_iteration=10,
+                interval=2,
+                grad_threshold=0.0,  # Threshold=0: ALL carriers will be densified
+                prune_importance_threshold=0.0,  # No pruning
+                prune_opacity_threshold=0.0,
+            ),
+        ),
+    )
+    final_count = len(result.scene.elements)
+    total_densified = sum(s.densified_count for s in result.steps)
+    assert total_densified > 0, f"Expected densification events, got 0"
+    assert final_count > initial_count, (
+        f"Expected more carriers after densification, got {final_count} (started with {initial_count})"
+    )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_off_by_default_does_not_change_carrier_count():
+    """With default TorchOptimizationConfig, carrier count must not change due to densification."""
+    scene = AuraScene(
+        name="no_densify_test",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    initial_count = len(scene.elements)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        # Default config — densification disabled
+        TorchOptimizationConfig(
+            iterations=5,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    final_count = len(result.scene.elements)
+    total_densified = sum(s.densified_count for s in result.steps)
+    total_pruned = sum(s.pruned_count for s in result.steps)
+    assert total_densified == 0
+    assert total_pruned == 0
+    # Without evolution, carrier count should stay the same (densification is off)
+    assert final_count == initial_count, (
+        f"Densification disabled but carrier count changed: {initial_count} -> {final_count}"
+    )
