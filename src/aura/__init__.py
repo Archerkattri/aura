@@ -189,6 +189,7 @@ from aura.torch_optimizer import (
     TorchOptimizationResult,
     TorchOptimizationStep,
     torch_optimize_capture_batch,
+    torch_optimize_capture_batches,
 )
 
 __all__ = [
@@ -364,6 +365,7 @@ __all__ = [
     "torch_carrier_kernel_specs",
     "torch_carrier_response_tensors",
     "torch_optimize_capture_batch",
+    "torch_optimize_capture_batches",
     "torch_render_capture_training_batch",
     "torch_render_capture_training_objective",
     "torch_render_target_objective",

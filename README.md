@@ -70,6 +70,9 @@ native representation contract pieces:
 - per-pixel capture training target generation from image/depth/mask/normal
   tensors via `capture_tensors_to_render_targets` and
   `torch_capture_training_batch`;
+- packed tiled capture optimization via `torch_optimize_capture_batches`, which
+  streams bounded `CapturePackedRenderBatch` source windows through one native
+  torch carrier-parameter state;
 - torch reference rendering from capture training batches via
   `torch_render_capture_training_batch`, using carrier parameter tensors;
 - live torch render objectives via `torch_render_target_objective` for
@@ -215,8 +218,8 @@ aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.
 # replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
 aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
 # feeds sampled per-pixel capture tensor targets into the CPU reference reconstruction loop
-aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024 --iterations 6
-# runs the torch reference optimization scaffold from native capture tensor batches
+aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --tile-size 256 --pixel-stride 8 --max-targets-per-frame 4096 --max-targets-per-batch 1024 --iterations 6
+# streams packed native capture tensor batches through the torch reference optimization scaffold
 
 # COLMAP pose/intrinsics ingest:
 aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json

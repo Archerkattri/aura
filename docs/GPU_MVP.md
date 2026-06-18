@@ -72,6 +72,11 @@ This package now contains the GPU-ready skeleton for AURA:
   normal/mask losses plus loss weights and optimizer gradient state, enforces
   optional sampled-batch caps, and applies gradient updates to native carrier
   tensors;
+- packed multi-batch torch optimization through
+  `torch_optimize_capture_batches`, which streams deterministic
+  `CapturePackedRenderBatch` source windows through one resident carrier tensor
+  state and records batch indices, target offsets, and tile source windows per
+  gradient step;
 - configurable adaptive carrier evolution thresholds for split/promote/merge/
   demote actions, emitted in reconstruction reports;
 - explicit torch carrier kernel specs and autograd parameter tensors for
@@ -199,13 +204,16 @@ and fails instead of silently falling back when CUDA is unavailable. `auto`
 selects torch when the optional backend is installed, otherwise records the CPU
 reference path in the report.
 Use `aura torch-optimize-capture-manifest <manifest> --device cuda
---pixel-stride N --max-targets-per-frame M` to run the current torch reference
-optimization scaffold from the same native capture tensor batches. It writes a
-`.aura` package plus `torch_training_report.json`. The report now records the
-loss weights, image/depth/query/normal/mask loss components, optimizer name,
-gradient norm, clipped/applied gradient norm, updated parameter count, and
-sample cap for each step; it is still a scaffold until the autograd carrier
-semantics are replaced by production CUDA kernels.
+--pixel-stride N --max-targets-per-frame M --max-targets-per-batch B` to run
+the current torch reference optimization scaffold from the same native capture
+tensor batches. It writes a `.aura` package plus `torch_training_report.json`.
+The command now optimizes over packed tiled batches instead of one monolithic
+capture batch, so the report records `packedBatchCount`, `packedTargetCount`,
+batch indices, target offsets, and source windows along with the loss weights,
+image/depth/query/normal/mask loss components, optimizer name, gradient norm,
+clipped/applied gradient norm, updated parameter count, and sample cap for each
+step. It is still a scaffold until the autograd carrier semantics are replaced
+by production CUDA kernels.
 Use `aura torch-kernel-report` to list every native carrier kernel, its current
 reference/autograd status, packaged CUDA source symbol, and missing CUDA
 blockers. The surface carrier

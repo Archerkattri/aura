@@ -552,8 +552,13 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
 
     assert package.asset.name == "torch_optimize_capture"
     assert report["format"] == "AURA_CORE_TORCH_OPTIMIZATION_REPORT"
+    assert "torch_packed_capture_batches" in report["stages"]
     assert "torch_reference_optimization" in report["stages"]
+    assert report["packedBatchCount"] == 2
+    assert report["packedTargetCount"] == 2
     assert report["steps"][0]["sample_count"] == 1
+    assert report["steps"][0]["batch_index"] == 0
+    assert report["steps"][0]["source_windows"][0]["targetCount"] == 1
     assert report["steps"][0]["normal_loss"] == 0.0
     assert report["finalLoss"] == report["steps"][-1]["total_loss"]
     assert report["captureSamplingPlan"]["tileSize"] == 1

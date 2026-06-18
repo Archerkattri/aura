@@ -7,10 +7,12 @@ from typing import Any, Sequence
 from aura.elements import AuraElement
 from aura.optimize import TrainingLossWeights
 from aura.scene import AuraScene
+from aura.training_targets import CapturePackedRenderBatch
 from aura.torch_renderer import (
     TorchCaptureTrainingBatch,
     TorchRenderBatch,
     require_torch,
+    torch_capture_training_batch_from_packed,
     torch_scene_tensors,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
@@ -43,8 +45,10 @@ class TorchOptimizationConfig:
 @dataclass(frozen=True)
 class TorchOptimizationStep:
     iteration: int
+    batch_index: int | None
     device: str
     sample_count: int
+    target_offset: int | None
     image_loss: float
     depth_loss: float
     query_loss: float
@@ -59,6 +63,7 @@ class TorchOptimizationStep:
     gradient_clip_norm: float | None
     updated_parameter_count: int
     max_samples_per_batch: int | None
+    source_windows: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -94,52 +99,66 @@ def torch_optimize_capture_batch(
     if not scene.elements:
         raise ValueError("torch optimization requires at least one scene element")
     config = config or TorchOptimizationConfig()
-    torch = require_torch()
     sample_count = _batch_sample_count(batch)
     if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
         raise ValueError(
             f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
             f"{config.max_samples_per_batch}"
         )
-    scene_tensors = torch_scene_tensors(scene, device=str(batch.ray_origins.device))
-    carrier_parameters = scene_tensors.carrier_parameters
-    steps = []
-    for iteration in range(config.iterations):
-        _zero_carrier_parameter_grads(carrier_parameters)
-        objective = torch_render_capture_training_objective(
-            scene,
-            batch,
-            carrier_parameters=carrier_parameters,
-            scene_tensors=scene_tensors,
-        )
-        weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
-        rendered = torch_render_capture_training_batch(
-            scene,
-            batch,
-            carrier_parameters=carrier_parameters,
-            scene_tensors=scene_tensors,
-        )
-        weighted_loss.backward()
-        update = _gradient_step_carrier_parameters(
-            torch,
-            carrier_parameters,
-            learning_rate=config.color_learning_rate,
-            gradient_clip_norm=config.gradient_clip_norm,
-        )
-        step = _optimization_step_from_rendered(
-            iteration,
-            rendered,
-            scene.elements,
-            loss_weights=config.loss_weights,
-            mask_loss=_tensor_scalar(objective.mask_loss),
-            update=update,
-            max_samples_per_batch=config.max_samples_per_batch,
-        )
-        steps.append(step)
-    optimized_scene = _scene_from_carrier_parameters(
+    optimized_scene, steps = _optimize_torch_batches(
         scene,
-        carrier_parameters,
-        rendered if steps else None,
+        ((batch, None, None, ()),),
+        config=config,
+        device=str(batch.ray_origins.device),
+    )
+    return TorchOptimizationResult(scene=optimized_scene, steps=steps)
+
+
+def torch_optimize_capture_batches(
+    scene: AuraScene,
+    batches: Sequence[CapturePackedRenderBatch],
+    config: TorchOptimizationConfig | None = None,
+    *,
+    device: str | None = None,
+) -> TorchOptimizationResult:
+    """Stream packed capture batches through one native torch optimizer state.
+
+    Packed batches are the tiled capture contract used by the future CUDA data
+    path. This function keeps carrier tensors resident while each bounded
+    source window is converted to torch and optimized in deterministic order.
+    """
+
+    require_torch()
+    if not scene.elements:
+        raise ValueError("torch optimization requires at least one scene element")
+    if not batches:
+        raise ValueError("torch optimization requires at least one packed capture batch")
+    config = config or TorchOptimizationConfig()
+    prepared_batches = []
+    for packed in batches:
+        if packed.target_count <= 0:
+            continue
+        if config.max_samples_per_batch is not None and packed.target_count > config.max_samples_per_batch:
+            raise ValueError(
+                f"packed torch optimization batch has {packed.target_count} samples, exceeding "
+                f"max_samples_per_batch {config.max_samples_per_batch}"
+            )
+        torch_batch = torch_capture_training_batch_from_packed(packed, device=device)
+        prepared_batches.append(
+            (
+                torch_batch,
+                packed.batch_index,
+                packed.target_offset,
+                tuple(window.to_dict() for window in packed.source_windows),
+            )
+        )
+    if not prepared_batches:
+        raise ValueError("torch optimization requires at least one non-empty packed capture batch")
+    optimized_scene, steps = _optimize_torch_batches(
+        scene,
+        tuple(prepared_batches),
+        config=config,
+        device=str(prepared_batches[0][0].ray_origins.device),
     )
     return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps))
 
@@ -149,6 +168,9 @@ def _optimization_step_from_rendered(
     rendered: TorchRenderBatch,
     elements: Sequence[AuraElement],
     *,
+    batch_index: int | None,
+    target_offset: int | None,
+    source_windows: tuple[dict[str, Any], ...],
     loss_weights: TrainingLossWeights,
     mask_loss: float,
     update: "_TorchGradientStepState",
@@ -160,8 +182,10 @@ def _optimization_step_from_rendered(
     normal_loss = _mean(rendered.normal_loss)
     return TorchOptimizationStep(
         iteration=iteration,
+        batch_index=batch_index,
         device=rendered.device,
         sample_count=len(rendered.frame_ids),
+        target_offset=target_offset,
         image_loss=image_loss,
         depth_loss=depth_loss,
         query_loss=query_loss,
@@ -182,7 +206,67 @@ def _optimization_step_from_rendered(
         gradient_clip_norm=update.gradient_clip_norm,
         updated_parameter_count=update.updated_parameter_count,
         max_samples_per_batch=max_samples_per_batch,
+        source_windows=source_windows,
     )
+
+
+def _optimize_torch_batches(
+    scene: AuraScene,
+    batches: Sequence[tuple[TorchCaptureTrainingBatch, int | None, int | None, tuple[dict[str, Any], ...]]],
+    *,
+    config: TorchOptimizationConfig,
+    device: str,
+) -> tuple[AuraScene, tuple[TorchOptimizationStep, ...]]:
+    torch = require_torch()
+    scene_tensors = torch_scene_tensors(scene, device=device)
+    carrier_parameters = scene_tensors.carrier_parameters
+    steps: list[TorchOptimizationStep] = []
+    rendered: TorchRenderBatch | None = None
+    for iteration in range(config.iterations):
+        for batch, batch_index, target_offset, source_windows in batches:
+            sample_count = _batch_sample_count(batch)
+            if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
+                raise ValueError(
+                    f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
+                    f"{config.max_samples_per_batch}"
+                )
+            _zero_carrier_parameter_grads(carrier_parameters)
+            objective = torch_render_capture_training_objective(
+                scene,
+                batch,
+                carrier_parameters=carrier_parameters,
+                scene_tensors=scene_tensors,
+            )
+            weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
+            rendered = torch_render_capture_training_batch(
+                scene,
+                batch,
+                carrier_parameters=carrier_parameters,
+                scene_tensors=scene_tensors,
+            )
+            weighted_loss.backward()
+            update = _gradient_step_carrier_parameters(
+                torch,
+                carrier_parameters,
+                learning_rate=config.color_learning_rate,
+                gradient_clip_norm=config.gradient_clip_norm,
+            )
+            steps.append(
+                _optimization_step_from_rendered(
+                    iteration,
+                    rendered,
+                    scene.elements,
+                    batch_index=batch_index,
+                    target_offset=target_offset,
+                    source_windows=source_windows,
+                    loss_weights=config.loss_weights,
+                    mask_loss=_tensor_scalar(objective.mask_loss),
+                    update=update,
+                    max_samples_per_batch=config.max_samples_per_batch,
+                )
+            )
+    optimized_scene = _scene_from_carrier_parameters(scene, carrier_parameters, rendered)
+    return optimized_scene, tuple(steps)
 
 
 def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:

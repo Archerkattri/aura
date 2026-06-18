@@ -40,10 +40,14 @@ from aura.render import compare_images, read_ppm, render_orthographic
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
-from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batch
-from aura.torch_renderer import torch_capture_asset_batch, torch_capture_training_batch, torch_renderer_status
+from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batches
+from aura.torch_renderer import torch_renderer_status
 from aura.torch_kernels import torch_carrier_kernel_report
-from aura.training_targets import capture_tensors_to_render_targets, plan_capture_tensor_sampling
+from aura.training_targets import (
+    capture_tensors_to_packed_render_batches,
+    capture_tensors_to_render_targets,
+    plan_capture_tensor_sampling,
+)
 
 NATIVE_DEMO_FALLBACKS = {
     "mesh": "fallback/native-preview.glb",
@@ -125,6 +129,12 @@ def main(argv: list[str] | None = None) -> int:
     torch_optimize_capture.add_argument("--pixel-stride", type=int, default=1)
     torch_optimize_capture.add_argument("--max-targets-per-frame", type=int, default=256)
     torch_optimize_capture.add_argument("--tile-size", type=int, default=256)
+    torch_optimize_capture.add_argument(
+        "--max-targets-per-batch",
+        type=int,
+        default=None,
+        help="Maximum packed capture targets per torch optimizer step",
+    )
     torch_optimize_capture.add_argument("--device", default=None, help="Torch device such as cpu or cuda")
     torch_optimize_capture.add_argument("--color-learning-rate", type=float, default=0.25)
 
@@ -340,19 +350,26 @@ def main(argv: list[str] | None = None) -> int:
             pixel_stride=args.pixel_stride,
             max_targets_per_frame=args.max_targets_per_frame,
             tile_size=args.tile_size,
+            max_targets_per_batch=args.max_targets_per_batch,
         )
         scene = _scene_from_training_dataset(dataset, name="torch_optimize_capture")
-        assets = torch_capture_asset_batch(tensors, device=args.device)
-        batch = torch_capture_training_batch(
+        packed_batches = capture_tensors_to_packed_render_batches(
             dataset.frames,
-            assets,
+            tensors,
             pixel_stride=args.pixel_stride,
             max_targets_per_frame=args.max_targets_per_frame,
+            tile_size=args.tile_size,
+            max_targets_per_batch=args.max_targets_per_batch,
         )
-        result = torch_optimize_capture_batch(
+        result = torch_optimize_capture_batches(
             scene,
-            batch,
-            TorchOptimizationConfig(iterations=args.iterations, color_learning_rate=args.color_learning_rate),
+            packed_batches,
+            TorchOptimizationConfig(
+                iterations=args.iterations,
+                color_learning_rate=args.color_learning_rate,
+                max_samples_per_batch=sampling_plan.max_targets_per_batch,
+            ),
+            device=args.device,
         )
         package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/torch-optimize-capture-preview.glb"}).write(args.output_dir)
         report = {
@@ -361,12 +378,14 @@ def main(argv: list[str] | None = None) -> int:
             "stages": [
                 "capture_manifest_assets",
                 "native_evidence_initialization",
-                "torch_capture_tensor_batch",
+                "torch_packed_capture_batches",
                 "torch_reference_optimization",
                 "aura_package_export_ready",
             ],
             "sources": ["capture_tensor_pixels", "training_regions", "depth_targets", "normal_targets"],
             "captureSamplingPlan": sampling_plan.to_dict(),
+            "packedBatchCount": len(packed_batches),
+            "packedTargetCount": sum(batch.target_count for batch in packed_batches),
             "torch": torch_renderer_status().to_dict(),
             **result.to_dict(),
         }

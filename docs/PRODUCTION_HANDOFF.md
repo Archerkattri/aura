@@ -40,7 +40,7 @@ aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
 aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
 aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
 aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/reconstruct-capture-assets.aura --iterations 6
-aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024 --output-dir outputs/torch-optimize-capture.aura --iterations 6
+aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --tile-size 256 --pixel-stride 8 --max-targets-per-frame 4096 --max-targets-per-batch 1024 --output-dir outputs/torch-optimize-capture.aura --iterations 6
 ```
 
 The capture reconstruction and torch optimization commands reuse one
@@ -50,6 +50,10 @@ tiled, memory-mapped, or GPU-native loaders on that single-batch contract rather
 than re-decoding assets in each stage. Both reports include
 `captureSamplingPlan`, which records the tile size, stride, and sampled/masked
 pixel counts the GPU implementation should reproduce.
+The torch optimization command consumes `CapturePackedRenderBatch` descriptors
+instead of one monolithic target list; its report includes packed batch counts,
+target counts, batch indices, target offsets, and source windows so CUDA kernels
+can be parity-tested against the same deterministic tiled stream.
 
 For COLMAP sparse models, generate the capture manifest with:
 
