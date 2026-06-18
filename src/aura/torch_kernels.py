@@ -284,7 +284,15 @@ def torch_carrier_response_tensors(
                 min=0.0,
                 max=1.0,
             )
-            gaussian_weight = _torch_gaussian_weight(torch, hit_points[mask], element, device)
+            covariance_diag = _carrier_vector_parameter(
+                torch,
+                element,
+                "gaussian_covariance_diag",
+                carrier_parameters,
+                device,
+                default=_gaussian_covariance_diag(element),
+            )
+            gaussian_weight = _torch_gaussian_weight(torch, hit_points[mask], element, device, covariance_diag=covariance_diag)
             carrier_colors[mask] = torch.clamp(gaussian_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - gaussian_opacity * gaussian_weight, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(gaussian_confidence * gaussian_weight, min=0.0, max=1.0)
@@ -456,6 +464,12 @@ def torch_carrier_parameter_tensors(
                     device=device,
                     requires_grad=requires_grad,
                 ),
+                "gaussian_covariance_diag": torch.tensor(
+                    _gaussian_covariance_diag(element),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
             }
     return parameters
 
@@ -592,20 +606,26 @@ def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, support
     return torch.clamp(raw, min=0.0, max=1.0)
 
 
-def _torch_gaussian_weight(torch: Any, points: Any, element: Any, device: str) -> Any:
+def _torch_gaussian_weight(torch: Any, points: Any, element: Any, device: str, *, covariance_diag: Any | None = None) -> Any:
     mean = element.payload.get("mean")
-    covariance = element.payload.get("covariance")
-    if not _is_matrix3(covariance) or not isinstance(mean, (list, tuple)) or len(mean) != 3:
+    if covariance_diag is None:
+        covariance_diag = torch.tensor(_gaussian_covariance_diag(element), dtype=torch.float32, device=device)
+    if not isinstance(mean, (list, tuple)) or len(mean) != 3:
         return torch.ones((int(points.shape[0]),), dtype=torch.float32, device=device)
     mean_tensor = torch.tensor(tuple(float(item) for item in mean), dtype=torch.float32, device=device)
-    covariance_tensor = torch.tensor(covariance, dtype=torch.float32, device=device)
-    try:
-        inverse = torch.linalg.inv(covariance_tensor)
-    except RuntimeError:
-        return torch.ones((int(points.shape[0]),), dtype=torch.float32, device=device)
+    safe_covariance_diag = torch.clamp(covariance_diag, min=1e-6)
     delta = points - mean_tensor
-    mahalanobis = torch.sum((delta @ inverse) * delta, dim=1)
+    mahalanobis = torch.sum((delta * delta) / safe_covariance_diag.unsqueeze(0), dim=1)
     return torch.clamp(torch.exp(-0.5 * torch.clamp(mahalanobis, min=0.0)), min=0.0, max=1.0)
+
+
+def _gaussian_covariance_diag(element: Any) -> tuple[float, float, float]:
+    covariance = element.payload.get("covariance")
+    if _is_matrix3(covariance):
+        return tuple(max(float(covariance[index][index]), 1e-6) for index in range(3))  # type: ignore[return-value]
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    return tuple(max(((max_corner[index] - min_corner[index]) * 0.25) ** 2, 1e-6) for index in range(3))  # type: ignore[return-value]
 
 
 def _is_matrix3(value: Any) -> bool:

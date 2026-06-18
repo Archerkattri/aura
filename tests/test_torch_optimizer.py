@@ -351,6 +351,70 @@ def test_torch_optimize_capture_batch_persists_beta_support_radius():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_trains_gaussian_covariance_from_image_loss():
+    scene = AuraScene(
+        name="torch_optimizer_gaussian_covariance_scene",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.5],
+                    "covariance": [[0.04, 0.0, 0.0], [0.0, 0.04, 0.0], [0.0, 0.0, 0.04]],
+                    "source": "test",
+                },
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.4, 0.0, -2.0),
+        look_at=(0.4, 0.0, 0.5),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.5,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=3,
+                    values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            gradient_clip_norm=10.0,
+            max_samples_per_batch=1,
+        ),
+    )
+
+    covariance = result.scene.elements[0].payload["covariance"]
+    assert result.steps[0].image_loss > result.steps[-1].image_loss
+    assert covariance[0][0] > 0.04
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batch_trains_neural_residual_scale_from_image_loss():
     scene = AuraScene(
         name="torch_optimizer_neural_residual_scene",

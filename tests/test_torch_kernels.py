@@ -894,14 +894,18 @@ def test_gaussian_fallback_kernel_keeps_color_opacity_confidence_differentiable(
             color=(0.2, 0.4, 0.6),
             opacity=0.5,
             confidence=0.75,
-            payload={"type": "gaussian_fallback"},
+            payload={
+                "type": "gaussian_fallback",
+                "mean": [0.0, 0.0, 0.0],
+                "covariance": [[0.04, 0.0, 0.0], [0.0, 0.04, 0.0], [0.0, 0.0, 0.04]],
+            },
         ),
     )
     carrier_parameters = torch_carrier_parameter_tensors(torch, elements, device="cpu")
     best_index = torch.tensor([0], dtype=torch.long)
     best_depth = torch.tensor([1.0])
     exit_depth = torch.tensor([[2.0]])
-    hit_points = torch.tensor([[0.4, 0.5, 0.6]])
+    hit_points = torch.tensor([[0.1, 0.0, 0.0]])
     colors = torch.tensor([[0.1, 0.1, 0.1]], requires_grad=True)
     opacities = torch.tensor([0.1], requires_grad=True)
     confidences = torch.tensor([0.25], requires_grad=True)
@@ -929,9 +933,11 @@ def test_gaussian_fallback_kernel_keeps_color_opacity_confidence_differentiable(
     assert carrier_parameters["gaussian"]["color"].grad is not None
     assert carrier_parameters["gaussian"]["opacity"].grad is not None
     assert carrier_parameters["gaussian"]["confidence"].grad is not None
-    assert carrier_parameters["gaussian"]["color"].grad.tolist() == [1.0, 1.0, 1.0]
-    assert carrier_parameters["gaussian"]["opacity"].grad.item() == pytest.approx(-1.0)
-    assert carrier_parameters["gaussian"]["confidence"].grad.item() == pytest.approx(1.0)
+    assert carrier_parameters["gaussian"]["gaussian_covariance_diag"].grad is not None
+    assert carrier_parameters["gaussian"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
+    assert carrier_parameters["gaussian"]["opacity"].grad.item() == pytest.approx(-0.882497)
+    assert carrier_parameters["gaussian"]["confidence"].grad.item() == pytest.approx(0.882497)
+    assert torch.all(torch.isfinite(carrier_parameters["gaussian"]["gaussian_covariance_diag"].grad))
     assert colors.grad is None
     assert opacities.grad is None
     assert confidences.grad is None
