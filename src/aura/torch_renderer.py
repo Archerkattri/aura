@@ -125,6 +125,8 @@ class TorchSceneTensors:
     confidences: Any
     surface_plane_points: Any
     surface_normals: Any
+    element_normals: Any
+    element_normal_present: Any
     gaussian_means: Any
     gaussian_inverse_covariances: Any
     gaussian_support_radius_sq: Any
@@ -150,6 +152,8 @@ class TorchSceneTensors:
             "confidences": _torch_tensor_metadata(self.confidences),
             "surfacePlanePoints": _torch_tensor_metadata(self.surface_plane_points),
             "surfaceNormals": _torch_tensor_metadata(self.surface_normals),
+            "elementNormals": _torch_tensor_metadata(self.element_normals),
+            "elementNormalPresent": _torch_tensor_metadata(self.element_normal_present),
             "gaussianMeans": _torch_tensor_metadata(self.gaussian_means),
             "gaussianInverseCovariances": _torch_tensor_metadata(self.gaussian_inverse_covariances),
             "gaussianSupportRadiusSq": _torch_tensor_metadata(self.gaussian_support_radius_sq),
@@ -275,6 +279,8 @@ def torch_scene_tensors(
         confidences=torch.tensor([element.confidence for element in elements], dtype=torch.float32, device=resolved_device),
         surface_plane_points=torch.tensor([_surface_plane_point_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
         surface_normals=torch.tensor([_surface_normal_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
+        element_normals=torch.tensor([_normal_for(element) or (0.0, 0.0, 0.0) for element in elements], dtype=torch.float32, device=resolved_device),
+        element_normal_present=torch.tensor([_normal_for(element) is not None for element in elements], dtype=torch.bool, device=resolved_device),
         gaussian_means=torch.tensor([_gaussian_mean_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
         gaussian_inverse_covariances=torch.tensor(
             [_gaussian_inverse_covariance_or_nan(element) for element in elements],
@@ -504,11 +510,10 @@ def torch_render_capture_training_objective(
     require_torch()
     if int(batch.frame_indices.numel()) == 0:
         raise ValueError("torch capture training batch requires at least one target")
-    frame_indices = batch.frame_indices.detach().cpu().tolist()
-    sample_frame_ids = tuple(batch.frame_ids[index] for index in frame_indices)
+    sample_count = int(batch.frame_indices.numel())
     return _torch_render_objective_tensor_targets(
         scene,
-        frame_ids=sample_frame_ids,
+        frame_ids=("<capture>",) * sample_count,
         origins=batch.ray_origins,
         directions=batch.ray_directions,
         target_colors=batch.target_color,
@@ -671,6 +676,7 @@ def _torch_render_tensor_targets(
         scene_tensors.gaussian_support_radius_sq,
         device=device,
         carrier_parameters=carrier_parameters,
+        collect_traces=True,
     )
     has_hit = composited["has_hit"]
     first_index = composited["first_index"]
@@ -780,6 +786,7 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.gaussian_support_radius_sq,
         device=device,
         carrier_parameters=carrier_parameters,
+        collect_traces=False,
     )
     has_hit = composited["has_hit"]
     first_index = composited["first_index"]
@@ -790,11 +797,13 @@ def _torch_render_objective_tensor_targets(
     image_loss = torch.mean((predicted_colors - target_colors) ** 2)
     depth_loss = torch.mean(torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths))
     mask_loss = _torch_mask_loss(torch, predicted_opacity, target_mask)
-    elements = tuple(scene.elements)
-    best_indices = first_index.detach().cpu().tolist()
-    hit_flags = has_hit.detach().cpu().tolist()
-    normals = tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
-    predicted_normals, predicted_normal_present = _predicted_normal_tensors(torch, normals, device=device)
+    predicted_normals, predicted_normal_present = _predicted_normal_tensors_from_indices(
+        torch,
+        first_index,
+        has_hit,
+        scene_tensors.element_normals,
+        scene_tensors.element_normal_present,
+    )
     normal_loss = torch.mean(_torch_normal_loss(torch, predicted_normals, predicted_normal_present, target_normals, target_normal_present))
     return TorchRenderObjective(
         device=device,
@@ -819,9 +828,24 @@ def _resolve_scene_tensors(
     scene_element_ids = tuple(element.id for element in scene.elements)
     if scene_tensors.element_ids != scene_element_ids:
         raise ValueError("torch scene tensor cache does not match scene element ids")
-    if str(scene_tensors.device) != str(device):
+    if not _torch_devices_match(scene_tensors.device, device):
         raise ValueError(f"torch scene tensor cache device {scene_tensors.device!r} does not match render device {device!r}")
     return scene_tensors
+
+
+def _torch_devices_match(left: str, right: str) -> bool:
+    if str(left) == str(right):
+        return True
+    torch = require_torch()
+    left_device = torch.device(left)
+    right_device = torch.device(right)
+    if left_device.type != right_device.type:
+        return False
+    if left_device.type != "cuda":
+        return left_device == right_device
+    left_index = 0 if left_device.index is None else int(left_device.index)
+    right_index = 0 if right_device.index is None else int(right_device.index)
+    return left_index == right_index
 
 
 def _torch_composite_carrier_hits(
@@ -845,6 +869,7 @@ def _torch_composite_carrier_hits(
     *,
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None,
+    collect_traces: bool = True,
 ) -> dict[str, Any]:
     entry, exit_depth, hits = _torch_carrier_hits(
         torch,
@@ -880,8 +905,6 @@ def _torch_composite_carrier_hits(
         current_index = sorted_indices[:, order]
         current_depth = sorted_depths[:, order]
         active = torch.isfinite(current_depth)
-        if not bool(torch.any(active)):
-            continue
         safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
         hit_points = _torch_carrier_sample_points(
             torch,
@@ -916,13 +939,20 @@ def _torch_composite_carrier_hits(
         confidence_den = confidence_den + weight
         remaining = torch.where(active, remaining * transmittance, remaining)
         residual = residual | (active & residual_flags)
-        ordered_transmittance.append(torch.where(active, transmittance, torch.ones_like(transmittance)))
+        if collect_traces:
+            ordered_transmittance.append(torch.where(active, transmittance, torch.ones_like(transmittance)))
 
-    hit_indices = []
-    hit_depths = []
-    for indices, depths in zip(sorted_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
-        hit_indices.append(tuple(int(index) for index, depth in zip(indices, depths) if depth != float("inf")))
-        hit_depths.append(tuple(float(depth) for depth in depths if depth != float("inf")))
+    if collect_traces:
+        hit_indices = []
+        hit_depths = []
+        for indices, depths in zip(sorted_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
+            hit_indices.append(tuple(int(index) for index, depth in zip(indices, depths) if depth != float("inf")))
+            hit_depths.append(tuple(float(depth) for depth in depths if depth != float("inf")))
+        hit_transmittance = _torch_hit_transmittance_traces(torch, sorted_depths, ordered_transmittance)
+    else:
+        hit_indices = tuple()
+        hit_depths = tuple()
+        hit_transmittance = tuple()
 
     confidence = torch.where(confidence_den > 0.0, confidence_num / torch.clamp(confidence_den, min=1e-8), torch.zeros_like(confidence_den))
     return {
@@ -935,7 +965,7 @@ def _torch_composite_carrier_hits(
         "has_hit": has_hit,
         "hit_indices": tuple(hit_indices),
         "hit_depths": tuple(hit_depths),
-        "hit_transmittance": _torch_hit_transmittance_traces(torch, sorted_depths, ordered_transmittance),
+        "hit_transmittance": hit_transmittance,
         "chunk_culling": bool(chunk_culling_active),
     }
 
@@ -1375,6 +1405,24 @@ def _predicted_normal_tensors(torch: Any, normals: Sequence[tuple[float, float, 
         torch.tensor(values, dtype=torch.float32, device=device),
         torch.tensor(present, dtype=torch.bool, device=device),
     )
+
+
+def _predicted_normal_tensors_from_indices(
+    torch: Any,
+    first_index: Any,
+    has_hit: Any,
+    element_normals: Any,
+    element_normal_present: Any,
+) -> tuple[Any, Any]:
+    safe_indices = torch.clamp(first_index, min=0)
+    predicted_normals = element_normals[safe_indices]
+    predicted_present = element_normal_present[safe_indices] & has_hit
+    predicted_normals = torch.where(
+        predicted_present.unsqueeze(1),
+        predicted_normals,
+        torch.zeros_like(predicted_normals),
+    )
+    return predicted_normals, predicted_present
 
 
 def _torch_normal_loss(

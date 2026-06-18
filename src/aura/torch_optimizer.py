@@ -22,6 +22,7 @@ from aura.torch_renderer import (
     TorchCaptureTrainingBatch,
     TorchRenderBatch,
     require_torch,
+    torch_renderer_status,
     torch_capture_training_batch_from_packed,
     torch_scene_tensors,
     torch_render_capture_training_batch,
@@ -190,22 +191,16 @@ def torch_optimize_capture_batches(
                 f"packed torch optimization batch has {packed.target_count} samples, exceeding "
                 f"max_samples_per_batch {config.max_samples_per_batch}"
             )
-        torch_batch = torch_capture_training_batch_from_packed(packed, device=device)
-        prepared_batches.append(
-            (
-                torch_batch,
-                packed.batch_index,
-                packed.target_offset,
-                tuple(window.to_dict() for window in packed.source_windows),
-            )
-        )
+        prepared_batches.append(packed)
     if not prepared_batches:
         raise ValueError("torch optimization requires at least one non-empty packed capture batch")
+    status = torch_renderer_status()
+    resolved_device = device or status.default_device or "cpu"
     optimized_scene, steps, scene_checkpoints = _optimize_torch_batches(
         scene,
         tuple(prepared_batches),
         config=config,
-        device=str(prepared_batches[0][0].ray_origins.device),
+        device=str(resolved_device),
     )
     return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps), scene_checkpoints=scene_checkpoints)
 
@@ -259,7 +254,7 @@ def _optimization_step_from_rendered(
 
 def _optimize_torch_batches(
     scene: AuraScene,
-    batches: Sequence[tuple[TorchCaptureTrainingBatch, int | None, int | None, tuple[dict[str, Any], ...]]],
+    batches: Sequence[CapturePackedRenderBatch | tuple[TorchCaptureTrainingBatch, int | None, int | None, tuple[dict[str, Any], ...]]],
     *,
     config: TorchOptimizationConfig,
     device: str,
@@ -274,7 +269,8 @@ def _optimize_torch_batches(
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
         iteration_rendered: list[TorchRenderBatch] = []
-        for batch, batch_index, target_offset, source_windows in batches:
+        for batch_item in batches:
+            batch, batch_index, target_offset, source_windows = _prepared_optimization_batch(batch_item, device=device)
             sample_count = _batch_sample_count(batch)
             if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
                 raise ValueError(
@@ -366,6 +362,21 @@ def _optimize_torch_batches(
     if rendered is not None:
         current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
     return current_scene, tuple(steps), tuple(scene_checkpoints)
+
+
+def _prepared_optimization_batch(
+    batch_item: CapturePackedRenderBatch | tuple[TorchCaptureTrainingBatch, int | None, int | None, tuple[dict[str, Any], ...]],
+    *,
+    device: str,
+) -> tuple[TorchCaptureTrainingBatch, int | None, int | None, tuple[dict[str, Any], ...]]:
+    if isinstance(batch_item, CapturePackedRenderBatch):
+        return (
+            torch_capture_training_batch_from_packed(batch_item, device=device),
+            batch_item.batch_index,
+            batch_item.target_offset,
+            tuple(window.to_dict() for window in batch_item.source_windows),
+        )
+    return batch_item
 
 
 def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:
