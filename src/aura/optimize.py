@@ -18,6 +18,7 @@ class RenderTarget:
     target_semantic_id: str | None = None
     target_material_id: str | None = None
     target_normal: Vec3 | None = None
+    target_confidence: float | None = None
 
     def __post_init__(self) -> None:
         if not self.frame_id:
@@ -27,6 +28,8 @@ class RenderTarget:
             raise ValueError("render target depth must be positive")
         if self.target_normal is not None:
             _validate_vec3(self.target_normal, "render target normal")
+        if self.target_confidence is not None and not 0.0 <= self.target_confidence <= 1.0:
+            raise ValueError("render target confidence must be in [0, 1]")
 
 
 @dataclass(frozen=True)
@@ -36,12 +39,13 @@ class TrainingLossWeights:
     query: float = 1.0
     normal: float = 1.0
     mask: float = 1.0
+    confidence: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in asdict(self).items():
             if not isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} loss weight must be finite and non-negative")
-        if self.image + self.depth + self.query + self.normal + self.mask <= 0.0:
+        if self.image + self.depth + self.query + self.normal + self.mask + self.confidence <= 0.0:
             raise ValueError("at least one training loss weight must be positive")
 
     def total(
@@ -52,6 +56,7 @@ class TrainingLossWeights:
         query_loss: float,
         normal_loss: float,
         mask_loss: float = 0.0,
+        confidence_loss: float = 0.0,
     ) -> float:
         return (
             self.image * image_loss
@@ -59,6 +64,7 @@ class TrainingLossWeights:
             + self.query * query_loss
             + self.normal * normal_loss
             + self.mask * mask_loss
+            + self.confidence * confidence_loss
         )
 
     def to_dict(self) -> dict:
@@ -91,6 +97,7 @@ class DifferentiableRaySample:
     query_loss: float
     normal_loss: float
     mask_loss: float
+    confidence_loss: float
     total_loss: float
     loss_weights: dict[str, float]
     color_jacobian: float
@@ -145,12 +152,14 @@ def _differentiate_target(
     )
     normal_loss = _normal_loss(result.normal, target.target_normal)
     mask_loss = 0.0
+    confidence_loss = _confidence_loss(result.confidence, target.target_confidence)
     total_loss = loss_weights.total(
         image_loss=image_loss,
         depth_loss=depth_loss,
         query_loss=query_loss,
         normal_loss=normal_loss,
         mask_loss=mask_loss,
+        confidence_loss=confidence_loss,
     )
     color_jacobian = _color_jacobian(element, result.color)
     color_gradient = tuple(
@@ -186,6 +195,7 @@ def _differentiate_target(
         query_loss=query_loss,
         normal_loss=normal_loss,
         mask_loss=mask_loss,
+        confidence_loss=confidence_loss,
         total_loss=total_loss,
         loss_weights=loss_weights.to_dict(),
         color_jacobian=color_jacobian,
@@ -257,6 +267,13 @@ def _normal_loss(predicted: Vec3 | None, target: Vec3 | None) -> float:
         return 1.0
     cosine = sum(left * right for left, right in zip(predicted_norm, target_norm))
     return max(0.0, min(1.0, (1.0 - cosine) / 2.0))
+
+
+def _confidence_loss(predicted: float, target: float | None) -> float:
+    if target is None:
+        return 0.0
+    delta = predicted - target
+    return delta * delta
 
 
 def _normalize(vector: Vec3) -> Vec3 | None:

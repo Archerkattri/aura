@@ -74,6 +74,7 @@ class TorchOptimizationStep:
     query_loss: float
     normal_loss: float
     mask_loss: float
+    confidence_loss: float
     total_loss: float
     carrier_counts: dict[str, int]
     loss_weights: dict[str, float]
@@ -216,6 +217,7 @@ def _optimization_step_from_rendered(
     source_windows: tuple[dict[str, Any], ...],
     loss_weights: TrainingLossWeights,
     mask_loss: float,
+    confidence_loss: float,
     query_loss: float | None,
     update: "_TorchGradientStepState",
     max_samples_per_batch: int | None,
@@ -235,12 +237,14 @@ def _optimization_step_from_rendered(
         query_loss=query_loss,
         normal_loss=normal_loss,
         mask_loss=mask_loss,
+        confidence_loss=confidence_loss,
         total_loss=loss_weights.total(
             image_loss=image_loss,
             depth_loss=depth_loss,
             query_loss=query_loss,
             normal_loss=normal_loss,
             mask_loss=mask_loss,
+            confidence_loss=confidence_loss,
         ),
         carrier_counts=_carrier_counts(elements),
         loss_weights=loss_weights.to_dict(),
@@ -319,6 +323,7 @@ def _optimize_torch_batches(
                     source_windows=source_windows,
                     loss_weights=config.loss_weights,
                     mask_loss=_tensor_scalar(checkpoint_objective.mask_loss),
+                    confidence_loss=_tensor_scalar(checkpoint_objective.confidence_loss),
                     query_loss=_tensor_scalar(checkpoint_objective.query_loss),
                     update=update,
                     max_samples_per_batch=config.max_samples_per_batch,
@@ -646,6 +651,7 @@ def _weighted_torch_loss(objective: Any, loss_weights: TrainingLossWeights) -> A
         + loss_weights.query * objective.query_loss
         + loss_weights.normal * objective.normal_loss
         + loss_weights.mask * objective.mask_loss
+        + loss_weights.confidence * objective.confidence_loss
     )
 
 
@@ -660,6 +666,7 @@ def _loss_curve(steps: Sequence[TorchOptimizationStep]) -> list[dict[str, float 
             "queryLoss": step.query_loss,
             "normalLoss": step.normal_loss,
             "maskLoss": step.mask_loss,
+            "confidenceLoss": step.confidence_loss,
             "totalLoss": step.total_loss,
         }
         for step in steps
@@ -680,6 +687,7 @@ def _checkpoint_from_step(index: int, step: TorchOptimizationStep) -> dict[str, 
             "query": step.query_loss,
             "normal": step.normal_loss,
             "mask": step.mask_loss,
+            "confidence": step.confidence_loss,
             "total": step.total_loss,
         },
         "gradientNorm": step.gradient_norm,

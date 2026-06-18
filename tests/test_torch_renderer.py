@@ -555,6 +555,47 @@ def test_torch_render_target_objective_backpropagates_carrier_parameters():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_backpropagates_confidence_target():
+    scene = AuraScene(
+        name="torch_confidence_objective_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=0.2,
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    torch = require_torch()
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+
+    objective = torch_render_target_objective(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.0,
+                target_confidence=1.0,
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+    objective.confidence_loss.backward()
+
+    assert objective.confidence_loss.detach().cpu().item() == pytest.approx(0.64)
+    assert objective.to_dict()["confidenceLoss"] == pytest.approx(0.64)
+    assert carrier_parameters["surface"]["confidence"].grad is not None
+    assert carrier_parameters["surface"]["confidence"].grad.detach().cpu().item() < 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_target_objective_backpropagates_surface_geometry_parameters():
     scene = AuraScene(
         name="torch_surface_geometry_objective_scene",

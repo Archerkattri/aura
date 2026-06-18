@@ -50,6 +50,7 @@ class TorchRenderBatch:
     target_color: tuple[tuple[float, float, float], ...]
     target_depth: tuple[float, ...]
     target_normal: tuple[tuple[float, float, float] | None, ...]
+    target_confidence: tuple[float | None, ...]
     target_semantic_ids: tuple[str | None, ...]
     target_material_ids: tuple[str | None, ...]
     image_loss: tuple[float, ...]
@@ -79,6 +80,7 @@ class TorchRenderBatch:
             "targetColor": [list(color) for color in self.target_color],
             "targetDepth": list(self.target_depth),
             "targetNormal": [list(normal) if normal is not None else None for normal in self.target_normal],
+            "targetConfidence": list(self.target_confidence),
             "targetSemanticIds": list(self.target_semantic_ids),
             "targetMaterialIds": list(self.target_material_ids),
             "imageLoss": list(self.image_loss),
@@ -99,6 +101,7 @@ class TorchRenderObjective:
     query_loss: Any
     normal_loss: Any
     mask_loss: Any
+    confidence_loss: Any
 
     def to_dict(self) -> dict:
         return {
@@ -110,6 +113,7 @@ class TorchRenderObjective:
             "queryLoss": float(self.query_loss.detach().cpu().item()),
             "normalLoss": float(self.normal_loss.detach().cpu().item()),
             "maskLoss": float(self.mask_loss.detach().cpu().item()),
+            "confidenceLoss": float(self.confidence_loss.detach().cpu().item()),
             "carrierParameterIds": sorted(self.carrier_parameters),
         }
 
@@ -212,6 +216,8 @@ class TorchCaptureTrainingBatch:
     target_mask: Any | None
     target_normal: Any | None
     target_normal_present: Any | None
+    target_confidence: Any | None = None
+    target_confidence_present: Any | None = None
     target_semantic_ids: tuple[str | None, ...] = ()
     target_material_ids: tuple[str | None, ...] = ()
 
@@ -228,6 +234,8 @@ class TorchCaptureTrainingBatch:
             "targetMask": _torch_tensor_metadata(self.target_mask),
             "targetNormal": _torch_tensor_metadata(self.target_normal),
             "targetNormalPresent": _torch_tensor_metadata(self.target_normal_present),
+            "targetConfidence": _torch_tensor_metadata(self.target_confidence),
+            "targetConfidencePresent": _torch_tensor_metadata(self.target_confidence_present),
             "targetSemanticIds": list(self.target_semantic_ids),
             "targetMaterialIds": list(self.target_material_ids),
         }
@@ -438,6 +446,8 @@ def torch_capture_training_batch(
     target_mask = assets.mask[index_tensor, y_index, x_index, 0] if assets.mask is not None else None
     target_normal = assets.normal[index_tensor, y_index, x_index, :3] if assets.normal is not None else None
     target_normal_present = assets.normal_present[index_tensor] if assets.normal_present is not None else None
+    target_confidence = torch.ones((len(frame_indices),), dtype=torch.float32, device=device)
+    target_confidence_present = torch.ones((len(frame_indices),), dtype=torch.bool, device=device)
     return TorchCaptureTrainingBatch(
         device=str(device),
         frame_ids=tuple(assets.frame_ids),
@@ -450,6 +460,8 @@ def torch_capture_training_batch(
         target_mask=target_mask,
         target_normal=target_normal,
         target_normal_present=target_normal_present,
+        target_confidence=target_confidence,
+        target_confidence_present=target_confidence_present,
         target_semantic_ids=tuple(by_frame[assets.frame_ids[index]].semantic_label for index in frame_indices),
         target_material_ids=(None,) * len(frame_indices),
     )
@@ -485,6 +497,8 @@ def torch_capture_training_batch_from_packed(
         if batch.target_normal_present is not None
         else None
     )
+    target_confidence = torch.ones((target_count,), dtype=torch.float32, device=resolved_device)
+    target_confidence_present = torch.ones((target_count,), dtype=torch.bool, device=resolved_device)
     return TorchCaptureTrainingBatch(
         device=str(resolved_device),
         frame_ids=batch.frame_ids,
@@ -497,6 +511,8 @@ def torch_capture_training_batch_from_packed(
         target_mask=target_mask,
         target_normal=target_normal,
         target_normal_present=target_normal_present,
+        target_confidence=target_confidence,
+        target_confidence_present=target_confidence_present,
         target_semantic_ids=tuple(batch.frame_semantic_ids[int(index)] for index in frame_indices.detach().cpu().tolist()),
         target_material_ids=(None,) * target_count,
     )
@@ -525,6 +541,8 @@ def torch_render_capture_training_batch(
         target_depths=batch.target_depth,
         target_normals=batch.target_normal,
         target_normal_present=batch.target_normal_present,
+        target_confidence=batch.target_confidence,
+        target_confidence_present=batch.target_confidence_present,
         target_semantic_ids=batch.target_semantic_ids,
         target_material_ids=batch.target_material_ids,
         device=str(batch.ray_origins.device),
@@ -556,6 +574,8 @@ def torch_render_capture_training_objective(
         target_mask=batch.target_mask,
         target_normals=batch.target_normal,
         target_normal_present=batch.target_normal_present,
+        target_confidence=batch.target_confidence,
+        target_confidence_present=batch.target_confidence_present,
         target_semantic_ids=batch.target_semantic_ids,
         target_material_ids=batch.target_material_ids,
         device=str(batch.ray_origins.device),
@@ -597,6 +617,12 @@ def torch_render_targets(
         device=resolved_device,
     )
     target_normal_present = torch.tensor([target.target_normal is not None for target in targets], dtype=torch.bool, device=resolved_device)
+    target_confidence = torch.tensor(
+        [target.target_confidence if target.target_confidence is not None else 0.0 for target in targets],
+        dtype=torch.float32,
+        device=resolved_device,
+    )
+    target_confidence_present = torch.tensor([target.target_confidence is not None for target in targets], dtype=torch.bool, device=resolved_device)
     return _torch_render_tensor_targets(
         scene,
         frame_ids=tuple(target.frame_id for target in targets),
@@ -606,6 +632,8 @@ def torch_render_targets(
         target_depths=target_depths,
         target_normals=target_normals,
         target_normal_present=target_normal_present,
+        target_confidence=target_confidence,
+        target_confidence_present=target_confidence_present,
         target_semantic_ids=tuple(target.target_semantic_id for target in targets),
         target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
@@ -645,6 +673,12 @@ def torch_render_target_objective(
             device=resolved_device,
         ),
         target_normal_present=torch.tensor([target.target_normal is not None for target in targets], dtype=torch.bool, device=resolved_device),
+        target_confidence=torch.tensor(
+            [target.target_confidence if target.target_confidence is not None else 0.0 for target in targets],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
+        target_confidence_present=torch.tensor([target.target_confidence is not None for target in targets], dtype=torch.bool, device=resolved_device),
         target_semantic_ids=tuple(target.target_semantic_id for target in targets),
         target_material_ids=tuple(target.target_material_id for target in targets),
         device=str(resolved_device),
@@ -663,6 +697,8 @@ def _torch_render_tensor_targets(
     target_depths: Any,
     target_normals: Any | None,
     target_normal_present: Any | None,
+    target_confidence: Any | None,
+    target_confidence_present: Any | None,
     target_semantic_ids: Sequence[str | None],
     target_material_ids: Sequence[str | None],
     device: str,
@@ -682,10 +718,18 @@ def _torch_render_tensor_targets(
         raise ValueError("torch target normal count must match frame ids")
     if target_normal_present is not None and int(target_normal_present.shape[0]) != len(frame_ids):
         raise ValueError("torch target normal presence count must match frame ids")
+    if target_confidence is not None and int(target_confidence.shape[0]) != len(frame_ids):
+        raise ValueError("torch target confidence count must match frame ids")
+    if target_confidence_present is not None and int(target_confidence_present.shape[0]) != len(frame_ids):
+        raise ValueError("torch target confidence presence count must match frame ids")
     if target_normals is None:
         target_normals = torch.zeros((len(frame_ids), 3), dtype=torch.float32, device=device)
     if target_normal_present is None:
         target_normal_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
+    if target_confidence is None:
+        target_confidence = torch.zeros((len(frame_ids),), dtype=torch.float32, device=device)
+    if target_confidence_present is None:
+        target_confidence_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
     scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
     colors = scene_tensors.colors
@@ -804,6 +848,7 @@ def _torch_render_tensor_targets(
         target_color=_tensor_vec3_tuple(target_colors.detach().cpu().tolist()),
         target_depth=tuple(float(value) for value in target_depths.detach().cpu().tolist()),
         target_normal=_optional_target_normal_tuple(target_normals, target_normal_present),
+        target_confidence=_optional_target_confidence_tuple(target_confidence, target_confidence_present),
         target_semantic_ids=tuple(target_semantic_ids),
         target_material_ids=tuple(target_material_ids),
         image_loss=tuple(float(value) for value in image_loss.detach().cpu().tolist()),
@@ -825,6 +870,8 @@ def _torch_render_objective_tensor_targets(
     target_mask: Any | None = None,
     target_normals: Any | None = None,
     target_normal_present: Any | None = None,
+    target_confidence: Any | None = None,
+    target_confidence_present: Any | None = None,
     target_semantic_ids: Sequence[str | None] = (),
     target_material_ids: Sequence[str | None] = (),
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
@@ -837,6 +884,14 @@ def _torch_render_objective_tensor_targets(
         raise ValueError("torch target semantic id count must match frame ids")
     if target_material_ids and len(target_material_ids) != len(frame_ids):
         raise ValueError("torch target material id count must match frame ids")
+    if target_confidence is not None and int(target_confidence.shape[0]) != len(frame_ids):
+        raise ValueError("torch target confidence count must match frame ids")
+    if target_confidence_present is not None and int(target_confidence_present.shape[0]) != len(frame_ids):
+        raise ValueError("torch target confidence presence count must match frame ids")
+    if target_confidence is None:
+        target_confidence = torch.zeros((len(frame_ids),), dtype=torch.float32, device=device)
+    if target_confidence_present is None:
+        target_confidence_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
     scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
     colors = scene_tensors.colors
@@ -901,9 +956,11 @@ def _torch_render_objective_tensor_targets(
     predicted_colors = composited["color"]
     predicted_depths = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
     predicted_opacity = 1.0 - composited["transmittance"]
+    predicted_confidence = composited["confidence"]
     image_loss = torch.mean((predicted_colors - target_colors) ** 2)
     depth_loss = torch.mean(torch.where(has_hit, torch.abs(predicted_depths - target_depths), target_depths))
     mask_loss = _torch_mask_loss(torch, predicted_opacity, target_mask)
+    confidence_loss = _torch_confidence_loss(torch, predicted_confidence, target_confidence, target_confidence_present)
     predicted_normals, predicted_normal_present = _predicted_normal_tensors_from_indices(
         torch,
         first_index,
@@ -924,12 +981,13 @@ def _torch_render_objective_tensor_targets(
         device=device,
         frame_ids=tuple(frame_ids),
         carrier_parameters=carrier_parameters,
-        total_loss=image_loss + depth_loss + query_loss + normal_loss + mask_loss,
+        total_loss=image_loss + depth_loss + query_loss + normal_loss + mask_loss + confidence_loss,
         image_loss=image_loss,
         depth_loss=depth_loss,
         query_loss=query_loss,
         normal_loss=normal_loss,
         mask_loss=mask_loss,
+        confidence_loss=confidence_loss,
     )
 
 
@@ -1811,6 +1869,16 @@ def _torch_mask_loss(torch: Any, predicted_opacity: Any, target_mask: Any | None
     return torch.mean((predicted_opacity - torch.clamp(target_mask, min=0.0, max=1.0)) ** 2)
 
 
+def _torch_confidence_loss(torch: Any, predicted_confidence: Any, target_confidence: Any | None, target_confidence_present: Any | None) -> Any:
+    if target_confidence is None or target_confidence_present is None:
+        return torch.zeros((), dtype=torch.float32, device=predicted_confidence.device)
+    present = target_confidence_present.to(dtype=torch.bool)
+    if not bool(torch.any(present).detach().cpu().item()):
+        return torch.zeros((), dtype=torch.float32, device=predicted_confidence.device)
+    clamped_target = torch.clamp(target_confidence, min=0.0, max=1.0)
+    return torch.mean((predicted_confidence[present] - clamped_target[present]) ** 2)
+
+
 def _torch_query_contract_loss(
     torch: Any,
     elements: Sequence[Any],
@@ -1847,6 +1915,14 @@ def _optional_target_normal_tuple(target_normals: Any | None, target_normal_pres
     values = target_normals.detach().cpu().tolist()
     present = target_normal_present.detach().cpu().tolist()
     return tuple(tuple(float(channel) for channel in value) if is_present else None for value, is_present in zip(values, present))  # type: ignore[return-value]
+
+
+def _optional_target_confidence_tuple(target_confidence: Any | None, target_confidence_present: Any | None) -> tuple[float | None, ...]:
+    if target_confidence is None or target_confidence_present is None:
+        return ()
+    values = target_confidence.detach().cpu().tolist()
+    present = target_confidence_present.detach().cpu().tolist()
+    return tuple(float(value) if is_present else None for value, is_present in zip(values, present))
 
 
 def _query_contract_loss(
