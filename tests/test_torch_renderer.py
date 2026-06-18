@@ -391,6 +391,10 @@ def test_torch_scene_tensors_groups_native_demo_carriers_for_dispatch():
         "surface": [0],
         "volume": [1],
     }
+    assert payload["gaborPlanePoints"]["shape"] == [len(scene.elements), 3]
+    assert payload["gaborNormals"]["shape"] == [len(scene.elements), 3]
+    assert scene_tensors.gabor_plane_points[2].tolist() == pytest.approx([0.7, -0.45, 0.075])
+    assert scene_tensors.gabor_normals[2].tolist() == pytest.approx([0.0, 0.0, 1.0])
     assert payload["betaSupportRadii"]["shape"] == [len(scene.elements), 3]
     assert scene_tensors.beta_support_radii[5].tolist() == pytest.approx([0.15, 0.15, 0.075])
     assert sorted(index for indices in payload["carrierGroupIndices"].values() for index in indices) == list(range(len(scene.elements)))
@@ -1116,6 +1120,46 @@ def test_torch_render_targets_uses_gaussian_ellipsoid_support():
     assert batch.element_ids == (None,)
     assert batch.predicted_depth == (None,)
     assert batch.predicted_color == ((0.0, 0.0, 0.0),)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_gabor_surface_support_plane():
+    scene = AuraScene(
+        name="torch_gabor_surface_geometry_scene",
+        elements=(
+            AuraElement(
+                id="gabor",
+                carrier_id="gabor",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.2)),
+                color=(1.0, 0.5, 0.25),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gabor_frequency",
+                    "frequency": [1.0, 0.0, 0.0],
+                    "bandwidth": 0.5,
+                    "phase": 0.0,
+                },
+            ),
+        ),
+    )
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.5, 0.25),
+                target_depth=2.1,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert batch.element_ids == ("gabor",)
+    assert batch.predicted_depth == pytest.approx((2.1,))
+    assert batch.ordered_hits[0][0]["depth"] == pytest.approx(2.1)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

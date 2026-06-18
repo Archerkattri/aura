@@ -131,6 +131,8 @@ class TorchSceneTensors:
     confidences: Any
     surface_plane_points: Any
     surface_normals: Any
+    gabor_plane_points: Any
+    gabor_normals: Any
     element_normals: Any
     element_normal_present: Any
     gaussian_means: Any
@@ -159,6 +161,8 @@ class TorchSceneTensors:
             "confidences": _torch_tensor_metadata(self.confidences),
             "surfacePlanePoints": _torch_tensor_metadata(self.surface_plane_points),
             "surfaceNormals": _torch_tensor_metadata(self.surface_normals),
+            "gaborPlanePoints": _torch_tensor_metadata(self.gabor_plane_points),
+            "gaborNormals": _torch_tensor_metadata(self.gabor_normals),
             "elementNormals": _torch_tensor_metadata(self.element_normals),
             "elementNormalPresent": _torch_tensor_metadata(self.element_normal_present),
             "gaussianMeans": _torch_tensor_metadata(self.gaussian_means),
@@ -291,6 +295,16 @@ def torch_scene_tensors(
         confidences=torch.tensor([element.confidence for element in elements], dtype=torch.float32, device=resolved_device),
         surface_plane_points=torch.tensor([_surface_plane_point_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
         surface_normals=torch.tensor([_surface_normal_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
+        gabor_plane_points=torch.tensor(
+            [_gabor_plane_point_or_nan(element) for element in elements],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
+        gabor_normals=torch.tensor(
+            [_gabor_normal_or_nan(element) for element in elements],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
         element_normals=torch.tensor([_normal_for(element) or (0.0, 0.0, 0.0) for element in elements], dtype=torch.float32, device=resolved_device),
         element_normal_present=torch.tensor([_normal_for(element) is not None for element in elements], dtype=torch.bool, device=resolved_device),
         gaussian_means=torch.tensor([_gaussian_mean_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
@@ -703,6 +717,8 @@ def _torch_render_tensor_targets(
         scene_tensors.element_chunk_indices,
         surface_plane_points,
         scene_tensors.surface_normals,
+        scene_tensors.gabor_plane_points,
+        scene_tensors.gabor_normals,
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
@@ -829,6 +845,8 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.element_chunk_indices,
         surface_plane_points,
         scene_tensors.surface_normals,
+        scene_tensors.gabor_plane_points,
+        scene_tensors.gabor_normals,
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
@@ -950,6 +968,8 @@ def _torch_composite_carrier_hits(
     element_chunk_indices: Any | None,
     surface_plane_points: Any,
     surface_normals: Any,
+    gabor_plane_points: Any,
+    gabor_normals: Any,
     gaussian_means: Any,
     gaussian_inverse_covariances: Any,
     gaussian_support_radius_sq: Any,
@@ -968,6 +988,8 @@ def _torch_composite_carrier_hits(
         maxs,
         surface_plane_points,
         surface_normals,
+        gabor_plane_points,
+        gabor_normals,
         gaussian_means,
         gaussian_inverse_covariances,
         gaussian_support_radius_sq,
@@ -1086,6 +1108,8 @@ def _torch_carrier_hits(
     maxs: Any,
     surface_plane_points: Any,
     surface_normals: Any,
+    gabor_plane_points: Any,
+    gabor_normals: Any,
     gaussian_means: Any,
     gaussian_inverse_covariances: Any,
     gaussian_support_radius_sq: Any,
@@ -1151,6 +1175,20 @@ def _torch_carrier_hits(
             current_hits = torch.where(valid, bounded_hits, current_hits)
             current_entry = torch.where(valid, bounded_entry, current_entry)
             current_exit = torch.where(valid, bounded_exit, current_exit)
+        elif payload_type == "gabor_frequency":
+            gabor_entry, gabor_exit, gabor_hits = _torch_surface_plane_hits(
+                torch,
+                origins,
+                directions,
+                mins[element_index],
+                maxs[element_index],
+                gabor_plane_points[element_index],
+                gabor_normals[element_index],
+            )
+            valid = torch.isfinite(gabor_entry) & torch.isfinite(gabor_exit)
+            current_hits = torch.where(valid, gabor_hits, current_hits)
+            current_entry = torch.where(valid, gabor_entry, current_entry)
+            current_exit = torch.where(valid, gabor_exit, current_exit)
         entry_columns.append(current_entry)
         exit_columns.append(current_exit)
         hit_columns.append(current_hits)
@@ -1428,6 +1466,41 @@ def _surface_plane_point_or_nan(element: Any) -> tuple[float, float, float]:
     dominant_axis = max(range(3), key=lambda index: abs(normal[index]))
     center[dominant_axis] = min_corner[dominant_axis] if normal[dominant_axis] < 0.0 else max_corner[dominant_axis]
     return tuple(center)  # type: ignore[return-value]
+
+
+def _gabor_normal_or_nan(element: Any) -> tuple[float, float, float]:
+    if element.payload.get("type") != "gabor_frequency" and element.carrier_id != "gabor":
+        return (float("nan"), float("nan"), float("nan"))
+    normal = element.payload.get("normal")
+    if isinstance(normal, (list, tuple)) and len(normal) == 3:
+        try:
+            return _normalize(tuple(float(value) for value in normal))
+        except ValueError:
+            return (float("nan"), float("nan"), float("nan"))
+
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    extents = tuple(max_corner[index] - min_corner[index] for index in range(3))
+    if any(value <= 0.0 for value in extents):
+        return (float("nan"), float("nan"), float("nan"))
+    axis = min(range(3), key=lambda index: extents[index])
+    normal_values = [0.0, 0.0, 0.0]
+    normal_values[axis] = 1.0
+    return tuple(normal_values)  # type: ignore[return-value]
+
+
+def _gabor_plane_point_or_nan(element: Any) -> tuple[float, float, float]:
+    normal = _gabor_normal_or_nan(element)
+    if any(value != value for value in normal):
+        return (float("nan"), float("nan"), float("nan"))
+    point = element.payload.get("plane_point") or element.payload.get("point")
+    if isinstance(point, (list, tuple)) and len(point) == 3:
+        return tuple(float(value) for value in point)  # type: ignore[return-value]
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    return tuple(
+        (min_corner[index] + max_corner[index]) * 0.5 for index in range(3)
+    )  # type: ignore[return-value]
 
 
 def _gaussian_inverse_covariance_or_nan(element: Any) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
