@@ -405,7 +405,8 @@ def _optimize_torch_batches(
                         max_samples_per_batch=config.max_samples_per_batch,
                     )
                 )
-        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
+        if evolution_enabled or checkpoint_due:
+            current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
         if evolution_enabled and iteration_rendered:
             predictions = tuple(
                 prediction

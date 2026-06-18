@@ -215,13 +215,20 @@ def test_torch_optimize_capture_batch_avoids_per_step_render_serialization_witho
     )
     batch = torch_capture_training_batch((frame,), assets)
     original_render = torch_optimizer_module.torch_render_capture_training_batch
+    original_scene_from_parameters = torch_optimizer_module._scene_from_carrier_parameters
     render_batch_calls = []
+    scene_materialization_calls = []
 
     def counted_render(*args, **kwargs):
         render_batch_calls.append(1)
         return original_render(*args, **kwargs)
 
+    def counted_scene_from_parameters(*args, **kwargs):
+        scene_materialization_calls.append(1)
+        return original_scene_from_parameters(*args, **kwargs)
+
     monkeypatch.setattr(torch_optimizer_module, "torch_render_capture_training_batch", counted_render)
+    monkeypatch.setattr(torch_optimizer_module, "_scene_from_carrier_parameters", counted_scene_from_parameters)
 
     result = torch_optimize_capture_batch(
         scene,
@@ -236,6 +243,7 @@ def test_torch_optimize_capture_batch_avoids_per_step_render_serialization_witho
 
     assert len(result.steps) == 3
     assert render_batch_calls == [1]
+    assert scene_materialization_calls == [1]
     assert result.scene.elements[0].metadata["optimized_by"] == "aura-core-torch-autograd"
 
 
