@@ -747,6 +747,42 @@ def torch_render_rays(
     )
 
 
+def torch_render_ray_color_tensor(
+    scene: AuraScene,
+    ray_origins: Any,
+    ray_directions: Any,
+    *,
+    device: str | None = None,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
+) -> Any:
+    """Render raw rays and return only the predicted color tensor."""
+
+    if not scene.elements:
+        raise ValueError("torch renderer requires at least one scene element")
+    status = torch_renderer_status()
+    resolved_device = device or (scene_tensors.device if scene_tensors is not None else None) or status.default_device or "cpu"
+    torch = require_torch()
+    origins = _torch_ray_tensor(torch, ray_origins, name="ray_origins", device=resolved_device)
+    directions = _torch_ray_tensor(torch, ray_directions, name="ray_directions", device=resolved_device)
+    ray_count = int(origins.shape[0])
+    if int(directions.shape[0]) != ray_count:
+        raise ValueError(f"ray_origins count {ray_count} does not match ray_directions count {int(directions.shape[0])}")
+    if ray_count <= 0:
+        raise ValueError("ray_count must be positive")
+    composited, _, _ = _torch_composited_scene_rays(
+        torch,
+        scene,
+        origins,
+        directions,
+        device=str(resolved_device),
+        carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
+        collect_traces=False,
+    )
+    return composited["color"]
+
+
 def torch_render_tensor_targets(
     scene: AuraScene,
     *,
@@ -959,61 +995,14 @@ def _torch_render_tensor_targets(
     if target_confidence_present is None:
         target_confidence_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
-    scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
-    colors = scene_tensors.colors
-    opacities = scene_tensors.opacities
-    confidences = scene_tensors.confidences
-    carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
-    (
-        mins,
-        maxs,
-        surface_plane_points,
-        gabor_plane_points,
-        gaussian_means,
-        gaussian_inverse_covariances,
-        beta_support_radii,
-        surface_normals,
-        gabor_normals,
-        element_normals,
-    ) = _torch_geometry_from_carrier_parameters(
+    composited, scene_tensors, element_normals = _torch_composited_scene_rays(
         torch,
-        tuple(scene.elements),
-        carrier_parameters,
-        scene_tensors.mins,
-        scene_tensors.maxs,
-        scene_tensors.surface_plane_points,
-        scene_tensors.gabor_plane_points,
-        scene_tensors.gaussian_means,
-        scene_tensors.gaussian_inverse_covariances,
-        scene_tensors.beta_support_radii,
-        scene_tensors.surface_normals,
-        scene_tensors.gabor_normals,
-        scene_tensors.element_normals,
-    )
-
-    composited = _torch_composite_carrier_hits(
-        torch,
-        tuple(scene.elements),
+        scene,
         origins,
         directions,
-        mins,
-        maxs,
-        colors,
-        opacities,
-        confidences,
-        scene_tensors.chunk_mins,
-        scene_tensors.chunk_maxs,
-        scene_tensors.element_chunk_indices,
-        surface_plane_points,
-        surface_normals,
-        gabor_plane_points,
-        gabor_normals,
-        gaussian_means,
-        gaussian_inverse_covariances,
-        scene_tensors.gaussian_support_radius_sq,
-        beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
         collect_traces=collect_traces,
     )
     has_hit = composited["has_hit"]
@@ -1094,6 +1083,73 @@ def _torch_render_tensor_targets(
         normal_loss=tuple(float(value) for value in normal_loss.detach().cpu().tolist()),
         query_loss=query_loss,
     )
+
+
+def _torch_composited_scene_rays(
+    torch: Any,
+    scene: AuraScene,
+    origins: Any,
+    directions: Any,
+    *,
+    device: str,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    scene_tensors: TorchSceneTensors | None,
+    collect_traces: bool,
+) -> tuple[dict[str, Any], TorchSceneTensors, Any]:
+    scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
+    carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
+    (
+        mins,
+        maxs,
+        surface_plane_points,
+        gabor_plane_points,
+        gaussian_means,
+        gaussian_inverse_covariances,
+        beta_support_radii,
+        surface_normals,
+        gabor_normals,
+        element_normals,
+    ) = _torch_geometry_from_carrier_parameters(
+        torch,
+        tuple(scene.elements),
+        carrier_parameters,
+        scene_tensors.mins,
+        scene_tensors.maxs,
+        scene_tensors.surface_plane_points,
+        scene_tensors.gabor_plane_points,
+        scene_tensors.gaussian_means,
+        scene_tensors.gaussian_inverse_covariances,
+        scene_tensors.beta_support_radii,
+        scene_tensors.surface_normals,
+        scene_tensors.gabor_normals,
+        scene_tensors.element_normals,
+    )
+    composited = _torch_composite_carrier_hits(
+        torch,
+        tuple(scene.elements),
+        origins,
+        directions,
+        mins,
+        maxs,
+        scene_tensors.colors,
+        scene_tensors.opacities,
+        scene_tensors.confidences,
+        scene_tensors.chunk_mins,
+        scene_tensors.chunk_maxs,
+        scene_tensors.element_chunk_indices,
+        surface_plane_points,
+        surface_normals,
+        gabor_plane_points,
+        gabor_normals,
+        gaussian_means,
+        gaussian_inverse_covariances,
+        scene_tensors.gaussian_support_radius_sq,
+        beta_support_radii,
+        device=device,
+        carrier_parameters=carrier_parameters,
+        collect_traces=collect_traces,
+    )
+    return composited, scene_tensors, element_normals
 
 
 def _torch_render_objective_tensor_targets(

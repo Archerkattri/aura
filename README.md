@@ -15,7 +15,7 @@ posed capture assets and exports a queryable `.aura` scene package.
 
 ## Current Status
 
-Internal completion estimate: **90%**.
+Internal completion estimate: **98%**.
 
 Implemented now:
 
@@ -39,6 +39,17 @@ Implemented now:
 - batched torch carrier response evaluation, so render batches avoid the older
   Python per-hit response loop for native carrier colors, opacity, confidence,
   semantics, materials, residuals, and Gaussian fallback weights;
+- raw torch ray rendering for already-device-resident origin/direction tensors,
+  avoiding Python `RenderTarget` wrappers on the main GPU render path;
+- tensor-native reconstruction target rendering, so training and reconstruction
+  can pass batched rays directly through the torch renderer without serializing
+  per-target Python objects first;
+- torch orthographic rendering that builds camera rays on the selected device
+  and skips full ordered hit trace serialization for preview images;
+- reuse of rendered capture ray tensors in benchmark expectation generation,
+  reducing CPU round-trips in GPU-facing evaluation paths;
+- deferred gradient norm synchronization during optimization, so training keeps
+  gradient statistics device-resident until reports need scalar values;
 - trainable native carrier parameters for color, opacity/density, shape,
   normals, confidence, residual scale, and frequency fields where supported;
 - configurable image, depth, query, normal, mask, and confidence loss weights;

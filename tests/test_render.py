@@ -176,6 +176,36 @@ def test_render_orthographic_torch_skips_ordered_trace_serialization(monkeypatch
     assert all(pixel == pytest.approx((1.0, 0.0, 0.0)) for pixel in image.pixels)
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_render_orthographic_torch_uses_color_tensor_path(monkeypatch):
+    scene = AuraScene(
+        name="torch_color_tensor_preview",
+        elements=(
+            AuraElement(
+                id="red",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    def fail_full_batch_render(*_args, **_kwargs):
+        raise AssertionError("torch preview render should not build a full render batch")
+
+    monkeypatch.setattr(torch_renderer_module, "torch_render_rays", fail_full_batch_render)
+    monkeypatch.setattr(torch_renderer_module, "_torch_render_tensor_targets", fail_full_batch_render)
+
+    image = render_orthographic_torch(scene, width=2, height=2, device="cpu")
+
+    assert image.width == 2
+    assert image.height == 2
+    assert all(pixel == pytest.approx((1.0, 0.0, 0.0)) for pixel in image.pixels)
+
+
 def test_render_image_writes_ascii_ppm(tmp_path):
     image = RenderImage(width=2, height=1, pixels=((1.0, 0.0, 0.0), (0.0, 0.5, 1.0)))
 

@@ -177,6 +177,7 @@ from aura.torch_renderer import (
     torch_capture_training_batch_from_packed,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
+    torch_render_ray_color_tensor,
     torch_render_rays,
     torch_render_target_objective,
     torch_render_tensor_targets,

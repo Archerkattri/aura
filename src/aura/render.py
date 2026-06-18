@@ -153,7 +153,7 @@ def render_orthographic_torch(
 ) -> RenderImage:
     """Render an orthographic preview through the native tensor torch renderer."""
 
-    from aura.torch_renderer import require_torch, torch_render_rays, torch_renderer_status
+    from aura.torch_renderer import require_torch, torch_render_ray_color_tensor, torch_renderer_status
 
     status = torch_renderer_status()
     resolved_device = device or status.default_device or "cpu"
@@ -170,16 +170,15 @@ def render_orthographic_torch(
         device=str(resolved_device),
     )
 
-    batch = torch_render_rays(
+    color_tensor = torch_render_ray_color_tensor(
         scene,
         ray_origins,
         ray_directions,
         device=resolved_device,
-        frame_id_prefix="orthographic",
         scene_tensors=scene_tensors,
-        collect_traces=False,
     )
-    return RenderImage(width=width, height=height, pixels=batch.predicted_color)
+    pixels = tuple(tuple(float(channel) for channel in pixel) for pixel in color_tensor.detach().cpu().tolist())
+    return RenderImage(width=width, height=height, pixels=pixels)
 
 
 def _orthographic_camera_ray_tensors(

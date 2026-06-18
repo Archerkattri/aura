@@ -19,6 +19,7 @@ from aura import (
     torch_carrier_parameter_tensors,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
+    torch_render_ray_color_tensor,
     torch_render_rays,
     torch_render_target_objective,
     torch_render_tensor_targets,
@@ -472,6 +473,40 @@ def test_torch_render_rays_can_skip_ordered_trace_serialization(monkeypatch):
     assert batch.ordered_hits == ((),)
     assert batch.provenance == ("surface",)
     assert batch.predicted_color[0] == pytest.approx((1.0, 0.0, 0.0))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_ray_color_tensor_returns_device_color_only(monkeypatch):
+    scene = AuraScene(
+        name="torch_raw_ray_color_tensor_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.25, 0.5, 0.75),
+                opacity=0.8,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    def fail_ordered_trace_serialization(*_args, **_kwargs):
+        raise AssertionError("color-only torch render should not serialize ordered hits")
+
+    monkeypatch.setattr(torch_renderer_module, "_torch_ordered_hit_traces", fail_ordered_trace_serialization)
+
+    color_tensor = torch_render_ray_color_tensor(
+        scene,
+        ((0.0, 0.0, -1.0),),
+        ((0.0, 0.0, 1.0),),
+        device="cpu",
+    )
+
+    assert tuple(color_tensor.shape) == (1, 3)
+    assert color_tensor.device.type == "cpu"
+    assert color_tensor.detach().cpu().tolist()[0] == pytest.approx([0.2, 0.4, 0.6])
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
