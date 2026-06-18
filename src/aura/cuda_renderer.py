@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import dataclass
+from importlib import import_module
+from importlib.resources import as_file, files
 from typing import Any, Literal, Mapping, Sequence
 
 from aura.cuda_kernels import (
+    CUDA_EXTENSION_MODULE_NAME,
     CUDA_RENDERER_BINDING_SYMBOL,
     CUDA_RENDERER_KERNEL_SYMBOL,
     CUDA_RENDERER_LAUNCHER_SYMBOL,
@@ -239,6 +243,7 @@ class CudaRendererSymbolProbe:
     kernel_symbol_available: bool = False
     launcher_symbol_available: bool = False
     binding_symbol_available: bool = False
+    binding_callable: bool = False
     module_object_available: bool = False
     reason: str | None = None
 
@@ -265,6 +270,7 @@ class CudaRendererSymbolProbe:
             "kernelSymbolAvailable": self.kernel_symbol_available,
             "launcherSymbolAvailable": self.launcher_symbol_available,
             "bindingSymbolAvailable": self.binding_symbol_available,
+            "bindingCallable": self.binding_callable,
             "extension": self.extension.to_dict(),
             "reason": self.reason,
         }
@@ -281,15 +287,17 @@ class CudaRendererDispatchContract:
 
     @property
     def dispatch_ready(self) -> bool:
-        return False
+        return self.extension.available and self.symbol_probe.dispatch_symbols_ready and self.symbol_probe.binding_callable
 
     @property
     def reason(self) -> str:
         if not self.extension.available:
             return f"compiled_cuda_renderer_extension_unavailable: {self.extension.reason or 'not_available'}"
         if not self.symbol_probe.dispatch_symbols_ready:
-            return f"compiled_cuda_renderer_symbols_unverified: {self.symbol_probe.reason or 'unknown'}"
-        return "python_cuda_renderer_binding_missing"
+            return f"compiled_cuda_renderer_binding_unavailable: {self.symbol_probe.reason or 'unknown'}"
+        if not self.symbol_probe.binding_callable:
+            return "python_cuda_renderer_binding_missing"
+        return "compiled_cuda_renderer_python_binding_ready"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -301,7 +309,7 @@ class CudaRendererDispatchContract:
             "reason": self.reason,
             "compiledExtensionAvailable": self.extension.available,
             "rendererSymbolsReady": self.symbol_probe.dispatch_symbols_ready,
-            "pythonBindingAvailable": False,
+            "pythonBindingAvailable": self.symbol_probe.binding_callable,
             "launchConfig": self.launch_config.to_dict(),
             "extension": self.extension.to_dict(),
             "symbolProbe": self.symbol_probe.to_dict(),
@@ -315,9 +323,9 @@ class CudaRendererDispatchContract:
             "outputBufferShapes": {name: list(shape) for name, shape in self.inputs.output_buffer_shapes().items()},
             "parityOracle": "simulate_cuda_renderer_kernel",
             "missingDispatchWork": [
-                "build and import the Python CUDA extension module",
-                "verify renderer kernel, launcher, and render_rays binding symbols in the loaded extension",
-                "validate render_rays Python tensor dispatch on CUDA hardware",
+                *(() if self.extension.available else ("build and import the Python CUDA extension module",)),
+                *(() if self.symbol_probe.binding_symbol_available else ("verify render_rays binding in the loaded extension",)),
+                *(() if self.symbol_probe.binding_callable else ("validate render_rays Python tensor dispatch on CUDA hardware",)),
                 "run CPU oracle versus compiled CUDA parity tests",
                 "add renderer speed benchmarks before production claims",
             ],
@@ -514,12 +522,16 @@ def cuda_renderer_dispatch_contract(
         ray_directions=tuple(value for ray in rays for value in ray.direction),
         max_hits=max_hits,
     )
-    extension_status = extension or cuda_kernel_extension_status(build=False)
+    extension_status, resolved_module = _resolve_cuda_renderer_extension(
+        extension=extension,
+        extension_module=extension_module,
+        build=require_cuda or fallback_backend == "none",
+    )
     return CudaRendererDispatchContract(
         inputs=inputs,
         launch_config=launch_config,
         extension=extension_status,
-        symbol_probe=cuda_renderer_symbol_probe(extension_status, extension_module=extension_module),
+        symbol_probe=cuda_renderer_symbol_probe(extension_status, extension_module=resolved_module),
     )
 
 
@@ -530,10 +542,9 @@ def cuda_renderer_symbol_probe(
 ) -> CudaRendererSymbolProbe:
     """Verify compiled renderer symbols without launching CUDA.
 
-    The packaged build currently loads the CUDA extension as a native module,
-    so CPU-only and metadata-only paths usually have no Python module object to
-    inspect. Tests and future loaders can pass an extension module object here
-    to prove symbol presence before tensor dispatch is enabled.
+    The pybind11 module exposes ``render_rays`` to Python. The raw CUDA kernel
+    and host launcher remain native symbols and are reported from the compiled
+    extension status/source contract rather than required as Python attributes.
     """
 
     extension_status = extension or cuda_kernel_extension_status(build=False)
@@ -550,9 +561,15 @@ def cuda_renderer_symbol_probe(
             module_name=module_name,
             reason="extension_module_object_unavailable",
         )
-    kernel_available = hasattr(extension_module, CUDA_RENDERER_KERNEL_SYMBOL)
-    launcher_available = hasattr(extension_module, CUDA_RENDERER_LAUNCHER_SYMBOL)
+    binding = getattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL, None)
     binding_available = hasattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL)
+    binding_callable = callable(binding)
+    kernel_available = hasattr(extension_module, CUDA_RENDERER_KERNEL_SYMBOL) or (
+        binding_callable and CUDA_RENDERER_KERNEL_SYMBOL in extension_status.symbols
+    )
+    launcher_available = hasattr(extension_module, CUDA_RENDERER_LAUNCHER_SYMBOL) or (
+        binding_callable and CUDA_RENDERER_LAUNCHER_SYMBOL in extension_status.symbols
+    )
     missing = []
     if not kernel_available:
         missing.append(CUDA_RENDERER_KERNEL_SYMBOL)
@@ -566,6 +583,7 @@ def cuda_renderer_symbol_probe(
         kernel_symbol_available=kernel_available,
         launcher_symbol_available=launcher_available,
         binding_symbol_available=binding_available,
+        binding_callable=binding_callable,
         module_object_available=True,
         reason=None if not missing else f"missing_symbols: {', '.join(missing)}",
     )
@@ -818,9 +836,19 @@ def cuda_render_rays(
         device=device,
         require_cuda=require_cuda,
     )
-    extension = extension or cuda_kernel_extension_status(build=False)
+    extension, extension_module = _resolve_cuda_renderer_extension(
+        extension=extension,
+        extension_module=extension_module,
+        build=require_cuda or fallback_backend == "none",
+    )
     symbol_probe = cuda_renderer_symbol_probe(extension, extension_module=extension_module)
-    if extension.available and symbol_probe.dispatch_symbols_ready and extension_module is not None:
+    if (
+        _device_requests_cuda(device)
+        and extension.available
+        and symbol_probe.dispatch_symbols_ready
+        and symbol_probe.binding_callable
+        and extension_module is not None
+    ):
         return _compiled_extension_batch(scene, rays, launch_config, extension, extension_module, device=device)
     if extension.available and (require_cuda or fallback_backend == "none"):
         raise RuntimeError(f"CUDA renderer Python dispatch is unavailable: {symbol_probe.reason or 'binding_not_ready'}")
@@ -831,6 +859,10 @@ def cuda_render_rays(
     if resolved_backend == "torch":
         return _torch_fallback_batch(scene, rays, launch_config, extension, device=device, symbol_probe=symbol_probe)
     return _cpu_fallback_batch(scene, rays, launch_config, extension, symbol_probe=symbol_probe)
+
+
+def _device_requests_cuda(device: str | None) -> bool:
+    return device is None or str(device).startswith("cuda")
 
 
 def _validated_rays(ray_origins: Sequence[Sequence[float]] | Any, ray_directions: Sequence[Sequence[float]] | Any) -> tuple[Ray, ...]:
@@ -880,6 +912,118 @@ def _resolve_fallback_backend(fallback_backend: CudaFallbackBackend, *, scene: A
     if status.available and scene.elements:
         return "torch"
     return "cpu"
+
+
+def _resolve_cuda_renderer_extension(
+    *,
+    extension: CudaExtensionStatus | None,
+    extension_module: Any | None,
+    build: bool,
+) -> tuple[CudaExtensionStatus, Any | None]:
+    if extension_module is not None:
+        status = extension or _available_extension_status(build_attempted=False)
+        return status, extension_module
+    if extension is not None and not extension.available:
+        return extension, None
+
+    imported_module = _import_cuda_renderer_extension_module()
+    if imported_module is not None:
+        return extension or _available_extension_status(build_attempted=False), imported_module
+    if extension is not None:
+        return extension, None
+    if not build:
+        return cuda_kernel_extension_status(build=False), None
+    return _build_cuda_renderer_extension_module()
+
+
+def _import_cuda_renderer_extension_module() -> Any | None:
+    try:
+        return import_module(CUDA_EXTENSION_MODULE_NAME)
+    except Exception:
+        return None
+
+
+def _build_cuda_renderer_extension_module() -> tuple[CudaExtensionStatus, Any | None]:
+    source_paths = ("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu")
+    symbols = (
+        "aura_surface_forward_kernel",
+        "aura_volume_forward_kernel",
+        "aura_beta_forward_kernel",
+        "aura_gabor_forward_kernel",
+        "aura_neural_forward_kernel",
+        "aura_semantic_forward_kernel",
+        "aura_gaussian_forward_kernel",
+        CUDA_RENDERER_KERNEL_SYMBOL,
+        CUDA_RENDERER_LAUNCHER_SYMBOL,
+        CUDA_RENDERER_BINDING_SYMBOL,
+    )
+    try:
+        import torch
+        from torch.utils.cpp_extension import CUDA_HOME, load
+    except Exception as exc:  # pragma: no cover - depends on optional torch install state.
+        return _extension_status_failure(source_paths, symbols, f"torch_extension_unavailable: {exc}", build_attempted=True), None
+    if CUDA_HOME is None:
+        return _extension_status_failure(source_paths, symbols, "cuda_home_unavailable", build_attempted=True), None
+    if not bool(torch.cuda.is_available()):
+        return _extension_status_failure(source_paths, symbols, "torch_cuda_unavailable", build_attempted=True), None
+    try:
+        with ExitStack() as stack:
+            resolved_sources = [
+                str(stack.enter_context(as_file(files("aura").joinpath(path))))
+                for path in source_paths
+            ]
+            module = load(
+                name=CUDA_EXTENSION_MODULE_NAME,
+                sources=resolved_sources,
+                with_cuda=True,
+                is_python_module=True,
+                verbose=False,
+            )
+    except Exception as exc:  # pragma: no cover - requires CUDA compiler/runtime matrix.
+        return _extension_status_failure(source_paths, symbols, f"build_or_load_failed: {exc}", build_attempted=True), None
+    return _available_extension_status(build_attempted=True), module
+
+
+def _available_extension_status(*, build_attempted: bool) -> CudaExtensionStatus:
+    return CudaExtensionStatus(
+        available=True,
+        build_attempted=build_attempted,
+        compiled=True,
+        loadable=True,
+        module_name=CUDA_EXTENSION_MODULE_NAME,
+        source_paths=("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        symbols=(
+            "aura_surface_forward_kernel",
+            "aura_volume_forward_kernel",
+            "aura_beta_forward_kernel",
+            "aura_gabor_forward_kernel",
+            "aura_neural_forward_kernel",
+            "aura_semantic_forward_kernel",
+            "aura_gaussian_forward_kernel",
+            CUDA_RENDERER_KERNEL_SYMBOL,
+            CUDA_RENDERER_LAUNCHER_SYMBOL,
+            CUDA_RENDERER_BINDING_SYMBOL,
+        ),
+    )
+
+
+def _extension_status_failure(
+    source_paths: tuple[str, ...],
+    symbols: tuple[str, ...],
+    reason: str,
+    *,
+    build_attempted: bool,
+) -> CudaExtensionStatus:
+    return CudaExtensionStatus(
+        available=False,
+        build_attempted=build_attempted,
+        compiled=False,
+        loadable=False,
+        module_name=CUDA_EXTENSION_MODULE_NAME,
+        source_paths=source_paths,
+        symbols=symbols,
+        reason=reason,
+    )
 
 
 def _cpu_fallback_batch(

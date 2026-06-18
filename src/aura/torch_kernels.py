@@ -146,10 +146,12 @@ def torch_carrier_response_tensors(
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[Any, Any, Any, Any]:
-    carrier_colors = colors[best_index]
-    transmittance = 1.0 - opacities[best_index]
-    confidence = confidences[best_index]
-    residual = torch.tensor([elements[index].residual for index in best_index.detach().cpu().tolist()], dtype=torch.bool, device=device)
+    ray_count = int(best_index.shape[0])
+    carrier_colors = torch.zeros((ray_count, 3), dtype=colors.dtype, device=device)
+    transmittance = torch.ones((ray_count,), dtype=opacities.dtype, device=device)
+    confidence = torch.zeros((ray_count,), dtype=confidences.dtype, device=device)
+    residual_by_element = torch.tensor([element.residual for element in elements], dtype=torch.bool, device=device)
+    residual = residual_by_element[best_index]
 
     for element_index, element in enumerate(elements):
         mask = best_index == element_index
@@ -207,6 +209,7 @@ def torch_carrier_response_tensors(
             weight = _torch_beta_weight(torch, hit_points[mask], mins[element_index], maxs[element_index], alpha=alpha, beta=beta_value)
             carrier_colors[mask] = torch.clamp(beta_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - beta_opacity * weight, min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(confidences[element_index], min=0.0, max=1.0)
         elif payload_type == "gabor_frequency":
             gabor_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             frequency = _carrier_vector_parameter(
@@ -226,7 +229,8 @@ def torch_carrier_response_tensors(
             wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * frequency, dim=1) + phase)
             modulation = 1.0 - bandwidth + bandwidth * wave
             carrier_colors[mask] = torch.clamp(gabor_color * modulation.unsqueeze(1), min=0.0, max=1.0)
-            confidence[mask] = torch.clamp(confidence[mask] * bandwidth, min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - opacities[element_index], min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(confidences[element_index] * bandwidth, min=0.0, max=1.0)
         elif payload_type == "neural_residual":
             neural_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             residual_scale = _carrier_parameter(
@@ -238,7 +242,8 @@ def torch_carrier_response_tensors(
                 default=element.payload.get("residual_scale", 0.0),
             )
             carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
-            confidence[mask] = torch.clamp(confidence[mask] * (1.0 - residual_scale * 0.25), min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - opacities[element_index], min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(confidences[element_index] * (1.0 - residual_scale * 0.25), min=0.0, max=1.0)
             residual[mask] = True
         elif payload_type == "semantic_feature":
             semantic_confidence = _carrier_parameter(
@@ -249,6 +254,8 @@ def torch_carrier_response_tensors(
                 device,
                 default=element.payload.get("confidence", element.confidence),
             )
+            carrier_colors[mask] = torch.clamp(colors[element_index], min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - opacities[element_index], min=0.0, max=1.0)
             confidence[mask] = torch.clamp(semantic_confidence, min=0.0, max=1.0)
         elif payload_type == "gaussian_fallback":
             gaussian_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)

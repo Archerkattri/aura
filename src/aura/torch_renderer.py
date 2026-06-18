@@ -123,6 +123,11 @@ class TorchSceneTensors:
     colors: Any
     opacities: Any
     confidences: Any
+    surface_plane_points: Any
+    surface_normals: Any
+    gaussian_means: Any
+    gaussian_inverse_covariances: Any
+    gaussian_support_radius_sq: Any
     carrier_parameters: dict[str, dict[str, Any]]
 
     def to_dict(self) -> dict:
@@ -143,6 +148,11 @@ class TorchSceneTensors:
             "colors": _torch_tensor_metadata(self.colors),
             "opacities": _torch_tensor_metadata(self.opacities),
             "confidences": _torch_tensor_metadata(self.confidences),
+            "surfacePlanePoints": _torch_tensor_metadata(self.surface_plane_points),
+            "surfaceNormals": _torch_tensor_metadata(self.surface_normals),
+            "gaussianMeans": _torch_tensor_metadata(self.gaussian_means),
+            "gaussianInverseCovariances": _torch_tensor_metadata(self.gaussian_inverse_covariances),
+            "gaussianSupportRadiusSq": _torch_tensor_metadata(self.gaussian_support_radius_sq),
             "carrierParameterIds": sorted(self.carrier_parameters),
         }
 
@@ -263,6 +273,19 @@ def torch_scene_tensors(
         colors=torch.tensor([element.color for element in elements], dtype=torch.float32, device=resolved_device),
         opacities=torch.tensor([element.opacity for element in elements], dtype=torch.float32, device=resolved_device),
         confidences=torch.tensor([element.confidence for element in elements], dtype=torch.float32, device=resolved_device),
+        surface_plane_points=torch.tensor([_surface_plane_point_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
+        surface_normals=torch.tensor([_surface_normal_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
+        gaussian_means=torch.tensor([_gaussian_mean_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
+        gaussian_inverse_covariances=torch.tensor(
+            [_gaussian_inverse_covariance_or_nan(element) for element in elements],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
+        gaussian_support_radius_sq=torch.tensor(
+            [_gaussian_support_radius_sq(element) for element in elements],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
         carrier_parameters=torch_carrier_parameter_tensors(torch, elements, device=str(resolved_device), requires_grad=requires_grad),
     )
 
@@ -317,6 +340,7 @@ def torch_capture_training_batch(
     *,
     pixel_stride: int = 1,
     max_targets_per_frame: int | None = None,
+    include_masked_targets: bool = False,
 ) -> TorchCaptureTrainingBatch:
     """Create per-pixel torch training rays and targets from capture assets."""
 
@@ -344,7 +368,11 @@ def torch_capture_training_batch(
         produced = 0
         for y in range(0, height, pixel_stride):
             for x in range(0, width, pixel_stride):
-                if has_mask and float(assets.mask[frame_index, y, x, 0].detach().cpu().item()) <= 0.0:
+                if (
+                    has_mask
+                    and not include_masked_targets
+                    and float(assets.mask[frame_index, y, x, 0].detach().cpu().item()) <= 0.0
+                ):
                     continue
                 frame_indices.append(frame_index)
                 pixels.append((x, y))
@@ -502,11 +530,11 @@ def torch_render_targets(
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
     scene_tensors: TorchSceneTensors | None = None,
 ) -> TorchRenderBatch:
-    """Vectorized PyTorch reference renderer over native AURA bounds.
+    """Vectorized PyTorch renderer over native AURA bounds.
 
-    This prototype keeps the same `AuraScene` and `RenderTarget` contracts as
-    the CPU differentiable renderer. It performs batched first-hit AABB queries
-    and loss computation over native carriers; it is not a 3DGS render path.
+    This keeps the same `AuraScene` and `RenderTarget` contracts as AURA
+    training while performing batched ordered AABB queries, native carrier
+    compositing, and loss computation; it is not a 3DGS render path.
     """
 
     if not targets:
@@ -636,6 +664,11 @@ def _torch_render_tensor_targets(
         scene_tensors.chunk_mins,
         scene_tensors.chunk_maxs,
         scene_tensors.element_chunk_indices,
+        scene_tensors.surface_plane_points,
+        scene_tensors.surface_normals,
+        scene_tensors.gaussian_means,
+        scene_tensors.gaussian_inverse_covariances,
+        scene_tensors.gaussian_support_radius_sq,
         device=device,
         carrier_parameters=carrier_parameters,
     )
@@ -740,6 +773,11 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.chunk_mins,
         scene_tensors.chunk_maxs,
         scene_tensors.element_chunk_indices,
+        scene_tensors.surface_plane_points,
+        scene_tensors.surface_normals,
+        scene_tensors.gaussian_means,
+        scene_tensors.gaussian_inverse_covariances,
+        scene_tensors.gaussian_support_radius_sq,
         device=device,
         carrier_parameters=carrier_parameters,
     )
@@ -799,11 +837,28 @@ def _torch_composite_carrier_hits(
     chunk_mins: Any | None,
     chunk_maxs: Any | None,
     element_chunk_indices: Any | None,
+    surface_plane_points: Any,
+    surface_normals: Any,
+    gaussian_means: Any,
+    gaussian_inverse_covariances: Any,
+    gaussian_support_radius_sq: Any,
     *,
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None,
 ) -> dict[str, Any]:
-    entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
+    entry, exit_depth, hits = _torch_carrier_hits(
+        torch,
+        tuple(elements),
+        origins,
+        directions,
+        mins,
+        maxs,
+        surface_plane_points,
+        surface_normals,
+        gaussian_means,
+        gaussian_inverse_covariances,
+        gaussian_support_radius_sq,
+    )
     chunk_culling_active = chunk_mins is not None and chunk_maxs is not None and element_chunk_indices is not None
     if chunk_culling_active:
         _chunk_entry, _chunk_exit, chunk_hits = _torch_aabb_hits(torch, origins, directions, chunk_mins, chunk_maxs)
@@ -819,6 +874,7 @@ def _torch_composite_carrier_hits(
     confidence_num = torch.zeros((ray_count,), dtype=torch.float32, device=device)
     confidence_den = torch.zeros((ray_count,), dtype=torch.float32, device=device)
     residual = torch.zeros((ray_count,), dtype=torch.bool, device=device)
+    ordered_transmittance: list[Any] = []
 
     for order in range(len(elements)):
         current_index = sorted_indices[:, order]
@@ -829,12 +885,12 @@ def _torch_composite_carrier_hits(
         safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
         hit_points = _torch_carrier_sample_points(
             torch,
-            elements,
             current_index,
             safe_depth,
             exit_depth,
             origins,
             directions,
+            gaussian_means,
             device=device,
         )
         carrier_colors, transmittance, confidence, residual_flags = torch_carrier_response_tensors(
@@ -860,6 +916,7 @@ def _torch_composite_carrier_hits(
         confidence_den = confidence_den + weight
         remaining = torch.where(active, remaining * transmittance, remaining)
         residual = residual | (active & residual_flags)
+        ordered_transmittance.append(torch.where(active, transmittance, torch.ones_like(transmittance)))
 
     hit_indices = []
     hit_depths = []
@@ -878,22 +935,7 @@ def _torch_composite_carrier_hits(
         "has_hit": has_hit,
         "hit_indices": tuple(hit_indices),
         "hit_depths": tuple(hit_depths),
-        "hit_transmittance": _torch_hit_transmittance_traces(
-            sorted_indices,
-            sorted_depths,
-            elements,
-            torch,
-            origins,
-            directions,
-            exit_depth,
-            colors,
-            opacities,
-            confidences,
-            mins,
-            maxs,
-            device,
-            carrier_parameters,
-        ),
+        "hit_transmittance": _torch_hit_transmittance_traces(torch, sorted_depths, ordered_transmittance),
         "chunk_culling": bool(chunk_culling_active),
     }
 
@@ -913,91 +955,155 @@ def _torch_aabb_hits(torch: Any, origins: Any, directions: Any, mins: Any, maxs:
     return entry, exit_depth, hits
 
 
-def _torch_carrier_sample_points(
+def _torch_carrier_hits(
     torch: Any,
     elements: Sequence[Any],
+    origins: Any,
+    directions: Any,
+    mins: Any,
+    maxs: Any,
+    surface_plane_points: Any,
+    surface_normals: Any,
+    gaussian_means: Any,
+    gaussian_inverse_covariances: Any,
+    gaussian_support_radius_sq: Any,
+) -> tuple[Any, Any, Any]:
+    entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
+    for element_index, element in enumerate(elements):
+        payload_type = element.payload.get("type")
+        if payload_type == "surface_cell" or element.carrier_id == "surface":
+            surface_entry, surface_exit, surface_hits = _torch_surface_plane_hits(
+                torch,
+                origins,
+                directions,
+                mins[element_index],
+                maxs[element_index],
+                surface_plane_points[element_index],
+                surface_normals[element_index],
+            )
+            valid = torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
+            hits[:, element_index] = torch.where(valid, surface_hits, hits[:, element_index])
+            entry[:, element_index] = torch.where(valid, surface_entry, entry[:, element_index])
+            exit_depth[:, element_index] = torch.where(valid, surface_exit, exit_depth[:, element_index])
+        elif payload_type == "gaussian_fallback":
+            gaussian_entry, gaussian_exit, gaussian_hits = _torch_gaussian_ellipsoid_hits(
+                torch,
+                origins,
+                directions,
+                gaussian_means[element_index],
+                gaussian_inverse_covariances[element_index],
+                gaussian_support_radius_sq[element_index],
+            )
+            valid = (
+                torch.isfinite(gaussian_means[element_index]).all()
+                & torch.isfinite(gaussian_inverse_covariances[element_index]).all()
+                & torch.isfinite(gaussian_support_radius_sq[element_index])
+                & (gaussian_support_radius_sq[element_index] > 0.0)
+            )
+            bounded_entry = torch.maximum(entry[:, element_index], gaussian_entry)
+            bounded_exit = torch.minimum(exit_depth[:, element_index], gaussian_exit)
+            bounded_hits = hits[:, element_index] & gaussian_hits & (bounded_exit >= bounded_entry)
+            hits[:, element_index] = torch.where(valid, bounded_hits, hits[:, element_index])
+            entry[:, element_index] = torch.where(valid, bounded_entry, entry[:, element_index])
+            exit_depth[:, element_index] = torch.where(valid, bounded_exit, exit_depth[:, element_index])
+    return entry, exit_depth, hits
+
+
+def _torch_surface_plane_hits(
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    mins: Any,
+    maxs: Any,
+    plane_point: Any,
+    normal: Any,
+) -> tuple[Any, Any, Any]:
+    valid_surface = torch.isfinite(plane_point).all() & torch.isfinite(normal).all()
+    denom = torch.sum(directions * normal.unsqueeze(0), dim=1)
+    numerator = torch.sum((plane_point.unsqueeze(0) - origins) * normal.unsqueeze(0), dim=1)
+    parallel = torch.abs(denom) < 1e-8
+    depth = numerator / torch.where(parallel, torch.ones_like(denom), denom)
+    points = origins + directions * depth.unsqueeze(1)
+    inside = torch.all((points >= mins.unsqueeze(0) - 1e-5) & (points <= maxs.unsqueeze(0) + 1e-5), dim=1)
+    hits = valid_surface & (~parallel) & (depth >= 0.0) & inside
+    safe_depth = torch.where(hits, depth, torch.full_like(depth, float("inf")))
+    return safe_depth, safe_depth, hits
+
+
+def _torch_gaussian_ellipsoid_hits(
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    mean: Any,
+    inverse_covariance: Any,
+    support_radius_sq: Any,
+) -> tuple[Any, Any, Any]:
+    ray_count = int(origins.shape[0])
+    invalid_entry = torch.full((ray_count,), float("inf"), dtype=origins.dtype, device=origins.device)
+    invalid_hits = torch.zeros((ray_count,), dtype=torch.bool, device=origins.device)
+    valid_gaussian = (
+        torch.isfinite(mean).all()
+        & torch.isfinite(inverse_covariance).all()
+        & torch.isfinite(support_radius_sq)
+        & (support_radius_sq > 0.0)
+    )
+    if not bool(valid_gaussian.detach().cpu().item()):
+        return invalid_entry, invalid_entry, invalid_hits
+
+    delta = origins - mean.unsqueeze(0)
+    inv_directions = directions @ inverse_covariance
+    inv_delta = delta @ inverse_covariance
+    a = torch.sum(inv_directions * directions, dim=1)
+    b = 2.0 * torch.sum(inv_delta * directions, dim=1)
+    c = torch.sum(inv_delta * delta, dim=1) - support_radius_sq
+    discriminant = b * b - 4.0 * a * c
+    valid = (a > 1e-8) & (discriminant >= 0.0)
+    sqrt_discriminant = torch.sqrt(torch.clamp(discriminant, min=0.0))
+    near = (-b - sqrt_discriminant) / torch.clamp(2.0 * a, min=1e-8)
+    far = (-b + sqrt_discriminant) / torch.clamp(2.0 * a, min=1e-8)
+    entry = torch.where(near >= 0.0, near, torch.zeros_like(near))
+    hits = valid & (far >= 0.0) & (entry >= 0.0)
+    entry = torch.where(hits, entry, invalid_entry)
+    exit_depth = torch.where(hits, torch.clamp(far, min=0.0), invalid_entry)
+    return entry, exit_depth, hits
+
+
+def _torch_carrier_sample_points(
+    torch: Any,
     current_index: Any,
     entry_depth: Any,
     exit_depth: Any,
     origins: Any,
     directions: Any,
+    gaussian_means: Any,
     *,
     device: str,
 ) -> Any:
     points = origins + directions * entry_depth.unsqueeze(1)
-    for element_index, element in enumerate(elements):
-        if element.payload.get("type") != "gaussian_fallback":
-            continue
-        mean = element.payload.get("mean")
-        if not isinstance(mean, (list, tuple)) or len(mean) != 3:
-            continue
-        mask = current_index == element_index
-        if not bool(torch.any(mask)):
-            continue
-        mean_tensor = torch.tensor(tuple(float(value) for value in mean), dtype=torch.float32, device=device)
-        ray_to_mean = mean_tensor.unsqueeze(0) - origins[mask]
-        direction_norm = torch.sum(directions[mask] * directions[mask], dim=1)
-        projected_depth = torch.sum(ray_to_mean * directions[mask], dim=1) / torch.clamp(direction_norm, min=1e-8)
-        sample_depth = torch.maximum(entry_depth[mask], torch.minimum(exit_depth[mask, element_index], projected_depth))
-        points[mask] = origins[mask] + directions[mask] * sample_depth.unsqueeze(1)
-    return points
+    del device
+    selected_means = gaussian_means[current_index]
+    has_gaussian_mean = torch.isfinite(selected_means).all(dim=1)
+    ray_to_mean = selected_means - origins
+    direction_norm = torch.sum(directions * directions, dim=1)
+    projected_depth = torch.sum(ray_to_mean * directions, dim=1) / torch.clamp(direction_norm, min=1e-8)
+    selected_exit_depth = exit_depth.gather(1, current_index.unsqueeze(1)).squeeze(1)
+    gaussian_depth = torch.maximum(entry_depth, torch.minimum(selected_exit_depth, projected_depth))
+    gaussian_points = origins + directions * gaussian_depth.unsqueeze(1)
+    return torch.where(has_gaussian_mean.unsqueeze(1), gaussian_points, points)
 
 
 def _torch_hit_transmittance_traces(
-    sorted_indices: Any,
-    sorted_depths: Any,
-    elements: Sequence[Any],
     torch: Any,
-    origins: Any,
-    directions: Any,
-    exit_depth: Any,
-    colors: Any,
-    opacities: Any,
-    confidences: Any,
-    mins: Any,
-    maxs: Any,
-    device: str,
-    carrier_parameters: dict[str, dict[str, Any]] | None,
+    sorted_depths: Any,
+    ordered_transmittance: Sequence[Any],
 ) -> tuple[tuple[float, ...], ...]:
-    traces: list[list[float]] = [[] for _index in range(int(origins.shape[0]))]
-    for order in range(len(elements)):
-        current_index = sorted_indices[:, order]
-        current_depth = sorted_depths[:, order]
-        active = torch.isfinite(current_depth)
-        if not bool(torch.any(active)):
-            continue
-        safe_depth = torch.where(active, current_depth, torch.zeros_like(current_depth))
-        hit_points = _torch_carrier_sample_points(
-            torch,
-            elements,
-            current_index,
-            safe_depth,
-            exit_depth,
-            origins,
-            directions,
-            device=device,
-        )
-        _carrier_colors, transmittance, _confidence, _residual_flags = torch_carrier_response_tensors(
-            torch,
-            elements,
-            current_index,
-            safe_depth,
-            exit_depth,
-            hit_points,
-            colors,
-            opacities,
-            confidences,
-            mins,
-            maxs,
-            device,
-            carrier_parameters=carrier_parameters,
-        )
-        transmittance = torch.clamp(transmittance, min=0.0, max=1.0)
-        for ray_index, (is_active, value) in enumerate(
-            zip(active.detach().cpu().tolist(), transmittance.detach().cpu().tolist())
-        ):
-            if is_active:
-                traces[ray_index].append(float(value))
+    if not ordered_transmittance:
+        return tuple(() for _index in range(int(sorted_depths.shape[0])))
+    transmittance_by_order = torch.stack(tuple(ordered_transmittance), dim=1)
+    active_by_order = torch.isfinite(sorted_depths)
+    traces: list[tuple[float, ...]] = []
+    for active, values in zip(active_by_order.detach().cpu().tolist(), transmittance_by_order.detach().cpu().tolist()):
+        traces.append(tuple(float(value) for is_active, value in zip(active, values) if is_active))
     return tuple(tuple(ray_trace) for ray_trace in traces)
 
 
@@ -1099,6 +1205,103 @@ def _torch_carrier_group_indices(torch: Any, elements: Sequence[Any], *, device:
     for index, element in enumerate(elements):
         groups.setdefault(element.carrier_id, []).append(index)
     return {carrier_id: torch.tensor(indices, dtype=torch.long, device=device) for carrier_id, indices in sorted(groups.items())}
+
+
+def _gaussian_mean_or_nan(element: Any) -> tuple[float, float, float]:
+    if element.payload.get("type") != "gaussian_fallback":
+        return (float("nan"), float("nan"), float("nan"))
+    mean = element.payload.get("mean")
+    if not isinstance(mean, (list, tuple)) or len(mean) != 3:
+        return (float("nan"), float("nan"), float("nan"))
+    return tuple(float(value) for value in mean)  # type: ignore[return-value]
+
+
+def _surface_normal_or_nan(element: Any) -> tuple[float, float, float]:
+    if element.payload.get("type") != "surface_cell" and element.carrier_id != "surface":
+        return (float("nan"), float("nan"), float("nan"))
+    normal = _normal_for(element)
+    if normal is None:
+        return (float("nan"), float("nan"), float("nan"))
+    try:
+        return _normalize(normal)
+    except ValueError:
+        return (float("nan"), float("nan"), float("nan"))
+
+
+def _surface_plane_point_or_nan(element: Any) -> tuple[float, float, float]:
+    normal = _surface_normal_or_nan(element)
+    if any(value != value for value in normal):
+        return (float("nan"), float("nan"), float("nan"))
+    point = element.payload.get("plane_point") or element.payload.get("point")
+    if isinstance(point, (list, tuple)) and len(point) == 3:
+        return tuple(float(value) for value in point)  # type: ignore[return-value]
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    center = [(min_corner[index] + max_corner[index]) * 0.5 for index in range(3)]
+    dominant_axis = max(range(3), key=lambda index: abs(normal[index]))
+    center[dominant_axis] = min_corner[dominant_axis] if normal[dominant_axis] < 0.0 else max_corner[dominant_axis]
+    return tuple(center)  # type: ignore[return-value]
+
+
+def _gaussian_inverse_covariance_or_nan(element: Any) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    if element.payload.get("type") != "gaussian_fallback":
+        return _nan_matrix3()
+    covariance = element.payload.get("covariance")
+    if not _is_matrix3(covariance):
+        return _nan_matrix3()
+    inverse = _inverse_matrix3(tuple(tuple(float(value) for value in row) for row in covariance))
+    return inverse if inverse is not None else _nan_matrix3()
+
+
+def _gaussian_support_radius_sq(element: Any) -> float:
+    if element.payload.get("type") != "gaussian_fallback":
+        return float("nan")
+    explicit = element.payload.get("support_radius_sq")
+    if explicit is not None:
+        try:
+            value = float(explicit)
+        except (TypeError, ValueError):
+            return float("nan")
+        return value if value > 0.0 else float("nan")
+    sigma_radius = element.payload.get("support_sigma", 3.0)
+    try:
+        sigma = float(sigma_radius)
+    except (TypeError, ValueError):
+        return float("nan")
+    return sigma * sigma if sigma > 0.0 else float("nan")
+
+
+def _nan_matrix3() -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    nan = float("nan")
+    return ((nan, nan, nan), (nan, nan, nan), (nan, nan, nan))
+
+
+def _inverse_matrix3(matrix: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]] | None:
+    a, b, c = matrix[0]
+    d, e, f = matrix[1]
+    g, h, i = matrix[2]
+    cofactor00 = e * i - f * h
+    cofactor01 = -(d * i - f * g)
+    cofactor02 = d * h - e * g
+    cofactor10 = -(b * i - c * h)
+    cofactor11 = a * i - c * g
+    cofactor12 = -(a * h - b * g)
+    cofactor20 = b * f - c * e
+    cofactor21 = -(a * f - c * d)
+    cofactor22 = a * e - b * d
+    determinant = a * cofactor00 + b * cofactor01 + c * cofactor02
+    if abs(determinant) <= 1e-12:
+        return None
+    inv_det = 1.0 / determinant
+    return (
+        (cofactor00 * inv_det, cofactor10 * inv_det, cofactor20 * inv_det),
+        (cofactor01 * inv_det, cofactor11 * inv_det, cofactor21 * inv_det),
+        (cofactor02 * inv_det, cofactor12 * inv_det, cofactor22 * inv_det),
+    )
+
+
+def _is_matrix3(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 3 and all(isinstance(row, (list, tuple)) and len(row) == 3 for row in value)
 
 
 def _torch_index_tensor_values(tensor: Any) -> list[int]:

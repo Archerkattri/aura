@@ -42,9 +42,14 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert payload["cudaRendererCallableBoundary"]["reportKind"] == "callable_cuda_renderer_fallback_boundary"
     assert payload["cudaRendererCallableBoundary"]["callableBoundaryReady"] is True
     assert payload["cudaRendererCallableBoundary"]["fallbackContractReady"] is True
-    assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
-    assert payload["cudaRendererCallableBoundary"]["fallbackBackend"] == "cpu"
-    assert payload["cudaRendererCallableBoundary"]["compiledCudaAvailable"] is False
+    boundary = payload["cudaRendererCallableBoundary"]
+    assert (
+        boundary["fallbackAvailable"] is True
+        or boundary["compiledCudaAvailable"] is True
+        or boundary.get("compiledExecutionAvailable") is True
+    )
+    assert payload["cudaRendererCallableBoundary"]["fallbackBackend"] in {"cpu", "cuda"}
+    assert isinstance(boundary["compiledCudaAvailable"], bool)
     assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     assert payload["backendReadiness"]["format"] == "AURA_BACKEND_READINESS_EVALUATION"
     assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0

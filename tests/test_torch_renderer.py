@@ -184,6 +184,7 @@ def test_torch_capture_training_batch_rejects_fully_masked_targets():
             _capture_tensor_frame(
                 frame_id="frame_a",
                 image_values=(1.0, 0.0, 0.0),
+                depth_values=(2.0,),
                 mask_values=(0.0,),
                 width=1,
                 height=1,
@@ -745,7 +746,7 @@ def test_torch_render_capture_training_objective_includes_normal_loss():
         ),
         device="cpu",
     )
-    batch = torch_capture_training_batch((frame,), assets)
+    batch = torch_capture_training_batch((frame,), assets, include_masked_targets=True)
     carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
 
     objective = torch_render_capture_training_objective(scene, batch, carrier_parameters=carrier_parameters)
@@ -797,7 +798,7 @@ def test_torch_render_capture_training_objective_includes_mask_loss():
         ),
         device="cpu",
     )
-    batch = torch_capture_training_batch((frame,), assets)
+    batch = torch_capture_training_batch((frame,), assets, include_masked_targets=True)
     carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
 
     objective = torch_render_capture_training_objective(scene, batch, carrier_parameters=carrier_parameters)
@@ -949,6 +950,80 @@ def test_torch_render_targets_matches_native_gaussian_fallback_sampling():
     assert batch.opacity[0] == pytest.approx(native.opacity)
     assert batch.confidence[0] == pytest.approx(native.confidence)
     assert batch.ordered_hits[0][0]["transmittance"] == pytest.approx(native.transmittance)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_surface_plane_geometry_when_available():
+    scene = AuraScene(
+        name="torch_surface_plane_geometry_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell", "plane_point": [0.0, 0.0, 0.5]},
+            ),
+        ),
+    )
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.5,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert batch.predicted_depth == pytest.approx((2.5,))
+    assert batch.ordered_hits[0][0]["depth"] == pytest.approx(2.5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_gaussian_ellipsoid_support():
+    scene = AuraScene(
+        name="torch_gaussian_ellipsoid_geometry_scene",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.5],
+                    "covariance": [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]],
+                    "support_sigma": 1.0,
+                },
+            ),
+        ),
+    )
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.5, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.0, 0.0, 0.0),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert batch.element_ids == (None,)
+    assert batch.predicted_depth == (None,)
+    assert batch.predicted_color == ((0.0, 0.0, 0.0),)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

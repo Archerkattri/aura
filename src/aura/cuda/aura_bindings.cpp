@@ -1,5 +1,8 @@
 #include <torch/extension.h>
 
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAException.h>
+
 #include <limits>
 #include <vector>
 
@@ -44,6 +47,15 @@ void require_cuda_int_tensor(const torch::Tensor& tensor, const char* name) {
     TORCH_CHECK(tensor.is_contiguous(), name, " must be contiguous");
 }
 
+void require_same_cuda_device(
+    const torch::Tensor& tensor,
+    const torch::Tensor& reference,
+    const char* name,
+    const char* reference_name
+) {
+    TORCH_CHECK(tensor.device() == reference.device(), name, " must be on the same CUDA device as ", reference_name);
+}
+
 void require_shape2(const torch::Tensor& tensor, const char* name, int64_t dim0, int64_t dim1) {
     TORCH_CHECK(tensor.dim() == 2, name, " must be rank 2");
     TORCH_CHECK(tensor.size(0) == dim0 && tensor.size(1) == dim1, name, " has invalid shape");
@@ -80,6 +92,15 @@ pybind11::dict render_rays(
     require_cuda_float_tensor(confidences, "confidences");
     require_cuda_int_tensor(material_ids, "material_ids");
     require_cuda_int_tensor(semantic_ids, "semantic_ids");
+    require_same_cuda_device(ray_directions, ray_origins, "ray_directions", "ray_origins");
+    require_same_cuda_device(element_mins, ray_origins, "element_mins", "ray_origins");
+    require_same_cuda_device(element_maxs, ray_origins, "element_maxs", "ray_origins");
+    require_same_cuda_device(carrier_ids, ray_origins, "carrier_ids", "ray_origins");
+    require_same_cuda_device(colors, ray_origins, "colors", "ray_origins");
+    require_same_cuda_device(opacities, ray_origins, "opacities", "ray_origins");
+    require_same_cuda_device(confidences, ray_origins, "confidences", "ray_origins");
+    require_same_cuda_device(material_ids, ray_origins, "material_ids", "ray_origins");
+    require_same_cuda_device(semantic_ids, ray_origins, "semantic_ids", "ray_origins");
 
     TORCH_CHECK(max_hits > 0, "max_hits must be positive");
     TORCH_CHECK(threads_per_block > 0 && threads_per_block <= 1024, "threads_per_block must be in [1, 1024]");
@@ -103,6 +124,7 @@ pybind11::dict render_rays(
     const int element_count = static_cast<int>(element_count_64);
     const int hit_count = static_cast<int>(max_hits);
     const int threads = static_cast<int>(threads_per_block);
+    const c10::cuda::CUDAGuard device_guard(ray_origins.device());
 
     auto float_options = ray_origins.options();
     auto int_options = carrier_ids.options();
@@ -145,6 +167,7 @@ pybind11::dict render_rays(
         hit_count,
         threads
     );
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     pybind11::dict outputs;
     outputs["out_color"] = out_color;

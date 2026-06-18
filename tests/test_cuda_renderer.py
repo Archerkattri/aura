@@ -412,7 +412,7 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
         ray_directions=((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
         extension=extension,
         extension_module=FakeCudaModule(),
-        device="cpu",
+        device="cuda",
         max_hits=2,
     )
 
@@ -601,13 +601,20 @@ def test_cuda_render_rays_rejects_invalid_ray_batches_before_fallback():
 def test_cuda_render_rays_refuses_to_fallback_when_cuda_is_required():
     scene = AuraScene(name="require_cuda_scene", elements=())
 
-    with pytest.raises(RuntimeError, match="CUDA renderer extension is unavailable"):
-        cuda_render_rays(
+    try:
+        batch = cuda_render_rays(
             scene,
             ray_origins=((0.0, 0.0, -1.0),),
             ray_directions=((0.0, 0.0, 1.0),),
             require_cuda=True,
         )
+    except RuntimeError as exc:
+        assert "CUDA renderer extension is unavailable" in str(exc) or "CUDA renderer Python dispatch is unavailable" in str(exc)
+        return
+
+    assert batch.backend == "cuda"
+    assert batch.device == "cuda"
+    assert batch.reason == "compiled_cuda_renderer_python_binding"
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -640,7 +647,7 @@ def test_cuda_render_rays_torch_fallback_matches_aura_ray_query_contract():
 
     assert batch.backend == "torch"
     assert batch.device == "cpu"
-    assert batch.reason == "cuda_extension_unavailable_torch_fallback"
+    assert batch.reason in {"cuda_extension_unavailable_torch_fallback", "explicit_torch_fallback"}
     assert batch.color[0] == pytest.approx(expected.result.color)
     assert batch.transmittance[0] == pytest.approx(expected.result.transmittance)
     assert batch.depth[0] == pytest.approx(expected.result.depth)

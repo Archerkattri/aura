@@ -92,6 +92,8 @@ class TorchOptimizationResult:
         return {
             "scene": self.scene.name,
             "steps": [step.to_dict() for step in self.steps],
+            "lossCurve": _loss_curve(self.steps),
+            "checkpoints": [_checkpoint_from_step(index, step) for index, step in enumerate(self.steps)],
             "finalLoss": self.steps[-1].total_loss if self.steps else None,
         }
 
@@ -112,13 +114,7 @@ def torch_optimize_capture_batch(
     batch: TorchCaptureTrainingBatch,
     config: TorchOptimizationConfig | None = None,
 ) -> TorchOptimizationResult:
-    """Run the torch AURA forward contract in an iterative training loop.
-
-    This is the first GPU-facing optimization scaffold: it uses
-    `torch_render_capture_training_objective` for live losses and gradient
-    updates over native carrier tensors. The carrier kernels remain the
-    reference torch semantics until they are replaced by CUDA kernels.
-    """
+    """Train native AURA carrier tensors against capture targets with torch autograd."""
 
     require_torch()
     if not scene.elements:
@@ -246,9 +242,9 @@ def _optimize_torch_batches(
     current_scene = scene
     steps: list[TorchOptimizationStep] = []
     rendered: TorchRenderBatch | None = None
+    scene_tensors = torch_scene_tensors(current_scene, device=device)
+    carrier_parameters = scene_tensors.carrier_parameters
     for iteration in range(config.iterations):
-        scene_tensors = torch_scene_tensors(current_scene, device=device)
-        carrier_parameters = scene_tensors.carrier_parameters
         iteration_rendered: list[TorchRenderBatch] = []
         for batch, batch_index, target_offset, source_windows in batches:
             sample_count = _batch_sample_count(batch)
@@ -265,13 +261,6 @@ def _optimize_torch_batches(
                 scene_tensors=scene_tensors,
             )
             weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
-            rendered = torch_render_capture_training_batch(
-                current_scene,
-                batch,
-                carrier_parameters=carrier_parameters,
-                scene_tensors=scene_tensors,
-            )
-            iteration_rendered.append(rendered)
             weighted_loss.backward()
             update = _gradient_step_carrier_parameters(
                 torch,
@@ -279,6 +268,21 @@ def _optimize_torch_batches(
                 learning_rate=config.color_learning_rate,
                 gradient_clip_norm=config.gradient_clip_norm,
             )
+            _zero_carrier_parameter_grads(carrier_parameters)
+            with torch.no_grad():
+                checkpoint_objective = torch_render_capture_training_objective(
+                    current_scene,
+                    batch,
+                    carrier_parameters=carrier_parameters,
+                    scene_tensors=scene_tensors,
+                )
+                rendered = torch_render_capture_training_batch(
+                    current_scene,
+                    batch,
+                    carrier_parameters=carrier_parameters,
+                    scene_tensors=scene_tensors,
+                )
+            iteration_rendered.append(rendered)
             steps.append(
                 _optimization_step_from_rendered(
                     iteration,
@@ -288,7 +292,7 @@ def _optimize_torch_batches(
                     target_offset=target_offset,
                     source_windows=source_windows,
                     loss_weights=config.loss_weights,
-                    mask_loss=_tensor_scalar(objective.mask_loss),
+                    mask_loss=_tensor_scalar(checkpoint_objective.mask_loss),
                     update=update,
                     max_samples_per_batch=config.max_samples_per_batch,
                 )
@@ -314,6 +318,11 @@ def _optimize_torch_batches(
                         carrier_evolution=tuple(decision.to_dict() for decision in decisions),
                         carrier_counts=_carrier_counts(current_scene.elements),
                     )
+                scene_tensors = torch_scene_tensors(current_scene, device=device)
+                carrier_parameters = scene_tensors.carrier_parameters
+                rendered = None
+    if rendered is not None:
+        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
     return current_scene, tuple(steps)
 
 
@@ -477,7 +486,7 @@ def _scene_from_carrier_parameters(
             }
             metadata = {
                 **element.metadata,
-                "optimized_by": "aura-core-torch-autograd-reference",
+                "optimized_by": "aura-core-torch-autograd",
                 "torch_device": rendered.device,
             }
         elements.append(
@@ -532,6 +541,47 @@ def _weighted_torch_loss(objective: Any, loss_weights: TrainingLossWeights) -> A
         + loss_weights.normal * objective.normal_loss
         + loss_weights.mask * objective.mask_loss
     )
+
+
+def _loss_curve(steps: Sequence[TorchOptimizationStep]) -> list[dict[str, float | int | None]]:
+    return [
+        {
+            "iteration": step.iteration,
+            "batchIndex": step.batch_index,
+            "targetOffset": step.target_offset,
+            "imageLoss": step.image_loss,
+            "depthLoss": step.depth_loss,
+            "queryLoss": step.query_loss,
+            "normalLoss": step.normal_loss,
+            "maskLoss": step.mask_loss,
+            "totalLoss": step.total_loss,
+        }
+        for step in steps
+    ]
+
+
+def _checkpoint_from_step(index: int, step: TorchOptimizationStep) -> dict[str, Any]:
+    return {
+        "checkpointIndex": index,
+        "iteration": step.iteration,
+        "batchIndex": step.batch_index,
+        "targetOffset": step.target_offset,
+        "device": step.device,
+        "sampleCount": step.sample_count,
+        "loss": {
+            "image": step.image_loss,
+            "depth": step.depth_loss,
+            "query": step.query_loss,
+            "normal": step.normal_loss,
+            "mask": step.mask_loss,
+            "total": step.total_loss,
+        },
+        "gradientNorm": step.gradient_norm,
+        "appliedGradientNorm": step.applied_gradient_norm,
+        "updatedParameterCount": step.updated_parameter_count,
+        "carrierCounts": dict(step.carrier_counts),
+        "carrierEvolution": [dict(decision) for decision in step.carrier_evolution],
+    }
 
 
 def _batch_sample_count(batch: TorchCaptureTrainingBatch) -> int:

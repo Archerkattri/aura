@@ -847,14 +847,16 @@ def cuda_renderer_callable_boundary_report(scene: AuraScene) -> dict:
     output_fields = tuple(str(field) for field in fallback_probe.get("outputFields", ()))
     missing_output_fields = [field for field in CALLABLE_CUDA_RENDERER_OUTPUT_FIELDS if field not in output_fields]
     fallback_backend = fallback_probe.get("backend")
+    callable_execution_available = bool(fallback_probe.get("executed")) and fallback_backend in {"cpu", "torch", "cuda"}
     fallback_available = bool(fallback_probe.get("executed")) and fallback_backend in {"cpu", "torch"}
     return {
         "format": "AURA_CUDA_RENDERER_CALLABLE_BOUNDARY",
         "reportKind": "callable_cuda_renderer_fallback_boundary",
         "apiName": boundary.get("apiName"),
-        "callableBoundaryReady": bool(boundary.get("callableBoundaryAvailable")) and bool(fallback_probe.get("executed")),
+        "callableBoundaryReady": bool(boundary.get("callableBoundaryAvailable")) and callable_execution_available,
         "fallbackContractReady": not missing_output_fields,
         "fallbackAvailable": fallback_available,
+        "compiledExecutionAvailable": bool(fallback_backend == "cuda" and fallback_probe.get("executed")),
         "fallbackBackend": fallback_backend,
         "compiledCudaAvailable": bool(boundary.get("available")),
         "productionReady": bool(boundary.get("productionReady")),

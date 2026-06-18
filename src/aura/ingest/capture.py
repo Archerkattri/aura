@@ -5,6 +5,7 @@ from collections.abc import Iterable as IterableABC
 from collections.abc import Sequence as SequenceABC
 import json
 import struct
+import sys
 import zlib
 from dataclasses import dataclass, replace
 from importlib import resources
@@ -25,7 +26,10 @@ class PackedFloatBuffer(Sequence[float]):
     """Packed float sequence for dense capture tensors without Python-float tuples."""
 
     def __init__(self, values: IterableABC[object] = ()) -> None:
-        self._values = array("d", (float(value) for value in values))
+        if isinstance(values, array) and values.typecode == "d":
+            self._values = array("d", values)
+        else:
+            self._values = array("d", (float(value) for value in values))
 
     def __len__(self) -> int:
         return len(self._values)
@@ -35,19 +39,28 @@ class PackedFloatBuffer(Sequence[float]):
 
     def __getitem__(self, index):
         if isinstance(index, slice):
-            return tuple(self._values[index])
+            return PackedFloatBuffer(self._values[index])
         return self._values[index]
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, PackedFloatBuffer):
             return self._values == other._values
         if isinstance(other, SequenceABC):
-            return tuple(self._values) == tuple(other)
+            return len(self) == len(other) and all(left == float(right) for left, right in zip(self._values, other))
         return False
 
     @property
     def byte_count(self) -> int:
         return len(self._values) * self._values.itemsize
+
+    @property
+    def array(self) -> array:
+        """Return the packed float array for zero-copy host consumers."""
+
+        return self._values
+
+    def memoryview(self) -> memoryview:
+        return memoryview(self._values)
 
     def sample(self, limit: int) -> tuple[float, ...]:
         return tuple(self._values[: max(0, limit)])
@@ -163,6 +176,41 @@ class CaptureTensor:
         if isinstance(self.values, PackedFloatBuffer):
             return self.values.sample(limit)
         return tuple(self.values[: max(0, limit)])
+
+    def value_offset(self, x: int, y: int, channel: int = 0) -> int:
+        if not 0 <= x < self.width or not 0 <= y < self.height:
+            raise IndexError(f"{self.path} pixel ({x}, {y}) is outside tensor bounds")
+        if not 0 <= channel < self.channels:
+            raise IndexError(f"{self.path} channel {channel} is outside tensor channel bounds")
+        return (y * self.width + x) * self.channels + channel
+
+    def value_at(self, x: int, y: int, channel: int = 0) -> float:
+        return self.values[self.value_offset(x, y, channel)]
+
+    def pixel(self, x: int, y: int, *, channels: int | None = None) -> tuple[float, ...]:
+        channel_count = self.channels if channels is None else min(channels, self.channels)
+        start = self.value_offset(x, y, 0)
+        return tuple(self.values[start + channel] for channel in range(channel_count))
+
+    def iter_tile_samples(
+        self,
+        origin: tuple[int, int],
+        size: tuple[int, int],
+        *,
+        pixel_stride: int = 1,
+    ):
+        if pixel_stride <= 0:
+            raise ValueError("pixel_stride must be positive")
+        origin_x, origin_y = origin
+        width, height = size
+        if width <= 0 or height <= 0:
+            raise ValueError("tile size must be positive")
+        if origin_x < 0 or origin_y < 0 or origin_x + width > self.width or origin_y + height > self.height:
+            raise ValueError(f"{self.path} tile is outside tensor bounds")
+        for y in range(origin_y, origin_y + height, pixel_stride):
+            row_offset = y * self.width * self.channels
+            for x in range(origin_x, origin_x + width, pixel_stride):
+                yield x, y, row_offset + x * self.channels
 
     def to_dict(self) -> dict:
         return {
@@ -735,45 +783,74 @@ def _depth_summary(image: _RasterImage | None) -> _ScalarSummary | None:
         return None
     if image.channels != 1:
         raise ValueError("depth summary requires a 1-channel image")
-    valid = tuple(value for value in image.values if value > 0.0)
-    if not valid:
+    count = 0
+    total = 0.0
+    minimum = float("inf")
+    maximum = float("-inf")
+    for value in image.values:
+        if value <= 0.0:
+            continue
+        count += 1
+        total += value
+        minimum = min(minimum, value)
+        maximum = max(maximum, value)
+    if count == 0:
         raise ValueError("depth asset contains no positive samples")
     return _ScalarSummary(
-        average=sum(valid) / len(valid),
-        minimum=min(valid),
-        maximum=max(valid),
-        coverage=len(valid) / len(image.values),
-        bins=_depth_bins(valid, len(image.values)),
+        average=total / count,
+        minimum=minimum,
+        maximum=maximum,
+        coverage=count / len(image.values),
+        bins=_depth_bins(image.values, total_count=len(image.values), valid_count=count, minimum=minimum, maximum=maximum),
     )
 
 
-def _depth_bins(valid: tuple[float, ...], total_count: int) -> tuple[dict[str, float], ...]:
-    if not valid:
+def _depth_bins(
+    values: Sequence[float],
+    *,
+    total_count: int,
+    valid_count: int,
+    minimum: float,
+    maximum: float,
+) -> tuple[dict[str, float], ...]:
+    if valid_count <= 0:
         return tuple()
-    minimum = min(valid)
-    maximum = max(valid)
-    if len(valid) < 2 or maximum - minimum <= max(maximum * 0.05, 1e-4):
+    if valid_count < 2 or maximum - minimum <= max(maximum * 0.05, 1e-4):
+        total = sum(value for value in values if value > 0.0)
         return (
             {
                 "id": 0.0,
-                "average": sum(valid) / len(valid),
+                "average": total / valid_count,
                 "minimum": minimum,
                 "maximum": maximum,
-                "coverage": len(valid) / total_count,
+                "coverage": valid_count / total_count,
             },
         )
     midpoint = (minimum + maximum) / 2.0
     bins = []
-    for bin_id, values in ((0.0, tuple(value for value in valid if value <= midpoint)), (1.0, tuple(value for value in valid if value > midpoint))):
-        if not values:
+    for bin_id, upper_half in ((0.0, False), (1.0, True)):
+        count = 0
+        total = 0.0
+        bin_minimum = float("inf")
+        bin_maximum = float("-inf")
+        for value in values:
+            if value <= 0.0:
+                continue
+            if (value > midpoint) != upper_half:
+                continue
+            count += 1
+            total += value
+            bin_minimum = min(bin_minimum, value)
+            bin_maximum = max(bin_maximum, value)
+        if count == 0:
             continue
         bins.append(
             {
                 "id": bin_id,
-                "average": sum(values) / len(values),
-                "minimum": min(values),
-                "maximum": max(values),
-                "coverage": len(values) / total_count,
+                "average": total / count,
+                "minimum": bin_minimum,
+                "maximum": bin_maximum,
+                "coverage": count / total_count,
             }
         )
     return tuple(bins)
@@ -838,7 +915,10 @@ def _read_imageio_tensor(path: Path) -> CaptureTensor:
         raise ValueError(
             f"{path} requires the optional tensor asset backend; install aura-core[assets] to load EXR/HDR/video assets"
         ) from exc
-    array = imageio.imread(path)
+    try:
+        array = imageio.imread(path)
+    except Exception as exc:
+        raise ValueError(f"{path} could not be loaded by the optional tensor asset backend: {exc}") from exc
     shape = tuple(int(item) for item in getattr(array, "shape", ()))
     if len(shape) == 2:
         height, width = shape
@@ -890,7 +970,8 @@ def _read_netpbm(path: Path) -> _RasterImage:
     channels = 3 if magic in {"P3", "P6"} else 1
     expected = width * height * channels
     if magic in {"P2", "P3"}:
-        values = [int(item) for item in data[offset:].decode("ascii").split()]
+        values = (int(item) for item in data[offset:].decode("ascii").split())
+        normalized = _normalized_channel_buffer(values, max_value=max_value, expected=expected, path=path)
     else:
         if max_value > 255:
             raise ValueError("binary Netpbm capture fixtures only support max_value <= 255")
@@ -898,17 +979,13 @@ def _read_netpbm(path: Path) -> _RasterImage:
         raw = data[offset : offset + expected]
         if len(raw) != expected:
             raise ValueError(f"{path} expected {expected} binary channel values but found {len(raw)}")
-        values = list(raw)
-    if len(values) != expected:
-        raise ValueError(f"{path} expected {expected} channel values but found {len(values)}")
-    if any(value < 0 or value > max_value for value in values):
-        raise ValueError(f"{path} contains channel values outside [0, {max_value}]")
+        normalized = _normalized_channel_buffer(raw, max_value=max_value, expected=expected, path=path)
     return _RasterImage(
         format="Netpbm",
         width=width,
         height=height,
         channels=channels,
-        values=tuple(value / max_value for value in values),
+        values=normalized,
     )
 
 
@@ -963,7 +1040,7 @@ def _read_png(path: Path) -> _RasterImage:
         rows.append(reconstructed)
         previous = reconstructed
         offset += 1 + row_bytes
-    values = tuple(channel / 255.0 for row in rows for channel in row)
+    values = PackedFloatBuffer(channel / 255.0 for row in rows for channel in row)
     return _RasterImage(format="PNG", width=width, height=height, channels=channels, values=values)
 
 
@@ -988,10 +1065,36 @@ def _read_colmap_dense_map(path: Path) -> _RasterImage:
     payload = data[offset:]
     if len(payload) != expected_bytes:
         raise ValueError(f"{path} expected {expected_bytes} float32 depth bytes but found {len(payload)}")
-    values = struct.unpack("<" + "f" * expected_values, payload)
+    values = array("f")
+    values.frombytes(payload)
+    if sys.byteorder != "little":
+        values.byteswap()
+    if len(values) != expected_values:
+        raise ValueError(f"{path} expected {expected_values} float32 values but found {len(values)}")
     if channels == 1 and any(value < 0.0 for value in values):
         raise ValueError(f"{path} contains negative depth values")
-    return _RasterImage(format="COLMAP_DENSE_MAP", width=width, height=height, channels=channels, values=tuple(float(value) for value in values))
+    return _RasterImage(format="COLMAP_DENSE_MAP", width=width, height=height, channels=channels, values=values)
+
+
+def _normalized_channel_buffer(
+    values: IterableABC[int],
+    *,
+    max_value: int,
+    expected: int,
+    path: Path,
+) -> PackedFloatBuffer:
+    if max_value <= 0:
+        raise ValueError(f"{path} max channel value must be positive")
+    normalized = array("d")
+    count = 0
+    for value in values:
+        if value < 0 or value > max_value:
+            raise ValueError(f"{path} contains channel values outside [0, {max_value}]")
+        normalized.append(value / max_value)
+        count += 1
+    if count != expected:
+        raise ValueError(f"{path} expected {expected} channel values but found {count}")
+    return PackedFloatBuffer(normalized)
 
 
 def _png_unfilter(filter_type: int, scanline: bytes, previous: bytes, bytes_per_pixel: int) -> bytes:
