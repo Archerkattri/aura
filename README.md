@@ -15,9 +15,9 @@ posed capture assets and exports a queryable `.aura` scene package.
 
 ## Current Status
 
-Internal completion estimate: **77%**.
+Internal completion estimate: **85%**.
 
-Implemented today:
+Implemented now:
 
 - native carrier registry and payloads for surface, volume, beta, gabor,
   neural residual, semantic, and Gaussian fallback carriers;
@@ -28,6 +28,10 @@ Implemented today:
 - packed capture tensor loading for PNG, PPM/PGM, COLMAP depth maps, COLMAP
   normal maps, and optional `imageio` assets;
 - tiled PyTorch capture optimization through `aura train`;
+- device-resident capture asset batching, mask-aware pixel sampling, camera ray
+  construction, confidence target handling, carrier validity checks, gradient
+  clipping, and reusable packed training batches for the torch optimization
+  path;
 - ordered front-to-back native torch carrier compositing with color, alpha,
   transmittance, depth, normal, confidence, material, semantic, residual, and
   ordered hit outputs;
@@ -36,6 +40,9 @@ Implemented today:
 - configurable image, depth, query, normal, mask, and confidence loss weights;
 - mask-derived confidence targets so occluded or partial evidence can train
   carrier confidence instead of forcing every sampled ray to full certainty;
+- deterministic packed batch preparation, so repeated optimization iterations
+  reuse the same bounded capture/ray buffers instead of rebuilding them every
+  step;
 - adaptive split, promote, merge, and demote decisions during torch training;
 - checkpoint and resume metadata for training runs;
 - deterministic CPU/torch package rendering, query demos, ray-query scoring,
@@ -46,6 +53,9 @@ Still missing before this can be called production:
 
 - compiled CUDA renderer dispatch parity and runtime benchmarks;
 - production GPU BVH/traversal instead of the current AABB-centered tensor path;
+- carrier-complete CUDA kernels with measured parity against the torch renderer
+  for surface, volume, beta, gabor, neural residual, semantic, and Gaussian
+  fallback carriers;
 - larger real-scene benchmarks against COLMAP, NeRF, and 3DGS baselines;
 - production EXR/video streaming and long-run memory tests.
 
@@ -119,8 +129,9 @@ aura benchmark-reference outputs/scene.aura --width 64 --height 64
 aura benchmark-visual outputs/scene.aura outputs/reference.ppm --min-psnr 30
 ```
 
-Use `--backend cuda --require-cuda` only after the CUDA renderer extension builds
-and imports on the target machine.
+Use `--backend cuda --require-cuda` only after the CUDA renderer extension
+builds, imports, passes parity against the torch renderer, and has runtime
+benchmarks on the target machine.
 
 ## Fixture Smoke Tests
 
