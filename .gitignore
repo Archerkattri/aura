@@ -44,3 +44,6 @@ LOCAL_SECRETS.md
 *.pfm
 *.ppm
 *.aura/
+
+# Harness-managed agent worktrees
+.claude/
