@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "AURA-Core: adaptive unified radiance asset reconstruction engine"
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [{ name = "Archerkattri", email = "krishiattriwork@gmail.com" }]
+authors = [{ name = "Krishi Attri", email = "krishiattriwork@gmail.com" }]
 requires-python = ">=3.11"
 dependencies = ["jsonschema>=4"]
 classifiers = [
