@@ -1596,38 +1596,64 @@ def _torch_composite_carrier_hits(
     flat_indices = sorted_indices.reshape(-1)
     flat_active = active_by_order.reshape(-1)
     flat_depths = torch.where(flat_active, sorted_depths.reshape(-1), torch.zeros_like(sorted_depths.reshape(-1)))
-    flat_origins = origins[:, None, :].expand(ray_count, order_count, 3).reshape(ray_count * order_count, 3)
-    flat_directions = directions[:, None, :].expand(ray_count, order_count, 3).reshape(ray_count * order_count, 3)
     # Per-(ray, order) exit depth gathered for the element at each order position.
     # Pre-gathering here keeps this O(rays * elements); the previous
     # exit_depth[:, None, :].expand(...) materialised rays * elements^2 floats and
     # OOM'd at a few thousand carriers.
     flat_exit_depth = torch.gather(exit_depth, 1, sorted_indices).reshape(-1)
-    flat_hit_points = _torch_carrier_sample_points(
-        torch,
-        flat_indices,
-        flat_depths,
-        flat_exit_depth,
-        flat_origins,
-        flat_directions,
-        gaussian_means,
-        device=device,
-    )
-    flat_colors, flat_transmittance, flat_confidence, flat_residual = torch_carrier_response_tensors_batched(
-        torch,
-        elements,
-        flat_indices,
-        flat_depths,
-        flat_exit_depth,
-        flat_hit_points,
-        colors,
-        opacities,
-        confidences,
-        mins,
-        maxs,
-        device,
-        carrier_parameters=carrier_parameters,
-    )
+    # Compact-hit optimization: instead of expanding origins/directions to [rays*N, 3],
+    # gather only the n_active << rays*N hit positions. This keeps the 3-vector
+    # tensors O(n_hits) instead of O(rays * all_carriers), enabling 100k+ carriers.
+    active_flat_pos = flat_active.nonzero(as_tuple=False).squeeze(1)
+    n_active = active_flat_pos.shape[0]
+    total_flat = ray_count * order_count
+    if n_active > 0:
+        compact_ray_idx = active_flat_pos // order_count
+        compact_origins = origins[compact_ray_idx]      # [n_active, 3]
+        compact_directions = directions[compact_ray_idx]  # [n_active, 3]
+        compact_carrier_idx = flat_indices[active_flat_pos]
+        compact_entry = flat_depths[active_flat_pos]
+        compact_exit = flat_exit_depth[active_flat_pos]
+        compact_hit_points = _torch_carrier_sample_points(
+            torch,
+            compact_carrier_idx,
+            compact_entry,
+            compact_exit,
+            compact_origins,
+            compact_directions,
+            gaussian_means,
+            device=device,
+        )
+        compact_colors, compact_transmittance, compact_confidence, compact_residual = (
+            torch_carrier_response_tensors_batched(
+                torch,
+                elements,
+                compact_carrier_idx,
+                compact_entry,
+                compact_exit,
+                compact_hit_points,
+                colors,
+                opacities,
+                confidences,
+                mins,
+                maxs,
+                device,
+                carrier_parameters=carrier_parameters,
+            )
+        )
+        flat_colors = torch.zeros(total_flat, 3, dtype=torch.float32, device=device)
+        flat_transmittance = torch.ones(total_flat, dtype=torch.float32, device=device)
+        flat_confidence = torch.zeros(total_flat, dtype=torch.float32, device=device)
+        flat_residual = torch.zeros(total_flat, dtype=torch.bool, device=device)
+        flat_colors[active_flat_pos] = compact_colors
+        flat_transmittance[active_flat_pos] = compact_transmittance
+        flat_confidence[active_flat_pos] = compact_confidence
+        flat_residual[active_flat_pos] = compact_residual
+    else:
+        flat_colors = torch.zeros(total_flat, 3, dtype=torch.float32, device=device)
+        flat_transmittance = torch.ones(total_flat, dtype=torch.float32, device=device)
+        flat_confidence = torch.zeros(total_flat, dtype=torch.float32, device=device)
+        flat_residual = torch.zeros(total_flat, dtype=torch.bool, device=device)
     carrier_colors_by_order = flat_colors.reshape(ray_count, order_count, 3)
     confidence_by_order = flat_confidence.reshape(ray_count, order_count)
     residual_by_order = flat_residual.reshape(ray_count, order_count)
