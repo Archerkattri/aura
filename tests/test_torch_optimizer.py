@@ -64,6 +64,10 @@ def test_torch_gradient_step_clips_with_device_side_norm():
         gradient_clip_norm=2.0,
     )
 
+    assert update.gradient_norm_tensor is not None
+    assert update.scale_tensor is not None
+    assert str(update.gradient_norm_tensor.device).startswith(device)
+    assert str(update.scale_tensor.device).startswith(device)
     assert update.gradient_norm == pytest.approx(5.0)
     assert update.applied_gradient_norm == pytest.approx(2.0)
     assert update.updated_parameter_count == 1

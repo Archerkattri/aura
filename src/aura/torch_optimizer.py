@@ -559,10 +559,24 @@ def _evolve_scene(
 
 @dataclass(frozen=True)
 class _TorchGradientStepState:
-    gradient_norm: float
-    applied_gradient_norm: float
+    gradient_norm_tensor: Any | None
+    scale_tensor: Any | None
     gradient_clip_norm: float | None
     updated_parameter_count: int
+
+    @property
+    def gradient_norm(self) -> float:
+        if self.gradient_norm_tensor is None:
+            return 0.0
+        return _tensor_scalar(self.gradient_norm_tensor)
+
+    @property
+    def applied_gradient_norm(self) -> float:
+        if self.gradient_norm_tensor is None:
+            return 0.0
+        if self.scale_tensor is None:
+            return self.gradient_norm
+        return _tensor_scalar(self.gradient_norm_tensor * self.scale_tensor)
 
 
 def _gradient_step_carrier_parameters(
@@ -589,19 +603,15 @@ def _gradient_step_carrier_parameters(
             scale_tensor = torch.clamp(clip_tensor / torch.clamp(gradient_norm_tensor, min=1e-12), max=1.0)
         else:
             scale_tensor = torch.ones((), dtype=gradient_norm_tensor.dtype, device=gradient_norm_tensor.device)
-        gradient_norm = float(gradient_norm_tensor.detach().cpu().item())
-        scale = float(scale_tensor.detach().cpu().item())
     else:
         gradient_norm_tensor = None
         scale_tensor = None
-        gradient_norm = 0.0
-        scale = 1.0
     with torch.no_grad():
         for fields in carrier_parameters.values():
             for name, parameter in fields.items():
                 if getattr(parameter, "grad", None) is None:
                     continue
-                step_scale = scale_tensor if scale_tensor is not None else scale
+                step_scale = scale_tensor if scale_tensor is not None else 1.0
                 parameter.sub_(learning_rate * step_scale * parameter.grad)
                 if name in {"color", "opacity", "confidence", "density", "bandwidth", "residual_scale"}:
                     parameter.clamp_(0.0, 1.0)
@@ -618,8 +628,8 @@ def _gradient_step_carrier_parameters(
                 min_corner.copy_(lower)
                 max_corner.copy_(upper)
     return _TorchGradientStepState(
-        gradient_norm=gradient_norm,
-        applied_gradient_norm=gradient_norm * scale,
+        gradient_norm_tensor=gradient_norm_tensor,
+        scale_tensor=scale_tensor,
         gradient_clip_norm=gradient_clip_norm,
         updated_parameter_count=len(parameters),
     )
