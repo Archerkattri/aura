@@ -522,6 +522,29 @@ def _image_record_lines(path: Path) -> list[str]:
 _DENSE_SEED_MIN_POINTS = 64
 
 
+def _robust_point_subset(points: Sequence[ColmapPoint3D]) -> tuple[ColmapPoint3D, ...]:
+    """Drop COLMAP outlier points that lie outside the central 1st-99th percentile
+    range on any axis.
+
+    Sparse models routinely contain a few stray points hundreds of units from the
+    scene (reconstruction noise). Left in, they inflate the bounding box so the
+    voxel grid becomes coarse and every seeded gaussian gets an enormous
+    covariance. This keeps the dense central cloud and discards the tails.
+    """
+    points = tuple(points)
+    if len(points) < 16:
+        return points
+    bounds = []
+    for axis in range(3):
+        values = sorted(p.xyz[axis] for p in points)
+        n = len(values)
+        bounds.append((values[max(0, n // 100)], values[min(n - 1, 99 * n // 100)]))
+    kept = tuple(
+        p for p in points if all(bounds[a][0] <= p.xyz[a] <= bounds[a][1] for a in range(3))
+    )
+    return kept or points
+
+
 def _voxel_prior_regions(
     frame_id: str,
     points: Sequence[ColmapPoint3D],
@@ -536,7 +559,11 @@ def _voxel_prior_regions(
     becomes a locally-tight region (bounds + average colour from its own points),
     giving dense, spatially-local carrier initialisation comparable to seeding a
     primitive per cluster of SfM points (cf. 3DGS one Gaussian per point).
+
+    Outlier points are filtered first so the voxel grid tracks the real scene
+    extent rather than reconstruction noise.
     """
+    points = _robust_point_subset(points)
     mins = tuple(min(p.xyz[i] for p in points) for i in range(3))
     maxs = tuple(max(p.xyz[i] for p in points) for i in range(3))
     extents = tuple(max(maxs[i] - mins[i], 1e-6) for i in range(3))

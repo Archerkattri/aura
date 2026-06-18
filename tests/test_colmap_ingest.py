@@ -448,3 +448,17 @@ def test_sparse_prior_regions_small_model_keeps_legacy_path():
     pts = [ColmapPoint3D(id=str(i), xyz=(0.0, 0.0, float(i)), rgb=(0.5, 0.5, 0.5)) for i in range(4)]
     regions = _sparse_prior_regions("f0", pts, None, 2.0, "colmap-text")
     assert all(not r["id"].startswith("colmap_sparse_voxel_") for r in regions)
+
+
+def test_robust_point_subset_drops_outliers():
+    """COLMAP outlier points far from the scene must not inflate the bounds."""
+    from aura.ingest.colmap import _robust_point_subset, ColmapPoint3D
+    pts = [ColmapPoint3D(id=str(i), xyz=(float(i % 5), float(i % 3), float(i % 4)), rgb=(0.5, 0.5, 0.5)) for i in range(200)]
+    pts.append(ColmapPoint3D(id="outlier", xyz=(1000.0, -2000.0, 5000.0), rgb=(0.0, 0.0, 0.0)))
+    kept = _robust_point_subset(pts)
+    assert all(p.id != "outlier" for p in kept)  # extreme outlier removed
+    assert len(kept) >= 180  # the dense central cloud is preserved
+
+    # Small clouds (< 16 points) are returned unchanged.
+    small = pts[:5]
+    assert _robust_point_subset(small) == tuple(small)
