@@ -129,8 +129,9 @@ extern "C" __global__ void aura_neural_forward_kernel(
     out_color[i * 3 + 0] = color[i * 3 + 0];
     out_color[i * 3 + 1] = color[i * 3 + 1];
     out_color[i * 3 + 2] = color[i * 3 + 2];
-    const float confidence_scale = fminf(fmaxf(1.0f - residual_scale[i] * 0.25f, 0.0f), 1.0f);
-    out_transmittance[i] = fminf(fmaxf(1.0f - opacity[i], 0.0f), 1.0f);
+    const float neural_strength = fminf(fmaxf(residual_scale[i], 0.0f), 1.0f);
+    const float confidence_scale = fminf(fmaxf(1.0f - neural_strength * 0.25f, 0.0f), 1.0f);
+    out_transmittance[i] = fminf(fmaxf(1.0f - opacity[i] * neural_strength, 0.0f), 1.0f);
     out_confidence[i] = fminf(fmaxf(confidence[i] * confidence_scale, 0.0f), 1.0f);
     out_residual[i] = 1;
 }
@@ -773,7 +774,48 @@ extern "C" __global__ void aura_render_rays_kernel(
             color_b_hit = aura_clamp_unit(color_b_hit * modulation);
             confidence_value = aura_clamp_unit(confidence_value * bandwidth);
         } else if (carrier_id == 4) {
-            confidence_value = aura_clamp_unit(confidence_value * (1.0f - payload[0] * 0.25f));
+            const float neural_strength = aura_clamp_unit(payload[0]);
+            transmittance = aura_clamp_unit(1.0f - opacity * neural_strength);
+            confidence_value = aura_clamp_unit(confidence_value * (1.0f - neural_strength * 0.25f));
+        } else if (carrier_id == 6) {
+            const float* gaussian_mean = gaussian_means + element_i * 3;
+            const float* gaussian_inverse_covariance = gaussian_inverse_covariances + element_i * 9;
+            const float gaussian_support = gaussian_support_radius_sq[element_i];
+            float gaussian_weight = 1.0f;
+            if (aura_gaussian_geometry_valid(gaussian_mean, gaussian_inverse_covariance, gaussian_support)) {
+                const float ray_to_mean[3] = {
+                    gaussian_mean[0] - origin[0],
+                    gaussian_mean[1] - origin[1],
+                    gaussian_mean[2] - origin[2],
+                };
+                const float direction_norm = fmaxf(
+                    direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2],
+                    1.0e-8f
+                );
+                const float projected_depth =
+                    (ray_to_mean[0] * direction[0] + ray_to_mean[1] * direction[1] + ray_to_mean[2] * direction[2]) /
+                    direction_norm;
+                const float gaussian_depth = fmaxf(hit_depths[hit_i], fminf(hit_exits[hit_i], projected_depth));
+                const float point[3] = {
+                    origin[0] + direction[0] * gaussian_depth,
+                    origin[1] + direction[1] * gaussian_depth,
+                    origin[2] + direction[2] * gaussian_depth,
+                };
+                const float delta[3] = {
+                    point[0] - gaussian_mean[0],
+                    point[1] - gaussian_mean[1],
+                    point[2] - gaussian_mean[2],
+                };
+                float weighted_delta[3] = {0.0f, 0.0f, 0.0f};
+                aura_matvec3(gaussian_inverse_covariance, delta, weighted_delta);
+                const float mahalanobis = fmaxf(
+                    delta[0] * weighted_delta[0] + delta[1] * weighted_delta[1] + delta[2] * weighted_delta[2],
+                    0.0f
+                );
+                gaussian_weight = aura_clamp_unit(expf(-0.5f * mahalanobis));
+            }
+            transmittance = aura_clamp_unit(1.0f - opacity * gaussian_weight);
+            confidence_value = aura_clamp_unit(confidence_value * gaussian_weight);
         }
         const float alpha = 1.0f - transmittance;
         const float weight = remaining * alpha;

@@ -955,7 +955,39 @@ def _simulate_cuda_carrier_response(
             residual,
         )
     if carrier_id == CUDA_RENDERER_CARRIER_IDS["neural"]:
-        return (_clamp_unit(1.0 - opacity), _clamp_unit(confidence * (1.0 - payload[0] * 0.25)), color, True)
+        neural_strength = _clamp_unit(payload[0])
+        return (
+            _clamp_unit(1.0 - opacity * neural_strength),
+            _clamp_unit(confidence * (1.0 - neural_strength * 0.25)),
+            color,
+            True,
+        )
+    if carrier_id == CUDA_RENDERER_CARRIER_IDS["gaussian"]:
+        mean = _flat_vec3(inputs.scene.gaussian_means, element_index)
+        inverse_covariance = _flat_matrix3(inputs.scene.gaussian_inverse_covariances, element_index)
+        support_radius_sq = inputs.scene.gaussian_support_radius_sq[element_index]
+        gaussian_weight = 1.0
+        if _valid_gaussian_geometry(mean, inverse_covariance, support_radius_sq):
+            ray_to_mean = tuple(mean[axis] - origin[axis] for axis in range(3))
+            direction_norm = max(sum(direction[axis] * direction[axis] for axis in range(3)), 1e-8)
+            projected_depth = sum(ray_to_mean[axis] * direction[axis] for axis in range(3)) / direction_norm
+            gaussian_depth = max(depth, min(exit_depth, projected_depth))
+            point = tuple(origin[axis] + direction[axis] * gaussian_depth for axis in range(3))
+            delta = tuple(point[axis] - mean[axis] for axis in range(3))
+            weighted_delta = tuple(
+                inverse_covariance[axis][0] * delta[0]
+                + inverse_covariance[axis][1] * delta[1]
+                + inverse_covariance[axis][2] * delta[2]
+                for axis in range(3)
+            )
+            mahalanobis = max(sum(delta[axis] * weighted_delta[axis] for axis in range(3)), 0.0)
+            gaussian_weight = _clamp_unit(_exp_neg(0.5 * mahalanobis))
+        return (
+            _clamp_unit(1.0 - opacity * gaussian_weight),
+            _clamp_unit(confidence * gaussian_weight),
+            color,
+            residual,
+        )
     return (_clamp_unit(1.0 - opacity), confidence, color, residual)
 
 

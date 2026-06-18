@@ -191,14 +191,14 @@ def test_cuda_renderer_kernel_simulation_matches_flat_abi_ordered_compositing_ou
     assert payload["productionReady"] is False
     assert simulation.first_hit_indices == (0, 1, -1)
     assert simulation.ordered_hits == (0, 1, 1, -1, -1, -1)
-    assert simulation.out_color == pytest.approx((0.6875, 0.175, 0.1875, 0.05, 0.1, 0.45, 0.0, 0.0, 0.0))
-    assert simulation.out_alpha == pytest.approx((0.875, 0.5, 0.0))
-    assert simulation.out_transmittance == pytest.approx((0.125, 0.5, 1.0))
+    assert simulation.out_color == pytest.approx((0.6775, 0.155, 0.0975, 0.01, 0.02, 0.09, 0.0, 0.0, 0.0))
+    assert simulation.out_alpha == pytest.approx((0.775, 0.1, 0.0))
+    assert simulation.out_transmittance == pytest.approx((0.225, 0.9, 1.0))
     assert simulation.out_depth[0] == pytest.approx(1.0)
     assert simulation.out_depth[1] == pytest.approx(0.05)
     assert simulation.out_depth[2] > 1.0e30
     assert simulation.out_normal == pytest.approx((0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0))
-    assert simulation.out_confidence == pytest.approx((0.7671428571, 0.57, 0.0))
+    assert simulation.out_confidence == pytest.approx((0.7925806452, 0.57, 0.0))
     assert simulation.out_residual == (1, 1, 0)
     assert simulation.out_material_id == (0, -1, -1)
     assert simulation.out_semantic_id == (0, 1, -1)
@@ -631,6 +631,90 @@ def test_cuda_render_rays_compiled_extension_uses_gabor_phase_on_cuda():
     assert batch.backend == "cuda"
     assert _flatten_nested(batch.color) == pytest.approx(simulation.out_color)
     assert batch.depth == pytest.approx((1.2,))
+
+
+def _carrier_parity_scene(carrier_id, payload, **element_kwargs):
+    return AuraScene(
+        name=f"cuda_torch_parity_{carrier_id}",
+        elements=(
+            AuraElement(
+                id="carrier",
+                carrier_id=carrier_id,
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.4)),
+                color=(0.7, 0.3, 0.2),
+                opacity=0.6,
+                confidence=0.8,
+                payload=payload,
+                **element_kwargs,
+            ),
+        ),
+    )
+
+
+_CARRIER_PARITY_CASES = (
+    ("surface", {"type": "surface_cell"}, {}),
+    ("volume", {"type": "volume_cell", "density": 1.5}, {}),
+    ("beta", {"type": "beta_kernel", "alpha": 2.0, "beta": 2.0}, {}),
+    (
+        "gabor",
+        {"type": "gabor_frequency", "frequency": [0.0, 0.0, 0.0], "phase": 1.0, "bandwidth": 0.5},
+        {},
+    ),
+    ("neural", {"type": "neural_residual", "residual_scale": 0.2}, {}),
+    ("semantic", {"type": "semantic_feature", "label": "thing"}, {"semantic_id": "thing"}),
+    (
+        "gaussian",
+        {
+            "type": "gaussian_fallback",
+            "mean": [0.0, 0.0, 0.2],
+            "covariance": [[0.25, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.0, 0.25]],
+            "support_sigma": 1.0,
+        },
+        {},
+    ),
+)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+@pytest.mark.parametrize(("carrier_id", "payload", "element_kwargs"), _CARRIER_PARITY_CASES)
+def test_cuda_render_rays_matches_torch_renderer_for_every_carrier_on_cuda(carrier_id, payload, element_kwargs):
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    from aura.torch_renderer import torch_render_rays
+
+    scene = _carrier_parity_scene(carrier_id, payload, **element_kwargs)
+    ray_origins = ((0.0, 0.0, -1.0), (0.1, -0.1, -1.0), (2.0, 0.0, -1.0))
+    ray_directions = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0))
+
+    cuda_batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        require_cuda=True,
+        fallback_backend="none",
+        max_hits=4,
+    )
+    torch_batch = torch_render_rays(scene, ray_origins, ray_directions, device="cuda")
+
+    assert cuda_batch.backend == "cuda"
+    assert cuda_batch.to_dict()["available"] is True
+    for ray_index in range(len(ray_origins)):
+        assert cuda_batch.color[ray_index] == pytest.approx(torch_batch.predicted_color[ray_index], abs=1.0e-5)
+        assert cuda_batch.transmittance[ray_index] == pytest.approx(torch_batch.transmittance[ray_index], abs=1.0e-5)
+        assert cuda_batch.opacity[ray_index] == pytest.approx(torch_batch.opacity[ray_index], abs=1.0e-5)
+        assert cuda_batch.confidence[ray_index] == pytest.approx(torch_batch.confidence[ray_index], abs=1.0e-5)
+        assert bool(cuda_batch.residual[ray_index]) == bool(torch_batch.residual[ray_index])
+        cuda_depth = cuda_batch.depth[ray_index]
+        torch_depth = torch_batch.predicted_depth[ray_index]
+        if torch_depth is None:
+            assert cuda_depth is None
+        else:
+            assert cuda_depth is not None
+            assert cuda_depth == pytest.approx(torch_depth, abs=1.0e-4)
 
 
 def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
