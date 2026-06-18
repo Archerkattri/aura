@@ -127,6 +127,7 @@ def colmap_to_capture_manifest(
     target_color: Vec3 = (0.5, 0.5, 0.5),
     default_depth: float = 2.0,
     max_seed_regions: int = 2048,
+    point_seeded: bool = False,
 ) -> CaptureManifest:
     """Convert a COLMAP sparse model directory (binary or text) into an AURA capture manifest."""
     cameras, images, points, source = load_colmap_model(path)
@@ -141,6 +142,7 @@ def colmap_to_capture_manifest(
         default_depth=default_depth,
         source=source,
         max_seed_regions=max_seed_regions,
+        point_seeded=point_seeded,
     )
 
 
@@ -152,6 +154,7 @@ def colmap_text_to_capture_manifest(
     target_color: Vec3 = (0.5, 0.5, 0.5),
     default_depth: float = 2.0,
     max_seed_regions: int = 2048,
+    point_seeded: bool = False,
 ) -> CaptureManifest:
     """Convert a COLMAP text-format sparse model into an AURA capture manifest."""
     cameras, images, points = load_colmap_text_model(path)
@@ -166,6 +169,7 @@ def colmap_text_to_capture_manifest(
         default_depth=default_depth,
         source="colmap-text",
         max_seed_regions=max_seed_regions,
+        point_seeded=point_seeded,
     )
 
 
@@ -177,6 +181,7 @@ def colmap_binary_to_capture_manifest(
     target_color: Vec3 = (0.5, 0.5, 0.5),
     default_depth: float = 2.0,
     max_seed_regions: int = 2048,
+    point_seeded: bool = False,
 ) -> CaptureManifest:
     """Convert a COLMAP binary sparse model into an AURA capture manifest."""
     cameras, images, points = load_colmap_binary_model(path)
@@ -191,6 +196,7 @@ def colmap_binary_to_capture_manifest(
         default_depth=default_depth,
         source="colmap-binary",
         max_seed_regions=max_seed_regions,
+        point_seeded=point_seeded,
     )
 
 
@@ -264,6 +270,7 @@ def _colmap_to_capture_manifest(
     default_depth: float,
     source: str,
     max_seed_regions: int = 2048,
+    point_seeded: bool = False,
 ) -> CaptureManifest:
     if not images:
         raise ValueError(f"{source} model did not contain any registered images")
@@ -296,7 +303,10 @@ def _colmap_to_capture_manifest(
                 "semantic_label": None,
             }
         )
-    regions = _sparse_prior_regions(frames[0]["id"], points, centroid, default_depth, source, max_seed_regions)
+    regions = _sparse_prior_regions(
+        frames[0]["id"], points, centroid, default_depth, source, max_seed_regions,
+        point_seeded=point_seeded,
+    )
     payload = {"format": "AURA_CAPTURE_MANIFEST", "root": root, "frames": frames, "regions": regions}
     return CaptureManifest.from_dict(payload)
 
@@ -308,10 +318,12 @@ def write_colmap_capture_manifest(
     root: str,
     image_dir: str = "images",
     max_seed_regions: int = 2048,
+    point_seeded: bool = False,
 ) -> Path:
     """Convert a COLMAP sparse model to a capture manifest and write it to ``output``."""
     manifest = colmap_to_capture_manifest(
-        path, root=root, image_dir=image_dir, max_seed_regions=max_seed_regions
+        path, root=root, image_dir=image_dir, max_seed_regions=max_seed_regions,
+        point_seeded=point_seeded,
     )
     return write_capture_manifest(manifest, output)
 
@@ -595,6 +607,59 @@ def _voxel_prior_regions(
     return regions
 
 
+def _sfm_point_seeded_regions(
+    frame_id: str,
+    points: Sequence[ColmapPoint3D],
+    source: str,
+    max_regions: int,
+) -> list[dict]:
+    """Seed one carrier per SfM point — the 3DGS initialization strategy.
+
+    Each carrier is placed exactly at the reconstructed 3D point with a
+    tight bounding box whose half-extent is the mean inter-point spacing.
+    This ensures every carrier overlaps with real scene geometry, unlike
+    voxel seeding where carrier centres sit at voxel centroids that may be
+    far from any surface.
+    """
+    points = _robust_point_subset(points)
+    if not points:
+        return []
+    # Estimate typical inter-point spacing from scene extent and density.
+    mins = tuple(min(p.xyz[i] for p in points) for i in range(3))
+    maxs = tuple(max(p.xyz[i] for p in points) for i in range(3))
+    diag = sqrt(sum((maxs[i] - mins[i]) ** 2 for i in range(3)))
+    half_scale = max(1e-3, diag / max(1, sqrt(float(len(points)))) * 0.5)
+    # If more points than budget, sample uniformly by stepping through sorted points.
+    sampled: Sequence[ColmapPoint3D]
+    if len(points) > max_regions:
+        step = len(points) / max_regions
+        sampled = [points[int(i * step)] for i in range(max_regions)]
+    else:
+        sampled = points
+    regions = []
+    for index, point in enumerate(sampled):
+        x, y, z = point.xyz
+        r, g, b = point.rgb
+        half = half_scale
+        regions.append({
+            "id": f"colmap_sfm_point_{index}",
+            "frame_id": frame_id,
+            "bounds": {
+                "min": [x - half, y - half, z - half],
+                "max": [x + half, y + half, z + half],
+            },
+            "evidence": {"geometry_confidence": 0.75, "ray_need": 0.6, "edit_need": 0.2},
+            "color": [r, g, b],
+            "opacity": 0.1,
+            "confidence": 0.75,
+            "normal": None,
+            "material_id": "mat_colmap_sfm_point",
+            "semantic_label": "colmap_sfm_point",
+            "fallback_source": source,
+        })
+    return regions
+
+
 def _sparse_prior_regions(
     frame_id: str,
     points: Sequence[ColmapPoint3D],
@@ -602,9 +667,12 @@ def _sparse_prior_regions(
     default_depth: float,
     source: str,
     max_seed_regions: int = 2048,
+    point_seeded: bool = False,
 ) -> list[dict]:
     if not points:
         return [_sparse_prior_region(frame_id, tuple(), centroid, default_depth, source, "colmap_sparse_prior", 0.3)]
+    if point_seeded:
+        return _sfm_point_seeded_regions(frame_id, points, source, max_seed_regions)
     if len(points) >= _DENSE_SEED_MIN_POINTS and max_seed_regions > 2:
         return _voxel_prior_regions(frame_id, points, default_depth, source, max_seed_regions)
     layers = _sparse_depth_layers(points)

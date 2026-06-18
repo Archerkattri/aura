@@ -216,6 +216,12 @@ def main(argv: list[str] | None = None) -> int:
         default=2048,
         help="Maximum carrier-seed regions (occupied voxels) from the sparse point cloud",
     )
+    colmap_to_manifest.add_argument(
+        "--point-seeded",
+        action="store_true",
+        default=False,
+        help="Seed one carrier per SfM point (3DGS-style) instead of per voxel cluster",
+    )
 
     demo = sub.add_parser("write-demo-package", help="Write a tiny single-surface .aura package")
     demo.add_argument("--output-dir", type=Path, default=Path("outputs/demo.aura"))
@@ -561,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "colmap-to-capture-manifest":
-        print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir, max_seed_regions=args.max_seed_regions))
+        print(write_colmap_capture_manifest(args.colmap_dir, args.output, root=args.root, image_dir=args.image_dir, max_seed_regions=args.max_seed_regions, point_seeded=args.point_seeded))
         return 0
     if args.command == "write-demo-package":
         print(package_scene(demo_scene(), fallbacks={"mesh": "fallback/preview.glb", "splat": "fallback/preview.splat"}).write(args.output_dir))
