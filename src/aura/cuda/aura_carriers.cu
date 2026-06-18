@@ -731,7 +731,7 @@ extern "C" __global__ void aura_render_rays_kernel(
         const int element_i = hit_elements[hit_i];
         const int carrier_id = carrier_ids[element_i];
         const float opacity = aura_clamp_unit(opacities[element_i]);
-        const float* payload = payload_params + element_i * 4;
+        const float* payload = payload_params + element_i * 5;
         float transmittance = aura_clamp_unit(1.0f - opacity);
         float confidence_value = aura_clamp_unit(confidences[element_i]);
         float color_r_hit = colors[element_i * 3 + 0];
@@ -762,9 +762,10 @@ extern "C" __global__ void aura_render_rays_kernel(
                 origin[1] + direction[1] * hit_depths[hit_i],
                 origin[2] + direction[2] * hit_depths[hit_i],
             };
-            const float bandwidth = aura_clamp_unit(payload[3]);
+            const float phase = payload[3];
+            const float bandwidth = aura_clamp_unit(payload[4]);
             const float dot = point[0] * payload[0] + point[1] * payload[1] + point[2] * payload[2];
-            const float modulation = 1.0f - bandwidth + bandwidth * (0.5f + 0.5f * sinf(6.28318530718f * dot));
+            const float modulation = 1.0f - bandwidth + bandwidth * (0.5f + 0.5f * sinf(6.28318530718f * dot + phase));
             color_r_hit = aura_clamp_unit(color_r_hit * modulation);
             color_g_hit = aura_clamp_unit(color_g_hit * modulation);
             color_b_hit = aura_clamp_unit(color_b_hit * modulation);

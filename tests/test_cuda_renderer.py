@@ -95,10 +95,10 @@ def test_cuda_renderer_scene_buffers_match_renderer_kernel_abi():
     assert buffers.semantic_ids == (0, 1)
     assert buffers.element_mins == pytest.approx((-1.0, -0.5, 0.0, 0.0, -0.5, 0.1))
     assert buffers.element_maxs == pytest.approx((0.0, 0.5, 0.2, 1.0, 0.5, 0.3))
-    assert buffers.payload_params == pytest.approx((0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0))
+    assert buffers.payload_params == pytest.approx((0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0))
     assert payload["colors"]["shape"] == [2, 3]
     assert payload["opacities"]["dtype"] == "float32"
-    assert payload["payloadParams"]["shape"] == [2, 4]
+    assert payload["payloadParams"]["shape"] == [2, 5]
 
 
 def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
@@ -146,7 +146,7 @@ def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
     assert kernel_args["max_hits"] == 3
     assert kernel_args["ray_origins"] == pytest.approx((-0.5, 0.0, -1.0, 0.5, 0.0, -1.0, 2.0, 0.0, -1.0))
     assert kernel_args["carrier_ids"] == (0, 5)
-    assert kernel_args["payload_params"] == pytest.approx((0.0,) * 8)
+    assert kernel_args["payload_params"] == pytest.approx((0.0,) * 10)
     assert kernel_args["material_ids"] == (0, -1)
     assert kernel_args["semantic_ids"] == (0, 1)
     assert cuda_renderer_reference_first_hit_indices(scene, rays) == (0, 1, -1)
@@ -239,7 +239,7 @@ def test_cuda_renderer_kernel_simulation_uses_payload_specific_carrier_responses
     volume_transmittance = __import__("math").exp(-2.0 * 0.5)
     beta_transmittance = 1.0 - 0.5 * (8.0 / 9.0)
 
-    assert inputs.scene.payload_params == pytest.approx((2.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0))
+    assert inputs.scene.payload_params == pytest.approx((2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0, 0.0))
     assert simulation.ordered_hits == (0, 1)
     assert simulation.out_transmittance[0] == pytest.approx(volume_transmittance * beta_transmittance)
     assert simulation.out_alpha[0] == pytest.approx(1.0 - volume_transmittance * beta_transmittance)
@@ -347,6 +347,44 @@ def test_cuda_renderer_kernel_simulation_uses_surface_plane_geometry():
     assert simulation.first_hit_indices == (0,)
     assert simulation.out_depth == pytest.approx((1.25,))
     assert simulation.out_normal == pytest.approx((0.0, 0.0, 1.0))
+
+
+def test_cuda_renderer_kernel_simulation_uses_gabor_phase():
+    pi = __import__("math").pi
+    scene = AuraScene(
+        name="cuda_gabor_phase_simulation_test",
+        elements=(
+            AuraElement(
+                id="frequency",
+                carrier_id="gabor",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.4)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gabor_frequency",
+                    "frequency": [0.0, 0.0, 0.0],
+                    "phase": pi / 2.0,
+                    "bandwidth": 1.0,
+                    "normal": [0.0, 0.0, 1.0],
+                    "plane_point": [0.0, 0.0, 0.2],
+                },
+            ),
+        ),
+    )
+    inputs = cuda_renderer_kernel_inputs(
+        scene,
+        ((0.0, 0.0, -1.0),),
+        ((0.0, 0.0, 1.0),),
+        max_hits=1,
+    )
+
+    simulation = simulate_cuda_renderer_kernel(inputs)
+
+    assert inputs.scene.payload_params == pytest.approx((0.0, 0.0, 0.0, pi / 2.0, 1.0))
+    assert simulation.first_hit_indices == (0,)
+    assert simulation.out_color == pytest.approx((1.0, 0.0, 0.0))
+    assert simulation.out_depth == pytest.approx((1.2,))
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -544,6 +582,54 @@ def test_cuda_render_rays_compiled_extension_uses_surface_plane_geometry_on_cuda
     assert batch.depth == pytest.approx((1.25,))
     assert batch.depth == pytest.approx(simulation.out_depth)
     assert _flatten_nested(batch.normal) == pytest.approx(simulation.out_normal)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_compiled_extension_uses_gabor_phase_on_cuda():
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    pi = __import__("math").pi
+    scene = AuraScene(
+        name="cuda_compiled_gabor_phase_scene",
+        elements=(
+            AuraElement(
+                id="frequency",
+                carrier_id="gabor",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.4)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gabor_frequency",
+                    "frequency": [0.0, 0.0, 0.0],
+                    "phase": pi / 2.0,
+                    "bandwidth": 1.0,
+                    "normal": [0.0, 0.0, 1.0],
+                    "plane_point": [0.0, 0.0, 0.2],
+                },
+            ),
+        ),
+    )
+    ray_origins = ((0.0, 0.0, -1.0),)
+    ray_directions = ((0.0, 0.0, 1.0),)
+    simulation = simulate_cuda_renderer_kernel(cuda_renderer_kernel_inputs(scene, ray_origins, ray_directions, max_hits=1))
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        require_cuda=True,
+        fallback_backend="none",
+        max_hits=1,
+    )
+
+    assert batch.backend == "cuda"
+    assert _flatten_nested(batch.color) == pytest.approx(simulation.out_color)
+    assert batch.depth == pytest.approx((1.2,))
 
 
 def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():

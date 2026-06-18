@@ -75,7 +75,7 @@ class CudaRendererSceneBuffers:
             ("gaussian_inverse_covariances", self.gaussian_inverse_covariances, element_count * 9),
             ("gaussian_support_radius_sq", self.gaussian_support_radius_sq, element_count),
             ("colors", self.colors, element_count * 3),
-            ("payload_params", self.payload_params, element_count * 4),
+            ("payload_params", self.payload_params, element_count * 5),
         ):
             if len(values) != expected:
                 raise ValueError(f"CUDA scene buffer {name} length {len(values)} does not match expected {expected}")
@@ -110,7 +110,7 @@ class CudaRendererSceneBuffers:
             "colors": _flat_buffer_metadata(self.colors, "float32", (self.element_count, 3)),
             "opacities": _flat_buffer_metadata(self.opacities, "float32", (self.element_count,)),
             "confidences": _flat_buffer_metadata(self.confidences, "float32", (self.element_count,)),
-            "payloadParams": _flat_buffer_metadata(self.payload_params, "float32", (self.element_count, 4)),
+            "payloadParams": _flat_buffer_metadata(self.payload_params, "float32", (self.element_count, 5)),
         }
 
 
@@ -510,12 +510,12 @@ def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
     )
 
 
-def _cuda_renderer_payload_params(element: Any) -> tuple[float, float, float, float]:
+def _cuda_renderer_payload_params(element: Any) -> tuple[float, float, float, float, float]:
     payload_type = element.payload.get("type")
     if payload_type == "volume_cell" or element.carrier_id == "volume":
-        return (float(element.payload.get("density", element.opacity)), 0.0, 0.0, 0.0)
+        return (float(element.payload.get("density", element.opacity)), 0.0, 0.0, 0.0, 0.0)
     if payload_type == "beta_kernel" or element.carrier_id == "beta":
-        return (float(element.payload.get("alpha", 1.0)), float(element.payload.get("beta", 1.0)), 0.0, 0.0)
+        return (float(element.payload.get("alpha", 1.0)), float(element.payload.get("beta", 1.0)), 0.0, 0.0, 0.0)
     if payload_type == "gabor_frequency" or element.carrier_id == "gabor":
         frequency = element.payload.get("frequency", (0.0, 0.0, 0.0))
         if not isinstance(frequency, (list, tuple)) or len(frequency) != 3:
@@ -524,11 +524,12 @@ def _cuda_renderer_payload_params(element: Any) -> tuple[float, float, float, fl
             float(frequency[0]),
             float(frequency[1]),
             float(frequency[2]),
+            float(element.payload.get("phase", 0.0)),
             float(element.payload.get("bandwidth", 1.0)),
         )
     if payload_type == "neural_residual" or element.carrier_id == "neural":
-        return (float(element.payload.get("residual_scale", 0.0)), 0.0, 0.0, 0.0)
-    return (0.0, 0.0, 0.0, 0.0)
+        return (float(element.payload.get("residual_scale", 0.0)), 0.0, 0.0, 0.0, 0.0)
+    return (0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 def _cuda_renderer_plane_normal(element: Any) -> tuple[float, float, float]:
@@ -915,7 +916,7 @@ def _simulate_cuda_carrier_response(
     opacity = _clamp_unit(inputs.scene.opacities[element_index])
     confidence = _clamp_unit(inputs.scene.confidences[element_index])
     color = _flat_vec3(inputs.scene.colors, element_index)
-    payload = _flat_payload4(inputs.scene.payload_params, element_index)
+    payload = _flat_payload5(inputs.scene.payload_params, element_index)
     residual = carrier_id == CUDA_RENDERER_CARRIER_IDS["neural"]
     if carrier_id == CUDA_RENDERER_CARRIER_IDS["volume"]:
         density = max(payload[0], 0.0)
@@ -935,9 +936,10 @@ def _simulate_cuda_carrier_response(
         return (_clamp_unit(1.0 - opacity * support), confidence, color, residual)
     if carrier_id == CUDA_RENDERER_CARRIER_IDS["gabor"]:
         point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
-        bandwidth = _clamp_unit(payload[3])
+        phase = payload[3]
+        bandwidth = _clamp_unit(payload[4])
         dot = point[0] * payload[0] + point[1] * payload[1] + point[2] * payload[2]
-        modulation = 1.0 - bandwidth + bandwidth * (0.5 + 0.5 * _sin_tau(dot))
+        modulation = 1.0 - bandwidth + bandwidth * (0.5 + 0.5 * _sin_tau(dot + phase / (2.0 * 3.141592653589793)))
         return (
             _clamp_unit(1.0 - opacity),
             _clamp_unit(confidence * bandwidth),
@@ -949,9 +951,15 @@ def _simulate_cuda_carrier_response(
     return (_clamp_unit(1.0 - opacity), confidence, color, residual)
 
 
-def _flat_payload4(values: Sequence[float], index: int) -> tuple[float, float, float, float]:
-    start = index * 4
-    return (float(values[start]), float(values[start + 1]), float(values[start + 2]), float(values[start + 3]))
+def _flat_payload5(values: Sequence[float], index: int) -> tuple[float, float, float, float, float]:
+    start = index * 5
+    return (
+        float(values[start]),
+        float(values[start + 1]),
+        float(values[start + 2]),
+        float(values[start + 3]),
+        float(values[start + 4]),
+    )
 
 
 def _cuda_beta_support(
@@ -1455,7 +1463,7 @@ def _compiled_extension_batch(
         torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.confidences, dtype=torch.float32, device=resolved_device).contiguous(),
-        torch.tensor(scene_buffers.payload_params, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 4).contiguous(),
+        torch.tensor(scene_buffers.payload_params, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 5).contiguous(),
         torch.tensor(scene_buffers.material_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.semantic_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         int(launch_config.max_hits),

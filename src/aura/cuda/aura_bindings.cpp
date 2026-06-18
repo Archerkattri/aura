@@ -154,7 +154,7 @@ pybind11::dict render_rays(
     require_shape2(colors, "colors", element_count_64, 3);
     require_shape1(opacities, "opacities", element_count_64);
     require_shape1(confidences, "confidences", element_count_64);
-    require_shape2(payload_params, "payload_params", element_count_64, 4);
+    require_shape2(payload_params, "payload_params", element_count_64, 5);
     require_shape1(material_ids, "material_ids", element_count_64);
     require_shape1(semantic_ids, "semantic_ids", element_count_64);
     TORCH_CHECK(ray_count_64 <= static_cast<int64_t>(std::numeric_limits<int>::max()), "ray_count exceeds int32 launcher ABI");
