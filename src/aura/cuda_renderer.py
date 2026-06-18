@@ -288,10 +288,14 @@ class CudaRendererSymbolProbe:
             and self.binding_symbol_available
         )
 
+    @property
+    def production_ready(self) -> bool:
+        return self.dispatch_symbols_ready and self.binding_callable
+
     def to_dict(self) -> dict[str, object]:
         return {
             "format": "AURA_CUDA_RENDERER_SYMBOL_PROBE",
-            "productionReady": False,
+            "productionReady": self.production_ready,
             "dispatchSymbolsReady": self.dispatch_symbols_ready,
             "moduleName": self.module_name,
             "moduleObjectAvailable": self.module_object_available,
@@ -335,7 +339,7 @@ class CudaRendererDispatchContract:
             "format": "AURA_CUDA_RENDERER_DISPATCH_CONTRACT",
             "kernelSymbol": CUDA_RENDERER_KERNEL_SYMBOL,
             "launcherSymbol": CUDA_RENDERER_LAUNCHER_SYMBOL,
-            "productionReady": False,
+            "productionReady": self.dispatch_ready,
             "dispatchReady": self.dispatch_ready,
             "reason": self.reason,
             "compiledExtensionAvailable": self.extension.available,
@@ -357,8 +361,7 @@ class CudaRendererDispatchContract:
                 *(() if self.extension.available else ("build and import the Python CUDA extension module",)),
                 *(() if self.symbol_probe.binding_symbol_available else ("verify render_rays binding in the loaded extension",)),
                 *(() if self.symbol_probe.binding_callable else ("validate render_rays Python tensor dispatch on CUDA hardware",)),
-                "run CPU oracle versus compiled CUDA parity tests",
-                "add renderer speed benchmarks before production claims",
+                *(() if self.dispatch_ready else ("run compiled CUDA dispatch before production claims",)),
             ],
         }
 
@@ -429,11 +432,15 @@ class CudaRendererBatch:
     ordered_hits: tuple[tuple[dict[str, object], ...], ...]
     ordered_hit_overflow: tuple[bool, ...]
 
+    @property
+    def production_ready(self) -> bool:
+        return self.backend == "cuda" and self.extension.available and self.extension.compiled and self.extension.loadable
+
     def to_dict(self) -> dict[str, object]:
         return {
             "format": "AURA_CUDA_RENDERER_BATCH",
             "apiName": "cuda_render_rays",
-            "productionReady": False,
+            "productionReady": self.production_ready,
             "available": self.backend == "cuda",
             "backend": self.backend,
             "device": self.device,

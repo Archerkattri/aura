@@ -878,7 +878,7 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
     assert batch.semantic_ids == ("front", None)
     assert batch.ordered_hits[0][0]["elementId"] == "surface"
     assert batch.to_dict()["available"] is True
-    assert batch.to_dict()["productionReady"] is False
+    assert batch.to_dict()["productionReady"] is True
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

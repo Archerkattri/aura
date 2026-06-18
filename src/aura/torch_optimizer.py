@@ -324,21 +324,20 @@ def _optimize_torch_batches(
                         iteration_summaries.append(summary)
                     if checkpoint_due:
                         iteration_materialization_summary = summary
-            if checkpoint_objective is not None:
-                steps.append(
-                    _optimization_step_from_objective(
-                        absolute_iteration,
-                        checkpoint_objective,
-                        current_scene.elements,
-                        batch_index=batch_index,
-                        target_offset=target_offset,
-                        source_windows=source_windows,
-                        sample_count=_batch_sample_count(batch),
-                        loss_weights=config.loss_weights,
-                        update=update,
-                        max_samples_per_batch=config.max_samples_per_batch,
-                    )
+            steps.append(
+                _optimization_step_from_objective(
+                    absolute_iteration,
+                    checkpoint_objective,
+                    current_scene.elements,
+                    batch_index=batch_index,
+                    target_offset=target_offset,
+                    source_windows=source_windows,
+                    sample_count=_batch_sample_count(batch),
+                    loss_weights=config.loss_weights,
+                    update=update,
+                    max_samples_per_batch=config.max_samples_per_batch,
                 )
+            )
         if evolution_enabled or checkpoint_due:
             current_scene = _scene_from_carrier_parameters(
                 current_scene,
