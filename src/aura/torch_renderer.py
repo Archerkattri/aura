@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from importlib.util import find_spec
 from typing import Any, Sequence
@@ -880,6 +882,8 @@ def torch_render_ray_color_tensor(
     device: str | None = None,
     carrier_parameters: dict[str, dict[str, Any]] | None = None,
     scene_tensors: TorchSceneTensors | None = None,
+    ssaa_2x2: bool = False,
+    focal_length_pixels: float = 1.0,
 ) -> Any:
     """Render raw rays and return only the predicted color tensor."""
 
@@ -895,17 +899,50 @@ def torch_render_ray_color_tensor(
         raise ValueError(f"ray_origins count {ray_count} does not match ray_directions count {int(directions.shape[0])}")
     if ray_count <= 0:
         raise ValueError("ray_count must be positive")
-    composited, _, _ = _torch_composited_scene_rays(
-        torch,
-        scene,
-        origins,
-        directions,
-        device=str(resolved_device),
-        carrier_parameters=carrier_parameters,
-        scene_tensors=scene_tensors,
-        collect_traces=False,
-    )
-    return composited["color"]
+    if ssaa_2x2:
+        pixel_cone_angle = 1.0 / focal_length_pixels
+        offsets = [(-0.25, -0.25), (-0.25, 0.25), (0.25, -0.25), (0.25, 0.25)]
+        d = directions  # [ray_count, 3]
+        # Compute right vector: cross(d, [0,1,0]), fallback to cross(d, [1,0,0])
+        up_ref = torch.tensor([[0.0, 1.0, 0.0]], dtype=d.dtype, device=d.device).expand_as(d)
+        right = torch.cross(d, up_ref, dim=1)
+        right_norm = torch.norm(right, dim=1, keepdim=True)
+        degenerate = right_norm < 1e-6
+        up_ref2 = torch.tensor([[1.0, 0.0, 0.0]], dtype=d.dtype, device=d.device).expand_as(d)
+        right2 = torch.cross(d, up_ref2, dim=1)
+        right = torch.where(degenerate, right2, right)
+        right = right / torch.clamp(torch.norm(right, dim=1, keepdim=True), min=1e-8)
+        up = torch.cross(right, d, dim=1)
+        up = up / torch.clamp(torch.norm(up, dim=1, keepdim=True), min=1e-8)
+        accumulated_color = torch.zeros((ray_count, 3), dtype=torch.float32, device=str(resolved_device))
+        for ox, oy in offsets:
+            jitter = right * (ox * pixel_cone_angle) + up * (oy * pixel_cone_angle)
+            jittered_dir = d + jitter
+            jittered_dir = jittered_dir / torch.clamp(torch.norm(jittered_dir, dim=1, keepdim=True), min=1e-8)
+            composited, _, _ = _torch_composited_scene_rays(
+                torch,
+                scene,
+                origins,
+                jittered_dir,
+                device=str(resolved_device),
+                carrier_parameters=carrier_parameters,
+                scene_tensors=scene_tensors,
+                collect_traces=False,
+            )
+            accumulated_color = accumulated_color + composited["color"]
+        return accumulated_color / 4.0
+    else:
+        composited, _, _ = _torch_composited_scene_rays(
+            torch,
+            scene,
+            origins,
+            directions,
+            device=str(resolved_device),
+            carrier_parameters=carrier_parameters,
+            scene_tensors=scene_tensors,
+            collect_traces=False,
+        )
+        return composited["color"]
 
 
 def torch_render_tensor_targets(
@@ -1220,6 +1257,10 @@ def _torch_composited_scene_rays(
     carrier_parameters: dict[str, dict[str, Any]] | None,
     scene_tensors: TorchSceneTensors | None,
     collect_traces: bool,
+    mip_splatting: bool = False,
+    focal_length_pixels: float = 1.0,
+    cone_prefilter: bool = False,
+    transmittance_threshold: float = 1e-4,
 ) -> tuple[dict[str, Any], TorchSceneTensors, Any]:
     scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
@@ -1273,6 +1314,10 @@ def _torch_composited_scene_rays(
         device=device,
         carrier_parameters=carrier_parameters,
         collect_traces=collect_traces,
+        mip_splatting=mip_splatting,
+        focal_length_pixels=focal_length_pixels,
+        cone_prefilter=cone_prefilter,
+        transmittance_threshold=transmittance_threshold,
     )
     return composited, scene_tensors, element_normals
 
@@ -1509,7 +1554,17 @@ def _torch_composite_carrier_hits(
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None,
     collect_traces: bool = True,
+    mip_splatting: bool = False,
+    focal_length_pixels: float = 1.0,
+    cone_prefilter: bool = False,
+    transmittance_threshold: float = 1e-4,
 ) -> dict[str, Any]:
+    if mip_splatting:
+        pixel_cone_angle = 2.0 * math.atan(0.5 / focal_length_pixels)
+        nyquist_sigma = 1.0 / (2.0 * math.pi * 0.5 * pixel_cone_angle + 1e-8)
+        effective_gaussian_support_radius_sq = torch.clamp(gaussian_support_radius_sq, min=0.0, max=nyquist_sigma**2)
+    else:
+        effective_gaussian_support_radius_sq = gaussian_support_radius_sq
     entry, exit_depth, hits = _torch_carrier_hits(
         torch,
         tuple(elements),
@@ -1523,7 +1578,7 @@ def _torch_composite_carrier_hits(
         gabor_normals,
         gaussian_means,
         gaussian_inverse_covariances,
-        gaussian_support_radius_sq,
+        effective_gaussian_support_radius_sq,
         beta_support_radii,
     )
     chunk_culling_active = chunk_mins is not None and chunk_maxs is not None and element_chunk_indices is not None
@@ -1578,15 +1633,37 @@ def _torch_composite_carrier_hits(
         max=1.0,
     )
     alpha_by_order = 1.0 - transmittance_by_order
-    inclusive_remaining = torch.cumprod(transmittance_by_order, dim=1)
-    exclusive_remaining = torch.cat(
-        (
-            torch.ones((ray_count, 1), dtype=transmittance_by_order.dtype, device=device),
-            inclusive_remaining[:, :-1],
-        ),
-        dim=1,
-    )
-    weight_by_order = torch.where(active_by_order, exclusive_remaining * alpha_by_order, torch.zeros_like(alpha_by_order))
+    if cone_prefilter:
+        if not mip_splatting:
+            pixel_cone_angle = 2.0 * math.atan(0.5 / focal_length_pixels)
+        footprint_radius = sorted_depths * pixel_cone_angle
+        max_aabb_extent = torch.max(maxs - mins, dim=1).values
+        aabb_extent_by_order = max_aabb_extent[sorted_indices]
+        effective_alpha = alpha_by_order * torch.clamp(aabb_extent_by_order / (footprint_radius + 1e-8), min=0.0, max=1.0)
+        effective_transmittance_by_order = torch.where(active_by_order, 1.0 - effective_alpha, torch.ones_like(effective_alpha))
+        inclusive_remaining = torch.cumprod(effective_transmittance_by_order, dim=1)
+        exclusive_remaining = torch.cat(
+            (
+                torch.ones((ray_count, 1), dtype=effective_transmittance_by_order.dtype, device=device),
+                inclusive_remaining[:, :-1],
+            ),
+            dim=1,
+        )
+        if transmittance_threshold > 0.0:
+            active_by_order = active_by_order & (exclusive_remaining >= transmittance_threshold)
+        weight_by_order = torch.where(active_by_order, exclusive_remaining * effective_alpha, torch.zeros_like(effective_alpha))
+    else:
+        inclusive_remaining = torch.cumprod(transmittance_by_order, dim=1)
+        exclusive_remaining = torch.cat(
+            (
+                torch.ones((ray_count, 1), dtype=transmittance_by_order.dtype, device=device),
+                inclusive_remaining[:, :-1],
+            ),
+            dim=1,
+        )
+        if transmittance_threshold > 0.0:
+            active_by_order = active_by_order & (exclusive_remaining >= transmittance_threshold)
+        weight_by_order = torch.where(active_by_order, exclusive_remaining * alpha_by_order, torch.zeros_like(alpha_by_order))
     color = torch.sum(weight_by_order.unsqueeze(2) * carrier_colors_by_order, dim=1)
     confidence_num = torch.sum(weight_by_order * confidence_by_order, dim=1)
     confidence_den = torch.sum(weight_by_order, dim=1)
