@@ -565,6 +565,110 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
     assert report["captureSamplingPlan"]["tileCount"] == 2
 
 
+def test_train_cli_writes_optimized_native_package_and_evolution_report(tmp_path):
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch is optional")
+    manifest_path = _write_asset_manifest(tmp_path)
+    package_dir = tmp_path / "trained.aura"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "train",
+            str(manifest_path),
+            "--output",
+            str(package_dir),
+            "--iterations",
+            "2",
+            "--max-targets-per-frame",
+            "2",
+            "--max-targets-per-batch",
+            "1",
+            "--tile-size",
+            "1",
+            "--device",
+            "cpu",
+            "--split-image-loss-threshold",
+            "0.0",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    package = load_package(package_dir)
+    report = json.loads((package_dir / "training_report.json").read_text(encoding="utf-8"))
+
+    assert package.asset.name == "aura_train"
+    assert report["format"] == "AURA_TRAINING_REPORT"
+    assert report["adaptiveEvolutionEnabled"] is True
+    assert "torch_native_differentiable_render_train" in report["stages"]
+    assert report["packedBatchCount"] == 2
+    assert report["packedTargetCount"] == 2
+    assert len(report["steps"]) == 4
+    assert any(step["carrier_evolution"] for step in report["steps"])
+    assert report["finalLoss"] == report["steps"][-1]["total_loss"]
+
+
+def test_render_cli_renders_trained_package(tmp_path):
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch is optional")
+    manifest_path = _write_asset_manifest(tmp_path)
+    package_dir = tmp_path / "trained-render.aura"
+    render_path = tmp_path / "trained.ppm"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "train",
+            str(manifest_path),
+            "--output",
+            str(package_dir),
+            "--iterations",
+            "1",
+            "--max-targets-per-frame",
+            "1",
+            "--max-targets-per-batch",
+            "1",
+            "--tile-size",
+            "1",
+            "--device",
+            "cpu",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "render",
+            str(package_dir),
+            "--output",
+            str(render_path),
+            "--width",
+            "4",
+            "--height",
+            "4",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.stdout.strip() == str(render_path)
+    assert render_path.read_text(encoding="ascii").startswith("P3\n4 4\n255\n")
+
+
 def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
     manifest_path = _write_asset_manifest(tmp_path)
 

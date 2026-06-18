@@ -19,6 +19,7 @@ from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_d
 from aura.cuda_kernels import cuda_kernel_extension_report, cuda_renderer_report
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
+from aura.evolution import CarrierEvolutionPolicy
 from aura.ingest import (
     load_3dgs_scene,
     load_capture_asset_tensors,
@@ -138,6 +139,25 @@ def main(argv: list[str] | None = None) -> int:
     torch_optimize_capture.add_argument("--device", default=None, help="Torch device such as cpu or cuda")
     torch_optimize_capture.add_argument("--color-learning-rate", type=float, default=0.25)
 
+    train = sub.add_parser("train", help="Train native AURA carriers from a capture manifest")
+    train.add_argument("manifest", type=Path)
+    train.add_argument("--output", type=Path, default=Path("outputs/scene.aura"))
+    train.add_argument("--iterations", type=int, default=8)
+    train.add_argument("--pixel-stride", type=int, default=1)
+    train.add_argument("--max-targets-per-frame", type=int, default=4096)
+    train.add_argument("--tile-size", type=int, default=256)
+    train.add_argument("--max-targets-per-batch", type=int, default=1024)
+    train.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
+    train.add_argument("--color-learning-rate", type=float, default=0.25)
+    train.add_argument("--disable-evolution", action="store_true")
+    train.add_argument("--split-image-loss-threshold", type=float, default=0.03)
+    train.add_argument("--depth-anchor-loss-threshold", type=float, default=0.10)
+    train.add_argument("--merge-image-loss-threshold", type=float, default=0.025)
+    train.add_argument("--merge-depth-loss-threshold", type=float, default=0.04)
+    train.add_argument("--demote-after-iteration", type=int, default=3)
+    train.add_argument("--demote-image-loss-threshold", type=float, default=0.045)
+    train.add_argument("--demote-depth-loss-threshold", type=float, default=0.02)
+
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
         help="Load capture-manifest PNG, PPM/PGM, or COLMAP depth/normal-map assets and print deterministic summaries as JSON",
@@ -205,6 +225,12 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("--output", type=Path, default=Path("outputs/preview.ppm"))
     render.add_argument("--width", type=int, default=64)
     render.add_argument("--height", type=int, default=64)
+
+    render_native = sub.add_parser("render", help="Render a .aura package to a PPM image")
+    render_native.add_argument("package_dir", type=Path)
+    render_native.add_argument("--output", type=Path, default=Path("outputs/render.ppm"))
+    render_native.add_argument("--width", type=int, default=64)
+    render_native.add_argument("--height", type=int, default=64)
 
     compare = sub.add_parser("compare-renders", help="Compare two PPM previews and print JSON MSE/PSNR metrics")
     compare.add_argument("expected", type=Path)
@@ -393,6 +419,10 @@ def main(argv: list[str] | None = None) -> int:
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(package_dir)
         return 0
+    if args.command == "train":
+        package_dir = _train_capture_manifest_command(args)
+        print(package_dir)
+        return 0
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
         print(json.dumps([item.to_dict() for item in load_capture_assets(manifest)], indent=2, sort_keys=True))
@@ -454,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "readiness-report":
         print(json.dumps(production_readiness_report().to_dict(), indent=2, sort_keys=True))
         return 0
-    if args.command == "render-package":
+    if args.command in {"render-package", "render"}:
         package = load_package(args.package_dir)
         image = render_orthographic(package.scene, width=args.width, height=args.height)
         print(image.write_ppm(args.output))
@@ -586,6 +616,74 @@ def _reconstruction_config_from_args(args: argparse.Namespace) -> Reconstruction
         demote_image_loss_threshold=args.demote_image_loss_threshold,
         demote_depth_loss_threshold=args.demote_depth_loss_threshold,
     )
+
+
+def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
+    manifest = load_capture_manifest(args.manifest)
+    tensors = load_capture_asset_tensors(manifest)
+    dataset = capture_tensors_to_training_dataset(manifest, tensors)
+    sampling_plan = plan_capture_tensor_sampling(
+        dataset.frames,
+        tensors,
+        pixel_stride=args.pixel_stride,
+        max_targets_per_frame=args.max_targets_per_frame,
+        tile_size=args.tile_size,
+        max_targets_per_batch=args.max_targets_per_batch,
+    )
+    packed_batches = capture_tensors_to_packed_render_batches(
+        dataset.frames,
+        tensors,
+        pixel_stride=args.pixel_stride,
+        max_targets_per_frame=args.max_targets_per_frame,
+        tile_size=args.tile_size,
+        max_targets_per_batch=args.max_targets_per_batch,
+    )
+    scene = _scene_from_training_dataset(dataset, name="aura_train")
+    result = torch_optimize_capture_batches(
+        scene,
+        packed_batches,
+        TorchOptimizationConfig(
+            iterations=args.iterations,
+            color_learning_rate=args.color_learning_rate,
+            max_samples_per_batch=sampling_plan.max_targets_per_batch,
+            evolution_policy=None
+            if args.disable_evolution
+            else CarrierEvolutionPolicy(
+                split_image_loss_threshold=args.split_image_loss_threshold,
+                depth_anchor_loss_threshold=args.depth_anchor_loss_threshold,
+                merge_image_loss_threshold=args.merge_image_loss_threshold,
+                merge_depth_loss_threshold=args.merge_depth_loss_threshold,
+                demote_after_iteration=args.demote_after_iteration,
+                demote_image_loss_threshold=args.demote_image_loss_threshold,
+                demote_depth_loss_threshold=args.demote_depth_loss_threshold,
+            ),
+        ),
+        device=args.device,
+    )
+    package_dir = package_scene(result.scene, fallbacks={"mesh": "fallback/aura-train-preview.glb"}).write(args.output)
+    report = {
+        "format": "AURA_TRAINING_REPORT",
+        "name": result.scene.name,
+        "manifest": str(args.manifest),
+        "device": args.device,
+        "stages": [
+            "capture_manifest_assets",
+            "native_evidence_initialization",
+            "packed_capture_batches",
+            "torch_native_differentiable_render_train",
+            "adaptive_carrier_evolution" if not args.disable_evolution else "adaptive_carrier_evolution_disabled",
+            "aura_package_export",
+        ],
+        "captureSamplingPlan": sampling_plan.to_dict(),
+        "packedBatchCount": len(packed_batches),
+        "packedTargetCount": sum(batch.target_count for batch in packed_batches),
+        "torch": torch_renderer_status().to_dict(),
+        "adaptiveEvolutionEnabled": not args.disable_evolution,
+        **result.to_dict(),
+    }
+    report_path = package_dir / "training_report.json"
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return package_dir
 
 
 def _scene_from_training_dataset(dataset, *, name: str) -> AuraScene:

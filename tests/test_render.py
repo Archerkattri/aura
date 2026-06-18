@@ -143,6 +143,35 @@ def test_render_package_cli_writes_preview(tmp_path):
     assert preview_path.read_text(encoding="ascii").startswith("P3\n4 4\n255\n")
 
 
+def test_render_cli_alias_writes_preview(tmp_path):
+    package_dir = tmp_path / "demo.aura"
+    preview_path = tmp_path / "render.ppm"
+    package_scene(demo_scene()).write(package_dir)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "render",
+            str(package_dir),
+            "--output",
+            str(preview_path),
+            "--width",
+            "4",
+            "--height",
+            "4",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert str(preview_path) in result.stdout
+    assert preview_path.read_text(encoding="ascii").startswith("P3\n4 4\n255\n")
+
+
 def test_compare_renders_cli_reports_json_metrics(tmp_path):
     expected = tmp_path / "expected.ppm"
     actual = tmp_path / "actual.ppm"

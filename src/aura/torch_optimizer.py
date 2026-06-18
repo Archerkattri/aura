@@ -4,7 +4,17 @@ from dataclasses import asdict, dataclass, replace
 from math import isfinite, sqrt
 from typing import Any, Sequence
 
+from aura.decomposition import carrier_lod_elements_and_chunks
 from aura.elements import AuraElement
+from aura.evolution import (
+    CarrierEvolutionDecision,
+    CarrierEvolutionPolicy,
+    carrier_evolution_decisions,
+    evolved_element_for,
+    refined_confidence,
+    simplification_metadata,
+    updated_confidence_map,
+)
 from aura.optimize import TrainingLossWeights
 from aura.scene import AuraScene
 from aura.training_targets import CapturePackedRenderBatch
@@ -26,6 +36,7 @@ class TorchOptimizationConfig:
     loss_weights: TrainingLossWeights = TrainingLossWeights()
     gradient_clip_norm: float | None = None
     max_samples_per_batch: int | None = None
+    evolution_policy: CarrierEvolutionPolicy | None = None
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -40,6 +51,8 @@ class TorchOptimizationConfig:
             raise ValueError("torch gradient_clip_norm must be positive when set")
         if self.max_samples_per_batch is not None and self.max_samples_per_batch <= 0:
             raise ValueError("torch max_samples_per_batch must be positive when set")
+        if self.evolution_policy is not None and not isinstance(self.evolution_policy, CarrierEvolutionPolicy):
+            raise TypeError("torch evolution_policy must be a CarrierEvolutionPolicy or None")
 
 
 @dataclass(frozen=True)
@@ -64,6 +77,7 @@ class TorchOptimizationStep:
     updated_parameter_count: int
     max_samples_per_batch: int | None
     source_windows: tuple[dict[str, Any], ...] = ()
+    carrier_evolution: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -80,6 +94,17 @@ class TorchOptimizationResult:
             "steps": [step.to_dict() for step in self.steps],
             "finalLoss": self.steps[-1].total_loss if self.steps else None,
         }
+
+
+@dataclass(frozen=True)
+class _TorchEvolutionPrediction:
+    element_id: str | None
+    carrier_id: str | None
+    image_loss: float
+    depth_loss: float
+    query_loss: float
+    normal_loss: float
+    target_color: tuple[float, float, float]
 
 
 def torch_optimize_capture_batch(
@@ -218,11 +243,13 @@ def _optimize_torch_batches(
     device: str,
 ) -> tuple[AuraScene, tuple[TorchOptimizationStep, ...]]:
     torch = require_torch()
-    scene_tensors = torch_scene_tensors(scene, device=device)
-    carrier_parameters = scene_tensors.carrier_parameters
+    current_scene = scene
     steps: list[TorchOptimizationStep] = []
     rendered: TorchRenderBatch | None = None
     for iteration in range(config.iterations):
+        scene_tensors = torch_scene_tensors(current_scene, device=device)
+        carrier_parameters = scene_tensors.carrier_parameters
+        iteration_rendered: list[TorchRenderBatch] = []
         for batch, batch_index, target_offset, source_windows in batches:
             sample_count = _batch_sample_count(batch)
             if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
@@ -232,18 +259,19 @@ def _optimize_torch_batches(
                 )
             _zero_carrier_parameter_grads(carrier_parameters)
             objective = torch_render_capture_training_objective(
-                scene,
+                current_scene,
                 batch,
                 carrier_parameters=carrier_parameters,
                 scene_tensors=scene_tensors,
             )
             weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
             rendered = torch_render_capture_training_batch(
-                scene,
+                current_scene,
                 batch,
                 carrier_parameters=carrier_parameters,
                 scene_tensors=scene_tensors,
             )
+            iteration_rendered.append(rendered)
             weighted_loss.backward()
             update = _gradient_step_carrier_parameters(
                 torch,
@@ -255,7 +283,7 @@ def _optimize_torch_batches(
                 _optimization_step_from_rendered(
                     iteration,
                     rendered,
-                    scene.elements,
+                    current_scene.elements,
                     batch_index=batch_index,
                     target_offset=target_offset,
                     source_windows=source_windows,
@@ -265,8 +293,28 @@ def _optimize_torch_batches(
                     max_samples_per_batch=config.max_samples_per_batch,
                 )
             )
-    optimized_scene = _scene_from_carrier_parameters(scene, carrier_parameters, rendered)
-    return optimized_scene, tuple(steps)
+        current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
+        if config.evolution_policy is not None and config.evolution_policy.enabled and iteration_rendered:
+            predictions = tuple(
+                prediction
+                for batch_rendered in iteration_rendered
+                for prediction in _evolution_predictions_from_rendered(batch_rendered)
+            )
+            decisions = carrier_evolution_decisions(
+                predictions,
+                current_scene.elements,
+                policy=config.evolution_policy,
+                iteration=iteration,
+            )
+            if decisions:
+                current_scene = _evolve_scene(current_scene, predictions, decisions, learning_rate=config.color_learning_rate)
+                if steps:
+                    steps[-1] = replace(
+                        steps[-1],
+                        carrier_evolution=tuple(decision.to_dict() for decision in decisions),
+                        carrier_counts=_carrier_counts(current_scene.elements),
+                    )
+    return current_scene, tuple(steps)
 
 
 def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:
@@ -274,6 +322,75 @@ def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]])
         for parameter in fields.values():
             if getattr(parameter, "grad", None) is not None:
                 parameter.grad.zero_()
+
+
+def _evolution_predictions_from_rendered(rendered: TorchRenderBatch) -> tuple[_TorchEvolutionPrediction, ...]:
+    return tuple(
+        _TorchEvolutionPrediction(
+            element_id=element_id,
+            carrier_id=carrier_id,
+            image_loss=float(image_loss),
+            depth_loss=float(depth_loss),
+            query_loss=float(query_loss),
+            normal_loss=float(normal_loss),
+            target_color=target_color,
+        )
+        for element_id, carrier_id, image_loss, depth_loss, query_loss, normal_loss, target_color in zip(
+            rendered.element_ids,
+            rendered.carrier_ids,
+            rendered.image_loss,
+            rendered.depth_loss,
+            rendered.query_loss,
+            rendered.normal_loss,
+            rendered.target_color,
+        )
+    )
+
+
+def _evolve_scene(
+    scene: AuraScene,
+    predictions: Sequence[_TorchEvolutionPrediction],
+    decisions: Sequence[CarrierEvolutionDecision],
+    *,
+    learning_rate: float,
+) -> AuraScene:
+    prediction_by_element = {prediction.element_id: prediction for prediction in predictions if prediction.element_id}
+    decision_by_element = {decision.element_id: decision for decision in decisions}
+    removed_evolved_ids = {
+        decision.created_element_id
+        for decision in decisions
+        if decision.action in {"merge_beta_detail", "demote_neural_residual"} and decision.created_element_id is not None
+    }
+    elements: list[AuraElement] = []
+    existing_ids = {element.id for element in scene.elements}
+    for element in scene.elements:
+        if element.id in removed_evolved_ids:
+            continue
+        prediction = prediction_by_element.get(element.id)
+        decision = decision_by_element.get(element.id)
+        if prediction is None:
+            elements.append(element)
+        else:
+            elements.append(
+                replace(
+                    element,
+                    confidence=refined_confidence(element.confidence, prediction, learning_rate=learning_rate),
+                    confidence_map=updated_confidence_map(element, prediction),
+                    metadata={
+                        **element.metadata,
+                        "optimized_by": "aura-train-torch",
+                        "evolution_runtime": "training_loop",
+                        **simplification_metadata(decision),
+                    },
+                )
+            )
+        if decision is not None and prediction is not None:
+            evolved = evolved_element_for(element, decision, prediction)
+            if evolved is not None and evolved.id not in existing_ids:
+                elements.append(evolved)
+                existing_ids.add(evolved.id)
+    chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(elements))
+    return AuraScene(name=scene.name, elements=chunked_elements, chunks=chunks, semantic_graph=scene.semantic_graph)
 
 
 @dataclass(frozen=True)
