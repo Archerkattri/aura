@@ -508,6 +508,7 @@ def run_capture_reconstruction_benchmark(
         max_targets_per_frame=max_targets_per_frame,
         tile_size=tile_size,
         max_targets_per_batch=max_targets_per_batch,
+        sampling_plan=sampling_plan,
     )
     if not packed_batches:
         raise ValueError("capture benchmark requires at least one sampled target")

@@ -231,11 +231,18 @@ def test_capture_tensors_to_packed_render_batches_match_legacy_target_order():
     )
 
     legacy_targets = capture_tensors_to_render_targets((frame,), (tensors,))
+    plan = plan_capture_tensor_sampling(
+        (frame,),
+        (tensors,),
+        tile_size=3,
+        max_targets_per_batch=2,
+    )
     batches = capture_tensors_to_packed_render_batches(
         (frame,),
         (tensors,),
         tile_size=3,
         max_targets_per_batch=2,
+        sampling_plan=plan,
     )
 
     assert [batch.target_count for batch in batches] == [2, 2, 1]
@@ -276,6 +283,37 @@ def test_capture_tensors_to_packed_render_batches_match_legacy_target_order():
     assert packed_colors == [target.render_target.target_color for target in legacy_targets]
     assert packed_normal_present == [1, 1, 1, 1, 1]
     assert all(type(batch.pixel_xy).__name__ == "array" for batch in batches)
+
+
+def test_packed_render_batches_reject_mismatched_sampling_plan():
+    frame = _training_frame()
+    tensors = CaptureFrameTensors(
+        frame_id="frame",
+        image=CaptureTensor(
+            "image.ppm",
+            "Netpbm",
+            "stdlib",
+            2,
+            1,
+            3,
+            (1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+        ),
+    )
+    plan = plan_capture_tensor_sampling(
+        (frame,),
+        (tensors,),
+        tile_size=1,
+        max_targets_per_batch=1,
+    )
+
+    with pytest.raises(ValueError, match="sampling_plan tile_size"):
+        capture_tensors_to_packed_render_batches(
+            (frame,),
+            (tensors,),
+            tile_size=2,
+            max_targets_per_batch=1,
+            sampling_plan=plan,
+        )
 
 
 def test_packed_render_batches_record_multi_tile_source_windows():

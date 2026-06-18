@@ -406,6 +406,7 @@ def main(argv: list[str] | None = None) -> int:
             max_targets_per_frame=args.max_targets_per_frame,
             tile_size=args.tile_size,
             max_targets_per_batch=args.max_targets_per_batch,
+            sampling_plan=sampling_plan,
         )
         result = torch_optimize_capture_batches(
             scene,
@@ -673,6 +674,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         max_targets_per_frame=args.max_targets_per_frame,
         tile_size=args.tile_size,
         max_targets_per_batch=args.max_targets_per_batch,
+        sampling_plan=sampling_plan,
     )
     if args.resume_from is not None:
         scene = load_package(args.resume_from).scene

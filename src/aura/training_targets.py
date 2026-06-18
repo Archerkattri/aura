@@ -355,6 +355,7 @@ def capture_tensors_to_packed_render_batches(
     max_targets_per_frame: int | None = None,
     tile_size: int = 256,
     max_targets_per_batch: int | None = None,
+    sampling_plan: CaptureSamplingPlan | None = None,
 ) -> tuple[CapturePackedRenderBatch, ...]:
     """Convert capture tensors into bounded packed render-target batches.
 
@@ -364,9 +365,16 @@ def capture_tensors_to_packed_render_batches(
     ``CapturePixelTarget`` objects.
     """
 
-    plan = plan_capture_tensor_sampling(
+    plan = sampling_plan or plan_capture_tensor_sampling(
         frames,
         tensors,
+        pixel_stride=pixel_stride,
+        max_targets_per_frame=max_targets_per_frame,
+        tile_size=tile_size,
+        max_targets_per_batch=max_targets_per_batch,
+    )
+    _validate_sampling_plan_matches_request(
+        plan,
         pixel_stride=pixel_stride,
         max_targets_per_frame=max_targets_per_frame,
         tile_size=tile_size,
@@ -428,6 +436,25 @@ def capture_tensors_to_packed_render_batches(
             )
         )
     return tuple(packed_batches)
+
+
+def _validate_sampling_plan_matches_request(
+    plan: CaptureSamplingPlan,
+    *,
+    pixel_stride: int,
+    max_targets_per_frame: int | None,
+    tile_size: int,
+    max_targets_per_batch: int | None,
+) -> None:
+    if plan.pixel_stride != pixel_stride:
+        raise ValueError("sampling_plan pixel_stride does not match packed batch request")
+    if plan.max_targets_per_frame != max_targets_per_frame:
+        raise ValueError("sampling_plan max_targets_per_frame does not match packed batch request")
+    if plan.tile_size != tile_size:
+        raise ValueError("sampling_plan tile_size does not match packed batch request")
+    expected_max_targets_per_batch = max_targets_per_batch or _max_sampled_pixels_per_tile(tile_size, pixel_stride)
+    if plan.max_targets_per_batch != expected_max_targets_per_batch:
+        raise ValueError("sampling_plan max_targets_per_batch does not match packed batch request")
 
 
 def plan_capture_tensor_sampling(
