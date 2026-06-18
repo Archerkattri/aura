@@ -1151,7 +1151,9 @@ def test_torch_render_targets_composites_ordered_carrier_hits():
     assert batch.ordered_hits[0][1]["opacity"] == pytest.approx(0.5)
     assert payload["orderedHits"][0][0]["elementId"] == "front_surface"
     assert payload["orderedHits"][0][1]["carrierId"] == "surface"
-    assert batch.predicted_depth == pytest.approx((2.0,))
+    # Contribution-weighted expected depth: front (depth 2.0, weight 0.5) and
+    # back (depth 2.2, weight 0.25) blended like the colour/confidence.
+    assert batch.predicted_depth == pytest.approx(((0.5 * 2.0 + 0.25 * 2.2) / 0.75,))
     assert batch.predicted_color[0] == pytest.approx((0.5, 0.0, 0.25))
     assert batch.transmittance == pytest.approx((0.25,))
     assert batch.opacity == pytest.approx((0.75,))

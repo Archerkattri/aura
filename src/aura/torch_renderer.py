@@ -680,7 +680,7 @@ def torch_render_capture_training_summary(
     first_index = composited["first_index"]
     first_depth = composited["first_depth"]
     predicted_color = composited["color"]
-    predicted_depth = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
+    predicted_depth = torch.where(has_hit, composited["expected_depth"], torch.zeros_like(first_depth))
     image_loss = torch.mean((predicted_color - batch.target_color) ** 2, dim=1)
     depth_loss = torch.where(has_hit, torch.abs(predicted_depth - batch.target_depth), batch.target_depth)
     predicted_normals, predicted_normal_present = _predicted_normal_tensors_from_indices(
@@ -1171,7 +1171,7 @@ def _torch_render_tensor_targets(
     first_index = composited["first_index"]
     first_depth = composited["first_depth"]
     predicted_colors = composited["color"]
-    predicted_depths = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
+    predicted_depths = torch.where(has_hit, composited["expected_depth"], torch.zeros_like(first_depth))
     transmittance = composited["transmittance"]
     confidence = composited["confidence"]
     residual_flags = composited["residual"]
@@ -1372,7 +1372,7 @@ def _torch_render_objective_tensor_targets(
     first_index = composited["first_index"]
     first_depth = composited["first_depth"]
     predicted_colors = composited["color"]
-    predicted_depths = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
+    predicted_depths = torch.where(has_hit, composited["expected_depth"], torch.zeros_like(first_depth))
     predicted_opacity = 1.0 - composited["transmittance"]
     predicted_confidence = composited["confidence"]
     image_loss = torch.mean((predicted_colors - target_colors) ** 2)
@@ -1688,12 +1688,20 @@ def _torch_composite_carrier_hits(
         hit_transmittance = tuple()
 
     confidence = torch.where(confidence_den > 0.0, confidence_num / torch.clamp(confidence_den, min=1e-8), torch.zeros_like(confidence_den))
+    # Contribution-weighted expected depth (transmittance-weighted, like the
+    # colour blend) rather than the nearest hit's entry depth, which collapses
+    # to ~0 when the camera sits among overlapping carriers.
+    masked_depths = torch.where(active_by_order, sorted_depths, torch.zeros_like(sorted_depths))
+    depth_num = torch.sum(weight_by_order * masked_depths, dim=1)
+    depth_den = torch.sum(weight_by_order, dim=1)
+    expected_depth = torch.where(depth_den > 1e-8, depth_num / torch.clamp(depth_den, min=1e-8), first_depth)
     return {
         "color": color,
         "transmittance": torch.where(has_hit, remaining, torch.ones_like(remaining)),
         "confidence": torch.where(has_hit, confidence, torch.zeros_like(confidence)),
         "residual": torch.where(has_hit, residual, torch.zeros_like(residual)),
         "first_depth": first_depth,
+        "expected_depth": expected_depth,
         "first_index": first_index,
         "has_hit": has_hit,
         "element_weights": element_weights,

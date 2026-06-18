@@ -84,7 +84,9 @@ def test_scene_traversal_reports_ordered_multi_carrier_hits():
     assert traversal.hit_count == 2
     assert [hit.element_id for hit in traversal.ordered_hits] == ["front_surface", "rear_volume"]
     assert [hit.carrier_id for hit in traversal.ordered_hits] == ["surface", "volume"]
-    assert traversal.result.depth == 1.0
+    # Contribution-weighted expected depth across the two hits (front surface at
+    # depth 1.0 plus the rear volume), not just the nearest hit's depth.
+    assert traversal.result.depth == pytest.approx(1.1082740486705223)
     assert traversal.result.normal == (0.0, 0.0, -1.0)
     assert traversal.result.material_id == "mat_surface"
     assert traversal.result.provenance == "front_surface,rear_volume"

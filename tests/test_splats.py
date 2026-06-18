@@ -56,7 +56,8 @@ def test_splat_scene_ray_query_reports_first_hit_depth_and_transmittance():
 
     result = scene.ray_query(Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
 
-    assert result.depth == pytest.approx(0.9)
+    # Contribution-weighted expected depth across the blended splats.
+    assert result.depth == pytest.approx(0.9549367088607595)
     assert result.transmittance == pytest.approx((1.0 - 0.65) * (1.0 - 0.4))
     assert result.provenance == "red_front,blue_back"
     assert result.confidence > 0.0
@@ -146,7 +147,8 @@ def test_load_3dgs_scene_uses_ply_stem_and_ray_query_contract():
     assert scene.name == "tiny_3dgs_export"
     assert scene.carrier_ids() == ["gaussian"]
     result = scene.ray_query(Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))
-    assert result.depth == pytest.approx(0.9)
+    # Contribution-weighted expected depth across the blended splats.
+    assert result.depth == pytest.approx(0.9439024390691747)
     assert result.transmittance == pytest.approx((1.0 - 0.7) * (1.0 - 0.4))
 
 

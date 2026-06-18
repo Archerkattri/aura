@@ -255,6 +255,8 @@ def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
     transmittance = 1.0
     confidence_num = 0.0
     confidence_den = 0.0
+    depth_num = 0.0
+    depth_den = 0.0
     first = None
     provenance: list[str] = []
     residual = False
@@ -270,15 +272,24 @@ def composite_front_to_back(hits: Iterable[RayQueryResult]) -> RayQueryResult:
         )
         confidence_num += weight * hit.confidence
         confidence_den += weight
+        if hit.depth is not None:
+            depth_num += weight * hit.depth
+            depth_den += weight
         transmittance *= hit.transmittance
         provenance.append(hit.provenance or "unknown")
         residual = residual or hit.residual
     confidence = 0.0 if confidence_den == 0.0 else confidence_num / confidence_den
+    # Contribution-weighted expected depth (matches the torch renderer); falls
+    # back to the first hit's depth when nothing contributes weight.
+    if depth_den > 1e-8:
+        weighted_depth = depth_num / depth_den
+    else:
+        weighted_depth = first.depth if first else None
     return RayQueryResult(
         color=color,
         transmittance=transmittance,
         confidence=confidence,
-        depth=first.depth if first else None,
+        depth=weighted_depth,
         normal=first.normal if first else None,
         material_id=first.material_id if first else None,
         semantic_id=first.semantic_id if first else None,
