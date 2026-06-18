@@ -227,12 +227,51 @@ class CudaRendererKernelSimulation:
 
 
 @dataclass(frozen=True)
+class CudaRendererSymbolProbe:
+    """Verification state for the compiled renderer kernel/launcher symbols."""
+
+    extension: CudaExtensionStatus
+    module_name: str
+    kernel_symbol: str = CUDA_RENDERER_KERNEL_SYMBOL
+    launcher_symbol: str = CUDA_RENDERER_LAUNCHER_SYMBOL
+    kernel_symbol_available: bool = False
+    launcher_symbol_available: bool = False
+    module_object_available: bool = False
+    reason: str | None = None
+
+    @property
+    def dispatch_symbols_ready(self) -> bool:
+        return (
+            self.extension.available
+            and self.module_object_available
+            and self.kernel_symbol_available
+            and self.launcher_symbol_available
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "format": "AURA_CUDA_RENDERER_SYMBOL_PROBE",
+            "productionReady": False,
+            "dispatchSymbolsReady": self.dispatch_symbols_ready,
+            "moduleName": self.module_name,
+            "moduleObjectAvailable": self.module_object_available,
+            "kernelSymbol": self.kernel_symbol,
+            "launcherSymbol": self.launcher_symbol,
+            "kernelSymbolAvailable": self.kernel_symbol_available,
+            "launcherSymbolAvailable": self.launcher_symbol_available,
+            "extension": self.extension.to_dict(),
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
 class CudaRendererDispatchContract:
     """Host-side contract for the compiled renderer launch boundary."""
 
     inputs: CudaRendererKernelInputBuffers
     launch_config: CudaRendererLaunchConfig
     extension: CudaExtensionStatus
+    symbol_probe: CudaRendererSymbolProbe
 
     @property
     def dispatch_ready(self) -> bool:
@@ -242,6 +281,8 @@ class CudaRendererDispatchContract:
     def reason(self) -> str:
         if not self.extension.available:
             return f"compiled_cuda_renderer_extension_unavailable: {self.extension.reason or 'not_available'}"
+        if not self.symbol_probe.dispatch_symbols_ready:
+            return f"compiled_cuda_renderer_symbols_unverified: {self.symbol_probe.reason or 'unknown'}"
         return "python_cuda_renderer_binding_missing"
 
     def to_dict(self) -> dict[str, object]:
@@ -253,9 +294,11 @@ class CudaRendererDispatchContract:
             "dispatchReady": self.dispatch_ready,
             "reason": self.reason,
             "compiledExtensionAvailable": self.extension.available,
+            "rendererSymbolsReady": self.symbol_probe.dispatch_symbols_ready,
             "pythonBindingAvailable": False,
             "launchConfig": self.launch_config.to_dict(),
             "extension": self.extension.to_dict(),
+            "symbolProbe": self.symbol_probe.to_dict(),
             "rayCount": self.inputs.ray_count,
             "elementCount": self.inputs.element_count,
             "maxHits": self.inputs.max_hits,
@@ -446,6 +489,8 @@ def cuda_renderer_dispatch_contract(
     fallback_backend: CudaFallbackBackend = "cpu",
     device: str | None = None,
     require_cuda: bool = False,
+    extension: CudaExtensionStatus | None = None,
+    extension_module: Any | None = None,
 ) -> CudaRendererDispatchContract:
     rays = _validated_rays(ray_origins, ray_directions)
     launch_config = cuda_renderer_launch_config(
@@ -462,10 +507,56 @@ def cuda_renderer_dispatch_contract(
         ray_directions=tuple(value for ray in rays for value in ray.direction),
         max_hits=max_hits,
     )
+    extension_status = extension or cuda_kernel_extension_status(build=False)
     return CudaRendererDispatchContract(
         inputs=inputs,
         launch_config=launch_config,
-        extension=cuda_kernel_extension_status(build=False),
+        extension=extension_status,
+        symbol_probe=cuda_renderer_symbol_probe(extension_status, extension_module=extension_module),
+    )
+
+
+def cuda_renderer_symbol_probe(
+    extension: CudaExtensionStatus | None = None,
+    *,
+    extension_module: Any | None = None,
+) -> CudaRendererSymbolProbe:
+    """Verify compiled renderer symbols without launching CUDA.
+
+    The packaged build currently loads the CUDA extension as a native module,
+    so CPU-only and metadata-only paths usually have no Python module object to
+    inspect. Tests and future loaders can pass an extension module object here
+    to prove symbol presence before tensor dispatch is enabled.
+    """
+
+    extension_status = extension or cuda_kernel_extension_status(build=False)
+    module_name = extension_status.module_name
+    if not extension_status.available:
+        return CudaRendererSymbolProbe(
+            extension=extension_status,
+            module_name=module_name,
+            reason=f"extension_unavailable: {extension_status.reason or 'not_available'}",
+        )
+    if extension_module is None:
+        return CudaRendererSymbolProbe(
+            extension=extension_status,
+            module_name=module_name,
+            reason="extension_module_object_unavailable",
+        )
+    kernel_available = hasattr(extension_module, CUDA_RENDERER_KERNEL_SYMBOL)
+    launcher_available = hasattr(extension_module, CUDA_RENDERER_LAUNCHER_SYMBOL)
+    missing = []
+    if not kernel_available:
+        missing.append(CUDA_RENDERER_KERNEL_SYMBOL)
+    if not launcher_available:
+        missing.append(CUDA_RENDERER_LAUNCHER_SYMBOL)
+    return CudaRendererSymbolProbe(
+        extension=extension_status,
+        module_name=module_name,
+        kernel_symbol_available=kernel_available,
+        launcher_symbol_available=launcher_available,
+        module_object_available=True,
+        reason=None if not missing else f"missing_symbols: {', '.join(missing)}",
     )
 
 
@@ -569,6 +660,7 @@ def cuda_renderer_boundary_report(
         "available": bool(extension.available),
         "productionReady": False,
         "extension": extension.to_dict(),
+        "symbolProbe": cuda_renderer_symbol_probe(extension).to_dict(),
         "rendererSource": cuda_renderer_source_report(),
         "fallbackBackends": ["cpu", "torch", "auto", "none"],
         "fallbackContractFields": [
@@ -678,7 +770,9 @@ def cuda_renderer_boundary_report(
         "productionReady": dispatch_payload["productionReady"],
         "reason": dispatch_payload["reason"],
         "compiledExtensionAvailable": dispatch_payload["compiledExtensionAvailable"],
+        "rendererSymbolsReady": dispatch_payload["rendererSymbolsReady"],
         "pythonBindingAvailable": dispatch_payload["pythonBindingAvailable"],
+        "symbolProbe": dispatch_payload["symbolProbe"],
         "outputBufferShapes": dispatch_payload["outputBufferShapes"],
     }
     return report

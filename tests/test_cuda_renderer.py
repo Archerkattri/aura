@@ -3,6 +3,7 @@ import importlib.util
 import pytest
 
 from aura import AuraElement, AuraScene, Bounds, Ray
+from aura.cuda_kernels import CudaExtensionStatus
 from aura.cuda_renderer import (
     cuda_render_rays,
     cuda_renderer_dispatch_contract,
@@ -11,6 +12,7 @@ from aura.cuda_renderer import (
     cuda_renderer_launch_config,
     cuda_renderer_reference_first_hit_indices,
     cuda_renderer_scene_buffers,
+    cuda_renderer_symbol_probe,
     simulate_cuda_renderer_kernel,
 )
 
@@ -233,13 +235,104 @@ def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
     assert payload["productionReady"] is False
     assert payload["dispatchReady"] is False
     assert payload["compiledExtensionAvailable"] is False
+    assert payload["rendererSymbolsReady"] is False
     assert payload["pythonBindingAvailable"] is False
+    assert payload["symbolProbe"]["format"] == "AURA_CUDA_RENDERER_SYMBOL_PROBE"
+    assert payload["symbolProbe"]["dispatchSymbolsReady"] is False
+    assert payload["symbolProbe"]["reason"] == "extension_unavailable: build_not_attempted"
     assert payload["reason"] == "compiled_cuda_renderer_extension_unavailable: build_not_attempted"
     assert payload["launchConfig"]["threadsPerBlock"] == 64
     assert payload["launchConfig"]["blockCount"] == 1
     assert payload["kernelArgs"]["ray_count"] == 1
     assert payload["kernelArgs"]["element_count"] == 1
     assert payload["outputBufferShapes"]["ordered_hits"] == [1, 2]
+    assert "bind launcher to Python tensor inputs" in payload["missingDispatchWork"]
+
+
+def test_cuda_renderer_symbol_probe_distinguishes_loaded_symbol_states():
+    extension = CudaExtensionStatus(
+        available=True,
+        build_attempted=True,
+        compiled=True,
+        loadable=True,
+        module_name="aura_cuda_carriers",
+        source_paths=("cuda/aura_carriers.cu",),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher"),
+    )
+
+    unavailable_module = cuda_renderer_symbol_probe(extension)
+    missing_launcher = cuda_renderer_symbol_probe(
+        extension,
+        extension_module=type("FakeCudaModule", (), {"aura_render_rays_kernel": object()})(),
+    )
+    ready_symbols = cuda_renderer_symbol_probe(
+        extension,
+        extension_module=type(
+            "FakeCudaModule",
+            (),
+            {
+                "aura_render_rays_kernel": object(),
+                "aura_render_rays_launcher": object(),
+            },
+        )(),
+    )
+
+    assert unavailable_module.dispatch_symbols_ready is False
+    assert unavailable_module.to_dict()["reason"] == "extension_module_object_unavailable"
+    assert missing_launcher.dispatch_symbols_ready is False
+    assert missing_launcher.to_dict()["kernelSymbolAvailable"] is True
+    assert missing_launcher.to_dict()["launcherSymbolAvailable"] is False
+    assert missing_launcher.to_dict()["reason"] == "missing_symbols: aura_render_rays_launcher"
+    assert ready_symbols.dispatch_symbols_ready is True
+    assert ready_symbols.to_dict()["dispatchSymbolsReady"] is True
+    assert ready_symbols.to_dict()["reason"] is None
+
+
+def test_cuda_renderer_dispatch_contract_keeps_gate_closed_after_symbol_verification():
+    extension = CudaExtensionStatus(
+        available=True,
+        build_attempted=True,
+        compiled=True,
+        loadable=True,
+        module_name="aura_cuda_carriers",
+        source_paths=("cuda/aura_carriers.cu",),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher"),
+    )
+    extension_module = type(
+        "FakeCudaModule",
+        (),
+        {
+            "aura_render_rays_kernel": object(),
+            "aura_render_rays_launcher": object(),
+        },
+    )()
+    scene = AuraScene(
+        name="cuda_symbol_verified_contract",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    contract = cuda_renderer_dispatch_contract(
+        scene,
+        ray_origins=((0.0, 0.0, -1.0),),
+        ray_directions=((0.0, 0.0, 1.0),),
+        extension=extension,
+        extension_module=extension_module,
+    )
+    payload = contract.to_dict()
+
+    assert payload["compiledExtensionAvailable"] is True
+    assert payload["rendererSymbolsReady"] is True
+    assert payload["pythonBindingAvailable"] is False
+    assert payload["dispatchReady"] is False
+    assert payload["productionReady"] is False
+    assert payload["reason"] == "python_cuda_renderer_binding_missing"
     assert "bind launcher to Python tensor inputs" in payload["missingDispatchWork"]
 
 
@@ -362,6 +455,8 @@ def test_cuda_renderer_boundary_report_distinguishes_callable_fallback_from_prod
     assert report["rendererSource"]["symbol"] == "aura_render_rays_kernel"
     assert report["rendererSource"]["sourceSymbolAvailable"] is True
     assert report["rendererSource"]["productionReady"] is False
+    assert report["symbolProbe"]["format"] == "AURA_CUDA_RENDERER_SYMBOL_PROBE"
+    assert report["symbolProbe"]["dispatchSymbolsReady"] is False
     assert report["fallbackProbe"]["executed"] is True
     assert report["fallbackProbe"]["backend"] == "cpu"
     assert report["fallbackProbe"]["rayCount"] == 1
@@ -373,7 +468,9 @@ def test_cuda_renderer_boundary_report_distinguishes_callable_fallback_from_prod
     assert report["dispatchContractProbe"]["format"] == "AURA_CUDA_RENDERER_DISPATCH_CONTRACT"
     assert report["dispatchContractProbe"]["launcherSymbol"] == "aura_render_rays_launcher"
     assert report["dispatchContractProbe"]["dispatchReady"] is False
+    assert report["dispatchContractProbe"]["rendererSymbolsReady"] is False
     assert report["dispatchContractProbe"]["pythonBindingAvailable"] is False
+    assert report["dispatchContractProbe"]["symbolProbe"]["reason"] == "extension_unavailable: build_not_attempted"
     assert set(report["fallbackProbe"]["outputFields"]).issuperset(
         {"color", "transmittance", "depth", "normal", "confidence", "orderedHits"}
     )

@@ -110,6 +110,12 @@ This package now contains the GPU-ready skeleton for AURA:
   CPU/torch fallback batches for color, opacity, transmittance, depth, normals,
   confidence, residual, material/semantic IDs, provenance, and ordered hit
   traces when the compiled CUDA extension is unavailable;
+- CUDA renderer symbol verification through
+  `cuda_renderer_symbol_probe(...)`, which distinguishes an unavailable
+  extension, a loaded extension with missing renderer symbols, and a loaded
+  extension with both `aura_render_rays_kernel` and
+  `aura_render_rays_launcher`; production dispatch still remains blocked until
+  Python tensor binding, parity tests, and speed benchmarks exist;
 - `cuda-kernel-build-report --build` for GPU machines to attempt native carrier
   CUDA extension compile/load without changing the default CPU-safe test path;
 - `reconstruct-capture-manifest --load-assets` integration that feeds sampled
@@ -253,6 +259,11 @@ buffers are parity-test inputs, not a compiled CUDA launch. Use
 kernel/launcher symbols, launch shape, flat arguments, output buffer shapes, and
 missing dispatch work. Use `simulate_cuda_renderer_kernel(...)` as the CPU
 oracle for those buffers while compiled CUDA dispatch is still unavailable.
+Use `cuda_renderer_symbol_probe(...)` after a CUDA extension build/load attempt
+to verify whether the compiled module object exposes the renderer kernel and
+launcher symbols. A positive symbol probe is only one dispatch prerequisite; it
+does not make `cuda_render_rays` production-ready until the Python tensor
+binding launches the kernel and passes parity/speed gates.
 
 Use `aura inspect-rays <package> --native-demo-probes` for material-aware
 occlusion, shadow-transmittance, reflection-direction, and collision-distance
