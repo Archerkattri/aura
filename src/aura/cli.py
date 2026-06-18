@@ -37,6 +37,7 @@ from aura.inspection import inspect_scene_rays, native_demo_interaction_probes
 from aura.migration import migration_report
 from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
+from aura.optimize import TrainingLossWeights
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
 from aura.render import compare_images, read_ppm, render_orthographic, render_orthographic_cuda
@@ -140,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     torch_optimize_capture.add_argument("--device", default=None, help="Torch device such as cpu or cuda")
     torch_optimize_capture.add_argument("--color-learning-rate", type=float, default=0.25)
+    _add_loss_weight_args(torch_optimize_capture)
 
     train = sub.add_parser("train", help="Train native AURA carriers from a capture manifest")
     train.add_argument("manifest", type=Path)
@@ -151,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--max-targets-per-batch", type=int, default=1024)
     train.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
     train.add_argument("--color-learning-rate", type=float, default=0.25)
+    _add_loss_weight_args(train)
     train.add_argument("--checkpoint-dir", type=Path, default=None)
     train.add_argument("--checkpoint-interval", type=int, default=None)
     train.add_argument("--resume-from", type=Path, default=None, help="Resume training from a checkpoint or trained .aura package")
@@ -417,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
             TorchOptimizationConfig(
                 iterations=args.iterations,
                 color_learning_rate=args.color_learning_rate,
+                loss_weights=_loss_weights_from_args(args),
                 max_samples_per_batch=sampling_plan.max_targets_per_batch,
             ),
             device=args.device,
@@ -436,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
             "captureSamplingPlan": sampling_plan.to_dict(),
             "packedBatchCount": len(packed_batches),
             "packedTargetCount": sum(batch.target_count for batch in packed_batches),
+            "lossWeights": _loss_weights_from_args(args).to_dict(),
             "torch": torch_renderer_status().to_dict(),
             **result.to_dict(),
         }
@@ -640,6 +645,27 @@ def _add_reconstruction_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--demote-depth-loss-threshold", type=float, default=0.02)
 
 
+def _add_loss_weight_args(parser: argparse.ArgumentParser) -> None:
+    defaults = TrainingLossWeights()
+    parser.add_argument("--image-loss-weight", type=float, default=defaults.image)
+    parser.add_argument("--depth-loss-weight", type=float, default=defaults.depth)
+    parser.add_argument("--query-loss-weight", type=float, default=defaults.query)
+    parser.add_argument("--normal-loss-weight", type=float, default=defaults.normal)
+    parser.add_argument("--mask-loss-weight", type=float, default=defaults.mask)
+    parser.add_argument("--confidence-loss-weight", type=float, default=defaults.confidence)
+
+
+def _loss_weights_from_args(args: argparse.Namespace) -> TrainingLossWeights:
+    return TrainingLossWeights(
+        image=args.image_loss_weight,
+        depth=args.depth_loss_weight,
+        query=args.query_loss_weight,
+        normal=args.normal_loss_weight,
+        mask=args.mask_loss_weight,
+        confidence=args.confidence_loss_weight,
+    )
+
+
 def _add_render_backend_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--backend",
@@ -733,6 +759,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         TorchOptimizationConfig(
             iterations=args.iterations,
             color_learning_rate=args.color_learning_rate,
+            loss_weights=_loss_weights_from_args(args),
             max_samples_per_batch=sampling_plan.max_targets_per_batch,
             iteration_offset=resume_iteration_offset,
             checkpoint_interval=args.checkpoint_interval,
@@ -780,6 +807,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         "captureSamplingPlan": sampling_plan.to_dict(),
         "packedBatchCount": len(packed_batches),
         "packedTargetCount": sum(batch.target_count for batch in packed_batches),
+        "lossWeights": _loss_weights_from_args(args).to_dict(),
         "torch": torch_renderer_status().to_dict(),
         "adaptiveEvolutionEnabled": not args.disable_evolution,
         **result.to_dict(),
@@ -803,6 +831,7 @@ def _training_resume_state(args: argparse.Namespace, manifest, sampling_plan) ->
     optimizer_config = {
         "colorLearningRate": args.color_learning_rate,
         "maxTargetsPerBatch": sampling_plan.max_targets_per_batch,
+        "lossWeights": _loss_weights_from_args(args).to_dict(),
         "adaptiveEvolutionEnabled": not args.disable_evolution,
         "evolutionPolicy": evolution_policy,
     }

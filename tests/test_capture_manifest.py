@@ -540,6 +540,18 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
             "1",
             "--device",
             "cpu",
+            "--image-loss-weight",
+            "0.5",
+            "--depth-loss-weight",
+            "0.0",
+            "--query-loss-weight",
+            "0.0",
+            "--normal-loss-weight",
+            "0.0",
+            "--mask-loss-weight",
+            "1.0",
+            "--confidence-loss-weight",
+            "0.25",
         ],
         check=True,
         stdout=subprocess.PIPE,
@@ -556,7 +568,16 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
     assert "torch_reference_optimization" in report["stages"]
     assert report["packedBatchCount"] == 1
     assert report["packedTargetCount"] == 1
+    assert report["lossWeights"] == {
+        "image": 0.5,
+        "depth": 0.0,
+        "query": 0.0,
+        "normal": 0.0,
+        "mask": 1.0,
+        "confidence": 0.25,
+    }
     assert report["steps"][0]["sample_count"] == 1
+    assert report["steps"][0]["loss_weights"] == report["lossWeights"]
     assert report["steps"][0]["batch_index"] == 0
     assert report["steps"][0]["source_windows"][0]["targetCount"] == 1
     assert report["steps"][0]["normal_loss"] == 0.0
@@ -590,6 +611,8 @@ def test_train_cli_writes_optimized_native_package_and_evolution_report(tmp_path
             "1",
             "--device",
             "cpu",
+            "--confidence-loss-weight",
+            "0.5",
             "--split-image-loss-threshold",
             "0.0",
         ],
@@ -608,6 +631,8 @@ def test_train_cli_writes_optimized_native_package_and_evolution_report(tmp_path
     assert "torch_native_differentiable_render_train" in report["stages"]
     assert report["packedBatchCount"] == 1
     assert report["packedTargetCount"] == 1
+    assert report["lossWeights"]["confidence"] == 0.5
+    assert report["trainingState"]["optimizerConfig"]["lossWeights"]["confidence"] == 0.5
     assert len(report["steps"]) == 2
     assert any(step["carrier_evolution"] for step in report["steps"])
     assert report["finalLoss"] == report["steps"][-1]["total_loss"]
@@ -784,6 +809,40 @@ def test_train_cli_writes_checkpoint_and_resumes_from_package(tmp_path):
     )
     assert incompatible.returncode != 0
     assert "resume package is incompatible" in incompatible.stderr
+
+    incompatible_loss_dir = tmp_path / "incompatible-loss-resume.aura"
+    incompatible_loss = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "train",
+            str(manifest_path),
+            "--output",
+            str(incompatible_loss_dir),
+            "--iterations",
+            "1",
+            "--max-targets-per-frame",
+            "1",
+            "--max-targets-per-batch",
+            "1",
+            "--tile-size",
+            "1",
+            "--device",
+            "cpu",
+            "--confidence-loss-weight",
+            "1.0",
+            "--resume-from",
+            str(checkpoint_package),
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert incompatible_loss.returncode != 0
+    assert "resume package is incompatible" in incompatible_loss.stderr
+    assert "optimizerConfigFingerprint" in incompatible_loss.stderr
 
 
 def test_inspect_capture_assets_cli_reports_asset_summaries(tmp_path):
