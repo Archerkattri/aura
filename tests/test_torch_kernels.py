@@ -489,6 +489,84 @@ def test_surface_kernel_keeps_color_opacity_confidence_differentiable():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_response_dispatch_does_not_sync_with_torch_any(monkeypatch):
+    import torch
+
+    elements = (
+        AuraElement(
+            id="surface",
+            carrier_id="surface",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(1.0, 0.0, 0.0),
+            opacity=0.5,
+            confidence=0.75,
+            payload={"type": "surface_cell"},
+        ),
+        AuraElement(
+            id="volume",
+            carrier_id="volume",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "volume_cell", "density": 1.0},
+        ),
+        AuraElement(
+            id="beta",
+            carrier_id="beta",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0},
+        ),
+        AuraElement(
+            id="gabor",
+            carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "gabor_frequency", "frequency": (0.0, 0.0, 1.0), "phase": 0.0, "bandwidth": 0.5},
+        ),
+        AuraElement(
+            id="neural",
+            carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "neural_residual", "residual_scale": 0.25},
+        ),
+        AuraElement(
+            id="semantic",
+            carrier_id="semantic",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "semantic_feature", "label": "object", "confidence": 0.9},
+        ),
+        AuraElement(
+            id="gaussian",
+            carrier_id="gaussian",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "gaussian_fallback"},
+        ),
+    )
+
+    def fail_any(*_args, **_kwargs):
+        raise AssertionError("carrier response dispatch should not synchronize through torch.any")
+
+    monkeypatch.setattr(torch, "any", fail_any)
+
+    carrier_colors, transmittance, confidence, residual = torch_carrier_response_tensors(
+        torch,
+        elements,
+        torch.tensor([0], dtype=torch.long),
+        torch.tensor([1.0]),
+        torch.tensor([[2.0] * len(elements)]),
+        torch.tensor([[0.5, 0.5, 0.5]]),
+        torch.tensor([element.color for element in elements]),
+        torch.tensor([element.opacity for element in elements]),
+        torch.tensor([element.confidence for element in elements]),
+        torch.tensor([element.bounds.min_corner for element in elements]),
+        torch.tensor([element.bounds.max_corner for element in elements]),
+        "cpu",
+    )
+
+    assert carrier_colors[0].tolist() == pytest.approx([1.0, 0.0, 0.0])
+    assert transmittance.tolist() == pytest.approx([0.5])
+    assert confidence.tolist() == pytest.approx([0.75])
+    assert residual.tolist() == [False]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_surface_carrier_parameter_tensors_cover_native_surface_fields():
     import torch
 

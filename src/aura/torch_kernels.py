@@ -155,8 +155,6 @@ def torch_carrier_response_tensors(
 
     for element_index, element in enumerate(elements):
         mask = best_index == element_index
-        if not bool(torch.any(mask)):
-            continue
         payload_type = element.payload.get("type")
         if payload_type == "surface_cell" or element.carrier_id == "surface":
             surface_color = (
