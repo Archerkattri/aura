@@ -745,6 +745,87 @@ def torch_render_rays(
     )
 
 
+def torch_render_tensor_targets(
+    scene: AuraScene,
+    *,
+    frame_ids: Sequence[str],
+    ray_origins: Any,
+    ray_directions: Any,
+    target_colors: Any,
+    target_depths: Any,
+    target_normals: Any | None = None,
+    target_normal_present: Any | None = None,
+    target_confidence: Any | None = None,
+    target_confidence_present: Any | None = None,
+    target_semantic_ids: Sequence[str | None] = (),
+    target_material_ids: Sequence[str | None] = (),
+    device: str | None = None,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
+) -> TorchRenderBatch:
+    """Render caller-provided tensor targets without building RenderTarget objects."""
+
+    if not frame_ids:
+        raise ValueError("torch renderer requires at least one target")
+    if not scene.elements:
+        raise ValueError("torch renderer requires at least one scene element")
+    status = torch_renderer_status()
+    resolved_device = device or (scene_tensors.device if scene_tensors is not None else None) or status.default_device or "cpu"
+    torch = require_torch()
+    origins = _torch_ray_tensor(torch, ray_origins, name="ray_origins", device=resolved_device)
+    directions = _torch_ray_tensor(torch, ray_directions, name="ray_directions", device=resolved_device)
+    target_color_tensor = _torch_vec3_tensor(torch, target_colors, name="target_colors", device=resolved_device)
+    target_depth_tensor = _torch_1d_tensor(torch, target_depths, name="target_depths", dtype=torch.float32, device=resolved_device)
+    target_normal_tensor = (
+        _torch_vec3_tensor(torch, target_normals, name="target_normals", device=resolved_device)
+        if target_normals is not None
+        else None
+    )
+    target_normal_present_tensor = (
+        _torch_1d_tensor(torch, target_normal_present, name="target_normal_present", dtype=torch.bool, device=resolved_device)
+        if target_normal_present is not None
+        else None
+    )
+    target_confidence_tensor = (
+        _torch_1d_tensor(torch, target_confidence, name="target_confidence", dtype=torch.float32, device=resolved_device)
+        if target_confidence is not None
+        else None
+    )
+    target_confidence_present_tensor = (
+        _torch_1d_tensor(torch, target_confidence_present, name="target_confidence_present", dtype=torch.bool, device=resolved_device)
+        if target_confidence_present is not None
+        else None
+    )
+    ray_count = int(origins.shape[0])
+    if len(frame_ids) != ray_count:
+        raise ValueError("torch tensor target count must match frame ids")
+    for name, tensor in (
+        ("ray_directions", directions),
+        ("target_colors", target_color_tensor),
+    ):
+        if int(tensor.shape[0]) != ray_count:
+            raise ValueError(f"{name} count must match frame ids")
+    if int(target_depth_tensor.shape[0]) != ray_count:
+        raise ValueError("target_depths count must match frame ids")
+    return _torch_render_tensor_targets(
+        scene,
+        frame_ids=tuple(frame_ids),
+        origins=origins,
+        directions=directions,
+        target_colors=target_color_tensor,
+        target_depths=target_depth_tensor,
+        target_normals=target_normal_tensor,
+        target_normal_present=target_normal_present_tensor,
+        target_confidence=target_confidence_tensor,
+        target_confidence_present=target_confidence_present_tensor,
+        target_semantic_ids=target_semantic_ids or (None,) * ray_count,
+        target_material_ids=target_material_ids or (None,) * ray_count,
+        device=str(resolved_device),
+        carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
+    )
+
+
 def torch_render_target_objective(
     scene: AuraScene,
     targets: Sequence[RenderTarget],
@@ -800,6 +881,32 @@ def _torch_ray_tensor(torch: Any, values: Any, *, name: str, device: str) -> Any
     shape = tuple(int(dim) for dim in tensor.shape)
     if len(shape) != 2 or shape[1] != 3:
         raise ValueError(f"{name} must have shape rayCount x 3")
+    return tensor.contiguous()
+
+
+def _torch_vec3_tensor(torch: Any, values: Any, *, name: str, device: str) -> Any:
+    if values is None:
+        raise ValueError(f"{name} is required")
+    if hasattr(values, "shape") and hasattr(values, "to"):
+        tensor = values.to(device=device, dtype=torch.float32)
+    else:
+        tensor = torch.as_tensor(values, dtype=torch.float32, device=device)
+    shape = tuple(int(dim) for dim in tensor.shape)
+    if len(shape) != 2 or shape[1] != 3:
+        raise ValueError(f"{name} must have shape targetCount x 3")
+    return tensor.contiguous()
+
+
+def _torch_1d_tensor(torch: Any, values: Any, *, name: str, dtype: Any, device: str) -> Any:
+    if values is None:
+        raise ValueError(f"{name} is required")
+    if hasattr(values, "shape") and hasattr(values, "to"):
+        tensor = values.to(device=device, dtype=dtype)
+    else:
+        tensor = torch.as_tensor(values, dtype=dtype, device=device)
+    shape = tuple(int(dim) for dim in tensor.shape)
+    if len(shape) != 1:
+        raise ValueError(f"{name} must have shape targetCount")
     return tensor.contiguous()
 
 

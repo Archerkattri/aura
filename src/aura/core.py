@@ -559,7 +559,7 @@ def reconstruct_demo_scene(
     if training_targets:
         stages += ("capture_tensor_pixel_targets",)
     if render_backend == "torch":
-        stages += ("torch_native_reference_render",)
+        stages += ("torch_native_tensor_render",)
     else:
         stages += ("cpu_differentiable_reference_render",)
     stages += ("adaptive_carrier_split_promote", "aura_package_export_ready")
@@ -717,9 +717,23 @@ def _predict_training_frames_torch(
     *,
     device: str | None,
 ) -> tuple[FramePrediction, ...]:
-    from aura.torch_renderer import torch_render_targets
+    from aura.torch_renderer import torch_render_tensor_targets
 
-    batch = torch_render_targets(scene, targets, device=device)
+    batch = torch_render_tensor_targets(
+        scene,
+        frame_ids=tuple(target.frame_id for target in targets),
+        ray_origins=tuple(target.ray.origin for target in targets),
+        ray_directions=tuple(target.ray.direction for target in targets),
+        target_colors=tuple(target.target_color for target in targets),
+        target_depths=tuple(target.target_depth for target in targets),
+        target_normals=tuple(target.target_normal if target.target_normal is not None else (0.0, 0.0, 0.0) for target in targets),
+        target_normal_present=tuple(target.target_normal is not None for target in targets),
+        target_confidence=tuple(target.target_confidence if target.target_confidence is not None else 0.0 for target in targets),
+        target_confidence_present=tuple(target.target_confidence is not None for target in targets),
+        target_semantic_ids=tuple(target.target_semantic_id for target in targets),
+        target_material_ids=tuple(target.target_material_id for target in targets),
+        device=device,
+    )
     predictions = []
     by_frame = {frame.id: frame for frame in frames}
     for index, frame_id in enumerate(batch.frame_ids):

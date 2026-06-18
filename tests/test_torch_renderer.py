@@ -21,6 +21,7 @@ from aura import (
     torch_render_capture_training_objective,
     torch_render_rays,
     torch_render_target_objective,
+    torch_render_tensor_targets,
     torch_render_targets,
     torch_renderer_status,
     torch_scene_tensors,
@@ -435,6 +436,43 @@ def test_torch_render_rays_renders_raw_tensor_inputs_without_render_targets():
     assert batch.predicted_color[0] == pytest.approx((0.2, 0.4, 0.6))
     assert batch.opacity[0] == pytest.approx(0.8)
     assert batch.predicted_depth[0] == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_accepts_raw_target_tensors():
+    scene = AuraScene(
+        name="torch_tensor_target_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.25, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                semantic_id="panel",
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    batch = torch_render_tensor_targets(
+        scene,
+        frame_ids=("frame",),
+        ray_origins=((0.0, 0.0, -1.0),),
+        ray_directions=((0.0, 0.0, 1.0),),
+        target_colors=((0.5, 0.25, 0.0),),
+        target_depths=(1.0,),
+        target_semantic_ids=("panel",),
+        target_material_ids=(None,),
+        device="cpu",
+    )
+
+    assert batch.frame_ids == ("frame",)
+    assert batch.element_ids == ("surface",)
+    assert batch.predicted_color[0] == pytest.approx((0.5, 0.25, 0.0))
+    assert batch.image_loss == pytest.approx((0.0,))
+    assert batch.query_loss == pytest.approx((0.0,))
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

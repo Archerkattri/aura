@@ -305,11 +305,18 @@ def test_reconstruct_demo_rejects_cpu_backend_when_cuda_is_required():
         ReconstructionConfig(render_backend="cpu", require_cuda=True)
 
 
-def test_reconstruct_demo_reports_torch_backend_when_requested_if_available():
+def test_reconstruct_demo_reports_torch_backend_when_requested_if_available(monkeypatch):
     if importlib.util.find_spec("torch") is None:
         with pytest.raises(RuntimeError, match="torch"):
             reconstruct_demo_scene(ReconstructionConfig(iterations=1, render_backend="torch", torch_device="cpu"))
         return
+
+    import aura.torch_renderer as torch_renderer_module
+
+    def fail_render_target_wrapper(*_args, **_kwargs):
+        raise AssertionError("torch reconstruction should use tensor targets directly")
+
+    monkeypatch.setattr(torch_renderer_module, "torch_render_targets", fail_render_target_wrapper)
 
     result = reconstruct_demo_scene(ReconstructionConfig(iterations=1, render_backend="torch", torch_device="cpu"))
     report = result.report.to_dict()
@@ -317,7 +324,7 @@ def test_reconstruct_demo_reports_torch_backend_when_requested_if_available():
     assert report["renderBackend"] == "torch"
     assert report["renderDevice"] == "cpu"
     assert report["renderingPolicy"]["requestedBackend"] == "torch"
-    assert "torch_native_reference_render" in report["stages"]
+    assert "torch_native_tensor_render" in report["stages"]
     assert report["iterations"][0]["render_backend"] == "torch"
     assert report["iterations"][0]["render_device"] == "cpu"
     assert report["iterations"][0]["predictions"]
