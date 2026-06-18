@@ -209,7 +209,10 @@ def torch_carrier_response_tensors_batched(
             min=0.0,
             max=1.0,
         )
-        path_length = torch.clamp(exit_depth.gather(1, best_index.unsqueeze(1)).squeeze(1) - best_depth, min=0.0)
+        selected_exit_depth = (
+            exit_depth if exit_depth.dim() == 1 else exit_depth.gather(1, best_index.unsqueeze(1)).squeeze(1)
+        )
+        path_length = torch.clamp(selected_exit_depth - best_depth, min=0.0)
         alpha = volume_opacities[best_index] * (1.0 - torch.exp(-densities[best_index] * path_length))
         transmittance = torch.where(selected_payload_volume, torch.clamp(1.0 - alpha, min=0.0, max=1.0), transmittance)
 

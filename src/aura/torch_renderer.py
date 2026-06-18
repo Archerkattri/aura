@@ -1598,7 +1598,11 @@ def _torch_composite_carrier_hits(
     flat_depths = torch.where(flat_active, sorted_depths.reshape(-1), torch.zeros_like(sorted_depths.reshape(-1)))
     flat_origins = origins[:, None, :].expand(ray_count, order_count, 3).reshape(ray_count * order_count, 3)
     flat_directions = directions[:, None, :].expand(ray_count, order_count, 3).reshape(ray_count * order_count, 3)
-    flat_exit_depth = exit_depth[:, None, :].expand(ray_count, order_count, len(elements)).reshape(ray_count * order_count, len(elements))
+    # Per-(ray, order) exit depth gathered for the element at each order position.
+    # Pre-gathering here keeps this O(rays * elements); the previous
+    # exit_depth[:, None, :].expand(...) materialised rays * elements^2 floats and
+    # OOM'd at a few thousand carriers.
+    flat_exit_depth = torch.gather(exit_depth, 1, sorted_indices).reshape(-1)
     flat_hit_points = _torch_carrier_sample_points(
         torch,
         flat_indices,
@@ -2038,7 +2042,9 @@ def _torch_carrier_sample_points(
     ray_to_mean = selected_means - origins
     direction_norm = torch.sum(directions * directions, dim=1)
     projected_depth = torch.sum(ray_to_mean * directions, dim=1) / torch.clamp(direction_norm, min=1e-8)
-    selected_exit_depth = exit_depth.gather(1, current_index.unsqueeze(1)).squeeze(1)
+    selected_exit_depth = (
+        exit_depth if exit_depth.dim() == 1 else exit_depth.gather(1, current_index.unsqueeze(1)).squeeze(1)
+    )
     gaussian_depth = torch.maximum(entry_depth, torch.minimum(selected_exit_depth, projected_depth))
     gaussian_points = origins + directions * gaussian_depth.unsqueeze(1)
     return torch.where(has_gaussian_mean.unsqueeze(1), gaussian_points, points)
