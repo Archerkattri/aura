@@ -280,6 +280,32 @@ def test_package_validation_rejects_chunk_lod_mismatch():
         validate_package(package_scene(scene))
 
 
+def test_package_validation_accepts_gabor_carrier_normal_payload(tmp_path):
+    scene = AuraScene(
+        name="gabor_normal",
+        elements=(
+            AuraElement(
+                id="frequency",
+                carrier_id="gabor",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.8, 0.6, 0.2),
+                payload={
+                    "type": "gabor_frequency",
+                    "frequency": [1.0, 0.0, 0.0],
+                    "bandwidth": 0.5,
+                    "phase": 0.0,
+                    "normal": [0.0, 0.0, -1.0],
+                    "plane_point": [0.0, 0.0, 0.0],
+                },
+            ),
+        ),
+    )
+
+    output = package_scene(scene).write(tmp_path / "gabor-normal.aura")
+
+    assert load_package(output).scene.elements[0].payload["normal"] == [0.0, 0.0, -1.0]
+
+
 def test_package_validation_rejects_element_chunk_id_without_chunk():
     scene = AuraScene(
         name="bad",

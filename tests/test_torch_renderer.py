@@ -594,6 +594,46 @@ def test_torch_render_target_objective_backpropagates_surface_geometry_parameter
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_backpropagates_surface_normal():
+    scene = AuraScene(
+        name="torch_surface_normal_objective_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, -0.2, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    torch = require_torch()
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+
+    objective = torch_render_target_objective(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.0,
+                target_normal=(0.0, -1.0, 0.0),
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+    objective.total_loss.backward()
+
+    assert objective.normal_loss.detach().cpu().item() > 0.0
+    assert carrier_parameters["surface"]["normal"].grad is not None
+    assert carrier_parameters["surface"]["normal"].grad[1].detach().cpu().item() > 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_composites_ordered_carrier_hits():
     scene = AuraScene(
         name="torch_composite_scene",

@@ -305,8 +305,8 @@ def torch_scene_tensors(
             dtype=torch.float32,
             device=resolved_device,
         ),
-        element_normals=torch.tensor([_normal_for(element) or (0.0, 0.0, 0.0) for element in elements], dtype=torch.float32, device=resolved_device),
-        element_normal_present=torch.tensor([_normal_for(element) is not None for element in elements], dtype=torch.bool, device=resolved_device),
+        element_normals=torch.tensor([_normal_for(element) or _default_trainable_normal_for(element) for element in elements], dtype=torch.float32, device=resolved_device),
+        element_normal_present=torch.tensor([_normal_present_for(element) for element in elements], dtype=torch.bool, device=resolved_device),
         gaussian_means=torch.tensor([_gaussian_mean_or_nan(element) for element in elements], dtype=torch.float32, device=resolved_device),
         gaussian_inverse_covariances=torch.tensor(
             [_gaussian_inverse_covariance_or_nan(element) for element in elements],
@@ -700,6 +700,9 @@ def _torch_render_tensor_targets(
         gaussian_means,
         gaussian_inverse_covariances,
         beta_support_radii,
+        surface_normals,
+        gabor_normals,
+        element_normals,
     ) = _torch_geometry_from_carrier_parameters(
         torch,
         tuple(scene.elements),
@@ -711,6 +714,9 @@ def _torch_render_tensor_targets(
         scene_tensors.gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.beta_support_radii,
+        scene_tensors.surface_normals,
+        scene_tensors.gabor_normals,
+        scene_tensors.element_normals,
     )
 
     composited = _torch_composite_carrier_hits(
@@ -727,9 +733,9 @@ def _torch_render_tensor_targets(
         scene_tensors.chunk_maxs,
         scene_tensors.element_chunk_indices,
         surface_plane_points,
-        scene_tensors.surface_normals,
+        surface_normals,
         gabor_plane_points,
-        scene_tensors.gabor_normals,
+        gabor_normals,
         gaussian_means,
         gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
@@ -752,8 +758,14 @@ def _torch_render_tensor_targets(
     best_indices = first_index.detach().cpu().tolist()
     hit_flags = has_hit.detach().cpu().tolist()
     elements = tuple(scene.elements)
-    normals = tuple(_normal_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
-    predicted_normals, predicted_normal_present = _predicted_normal_tensors(torch, normals, device=device)
+    predicted_normals, predicted_normal_present = _predicted_normal_tensors_from_indices(
+        torch,
+        first_index,
+        has_hit,
+        element_normals,
+        scene_tensors.element_normal_present,
+    )
+    output_normals = _optional_target_normal_tuple(predicted_normals, predicted_normal_present)
     normal_loss = _torch_normal_loss(torch, predicted_normals, predicted_normal_present, target_normals, target_normal_present)
     semantic_ids = tuple(_semantic_id_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
     material_ids = tuple(elements[index].material_id if hit else None for index, hit in zip(best_indices, hit_flags))
@@ -784,7 +796,7 @@ def _torch_render_tensor_targets(
         transmittance=tuple(float(value) for value in transmittance.detach().cpu().tolist()),
         opacity=tuple(1.0 - float(value) for value in transmittance.detach().cpu().tolist()),
         confidence=tuple(float(value) for value in confidence.detach().cpu().tolist()),
-        normal=normals,
+        normal=output_normals,
         material_ids=material_ids,
         residual=tuple(bool(value) for value in residual_flags.detach().cpu().tolist()),
         semantic_ids=semantic_ids,
@@ -839,6 +851,9 @@ def _torch_render_objective_tensor_targets(
         gaussian_means,
         gaussian_inverse_covariances,
         beta_support_radii,
+        surface_normals,
+        gabor_normals,
+        element_normals,
     ) = _torch_geometry_from_carrier_parameters(
         torch,
         tuple(scene.elements),
@@ -850,6 +865,9 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.beta_support_radii,
+        scene_tensors.surface_normals,
+        scene_tensors.gabor_normals,
+        scene_tensors.element_normals,
     )
 
     composited = _torch_composite_carrier_hits(
@@ -866,9 +884,9 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.chunk_maxs,
         scene_tensors.element_chunk_indices,
         surface_plane_points,
-        scene_tensors.surface_normals,
+        surface_normals,
         gabor_plane_points,
-        scene_tensors.gabor_normals,
+        gabor_normals,
         gaussian_means,
         gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
@@ -890,7 +908,7 @@ def _torch_render_objective_tensor_targets(
         torch,
         first_index,
         has_hit,
-        scene_tensors.element_normals,
+        element_normals,
         scene_tensors.element_normal_present,
     )
     normal_loss = torch.mean(_torch_normal_loss(torch, predicted_normals, predicted_normal_present, target_normals, target_normal_present))
@@ -957,7 +975,10 @@ def _torch_geometry_from_carrier_parameters(
     base_gaussian_means: Any,
     base_gaussian_inverse_covariances: Any,
     base_beta_support_radii: Any,
-) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    base_surface_normals: Any,
+    base_gabor_normals: Any,
+    base_element_normals: Any,
+) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]:
     if carrier_parameters is None:
         return (
             base_mins,
@@ -967,6 +988,9 @@ def _torch_geometry_from_carrier_parameters(
             base_gaussian_means,
             base_gaussian_inverse_covariances,
             base_beta_support_radii,
+            base_surface_normals,
+            base_gabor_normals,
+            base_element_normals,
         )
     mins = []
     maxs = []
@@ -975,16 +999,26 @@ def _torch_geometry_from_carrier_parameters(
     gaussian_means = []
     gaussian_inverse_covariances = []
     beta_support_radii = []
+    surface_normals = []
+    gabor_normals = []
+    element_normals = []
     for index, element in enumerate(elements):
         fields = carrier_parameters.get(element.id, {})
         mins.append(fields.get("min_corner", base_mins[index]))
         maxs.append(fields.get("max_corner", base_maxs[index]))
+        normal = fields.get("normal")
         if element.payload.get("type") == "gabor_frequency" or element.carrier_id == "gabor":
             surface_plane_points.append(base_surface_plane_points[index])
             gabor_plane_points.append(fields.get("plane_point", base_gabor_plane_points[index]))
+            surface_normals.append(base_surface_normals[index])
+            gabor_normals.append(_torch_normalized_vector(torch, normal if normal is not None else base_gabor_normals[index]))
+            element_normals.append(_torch_normalized_vector(torch, normal if normal is not None else base_element_normals[index]))
         else:
             surface_plane_points.append(fields.get("plane_point", base_surface_plane_points[index]))
             gabor_plane_points.append(base_gabor_plane_points[index])
+            surface_normals.append(_torch_normalized_vector(torch, normal if normal is not None else base_surface_normals[index]))
+            gabor_normals.append(base_gabor_normals[index])
+            element_normals.append(_torch_normalized_vector(torch, normal if normal is not None else base_element_normals[index]))
         gaussian_means.append(fields.get("gaussian_mean", base_gaussian_means[index]))
         gaussian_inverse_covariances.append(
             _gaussian_inverse_covariance_from_fields(torch, fields, base_gaussian_inverse_covariances[index])
@@ -998,7 +1032,17 @@ def _torch_geometry_from_carrier_parameters(
         torch.stack(tuple(gaussian_means), dim=0),
         torch.stack(tuple(gaussian_inverse_covariances), dim=0),
         torch.stack(tuple(beta_support_radii), dim=0),
+        torch.stack(tuple(surface_normals), dim=0),
+        torch.stack(tuple(gabor_normals), dim=0),
+        torch.stack(tuple(element_normals), dim=0),
     )
+
+
+def _torch_normalized_vector(torch: Any, value: Any) -> Any:
+    if not torch.isfinite(value).all():
+        return value
+    norm = torch.linalg.norm(value)
+    return torch.where(norm > 1e-8, value / torch.clamp(norm, min=1e-8), value)
 
 
 def _gaussian_inverse_covariance_from_fields(torch: Any, fields: dict[str, Any], base_inverse_covariance: Any) -> Any:
@@ -1697,6 +1741,21 @@ def _normal_for(element: Any) -> tuple[float, float, float] | None:
     if isinstance(payload_normal, list | tuple) and len(payload_normal) == 3:
         return tuple(float(channel) for channel in payload_normal)  # type: ignore[return-value]
     return None
+
+
+def _normal_present_for(element: Any) -> bool:
+    return _normal_for(element) is not None or element.carrier_id in {"surface", "gabor"} or element.payload.get("type") in {
+        "surface_cell",
+        "gabor_frequency",
+    }
+
+
+def _default_trainable_normal_for(element: Any) -> tuple[float, float, float]:
+    if element.carrier_id == "surface" or element.payload.get("type") == "surface_cell":
+        return (0.0, 0.0, -1.0)
+    if element.carrier_id == "gabor" or element.payload.get("type") == "gabor_frequency":
+        return (0.0, 0.0, 1.0)
+    return (0.0, 0.0, 0.0)
 
 
 def _predicted_normal_tensors(torch: Any, normals: Sequence[tuple[float, float, float] | None], *, device: str) -> tuple[Any, Any]:

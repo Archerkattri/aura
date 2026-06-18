@@ -515,6 +515,12 @@ def _carrier_geometry_parameter_tensors(
             device=device,
             requires_grad=requires_grad,
         )
+        parameters["normal"] = torch.tensor(
+            _normal_parameter(element, fallback=(0.0, 0.0, -1.0)),
+            dtype=torch.float32,
+            device=device,
+            requires_grad=requires_grad,
+        )
     if element.payload.get("type") == "gabor_frequency" or element.carrier_id == "gabor":
         point = element.payload.get("plane_point") or element.payload.get("point")
         if isinstance(point, (list, tuple)) and len(point) == 3:
@@ -523,6 +529,12 @@ def _carrier_geometry_parameter_tensors(
             plane_point = _center_point(element)
         parameters["plane_point"] = torch.tensor(
             plane_point,
+            dtype=torch.float32,
+            device=device,
+            requires_grad=requires_grad,
+        )
+        parameters["normal"] = torch.tensor(
+            _normal_parameter(element, fallback=(0.0, 0.0, 1.0)),
             dtype=torch.float32,
             device=device,
             requires_grad=requires_grad,
@@ -539,11 +551,18 @@ def _carrier_geometry_parameter_tensors(
     return parameters
 
 
+def _normal_parameter(element: Any, *, fallback: tuple[float, float, float]) -> tuple[float, float, float]:
+    value = element.normal or element.payload.get("normal")
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        return tuple(float(item) for item in value)  # type: ignore[return-value]
+    return fallback
+
+
 def _surface_plane_point(element: Any) -> tuple[float, float, float]:
     min_corner = tuple(float(value) for value in element.bounds.min_corner)
     max_corner = tuple(float(value) for value in element.bounds.max_corner)
     center = [(lo + hi) * 0.5 for lo, hi in zip(min_corner, max_corner)]
-    normal = element.normal or element.payload.get("normal")
+    normal = element.normal or element.payload.get("normal") or (0.0, 0.0, -1.0)
     if isinstance(normal, (list, tuple)) and len(normal) == 3:
         normal = tuple(float(value) for value in normal)
         dominant_axis = max(range(3), key=lambda index: abs(normal[index]))

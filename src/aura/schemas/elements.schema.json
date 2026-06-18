@@ -197,6 +197,7 @@
         "frequency": { "$ref": "#/$defs/vec3" },
         "bandwidth": { "type": "number", "exclusiveMinimum": 0 },
         "phase": { "type": "number" },
+        "normal": { "$ref": "#/$defs/vec3" },
         "plane_point": { "$ref": "#/$defs/vec3" }
       }
     },

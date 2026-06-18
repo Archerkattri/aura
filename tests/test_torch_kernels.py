@@ -588,6 +588,7 @@ def test_surface_carrier_parameter_tensors_cover_native_surface_fields():
         "min_corner",
         "max_corner",
         "plane_point",
+        "normal",
         "color",
         "opacity",
         "confidence",
@@ -595,6 +596,7 @@ def test_surface_carrier_parameter_tensors_cover_native_surface_fields():
     assert carrier_parameters["surface"]["min_corner"].requires_grad is True
     assert carrier_parameters["surface"]["max_corner"].requires_grad is True
     assert carrier_parameters["surface"]["plane_point"].requires_grad is True
+    assert carrier_parameters["surface"]["normal"].requires_grad is True
     assert carrier_parameters["surface"]["color"].requires_grad is True
     assert carrier_parameters["surface"]["opacity"].requires_grad is True
     assert carrier_parameters["surface"]["confidence"].requires_grad is True
@@ -759,6 +761,7 @@ def test_gabor_kernel_keeps_frequency_phase_bandwidth_differentiable():
         "min_corner",
         "max_corner",
         "plane_point",
+        "normal",
         "color",
         "frequency",
         "phase",

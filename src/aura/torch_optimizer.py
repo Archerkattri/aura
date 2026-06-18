@@ -538,6 +538,7 @@ def _scene_from_carrier_parameters(
         opacity = element.opacity
         confidence = element.confidence
         bounds = element.bounds
+        normal = element.normal
         payload = dict(element.payload)
         if "min_corner" in fields and "max_corner" in fields:
             min_corner = _tensor_vec3(fields["min_corner"])
@@ -545,6 +546,9 @@ def _scene_from_carrier_parameters(
             bounds = Bounds(min_corner=min_corner, max_corner=max_corner)
         if "plane_point" in fields:
             payload["plane_point"] = list(_tensor_vec3(fields["plane_point"]))
+        if "normal" in fields:
+            normal = _normalized_vec3(_tensor_vec3(fields["normal"]))
+            payload["normal"] = list(normal)
         if "gaussian_mean" in fields:
             payload["mean"] = list(_tensor_vec3(fields["gaussian_mean"]))
         if "color" in fields:
@@ -592,6 +596,7 @@ def _scene_from_carrier_parameters(
                 color=color,
                 opacity=opacity,
                 confidence=confidence,
+                normal=normal,
                 payload=payload,
                 confidence_map=confidence_map,
                 metadata=metadata,
@@ -698,6 +703,13 @@ def _tensor_scalar(value: Any) -> float:
 def _tensor_vec3(value: Any) -> tuple[float, float, float]:
     items = value.detach().cpu().tolist()
     return (float(items[0]), float(items[1]), float(items[2]))
+
+
+def _normalized_vec3(value: tuple[float, float, float]) -> tuple[float, float, float]:
+    norm = sqrt(sum(item * item for item in value))
+    if norm <= 1e-8:
+        return value
+    return tuple(item / norm for item in value)  # type: ignore[return-value]
 
 
 def _clamp_unit(value: float) -> float:
