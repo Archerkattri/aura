@@ -65,7 +65,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
         TorchCarrierKernelSpec(
             payload_type="beta_kernel",
             carrier_id="beta",
-            differentiable_fields=("color", "opacity", "alpha", "beta"),
+            differentiable_fields=("color", "opacity", "alpha", "beta", "support_radius"),
             description="Bounded beta support torch autograd kernel; CUDA production kernel is still required.",
             implementation_stage="torch_autograd_beta_kernel",
             autograd_kernel=True,
@@ -204,7 +204,23 @@ def torch_carrier_response_tensors(
             )
             alpha = _carrier_parameter(torch, element, "alpha", carrier_parameters, device, default=element.payload.get("alpha", 1.0))
             beta_value = _carrier_parameter(torch, element, "beta", carrier_parameters, device, default=element.payload.get("beta", 1.0))
-            weight = _torch_beta_weight(torch, hit_points[mask], mins[element_index], maxs[element_index], alpha=alpha, beta=beta_value)
+            support_radius = _carrier_vector_parameter(
+                torch,
+                element,
+                "support_radius",
+                carrier_parameters,
+                device,
+                default=element.payload.get("support_radius", _half_extent(element)),
+            )
+            weight = _torch_beta_weight(
+                torch,
+                hit_points[mask],
+                mins[element_index],
+                maxs[element_index],
+                support_radius=support_radius,
+                alpha=alpha,
+                beta=beta_value,
+            )
             carrier_colors[mask] = torch.clamp(beta_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - beta_opacity * weight, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(confidences[element_index], min=0.0, max=1.0)
@@ -357,6 +373,12 @@ def torch_carrier_parameter_tensors(
                     device=device,
                     requires_grad=requires_grad,
                 ),
+                "support_radius": torch.tensor(
+                    tuple(element.payload.get("support_radius", _half_extent(element))),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
             }
         elif payload_type == "gabor_frequency":
             parameters[element.id] = {
@@ -494,6 +516,14 @@ def _surface_plane_point(element: Any) -> tuple[float, float, float]:
     return tuple(center)  # type: ignore[return-value]
 
 
+def _half_extent(element: Any) -> tuple[float, float, float]:
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    return tuple(
+        max((max_corner[index] - min_corner[index]) * 0.5, 1e-4) for index in range(3)
+    )  # type: ignore[return-value]
+
+
 def _carrier_parameter(
     torch: Any,
     element: Any,
@@ -526,10 +556,11 @@ def _carrier_vector_parameter(
     return torch.tensor(tuple(default), dtype=torch.float32, device=device)
 
 
-def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, alpha: Any, beta: Any) -> Any:
-    extent = torch.clamp(maxs - mins, min=1e-6)
-    coordinates = torch.clamp((points - mins) / extent, min=0.0, max=1.0)
-    u = torch.mean(coordinates, dim=1)
+def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, support_radius: Any, alpha: Any, beta: Any) -> Any:
+    center = (mins + maxs) * 0.5
+    radius = torch.clamp(support_radius, min=1e-6)
+    normalized_distance = torch.clamp(torch.abs(points - center) / radius, min=0.0, max=1.0)
+    u = torch.mean(1.0 - normalized_distance, dim=1)
     alpha_safe = torch.clamp(alpha, min=1e-6)
     beta_safe = torch.clamp(beta, min=1e-6)
     raw = (u ** (alpha_safe - 1.0)) * ((1.0 - u) ** (beta_safe - 1.0))

@@ -692,7 +692,7 @@ def _torch_render_tensor_targets(
     opacities = scene_tensors.opacities
     confidences = scene_tensors.confidences
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
-    mins, maxs, surface_plane_points, gaussian_means = _torch_geometry_from_carrier_parameters(
+    mins, maxs, surface_plane_points, gaussian_means, beta_support_radii = _torch_geometry_from_carrier_parameters(
         torch,
         tuple(scene.elements),
         carrier_parameters,
@@ -700,6 +700,7 @@ def _torch_render_tensor_targets(
         scene_tensors.maxs,
         scene_tensors.surface_plane_points,
         scene_tensors.gaussian_means,
+        scene_tensors.beta_support_radii,
     )
 
     composited = _torch_composite_carrier_hits(
@@ -722,7 +723,7 @@ def _torch_render_tensor_targets(
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
-        scene_tensors.beta_support_radii,
+        beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
         collect_traces=True,
@@ -820,7 +821,7 @@ def _torch_render_objective_tensor_targets(
     opacities = scene_tensors.opacities
     confidences = scene_tensors.confidences
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
-    mins, maxs, surface_plane_points, gaussian_means = _torch_geometry_from_carrier_parameters(
+    mins, maxs, surface_plane_points, gaussian_means, beta_support_radii = _torch_geometry_from_carrier_parameters(
         torch,
         tuple(scene.elements),
         carrier_parameters,
@@ -828,6 +829,7 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.maxs,
         scene_tensors.surface_plane_points,
         scene_tensors.gaussian_means,
+        scene_tensors.beta_support_radii,
     )
 
     composited = _torch_composite_carrier_hits(
@@ -850,7 +852,7 @@ def _torch_render_objective_tensor_targets(
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
-        scene_tensors.beta_support_radii,
+        beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
         collect_traces=False,
@@ -932,24 +934,28 @@ def _torch_geometry_from_carrier_parameters(
     base_maxs: Any,
     base_surface_plane_points: Any,
     base_gaussian_means: Any,
-) -> tuple[Any, Any, Any, Any]:
+    base_beta_support_radii: Any,
+) -> tuple[Any, Any, Any, Any, Any]:
     if carrier_parameters is None:
-        return base_mins, base_maxs, base_surface_plane_points, base_gaussian_means
+        return base_mins, base_maxs, base_surface_plane_points, base_gaussian_means, base_beta_support_radii
     mins = []
     maxs = []
     surface_plane_points = []
     gaussian_means = []
+    beta_support_radii = []
     for index, element in enumerate(elements):
         fields = carrier_parameters.get(element.id, {})
         mins.append(fields.get("min_corner", base_mins[index]))
         maxs.append(fields.get("max_corner", base_maxs[index]))
         surface_plane_points.append(fields.get("plane_point", base_surface_plane_points[index]))
         gaussian_means.append(fields.get("gaussian_mean", base_gaussian_means[index]))
+        beta_support_radii.append(fields.get("support_radius", base_beta_support_radii[index]))
     return (
         torch.stack(tuple(mins), dim=0),
         torch.stack(tuple(maxs), dim=0),
         torch.stack(tuple(surface_plane_points), dim=0),
         torch.stack(tuple(gaussian_means), dim=0),
+        torch.stack(tuple(beta_support_radii), dim=0),
     )
 
 

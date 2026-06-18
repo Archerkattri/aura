@@ -211,6 +211,79 @@ def test_torch_optimize_capture_batch_updates_surface_geometry_from_depth_loss()
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_persists_beta_support_radius():
+    scene = AuraScene(
+        name="torch_optimizer_beta_support_scene",
+        elements=(
+            AuraElement(
+                id="beta",
+                carrier_id="beta",
+                bounds=Bounds((-2.0, -2.0, 0.0), (2.0, 2.0, 2.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                payload={
+                    "type": "beta_kernel",
+                    "alpha": 2.0,
+                    "beta": 2.0,
+                    "support_radius": [0.5, 0.5, 0.5],
+                },
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.2,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=3,
+                    values=(1.0, 0.0, 0.0),
+                ),
+                depth=CaptureTensor(
+                    path="frame.pgm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=1,
+                    values=(2.2,),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.25,
+            loss_weights=TrainingLossWeights(image=0.0, depth=1.0, query=0.0, normal=0.0, mask=0.0),
+            gradient_clip_norm=10.0,
+            max_samples_per_batch=1,
+        ),
+    )
+
+    support_radius = result.scene.elements[0].payload["support_radius"]
+    assert result.steps[0].depth_loss > result.steps[-1].depth_loss
+    assert support_radius[2] > 0.5
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_optimizes_semantic_query_loss():
     scene = AuraScene(
         name="torch_optimizer_query_scene",

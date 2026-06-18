@@ -1218,6 +1218,50 @@ def test_torch_render_targets_uses_beta_support_ellipsoid():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_trainable_beta_support_radius():
+    import torch
+
+    scene = AuraScene(
+        name="torch_beta_trainable_support_scene",
+        elements=(
+            AuraElement(
+                id="beta",
+                carrier_id="beta",
+                bounds=Bounds((-2.0, -2.0, 0.0), (2.0, 2.0, 2.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "beta_kernel",
+                    "alpha": 2.0,
+                    "beta": 2.0,
+                    "support_radius": [0.5, 0.5, 0.5],
+                },
+            ),
+        ),
+    )
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+    carrier_parameters["beta"]["support_radius"] = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32, requires_grad=True)
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.75, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.338562,
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+
+    assert batch.element_ids == ("beta",)
+    assert batch.predicted_depth == pytest.approx((2.338562,), abs=1e-5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_reports_query_contract_loss():
     scene = AuraScene(
         name="torch_query_loss_scene",

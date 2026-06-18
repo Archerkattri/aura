@@ -665,7 +665,7 @@ def test_beta_kernel_keeps_shape_parameters_differentiable():
             bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
             opacity=0.5,
             confidence=0.75,
-            payload={"type": "beta_kernel", "alpha": 2.0, "beta": 3.0},
+            payload={"type": "beta_kernel", "alpha": 2.0, "beta": 3.0, "support_radius": [0.4, 0.5, 0.6]},
         ),
     )
     carrier_parameters = torch_carrier_parameter_tensors(torch, elements, device="cpu")
@@ -697,15 +697,17 @@ def test_beta_kernel_keeps_shape_parameters_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["beta"]) == {"min_corner", "max_corner", "color", "opacity", "alpha", "beta"}
+    assert set(carrier_parameters["beta"]) == {"min_corner", "max_corner", "color", "opacity", "alpha", "beta", "support_radius"}
     assert carrier_parameters["beta"]["color"].grad is not None
     assert carrier_parameters["beta"]["opacity"].grad is not None
     assert carrier_parameters["beta"]["alpha"].grad is not None
     assert carrier_parameters["beta"]["beta"].grad is not None
+    assert carrier_parameters["beta"]["support_radius"].grad is not None
     assert carrier_parameters["beta"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
     assert torch.isfinite(carrier_parameters["beta"]["opacity"].grad)
     assert torch.isfinite(carrier_parameters["beta"]["alpha"].grad)
     assert torch.isfinite(carrier_parameters["beta"]["beta"].grad)
+    assert torch.all(torch.isfinite(carrier_parameters["beta"]["support_radius"].grad))
     assert confidences.grad.tolist() == pytest.approx([1.0])
     assert residual.tolist() == [False]
 

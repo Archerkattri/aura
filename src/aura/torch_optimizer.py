@@ -507,6 +507,8 @@ def _gradient_step_carrier_parameters(
                     parameter.clamp_(0.0, 1.0)
                 elif name in {"alpha", "beta"}:
                     parameter.clamp_(1e-4)
+                elif name == "support_radius":
+                    parameter.clamp_(1e-4)
         for fields in carrier_parameters.values():
             if "min_corner" in fields and "max_corner" in fields:
                 min_corner = fields["min_corner"]
@@ -558,6 +560,8 @@ def _scene_from_carrier_parameters(
                 payload[name] = _tensor_scalar(fields[name])
         if "frequency" in fields:
             payload["frequency"] = list(_tensor_vec3(fields["frequency"]))
+        if "support_radius" in fields:
+            payload["support_radius"] = list(_tensor_vec3(fields["support_radius"]))
         losses = loss_by_element.get(element.id)
         confidence_map = element.confidence_map
         metadata = element.metadata
