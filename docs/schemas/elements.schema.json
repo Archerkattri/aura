@@ -162,6 +162,7 @@
       "properties": {
         "type": { "const": "surface_cell" },
         "normal": { "$ref": "#/$defs/vec3" },
+        "plane_point": { "$ref": "#/$defs/vec3" },
         "thickness": { "type": "number", "exclusiveMinimum": 0 },
         "roughness": { "type": "number", "minimum": 0, "maximum": 1 }
       }

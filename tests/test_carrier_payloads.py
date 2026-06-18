@@ -39,7 +39,14 @@ def test_native_carrier_payloads_expose_typed_contracts():
 
 def test_native_carrier_payloads_round_trip_from_dict():
     payloads = [
-        (SurfaceCellPayload, SurfaceCellPayload(normal=(0.0, 0.0, 1.0), thickness=0.02).to_dict()),
+        (
+            SurfaceCellPayload,
+            SurfaceCellPayload(
+                normal=(0.0, 0.0, 1.0),
+                thickness=0.02,
+                plane_point=(0.0, 0.0, -0.25),
+            ).to_dict(),
+        ),
         (VolumeCellPayload, VolumeCellPayload(density=0.4, phase_anisotropy=0.1).to_dict()),
         (BetaKernelPayload, BetaKernelPayload(alpha=2.0, beta=3.0, support_radius=(0.1, 0.2, 0.3)).to_dict()),
         (GaborFrequencyPayload, GaborFrequencyPayload(frequency=(1.0, 0.0, 0.0), bandwidth=0.5).to_dict()),

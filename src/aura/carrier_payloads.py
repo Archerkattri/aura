@@ -11,16 +11,26 @@ class SurfaceCellPayload:
     normal: Vec3
     thickness: float
     roughness: float = 0.5
+    plane_point: Vec3 | None = None
 
     def to_dict(self) -> dict:
         _positive("thickness", self.thickness)
         _unit("roughness", self.roughness)
-        return {"type": "surface_cell", **asdict(self)}
+        payload = {"type": "surface_cell", **asdict(self)}
+        if self.plane_point is None:
+            payload.pop("plane_point")
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "SurfaceCellPayload":
         _require_type(payload, "surface_cell")
-        return cls(normal=_vec3(payload["normal"]), thickness=float(payload["thickness"]), roughness=float(payload["roughness"]))
+        plane_point = _vec3(payload["plane_point"]) if "plane_point" in payload else None
+        return cls(
+            normal=_vec3(payload["normal"]),
+            thickness=float(payload["thickness"]),
+            roughness=float(payload["roughness"]),
+            plane_point=plane_point,
+        )
 
 
 @dataclass(frozen=True)

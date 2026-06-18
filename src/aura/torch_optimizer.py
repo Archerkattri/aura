@@ -5,7 +5,7 @@ from math import isfinite, sqrt
 from typing import Any, Sequence
 
 from aura.decomposition import carrier_lod_elements_and_chunks
-from aura.elements import AuraElement
+from aura.elements import AuraElement, Bounds
 from aura.evolution import (
     CarrierEvolutionDecision,
     CarrierEvolutionPolicy,
@@ -492,6 +492,14 @@ def _gradient_step_carrier_parameters(
                     parameter.clamp_(0.0, 1.0)
                 elif name in {"alpha", "beta"}:
                     parameter.clamp_(1e-4)
+        for fields in carrier_parameters.values():
+            if "min_corner" in fields and "max_corner" in fields:
+                min_corner = fields["min_corner"]
+                max_corner = fields["max_corner"]
+                lower = torch.minimum(min_corner, max_corner - 1e-4)
+                upper = torch.maximum(max_corner, min_corner + 1e-4)
+                min_corner.copy_(lower)
+                max_corner.copy_(upper)
     return _TorchGradientStepState(
         gradient_norm=gradient_norm,
         applied_gradient_norm=gradient_norm * scale,
@@ -512,7 +520,16 @@ def _scene_from_carrier_parameters(
         color = element.color
         opacity = element.opacity
         confidence = element.confidence
+        bounds = element.bounds
         payload = dict(element.payload)
+        if "min_corner" in fields and "max_corner" in fields:
+            min_corner = _tensor_vec3(fields["min_corner"])
+            max_corner = _tensor_vec3(fields["max_corner"])
+            bounds = Bounds(min_corner=min_corner, max_corner=max_corner)
+        if "plane_point" in fields:
+            payload["plane_point"] = list(_tensor_vec3(fields["plane_point"]))
+        if "gaussian_mean" in fields:
+            payload["mean"] = list(_tensor_vec3(fields["gaussian_mean"]))
         if "color" in fields:
             color = _tensor_vec3(fields["color"])
         if "opacity" in fields:
@@ -545,6 +562,7 @@ def _scene_from_carrier_parameters(
         elements.append(
             replace(
                 element,
+                bounds=bounds,
                 color=color,
                 opacity=opacity,
                 confidence=confidence,
@@ -553,7 +571,8 @@ def _scene_from_carrier_parameters(
                 metadata=metadata,
             )
         )
-    return AuraScene(name=scene.name, elements=tuple(elements), chunks=scene.chunks, semantic_graph=scene.semantic_graph)
+    chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(elements))
+    return AuraScene(name=scene.name, elements=chunked_elements, chunks=chunks, semantic_graph=scene.semantic_graph)
 
 
 def _loss_by_element(rendered: TorchRenderBatch) -> dict[str, dict[str, float]]:

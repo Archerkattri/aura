@@ -285,8 +285,10 @@ def torch_carrier_parameter_tensors(
     parameters: dict[str, dict[str, Any]] = {}
     for element in elements:
         payload_type = element.payload.get("type")
+        geometry_parameters = _carrier_geometry_parameter_tensors(torch, element, device=device, requires_grad=requires_grad)
         if payload_type == "surface_cell" or element.carrier_id == "surface":
             parameters[element.id] = {
+                **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
                     dtype=torch.float32,
@@ -308,6 +310,7 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "volume_cell":
             parameters[element.id] = {
+                **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
                     dtype=torch.float32,
@@ -329,6 +332,7 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "beta_kernel":
             parameters[element.id] = {
+                **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
                     dtype=torch.float32,
@@ -356,6 +360,7 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "gabor_frequency":
             parameters[element.id] = {
+                **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
                     dtype=torch.float32,
@@ -383,6 +388,7 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "neural_residual":
             parameters[element.id] = {
+                **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
                     dtype=torch.float32,
@@ -398,6 +404,7 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "semantic_feature":
             parameters[element.id] = {
+                **geometry_parameters,
                 "confidence": torch.tensor(
                     float(element.payload.get("confidence", element.confidence)),
                     dtype=torch.float32,
@@ -407,6 +414,7 @@ def torch_carrier_parameter_tensors(
             }
         elif payload_type == "gaussian_fallback":
             parameters[element.id] = {
+                **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
                     dtype=torch.float32,
@@ -427,6 +435,63 @@ def torch_carrier_parameter_tensors(
                 ),
             }
     return parameters
+
+
+def _carrier_geometry_parameter_tensors(
+    torch: Any,
+    element: Any,
+    *,
+    device: str,
+    requires_grad: bool,
+) -> dict[str, Any]:
+    parameters = {
+        "min_corner": torch.tensor(
+            tuple(element.bounds.min_corner),
+            dtype=torch.float32,
+            device=device,
+            requires_grad=requires_grad,
+        ),
+        "max_corner": torch.tensor(
+            tuple(element.bounds.max_corner),
+            dtype=torch.float32,
+            device=device,
+            requires_grad=requires_grad,
+        ),
+    }
+    if element.payload.get("type") == "surface_cell" or element.carrier_id == "surface":
+        point = element.payload.get("plane_point") or element.payload.get("point")
+        if isinstance(point, (list, tuple)) and len(point) == 3:
+            plane_point = tuple(float(value) for value in point)
+        else:
+            plane_point = _surface_plane_point(element)
+        parameters["plane_point"] = torch.tensor(
+            plane_point,
+            dtype=torch.float32,
+            device=device,
+            requires_grad=requires_grad,
+        )
+    if element.payload.get("type") == "gaussian_fallback":
+        mean = element.payload.get("mean")
+        if isinstance(mean, (list, tuple)) and len(mean) == 3:
+            parameters["gaussian_mean"] = torch.tensor(
+                tuple(float(value) for value in mean),
+                dtype=torch.float32,
+                device=device,
+                requires_grad=requires_grad,
+            )
+    return parameters
+
+
+def _surface_plane_point(element: Any) -> tuple[float, float, float]:
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    center = [(lo + hi) * 0.5 for lo, hi in zip(min_corner, max_corner)]
+    normal = element.normal or element.payload.get("normal")
+    if isinstance(normal, (list, tuple)) and len(normal) == 3:
+        normal = tuple(float(value) for value in normal)
+        dominant_axis = max(range(3), key=lambda index: abs(normal[index]))
+        center[dominant_axis] = min_corner[dominant_axis] if normal[dominant_axis] < 0.0 else max_corner[dominant_axis]
+    return tuple(center)  # type: ignore[return-value]
 
 
 def _carrier_parameter(

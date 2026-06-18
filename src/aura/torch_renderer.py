@@ -649,12 +649,19 @@ def _torch_render_tensor_targets(
         target_normal_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
     scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
-    mins = scene_tensors.mins
-    maxs = scene_tensors.maxs
     colors = scene_tensors.colors
     opacities = scene_tensors.opacities
     confidences = scene_tensors.confidences
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
+    mins, maxs, surface_plane_points, gaussian_means = _torch_geometry_from_carrier_parameters(
+        torch,
+        tuple(scene.elements),
+        carrier_parameters,
+        scene_tensors.mins,
+        scene_tensors.maxs,
+        scene_tensors.surface_plane_points,
+        scene_tensors.gaussian_means,
+    )
 
     composited = _torch_composite_carrier_hits(
         torch,
@@ -669,9 +676,9 @@ def _torch_render_tensor_targets(
         scene_tensors.chunk_mins,
         scene_tensors.chunk_maxs,
         scene_tensors.element_chunk_indices,
-        scene_tensors.surface_plane_points,
+        surface_plane_points,
         scene_tensors.surface_normals,
-        scene_tensors.gaussian_means,
+        gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
         device=device,
@@ -759,12 +766,19 @@ def _torch_render_objective_tensor_targets(
         raise ValueError("torch tensor target count must match frame ids")
 
     scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
-    mins = scene_tensors.mins
-    maxs = scene_tensors.maxs
     colors = scene_tensors.colors
     opacities = scene_tensors.opacities
     confidences = scene_tensors.confidences
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
+    mins, maxs, surface_plane_points, gaussian_means = _torch_geometry_from_carrier_parameters(
+        torch,
+        tuple(scene.elements),
+        carrier_parameters,
+        scene_tensors.mins,
+        scene_tensors.maxs,
+        scene_tensors.surface_plane_points,
+        scene_tensors.gaussian_means,
+    )
 
     composited = _torch_composite_carrier_hits(
         torch,
@@ -779,9 +793,9 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.chunk_mins,
         scene_tensors.chunk_maxs,
         scene_tensors.element_chunk_indices,
-        scene_tensors.surface_plane_points,
+        surface_plane_points,
         scene_tensors.surface_normals,
-        scene_tensors.gaussian_means,
+        gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
         device=device,
@@ -846,6 +860,35 @@ def _torch_devices_match(left: str, right: str) -> bool:
     left_index = 0 if left_device.index is None else int(left_device.index)
     right_index = 0 if right_device.index is None else int(right_device.index)
     return left_index == right_index
+
+
+def _torch_geometry_from_carrier_parameters(
+    torch: Any,
+    elements: Sequence[Any],
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    base_mins: Any,
+    base_maxs: Any,
+    base_surface_plane_points: Any,
+    base_gaussian_means: Any,
+) -> tuple[Any, Any, Any, Any]:
+    if carrier_parameters is None:
+        return base_mins, base_maxs, base_surface_plane_points, base_gaussian_means
+    mins = []
+    maxs = []
+    surface_plane_points = []
+    gaussian_means = []
+    for index, element in enumerate(elements):
+        fields = carrier_parameters.get(element.id, {})
+        mins.append(fields.get("min_corner", base_mins[index]))
+        maxs.append(fields.get("max_corner", base_maxs[index]))
+        surface_plane_points.append(fields.get("plane_point", base_surface_plane_points[index]))
+        gaussian_means.append(fields.get("gaussian_mean", base_gaussian_means[index]))
+    return (
+        torch.stack(tuple(mins), dim=0),
+        torch.stack(tuple(maxs), dim=0),
+        torch.stack(tuple(surface_plane_points), dim=0),
+        torch.stack(tuple(gaussian_means), dim=0),
+    )
 
 
 def _torch_composite_carrier_hits(
@@ -999,7 +1042,13 @@ def _torch_carrier_hits(
     gaussian_support_radius_sq: Any,
 ) -> tuple[Any, Any, Any]:
     entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
+    entry_columns = []
+    exit_columns = []
+    hit_columns = []
     for element_index, element in enumerate(elements):
+        current_entry = entry[:, element_index]
+        current_exit = exit_depth[:, element_index]
+        current_hits = hits[:, element_index]
         payload_type = element.payload.get("type")
         if payload_type == "surface_cell" or element.carrier_id == "surface":
             surface_entry, surface_exit, surface_hits = _torch_surface_plane_hits(
@@ -1012,9 +1061,9 @@ def _torch_carrier_hits(
                 surface_normals[element_index],
             )
             valid = torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
-            hits[:, element_index] = torch.where(valid, surface_hits, hits[:, element_index])
-            entry[:, element_index] = torch.where(valid, surface_entry, entry[:, element_index])
-            exit_depth[:, element_index] = torch.where(valid, surface_exit, exit_depth[:, element_index])
+            current_hits = torch.where(valid, surface_hits, current_hits)
+            current_entry = torch.where(valid, surface_entry, current_entry)
+            current_exit = torch.where(valid, surface_exit, current_exit)
         elif payload_type == "gaussian_fallback":
             gaussian_entry, gaussian_exit, gaussian_hits = _torch_gaussian_ellipsoid_hits(
                 torch,
@@ -1033,10 +1082,17 @@ def _torch_carrier_hits(
             bounded_entry = torch.maximum(entry[:, element_index], gaussian_entry)
             bounded_exit = torch.minimum(exit_depth[:, element_index], gaussian_exit)
             bounded_hits = hits[:, element_index] & gaussian_hits & (bounded_exit >= bounded_entry)
-            hits[:, element_index] = torch.where(valid, bounded_hits, hits[:, element_index])
-            entry[:, element_index] = torch.where(valid, bounded_entry, entry[:, element_index])
-            exit_depth[:, element_index] = torch.where(valid, bounded_exit, exit_depth[:, element_index])
-    return entry, exit_depth, hits
+            current_hits = torch.where(valid, bounded_hits, current_hits)
+            current_entry = torch.where(valid, bounded_entry, current_entry)
+            current_exit = torch.where(valid, bounded_exit, current_exit)
+        entry_columns.append(current_entry)
+        exit_columns.append(current_exit)
+        hit_columns.append(current_hits)
+    return (
+        torch.stack(tuple(entry_columns), dim=1),
+        torch.stack(tuple(exit_columns), dim=1),
+        torch.stack(tuple(hit_columns), dim=1),
+    )
 
 
 def _torch_surface_plane_hits(

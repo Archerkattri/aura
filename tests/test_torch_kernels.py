@@ -584,7 +584,17 @@ def test_surface_carrier_parameter_tensors_cover_native_surface_fields():
 
     carrier_parameters = torch_carrier_parameter_tensors(torch, elements, device="cpu")
 
-    assert set(carrier_parameters["surface"]) == {"color", "opacity", "confidence"}
+    assert set(carrier_parameters["surface"]) == {
+        "min_corner",
+        "max_corner",
+        "plane_point",
+        "color",
+        "opacity",
+        "confidence",
+    }
+    assert carrier_parameters["surface"]["min_corner"].requires_grad is True
+    assert carrier_parameters["surface"]["max_corner"].requires_grad is True
+    assert carrier_parameters["surface"]["plane_point"].requires_grad is True
     assert carrier_parameters["surface"]["color"].requires_grad is True
     assert carrier_parameters["surface"]["opacity"].requires_grad is True
     assert carrier_parameters["surface"]["confidence"].requires_grad is True
@@ -633,7 +643,7 @@ def test_volume_kernel_keeps_density_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["volume"]) == {"color", "density", "confidence"}
+    assert set(carrier_parameters["volume"]) == {"min_corner", "max_corner", "color", "density", "confidence"}
     assert carrier_parameters["volume"]["color"].grad is not None
     assert carrier_parameters["volume"]["density"].grad is not None
     assert carrier_parameters["volume"]["confidence"].grad is not None
@@ -687,7 +697,7 @@ def test_beta_kernel_keeps_shape_parameters_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["beta"]) == {"color", "opacity", "alpha", "beta"}
+    assert set(carrier_parameters["beta"]) == {"min_corner", "max_corner", "color", "opacity", "alpha", "beta"}
     assert carrier_parameters["beta"]["color"].grad is not None
     assert carrier_parameters["beta"]["opacity"].grad is not None
     assert carrier_parameters["beta"]["alpha"].grad is not None
@@ -743,7 +753,7 @@ def test_gabor_kernel_keeps_frequency_phase_bandwidth_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["gabor"]) == {"color", "frequency", "phase", "bandwidth"}
+    assert set(carrier_parameters["gabor"]) == {"min_corner", "max_corner", "color", "frequency", "phase", "bandwidth"}
     assert carrier_parameters["gabor"]["color"].grad is not None
     assert carrier_parameters["gabor"]["frequency"].grad is not None
     assert carrier_parameters["gabor"]["phase"].grad is not None
@@ -800,7 +810,7 @@ def test_neural_kernel_keeps_residual_scale_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["neural"]) == {"color", "residual_scale"}
+    assert set(carrier_parameters["neural"]) == {"min_corner", "max_corner", "color", "residual_scale"}
     assert carrier_parameters["neural"]["color"].grad is not None
     assert carrier_parameters["neural"]["residual_scale"].grad is not None
     assert carrier_parameters["neural"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
