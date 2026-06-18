@@ -1,3 +1,5 @@
+"""AURA command-line interface: scene assembly, ingest, benchmarking, and export commands."""
+
 from __future__ import annotations
 
 import argparse
@@ -739,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def demo_scene() -> AuraScene:
+    """Build a minimal single-element surface demo scene for CLI smoke tests."""
     bounds = Bounds(min_corner=(-0.5, -0.5, 0.0), max_corner=(0.5, 0.5, 0.1))
     element = AuraElement(
         id="wall_patch",
@@ -1120,6 +1123,7 @@ def _scene_from_training_dataset(dataset, *, name: str) -> AuraScene:
 
 
 def native_demo_scene() -> AuraScene:
+    """Build the full mixed-carrier native AURA demo scene from evidence decomposition."""
     scene = decompose_evidence(
         (
             EvidenceSample(

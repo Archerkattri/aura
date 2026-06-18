@@ -1,3 +1,5 @@
+"""AURA package assembly, loading, and schema validation."""
+
 from __future__ import annotations
 
 import json
@@ -54,6 +56,8 @@ PAYLOAD_CLASS_BY_TYPE = {
 
 @dataclass(frozen=True)
 class AuraPackage:
+    """An assembled AURA package: asset manifest, scene, and exchange metadata."""
+
     asset: AuraAsset
     scene: AuraScene
     exchange: dict = field(default_factory=dict)
@@ -111,11 +115,13 @@ class AuraPackage:
 
 
 def package_scene(scene: AuraScene, *, name: str | None = None, fallbacks: dict[str, str] | None = None) -> AuraPackage:
+    """Wrap an :class:`~aura.scene.AuraScene` in an :class:`AuraPackage` with optional fallback hints."""
     asset = AuraAsset(name=name or scene.name, carrier_ids=scene.carrier_ids(), fallbacks=fallbacks or {})
     return AuraPackage(asset=asset, scene=scene)
 
 
 def load_package(package_dir: Path | str) -> AuraPackage:
+    """Load and validate an on-disk ``.aura`` package directory into an :class:`AuraPackage`."""
     root = Path(package_dir)
     manifest = _read_json_object(root / "manifest.json")
     elements_payload = _read_json_list(root / "elements.json")
@@ -149,6 +155,7 @@ def validate_package_documents(
     semantic_graph: dict | None = None,
     exchange: dict | None = None,
 ) -> None:
+    """Validate raw JSON documents against the AURA package JSON Schemas."""
     _validate_json_schema("manifest.schema.json", manifest)
     _validate_json_schema("elements.schema.json", elements)
     _validate_json_schema("chunks.schema.json", chunks)
@@ -159,6 +166,11 @@ def validate_package_documents(
 
 
 def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> None:
+    """Validate an :class:`AuraPackage` for semantic consistency beyond JSON Schema.
+
+    Checks carrier, chunk, element payload, semantic ownership, and manifest
+    cross-reference contracts. Raises :class:`ValueError` on the first violation.
+    """
     _validate_schema_version(package.asset.version)
     registry = default_registry()
     expected_capabilities = package.asset.capabilities(registry)

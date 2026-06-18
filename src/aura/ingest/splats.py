@@ -1,3 +1,5 @@
+"""3D Gaussian Splat (3DGS) PLY and JSON ingest: loading splat files into AURA gaussian-fallback scenes."""
+
 from __future__ import annotations
 
 import json
@@ -38,6 +40,8 @@ PLY_SCALAR_TYPES = {
 
 @dataclass(frozen=True)
 class PlyProperty:
+    """A single named PLY element property with its scalar type."""
+
     name: str
     type_name: str
 
@@ -56,6 +60,8 @@ class PlyProperty:
 
 @dataclass(frozen=True)
 class PlyHeader:
+    """Parsed PLY file header: format, vertex schema, element count, and byte offset to data."""
+
     format_name: str
     properties: tuple[PlyProperty, ...]
     vertex_count: int
@@ -95,6 +101,8 @@ def _logistic(value: float) -> float:
 
 @dataclass(frozen=True)
 class GaussianSplatSample:
+    """A single Gaussian splat with 3-D mean, covariance, opacity, and color."""
+
     id: str
     mean: Vec3
     covariance: Matrix3
@@ -196,6 +204,7 @@ class GaussianSplatSample:
 
 
 def load_3dgs_export(path: Path | str) -> list[GaussianSplatSample]:
+    """Load Gaussian splat samples from a ``.ply`` or JSON export file at ``path``."""
     source = Path(path)
     if source.suffix.lower() == ".ply":
         return load_3dgs_ply(source)
@@ -420,6 +429,7 @@ def splats_to_scene(
     name: str = "3dgs_fixture",
     radius_sigma: float = 2.0,
 ) -> AuraScene:
+    """Decompose a sequence of Gaussian splat samples into an AURA scene."""
     if not samples:
         raise ValueError("samples must be non-empty")
     evidence = tuple(sample.to_evidence_sample(radius_sigma=radius_sigma) for sample in samples)
@@ -427,6 +437,7 @@ def splats_to_scene(
 
 
 def load_3dgs_scene(path: Path | str, *, name: str | None = None, radius_sigma: float = 2.0) -> AuraScene:
+    """Load a 3DGS export file and return the decomposed AURA scene."""
     source = Path(path)
     if source.suffix.lower() == ".ply":
         samples = load_3dgs_ply(source)

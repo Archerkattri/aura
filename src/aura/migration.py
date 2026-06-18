@@ -1,3 +1,5 @@
+"""AURA package schema migration status reporting."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -7,6 +9,8 @@ from aura.schema import AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS, pars
 
 @dataclass(frozen=True)
 class MigrationReport:
+    """Result of comparing a package schema version against the current target."""
+
     current_version: str
     target_version: str
     supported: bool
@@ -19,6 +23,7 @@ class MigrationReport:
 
 
 def migration_report(current_version: str, *, target_version: str = AURA_SCHEMA_VERSION) -> MigrationReport:
+    """Return a :class:`MigrationReport` describing how to reach ``target_version`` from ``current_version``."""
     current_major = parse_aura_schema_version(current_version).major
     target_major = parse_aura_schema_version(target_version, label="target version").major
     supported = current_major in AURA_SUPPORTED_MAJOR_VERSIONS and target_major in AURA_SUPPORTED_MAJOR_VERSIONS

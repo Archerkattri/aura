@@ -1,3 +1,5 @@
+"""Capture tensor sampling, tiled sampling plans, and packed render-target batches."""
+
 from __future__ import annotations
 
 from array import array
@@ -13,6 +15,8 @@ from aura.ray import Ray, Vec3
 
 @dataclass(frozen=True)
 class CapturePixelTarget:
+    """A single per-pixel render target derived from capture image/depth/mask tensors."""
+
     frame_id: str
     pixel: tuple[int, int]
     render_target: RenderTarget
@@ -35,6 +39,8 @@ class CapturePixelTarget:
 
 @dataclass(frozen=True)
 class CaptureSamplingTile:
+    """A single tile's sampling metadata within a capture frame."""
+
     frame_id: str
     origin: tuple[int, int]
     size: tuple[int, int]
@@ -67,6 +73,8 @@ class CaptureSamplingTile:
 
 @dataclass(frozen=True)
 class CaptureSamplingBatch:
+    """A bounded batch of tile indices referencing a contiguous target range."""
+
     batch_index: int
     tile_indices: tuple[int, ...]
     target_offset: int
@@ -216,6 +224,8 @@ class CapturePackedRenderBatch:
 
 @dataclass(frozen=True)
 class CaptureSamplingPlan:
+    """Deterministic tiled sampling plan computed before render-target materialization."""
+
     pixel_stride: int
     tile_size: int
     max_targets_per_frame: int | None

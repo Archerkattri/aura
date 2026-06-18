@@ -1,3 +1,5 @@
+"""AURA exchange-target definitions and fallback export planning."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +9,8 @@ from aura.asset import AuraAsset
 
 @dataclass(frozen=True)
 class ExchangeTarget:
+    """Metadata descriptor for a supported exchange or fallback export target."""
+
     name: str
     supports_typed_carriers: bool
     supports_ray_query: bool
@@ -29,6 +33,7 @@ USD_ASSET_BRIDGE = ExchangeTarget(
 
 
 def exchange_plan(asset: AuraAsset) -> dict:
+    """Build the default exchange plan dict for an AURA asset."""
     return {
         "asset": asset.name,
         "native": ".aura package preserves carrier registry, ray-query data, confidence maps, chunks, and residual metadata.",

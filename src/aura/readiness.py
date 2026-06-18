@@ -1,3 +1,5 @@
+"""AURA production readiness audit across implemented capability pillars."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +14,8 @@ from aura.torch_renderer import torch_renderer_status
 
 @dataclass(frozen=True)
 class ReadinessPillar:
+    """A single production readiness pillar with evidence, gaps, and next steps."""
+
     id: str
     title: str
     implemented: bool
@@ -34,6 +38,8 @@ class ReadinessPillar:
 
 @dataclass(frozen=True)
 class ProductionReadinessReport:
+    """Aggregated production readiness result across all capability pillars."""
+
     pillars: tuple[ReadinessPillar, ...]
     torch_renderer: dict
     torch_carrier_kernels: dict
@@ -76,6 +82,7 @@ class ProductionReadinessReport:
 
 
 def production_readiness_report() -> ProductionReadinessReport:
+    """Evaluate and return the current AURA production readiness across all pillars."""
     torch_status = torch_renderer_status().to_dict()
     kernel_report = torch_carrier_kernel_report()
     cuda_sources = cuda_kernel_source_report()

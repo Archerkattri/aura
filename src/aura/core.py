@@ -1,3 +1,5 @@
+"""AURA-Core training frame/region contracts, reconstruction config, and reference reconstruction."""
+
 from __future__ import annotations
 
 import json
@@ -180,6 +182,8 @@ class TrainingRegion:
 
 @dataclass(frozen=True)
 class TrainingDataset:
+    """A matched set of posed training frames and their associated evidence regions."""
+
     frames: tuple[TrainingFrame, ...]
     regions: tuple[TrainingRegion, ...]
 
@@ -193,6 +197,8 @@ class TrainingDataset:
 
 @dataclass(frozen=True)
 class ReconstructionConfig:
+    """Configuration for the AURA-Core reference reconstruction loop."""
+
     iterations: int = 4
     render_width: int = 8
     render_height: int = 8
@@ -247,6 +253,8 @@ class ReconstructionConfig:
 
 @dataclass(frozen=True)
 class FramePrediction:
+    """Predicted outputs and per-frame losses for a single training frame ray."""
+
     frame_id: str
     element_id: str | None
     carrier_id: str | None
@@ -281,6 +289,8 @@ class FramePrediction:
 
 @dataclass(frozen=True)
 class ReconstructionStep:
+    """Aggregated per-iteration losses, carrier counts, and evolution decisions."""
+
     iteration: int
     render_backend: str
     render_device: str | None
@@ -312,6 +322,8 @@ class ReconstructionStep:
 
 @dataclass(frozen=True)
 class ReconstructionReport:
+    """Full reconstruction history, loss trajectory, and policy records."""
+
     name: str
     frames: tuple[TrainingFrame, ...]
     stages: tuple[str, ...]
@@ -343,11 +355,14 @@ class ReconstructionReport:
 
 @dataclass(frozen=True)
 class ReconstructionResult:
+    """Output of a reconstruction run: the final scene and its full report."""
+
     scene: AuraScene
     report: ReconstructionReport
 
 
 def synthetic_training_frames() -> tuple[TrainingFrame, ...]:
+    """Return the deterministic synthetic posed training frames for the fixture scene."""
     return (
         TrainingFrame(
             id="front_left",
@@ -383,6 +398,7 @@ def synthetic_training_frames() -> tuple[TrainingFrame, ...]:
 
 
 def synthetic_training_regions() -> tuple[TrainingRegion, ...]:
+    """Return the deterministic synthetic evidence regions for the fixture scene."""
     return (
         TrainingRegion(
             id="surface_wall",
@@ -449,10 +465,12 @@ def synthetic_training_regions() -> tuple[TrainingRegion, ...]:
 
 
 def synthetic_training_dataset() -> TrainingDataset:
+    """Return the combined deterministic synthetic training dataset."""
     return TrainingDataset(frames=synthetic_training_frames(), regions=synthetic_training_regions())
 
 
 def load_training_dataset(path: Path | str) -> TrainingDataset:
+    """Load and validate a JSON training dataset from ``path``."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("training dataset JSON must be an object")
@@ -468,10 +486,12 @@ def load_training_dataset(path: Path | str) -> TrainingDataset:
 
 
 def load_training_frames(path: Path | str) -> tuple[TrainingFrame, ...]:
+    """Load and return only the frames from a JSON training dataset."""
     return load_training_dataset(path).frames
 
 
 def write_synthetic_training_frames(path: Path | str) -> Path:
+    """Write the deterministic synthetic training dataset to ``path`` as JSON."""
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(

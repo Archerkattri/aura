@@ -1,3 +1,5 @@
+"""Scene ray inspection utilities for shadow, reflection, and collision probes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,7 @@ from aura.scene import AuraScene
 
 @dataclass(frozen=True)
 class RayInspection:
+    """Full render and interaction probe result for a single scene ray."""
     label: str
     origin: Vec3
     direction: Vec3
@@ -62,6 +65,11 @@ class RayInspection:
 
 
 def inspect_ray(scene: AuraScene, ray: Ray, *, label: str = "ray") -> RayInspection:
+    """Query ``scene`` along ``ray`` and return a detailed :class:`RayInspection`.
+
+    Secondary shadow and reflection rays are cast from the first-hit surface
+    when the primary hit provides a normal or depth.
+    """
     result = scene.ray_query(ray)
     first_hit = result.provenance != "miss"
     opacity = result.opacity
@@ -106,6 +114,7 @@ def inspect_ray(scene: AuraScene, ray: Ray, *, label: str = "ray") -> RayInspect
 
 
 def inspect_scene_rays(scene: AuraScene, *, max_rays: int = 8) -> tuple[RayInspection, ...]:
+    """Cast up to ``max_rays`` center-aimed rays at the first elements of ``scene``."""
     if max_rays <= 0:
         raise ValueError("max_rays must be positive")
     if not scene.elements:
@@ -120,6 +129,7 @@ def inspect_scene_rays(scene: AuraScene, *, max_rays: int = 8) -> tuple[RayInspe
 
 
 def native_demo_interaction_probes(scene: AuraScene) -> tuple[RayInspection, ...]:
+    """Return a fixed set of named interaction probes for the native demo scene."""
     probes = (
         ("inserted_object_occlusion", Ray(origin=(-0.5, -0.5, -2.0), direction=(0.0, 0.0, 1.0))),
         ("semantic_object_query", Ray(origin=(0.125, 0.275, -2.0), direction=(0.0, 0.0, 1.0))),

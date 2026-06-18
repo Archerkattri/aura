@@ -1,3 +1,5 @@
+"""AURA package schema versioning constants and helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,11 +11,14 @@ AURA_SUPPORTED_MAJOR_VERSIONS = {0}
 
 @dataclass(frozen=True)
 class AuraSchemaVersion:
+    """Parsed major.minor AURA schema version."""
+
     major: int
     minor: int
 
 
 def parse_aura_schema_version(version: str, *, label: str = "version") -> AuraSchemaVersion:
+    """Parse a ``major.minor`` version string into an :class:`AuraSchemaVersion`."""
     parts = version.split(".")
     if len(parts) != 2 or not all(part.isdigit() for part in parts):
         raise ValueError(f"{label} must use major.minor format: {version}")

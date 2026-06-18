@@ -1,3 +1,5 @@
+"""Baseline export discovery and packaging for 3DGS comparison experiments."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ from aura.ingest.splats import load_3dgs_scene
 
 @dataclass(frozen=True)
 class BaselineExport:
+    """Discovered 3DGS baseline export: source directory, resolved PLY path, and scene name."""
+
     baseline: str
     source_path: Path
     splat_path: Path
@@ -24,6 +28,7 @@ class BaselineExport:
 
 
 def discover_3dgs_export(path: Path | str, *, name: str | None = None) -> BaselineExport:
+    """Locate a 3DGS PLY export under ``path`` (file or directory) and return a :class:`BaselineExport`."""
     source = Path(path)
     if source.is_file():
         _require_supported_splat_file(source)
@@ -51,6 +56,7 @@ def package_3dgs_export(
     name: str | None = None,
     radius_sigma: float = 2.0,
 ) -> AuraPackage:
+    """Load a 3DGS export, decompose it into a Gaussian-fallback AURA scene, and return a packaged asset."""
     export = discover_3dgs_export(path, name=name)
     scene = load_3dgs_scene(export.splat_path, name=export.scene_name, radius_sigma=radius_sigma)
     return package_scene(
