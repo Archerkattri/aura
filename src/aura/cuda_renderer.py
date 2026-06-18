@@ -606,9 +606,7 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
     for ray_index in range(inputs.ray_count):
         origin = _flat_vec3(inputs.ray_origins, ray_index)
         direction = _flat_vec3(inputs.ray_directions, ray_index)
-        best_depth = CUDA_RENDERER_INF_SENTINEL
-        best_element = -1
-        best_normal = (0.0, 0.0, 0.0)
+        ray_hits: list[tuple[float, float, tuple[float, float, float], int]] = []
         for element_index in range(inputs.element_count):
             hit = _simulate_ray_aabb_intersect(
                 origin,
@@ -619,12 +617,11 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
             if hit is None:
                 continue
             depth, _exit_depth, normal = hit
-            if depth < best_depth:
-                best_depth = depth
-                best_element = element_index
-                best_normal = normal
+            ray_hits.append((depth, _exit_depth, normal, element_index))
+        ray_hits.sort(key=lambda item: item[0])
+        stored_hits = ray_hits[: inputs.max_hits]
 
-        if best_element < 0:
+        if not stored_hits:
             out_color.extend((0.0, 0.0, 0.0))
             out_alpha.append(0.0)
             out_transmittance.append(1.0)
@@ -637,18 +634,37 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
             ordered_hits.extend((-1,) * inputs.max_hits)
             continue
 
-        opacity = _clamp_unit(inputs.scene.opacities[best_element])
-        out_color.extend(_flat_vec3(inputs.scene.colors, best_element))
-        out_alpha.append(opacity)
-        out_transmittance.append(_clamp_unit(1.0 - opacity))
-        out_depth.append(best_depth)
-        out_normal.extend(best_normal)
-        out_confidence.append(_clamp_unit(inputs.scene.confidences[best_element]))
-        out_residual.append(1 if inputs.scene.carrier_kernel_ids[best_element] == CUDA_RENDERER_CARRIER_IDS["neural"] else 0)
-        out_material_id.append(inputs.scene.material_ids[best_element])
-        out_semantic_id.append(inputs.scene.semantic_ids[best_element])
-        ordered_hits.append(best_element)
-        ordered_hits.extend((-1,) * (inputs.max_hits - 1))
+        color = [0.0, 0.0, 0.0]
+        remaining = 1.0
+        confidence_num = 0.0
+        confidence_den = 0.0
+        residual = 0
+        for _depth, _exit_depth, _normal, element_index in stored_hits:
+            opacity = _clamp_unit(inputs.scene.opacities[element_index])
+            transmittance = _clamp_unit(1.0 - opacity)
+            weight = remaining * (1.0 - transmittance)
+            hit_color = _flat_vec3(inputs.scene.colors, element_index)
+            color[0] += weight * hit_color[0]
+            color[1] += weight * hit_color[1]
+            color[2] += weight * hit_color[2]
+            confidence_num += weight * _clamp_unit(inputs.scene.confidences[element_index])
+            confidence_den += weight
+            remaining = _clamp_unit(remaining * transmittance)
+            if inputs.scene.carrier_kernel_ids[element_index] == CUDA_RENDERER_CARRIER_IDS["neural"]:
+                residual = 1
+
+        first_depth, _first_exit, first_normal, first_element = stored_hits[0]
+        out_color.extend(tuple(color))
+        out_alpha.append(_clamp_unit(1.0 - remaining))
+        out_transmittance.append(remaining)
+        out_depth.append(first_depth)
+        out_normal.extend(first_normal)
+        out_confidence.append(confidence_num / confidence_den if confidence_den > 1e-8 else 0.0)
+        out_residual.append(residual)
+        out_material_id.append(inputs.scene.material_ids[first_element])
+        out_semantic_id.append(inputs.scene.semantic_ids[first_element])
+        ordered_hits.extend(element_index for _depth, _exit_depth, _normal, element_index in stored_hits)
+        ordered_hits.extend((-1,) * (inputs.max_hits - len(stored_hits)))
 
     return CudaRendererKernelSimulation(
         inputs=inputs,

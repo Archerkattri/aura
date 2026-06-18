@@ -270,6 +270,7 @@ extern "C" __global__ void aura_render_rays_kernel(
     int element_count,
     int max_hits
 ) {
+    const int AURA_RENDER_MAX_ORDERED_HITS = 64;
     const int ray_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (ray_i >= ray_count) {
         return;
@@ -277,13 +278,23 @@ extern "C" __global__ void aura_render_rays_kernel(
 
     const float* origin = ray_origins + ray_i * 3;
     const float* direction = ray_directions + ray_i * 3;
-    float best_depth = 3.402823466e+38f;
-    float best_exit = 3.402823466e+38f;
-    int best_element = -1;
-    float best_normal[3] = {0.0f, 0.0f, 0.0f};
+    const int stored_hit_limit = max_hits < AURA_RENDER_MAX_ORDERED_HITS ? max_hits : AURA_RENDER_MAX_ORDERED_HITS;
+    float hit_depths[AURA_RENDER_MAX_ORDERED_HITS];
+    float hit_exits[AURA_RENDER_MAX_ORDERED_HITS];
+    float hit_normals[AURA_RENDER_MAX_ORDERED_HITS * 3];
+    int hit_elements[AURA_RENDER_MAX_ORDERED_HITS];
+    int stored_hit_count = 0;
 
     for (int hit_i = 0; hit_i < max_hits; ++hit_i) {
         ordered_hits[ray_i * max_hits + hit_i] = -1;
+    }
+    for (int hit_i = 0; hit_i < AURA_RENDER_MAX_ORDERED_HITS; ++hit_i) {
+        hit_depths[hit_i] = 3.402823466e+38f;
+        hit_exits[hit_i] = 3.402823466e+38f;
+        hit_elements[hit_i] = -1;
+        hit_normals[hit_i * 3 + 0] = 0.0f;
+        hit_normals[hit_i * 3 + 1] = 0.0f;
+        hit_normals[hit_i * 3 + 2] = 0.0f;
     }
 
     for (int element_i = 0; element_i < element_count; ++element_i) {
@@ -302,17 +313,37 @@ extern "C" __global__ void aura_render_rays_kernel(
         if (!hit) {
             continue;
         }
-        if (enter_depth < best_depth) {
-            best_depth = enter_depth;
-            best_exit = exit_depth;
-            best_element = element_i;
-            best_normal[0] = normal[0];
-            best_normal[1] = normal[1];
-            best_normal[2] = normal[2];
+        if (stored_hit_limit <= 0) {
+            continue;
+        }
+        int insert_at = stored_hit_count;
+        while (insert_at > 0 && enter_depth < hit_depths[insert_at - 1]) {
+            --insert_at;
+        }
+        if (insert_at >= stored_hit_limit) {
+            continue;
+        }
+        const int last = stored_hit_count < stored_hit_limit ? stored_hit_count : stored_hit_limit - 1;
+        for (int move_i = last; move_i > insert_at; --move_i) {
+            hit_depths[move_i] = hit_depths[move_i - 1];
+            hit_exits[move_i] = hit_exits[move_i - 1];
+            hit_elements[move_i] = hit_elements[move_i - 1];
+            hit_normals[move_i * 3 + 0] = hit_normals[(move_i - 1) * 3 + 0];
+            hit_normals[move_i * 3 + 1] = hit_normals[(move_i - 1) * 3 + 1];
+            hit_normals[move_i * 3 + 2] = hit_normals[(move_i - 1) * 3 + 2];
+        }
+        hit_depths[insert_at] = enter_depth;
+        hit_exits[insert_at] = exit_depth;
+        hit_elements[insert_at] = element_i;
+        hit_normals[insert_at * 3 + 0] = normal[0];
+        hit_normals[insert_at * 3 + 1] = normal[1];
+        hit_normals[insert_at * 3 + 2] = normal[2];
+        if (stored_hit_count < stored_hit_limit) {
+            ++stored_hit_count;
         }
     }
 
-    if (best_element < 0) {
+    if (stored_hit_count <= 0) {
         out_color[ray_i * 3 + 0] = 0.0f;
         out_color[ray_i * 3 + 1] = 0.0f;
         out_color[ray_i * 3 + 2] = 0.0f;
@@ -329,25 +360,46 @@ extern "C" __global__ void aura_render_rays_kernel(
         return;
     }
 
-    const float opacity = fminf(fmaxf(opacities[best_element], 0.0f), 1.0f);
-    out_color[ray_i * 3 + 0] = colors[best_element * 3 + 0];
-    out_color[ray_i * 3 + 1] = colors[best_element * 3 + 1];
-    out_color[ray_i * 3 + 2] = colors[best_element * 3 + 2];
-    out_alpha[ray_i] = opacity;
-    out_transmittance[ray_i] = fminf(fmaxf(1.0f - opacity, 0.0f), 1.0f);
-    out_depth[ray_i] = best_depth;
-    out_normal[ray_i * 3 + 0] = best_normal[0];
-    out_normal[ray_i * 3 + 1] = best_normal[1];
-    out_normal[ray_i * 3 + 2] = best_normal[2];
-    out_confidence[ray_i] = fminf(fmaxf(confidences[best_element], 0.0f), 1.0f);
-    out_residual[ray_i] = carrier_ids[best_element] == 4 ? 1 : 0;
-    out_material_id[ray_i] = material_ids[best_element];
-    out_semantic_id[ray_i] = semantic_ids[best_element];
-    if (max_hits > 0) {
-        ordered_hits[ray_i * max_hits] = best_element;
+    float color_r = 0.0f;
+    float color_g = 0.0f;
+    float color_b = 0.0f;
+    float remaining = 1.0f;
+    float confidence_num = 0.0f;
+    float confidence_den = 0.0f;
+    unsigned char residual = 0;
+
+    for (int hit_i = 0; hit_i < stored_hit_count; ++hit_i) {
+        const int element_i = hit_elements[hit_i];
+        const float opacity = fminf(fmaxf(opacities[element_i], 0.0f), 1.0f);
+        const float transmittance = fminf(fmaxf(1.0f - opacity, 0.0f), 1.0f);
+        const float alpha = 1.0f - transmittance;
+        const float weight = remaining * alpha;
+        color_r += weight * colors[element_i * 3 + 0];
+        color_g += weight * colors[element_i * 3 + 1];
+        color_b += weight * colors[element_i * 3 + 2];
+        confidence_num += weight * fminf(fmaxf(confidences[element_i], 0.0f), 1.0f);
+        confidence_den += weight;
+        remaining *= transmittance;
+        residual = residual || (carrier_ids[element_i] == 4);
+        ordered_hits[ray_i * max_hits + hit_i] = element_i;
     }
 
-    (void)best_exit;
+    const int first_element = hit_elements[0];
+    out_color[ray_i * 3 + 0] = color_r;
+    out_color[ray_i * 3 + 1] = color_g;
+    out_color[ray_i * 3 + 2] = color_b;
+    out_alpha[ray_i] = fminf(fmaxf(1.0f - remaining, 0.0f), 1.0f);
+    out_transmittance[ray_i] = fminf(fmaxf(remaining, 0.0f), 1.0f);
+    out_depth[ray_i] = hit_depths[0];
+    out_normal[ray_i * 3 + 0] = hit_normals[0];
+    out_normal[ray_i * 3 + 1] = hit_normals[1];
+    out_normal[ray_i * 3 + 2] = hit_normals[2];
+    out_confidence[ray_i] = confidence_den > 1.0e-8f ? confidence_num / confidence_den : 0.0f;
+    out_residual[ray_i] = residual;
+    out_material_id[ray_i] = material_ids[first_element];
+    out_semantic_id[ray_i] = semantic_ids[first_element];
+
+    (void)hit_exits;
 }
 
 extern "C" void aura_render_rays_launcher(

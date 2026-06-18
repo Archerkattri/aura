@@ -51,13 +51,11 @@ def test_policy_splits_high_residual_volume_into_beta_child():
 
     assert decision.action == "split_beta_detail"
     assert decision.created_element_id == "soft_volume_beta_detail"
-    assert decision.metrics == {
-        "imageLoss": 0.2,
-        "depthLoss": 0.0,
-        "queryLoss": 0.0,
-        "normalLoss": 0.0,
-        "residual": 0.2,
-    }
+    assert decision.reason == "volume evidence benefits from compact bounded support"
+    assert decision.metrics["imageLoss"] == 0.2
+    assert decision.metrics["residual"] == 0.2
+    assert decision.metrics["evidenceDetailError"] == 0.2
+    assert decision.metrics["evidenceConfidenceDeficit"] == pytest.approx(0.2)
     assert decision.thresholds == {"splitImageLossThreshold": 0.03}
     assert child is not None
     assert child.id == "soft_volume_beta_detail"
@@ -89,6 +87,55 @@ def test_policy_promotes_semantic_residual_into_neural_child():
     assert child.payload["residual_scale"] == pytest.approx(0.72)
 
 
+def test_policy_uses_element_residual_evidence_when_prediction_loss_is_low():
+    parent = _element(
+        "soft_volume",
+        "volume",
+        confidence_map={"optimization_residual": 0.16, "optimization_image_loss": 0.012},
+    )
+    prediction = _prediction("soft_volume", "volume", image_loss=0.01, depth_loss=0.0)
+
+    decision = carrier_evolution_decisions((prediction,), (parent,), policy=CarrierEvolutionPolicy(), iteration=2)[0]
+
+    assert decision.action == "split_beta_detail"
+    assert decision.reason == "volume evidence benefits from compact bounded support"
+    assert decision.metrics["imageLoss"] == 0.01
+    assert decision.metrics["evidenceImageError"] == 0.012
+    assert decision.metrics["evidenceResidual"] == 0.16
+    assert decision.metrics["evidenceDetailError"] == 0.16
+
+
+def test_policy_uses_opacity_evidence_for_nearly_transparent_elements():
+    prediction = _prediction("soft_volume", "volume", image_loss=0.2)
+    transparent = _element("soft_volume", "volume", opacity=0.01)
+    opacity_mismatch = _element(
+        "soft_volume",
+        "volume",
+        opacity=0.01,
+        confidence_map={"opacity_error": 0.18},
+    )
+
+    retained = carrier_evolution_decisions(
+        (prediction,),
+        (transparent,),
+        policy=CarrierEvolutionPolicy(),
+        iteration=0,
+    )[0]
+    split = carrier_evolution_decisions(
+        (prediction,),
+        (opacity_mismatch,),
+        policy=CarrierEvolutionPolicy(),
+        iteration=0,
+    )[0]
+
+    assert retained.action == "retain_carrier"
+    assert retained.metrics["evidenceOpacity"] == 0.01
+    assert retained.metrics["evidenceOpacityError"] == 0.0
+    assert split.action == "split_beta_detail"
+    assert split.metrics["evidenceOpacity"] == 0.01
+    assert split.metrics["evidenceOpacityError"] == 0.18
+
+
 def test_policy_merges_converged_beta_detail_and_reports_removed_child():
     parent = _element("soft_volume", "volume")
     child = _element("soft_volume_beta_detail", "beta")
@@ -115,6 +162,20 @@ def test_policy_merges_converged_beta_detail_and_reports_removed_child():
     }
 
 
+def test_policy_keeps_beta_detail_when_per_element_evidence_is_not_converged():
+    parent = _element("soft_volume", "volume", confidence_map={"optimization_residual": 0.12})
+    child = _element("soft_volume_beta_detail", "beta")
+    prediction = _prediction("soft_volume", "volume", image_loss=0.01, depth_loss=0.01)
+
+    decision = carrier_evolution_decisions((prediction,), (parent, child), policy=CarrierEvolutionPolicy(), iteration=4)[0]
+
+    assert decision.action == "retain_carrier"
+    assert decision.created_element_id is None
+    assert decision.reason == "existing beta detail carries residual evidence"
+    assert decision.metrics["evidenceResidual"] == 0.12
+    assert decision.metrics["evidenceDetailError"] == 0.12
+
+
 def test_policy_demotes_converged_neural_residual_after_iteration_gate():
     parent = _element("semantic_object", "semantic")
     child = _element("semantic_object_neural_residual", "neural")
@@ -132,6 +193,17 @@ def test_policy_demotes_converged_neural_residual_after_iteration_gate():
         "demoteImageLossThreshold": 0.045,
         "demoteDepthLossThreshold": 0.02,
     }
+
+
+def test_policy_demote_requires_confident_converged_semantic_evidence():
+    parent = _element("semantic_object", "semantic", confidence=0.55)
+    child = _element("semantic_object_neural_residual", "neural")
+    prediction = _prediction("semantic_object", "semantic", image_loss=0.01, depth_loss=0.01)
+
+    decision = carrier_evolution_decisions((prediction,), (parent, child), policy=CarrierEvolutionPolicy(), iteration=3)[0]
+
+    assert decision.action == "retain_semantic_carrier"
+    assert decision.metrics["evidenceConfidenceDeficit"] == pytest.approx(0.45)
 
 
 def test_policy_hysteresis_prevents_immediate_recreate_after_simplification():

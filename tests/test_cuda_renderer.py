@@ -149,7 +149,7 @@ def test_cuda_renderer_kernel_inputs_pack_rays_and_match_cpu_first_hits():
     assert cuda_renderer_reference_first_hit_indices(scene, rays) == (0, 1, -1)
 
 
-def test_cuda_renderer_kernel_simulation_matches_flat_abi_first_hit_outputs():
+def test_cuda_renderer_kernel_simulation_matches_flat_abi_ordered_compositing_outputs():
     scene = AuraScene(
         name="cuda_kernel_simulation_test",
         elements=(
@@ -186,16 +186,16 @@ def test_cuda_renderer_kernel_simulation_matches_flat_abi_first_hit_outputs():
     assert payload["format"] == "AURA_CUDA_RENDERER_KERNEL_SIMULATION"
     assert payload["productionReady"] is False
     assert simulation.first_hit_indices == (0, 1, -1)
-    assert simulation.ordered_hits == (0, -1, 1, -1, -1, -1)
-    assert simulation.out_color == pytest.approx((0.9, 0.2, 0.1, 0.1, 0.2, 0.9, 0.0, 0.0, 0.0))
-    assert simulation.out_alpha == pytest.approx((0.75, 0.5, 0.0))
-    assert simulation.out_transmittance == pytest.approx((0.25, 0.5, 1.0))
+    assert simulation.ordered_hits == (0, 1, 1, -1, -1, -1)
+    assert simulation.out_color == pytest.approx((0.6875, 0.175, 0.1875, 0.05, 0.1, 0.45, 0.0, 0.0, 0.0))
+    assert simulation.out_alpha == pytest.approx((0.875, 0.5, 0.0))
+    assert simulation.out_transmittance == pytest.approx((0.125, 0.5, 1.0))
     assert simulation.out_depth[0] == pytest.approx(1.0)
     assert simulation.out_depth[1] == pytest.approx(0.05)
     assert simulation.out_depth[2] > 1.0e30
     assert simulation.out_normal == pytest.approx((0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0))
-    assert simulation.out_confidence == pytest.approx((0.8, 0.6, 0.0))
-    assert simulation.out_residual == (0, 1, 0)
+    assert simulation.out_confidence == pytest.approx((0.7714285714, 0.6, 0.0))
+    assert simulation.out_residual == (1, 1, 0)
     assert simulation.out_material_id == (0, -1, -1)
     assert simulation.out_semantic_id == (0, 1, -1)
     assert payload["orderedHits"]["shape"] == [3, 2]

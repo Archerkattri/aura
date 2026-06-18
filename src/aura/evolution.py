@@ -30,7 +30,7 @@ class EvolutionPrediction(Protocol):
 
 @dataclass(frozen=True)
 class CarrierEvolutionPolicy:
-    """Deterministic thresholds for fixture-scale adaptive carrier evolution."""
+    """Deterministic thresholds for training-time adaptive carrier evolution."""
 
     enabled: bool = True
     split_image_loss_threshold: float = 0.03
@@ -80,6 +80,26 @@ class CarrierEvolutionDecision:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class CarrierEvolutionEvidence:
+    image_error: float
+    depth_error: float
+    query_error: float
+    normal_error: float
+    residual: float
+    opacity: float
+    opacity_error: float
+    confidence_deficit: float
+
+    @property
+    def detail_error(self) -> float:
+        return max(self.image_error, self.residual, self.opacity_error)
+
+    @property
+    def geometry_error(self) -> float:
+        return max(self.depth_error, self.query_error, self.normal_error)
 
 
 def carrier_evolution_decisions(
@@ -251,48 +271,53 @@ def _classify_prediction(
 ) -> CarrierEvolutionDecision:
     beta_child_id = created_element_id(prediction.element_id or "", "split_beta_detail")
     neural_child_id = created_element_id(prediction.element_id or "", "promote_neural_residual")
-    metrics = _prediction_metrics(prediction)
+    evidence = _carrier_evolution_evidence(prediction, element)
+    metrics = _prediction_metrics(prediction, evidence)
     if (
         prediction.carrier_id == "volume"
         and beta_child_id in element_ids
-        and prediction.image_loss < policy.merge_image_loss_threshold
-        and prediction.depth_loss < policy.merge_depth_loss_threshold
+        and _converged_for_simplification(evidence, policy=policy, child_kind="beta")
     ):
         action = "merge_beta_detail"
-        reason = "volume parent residual fell below split-detail threshold"
+        reason = "volume parent evidence fell below split-detail threshold"
         thresholds = _thresholds(policy, "merge")
     elif (
         prediction.carrier_id == "semantic"
         and neural_child_id in element_ids
         and iteration >= policy.demote_after_iteration
-        and prediction.image_loss < policy.demote_image_loss_threshold
-        and prediction.depth_loss < policy.demote_depth_loss_threshold
+        and _converged_for_simplification(evidence, policy=policy, child_kind="neural")
     ):
         action = "demote_neural_residual"
-        reason = "semantic residual no longer needs a neural child"
+        reason = "semantic evidence no longer needs a neural child"
         thresholds = _thresholds(policy, "demote")
-    elif prediction.image_loss > policy.split_image_loss_threshold and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
+    elif _needs_detail_carrier(evidence, policy=policy) and prediction.carrier_id in {"surface", "volume", "gabor", "semantic"}:
         thresholds = _thresholds(policy, "split")
         if prediction.carrier_id == "volume":
-            if element.metadata.get("simplified_child") == beta_child_id:
+            if beta_child_id in element_ids:
+                action = "retain_carrier"
+                reason = "existing beta detail carries residual evidence"
+            elif element.metadata.get("simplified_child") == beta_child_id:
                 action = "retain_carrier"
                 reason = "merged beta detail remains below re-split hysteresis"
             else:
                 action = "split_beta_detail"
-                reason = "volume residual benefits from compact bounded support"
+                reason = "volume evidence benefits from compact bounded support"
         elif prediction.carrier_id == "semantic":
-            if element.metadata.get("simplified_child") == neural_child_id:
+            if neural_child_id in element_ids:
+                action = "retain_semantic_carrier"
+                reason = "existing neural residual carries semantic evidence"
+            elif element.metadata.get("simplified_child") == neural_child_id:
                 action = "retain_semantic_carrier"
                 reason = "demoted neural residual remains below re-promote hysteresis"
             else:
                 action = "promote_neural_residual"
-                reason = "semantic object retains view-dependent photometric residual"
+                reason = "semantic object retains view-dependent residual evidence"
         else:
             action = "refine_radiance"
-            reason = "photometric residual above native carrier threshold"
-    elif prediction.depth_loss > policy.depth_anchor_loss_threshold and prediction.carrier_id in {"surface", "volume", "semantic"}:
+            reason = "radiance evidence above native carrier threshold"
+    elif evidence.depth_error > policy.depth_anchor_loss_threshold and prediction.carrier_id in {"surface", "volume", "semantic"}:
         action = "anchor_carrier_depth"
-        reason = "depth residual exceeds reference tolerance"
+        reason = "depth evidence exceeds reference tolerance"
         thresholds = _thresholds(policy, "anchor")
     elif prediction.carrier_id == "gabor":
         action = "retain_frequency_carrier"
@@ -336,14 +361,134 @@ def _thresholds(policy: CarrierEvolutionPolicy, action_family: str) -> dict[str,
     return {}
 
 
-def _prediction_metrics(prediction: EvolutionPrediction) -> dict[str, float]:
+def _prediction_metrics(prediction: EvolutionPrediction, evidence: CarrierEvolutionEvidence) -> dict[str, float]:
     return {
         "imageLoss": prediction.image_loss,
         "depthLoss": prediction.depth_loss,
         "queryLoss": prediction.query_loss,
         "normalLoss": prediction.normal_loss,
         "residual": prediction_residual(prediction),
+        "evidenceImageError": evidence.image_error,
+        "evidenceDepthError": evidence.depth_error,
+        "evidenceQueryError": evidence.query_error,
+        "evidenceNormalError": evidence.normal_error,
+        "evidenceResidual": evidence.residual,
+        "evidenceOpacity": evidence.opacity,
+        "evidenceOpacityError": evidence.opacity_error,
+        "evidenceConfidenceDeficit": evidence.confidence_deficit,
+        "evidenceDetailError": evidence.detail_error,
+        "evidenceGeometryError": evidence.geometry_error,
     }
+
+
+def _carrier_evolution_evidence(prediction: EvolutionPrediction, element: AuraElement) -> CarrierEvolutionEvidence:
+    confidence_map = element.confidence_map
+    image_error = _evidence_signal(
+        confidence_map,
+        (
+            "optimization_image_loss",
+            "torch_image_loss",
+            "image_loss",
+            "image_error",
+            "photometric_loss",
+            "photometric_error",
+            "image_residual",
+        ),
+        fallback=prediction.image_loss,
+    )
+    depth_error = _evidence_signal(
+        confidence_map,
+        ("optimization_depth_loss", "torch_depth_loss", "depth_loss", "depth_error", "depth_residual"),
+        fallback=prediction.depth_loss,
+    )
+    query_error = _evidence_signal(
+        confidence_map,
+        ("optimization_query_loss", "query_loss", "query_error", "ray_query_loss", "ray_query_error"),
+        fallback=prediction.query_loss,
+    )
+    normal_error = _evidence_signal(
+        confidence_map,
+        ("optimization_normal_loss", "normal_loss", "normal_error", "normal_residual"),
+        fallback=prediction.normal_loss,
+    )
+    residual = _evidence_signal(
+        confidence_map,
+        ("optimization_residual", "residual", "image_residual", "view_residual", "view_dependent"),
+        fallback=prediction_residual(prediction),
+    )
+    opacity_error = _evidence_signal(
+        confidence_map,
+        ("optimization_opacity_loss", "opacity_loss", "opacity_error", "mask_loss", "alpha_loss"),
+        fallback=0.0,
+    )
+    confidence_deficit = max(
+        1.0 - _clamp_unit(element.confidence),
+        _confidence_map_deficit(confidence_map),
+    )
+    return CarrierEvolutionEvidence(
+        image_error=image_error,
+        depth_error=depth_error,
+        query_error=query_error,
+        normal_error=normal_error,
+        residual=residual,
+        opacity=_clamp_unit(element.opacity),
+        opacity_error=opacity_error,
+        confidence_deficit=confidence_deficit,
+    )
+
+
+def _needs_detail_carrier(evidence: CarrierEvolutionEvidence, *, policy: CarrierEvolutionPolicy) -> bool:
+    if evidence.opacity <= 0.02 and evidence.opacity_error <= policy.split_image_loss_threshold:
+        return False
+    if evidence.detail_error > policy.split_image_loss_threshold:
+        return True
+    return evidence.confidence_deficit > 0.45 and evidence.detail_error > policy.split_image_loss_threshold * 0.5
+
+
+def _converged_for_simplification(
+    evidence: CarrierEvolutionEvidence,
+    *,
+    policy: CarrierEvolutionPolicy,
+    child_kind: str,
+) -> bool:
+    image_threshold = (
+        policy.merge_image_loss_threshold if child_kind == "beta" else policy.demote_image_loss_threshold
+    )
+    depth_threshold = policy.merge_depth_loss_threshold if child_kind == "beta" else policy.demote_depth_loss_threshold
+    residual_threshold = image_threshold * 1.25
+    return (
+        evidence.image_error < image_threshold
+        and evidence.opacity_error < image_threshold
+        and evidence.residual < residual_threshold
+        and evidence.geometry_error < depth_threshold
+        and evidence.confidence_deficit <= 0.35
+    )
+
+
+def _evidence_signal(confidence_map: dict[str, float], names: Sequence[str], *, fallback: float) -> float:
+    values = [_clamp_unit(fallback)]
+    for name in names:
+        if name in confidence_map:
+            values.append(_clamp_unit(confidence_map[name]))
+    return max(values)
+
+
+def _confidence_map_deficit(confidence_map: dict[str, float]) -> float:
+    names = (
+        "confidence",
+        "assignment",
+        "geometry",
+        "material",
+        "semantic",
+        "object",
+        "density",
+        "frequency",
+        "splat",
+    )
+    values = [_clamp_unit(confidence_map[name]) for name in names if name in confidence_map]
+    if not values:
+        return 0.0
+    return 1.0 - min(values)
 
 
 def _shrink_bounds(bounds: Bounds, *, scale: float) -> Bounds:
