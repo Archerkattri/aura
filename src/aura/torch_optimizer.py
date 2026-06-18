@@ -272,17 +272,18 @@ def _optimize_torch_batches(
     rendered: TorchRenderBatch | None = None
     scene_tensors = torch_scene_tensors(current_scene, device=device)
     carrier_parameters = scene_tensors.carrier_parameters
+    prepared_batches = tuple(_prepared_optimization_batch(batch_item, device=device) for batch_item in batches)
+    for batch, _batch_index, _target_offset, _source_windows in prepared_batches:
+        sample_count = _batch_sample_count(batch)
+        if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
+            raise ValueError(
+                f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
+                f"{config.max_samples_per_batch}"
+            )
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
         iteration_rendered: list[TorchRenderBatch] = []
-        for batch_item in batches:
-            batch, batch_index, target_offset, source_windows = _prepared_optimization_batch(batch_item, device=device)
-            sample_count = _batch_sample_count(batch)
-            if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
-                raise ValueError(
-                    f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
-                    f"{config.max_samples_per_batch}"
-                )
+        for batch, batch_index, target_offset, source_windows in prepared_batches:
             _zero_carrier_parameter_grads(carrier_parameters)
             objective = torch_render_capture_training_objective(
                 current_scene,

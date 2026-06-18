@@ -1213,7 +1213,7 @@ def test_torch_optimize_capture_batches_stream_packed_source_windows():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
-def test_torch_optimize_capture_batches_converts_packed_batches_lazily(monkeypatch):
+def test_torch_optimize_capture_batches_reuses_prepared_packed_batches(monkeypatch):
     scene = AuraScene(
         name="torch_packed_lazy_optimizer_scene",
         elements=(
@@ -1281,7 +1281,7 @@ def test_torch_optimize_capture_batches_converts_packed_batches_lazily(monkeypat
     )
 
     assert len(result.steps) == 4
-    assert converted_batch_indices == [0, 1, 0, 1]
+    assert converted_batch_indices == [0, 1]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
