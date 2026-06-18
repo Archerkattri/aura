@@ -14,6 +14,9 @@ extern "C" void aura_render_rays_launcher(
     const float* plane_points,
     const float* plane_normals,
     const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -80,6 +83,9 @@ pybind11::dict render_rays(
     torch::Tensor plane_points,
     torch::Tensor plane_normals,
     torch::Tensor beta_support_radii,
+    torch::Tensor gaussian_means,
+    torch::Tensor gaussian_inverse_covariances,
+    torch::Tensor gaussian_support_radius_sq,
     torch::Tensor carrier_ids,
     torch::Tensor colors,
     torch::Tensor opacities,
@@ -97,6 +103,9 @@ pybind11::dict render_rays(
     require_cuda_float_tensor(plane_points, "plane_points");
     require_cuda_float_tensor(plane_normals, "plane_normals");
     require_cuda_float_tensor(beta_support_radii, "beta_support_radii");
+    require_cuda_float_tensor(gaussian_means, "gaussian_means");
+    require_cuda_float_tensor(gaussian_inverse_covariances, "gaussian_inverse_covariances");
+    require_cuda_float_tensor(gaussian_support_radius_sq, "gaussian_support_radius_sq");
     require_cuda_int_tensor(carrier_ids, "carrier_ids");
     require_cuda_float_tensor(colors, "colors");
     require_cuda_float_tensor(opacities, "opacities");
@@ -110,6 +119,9 @@ pybind11::dict render_rays(
     require_same_cuda_device(plane_points, ray_origins, "plane_points", "ray_origins");
     require_same_cuda_device(plane_normals, ray_origins, "plane_normals", "ray_origins");
     require_same_cuda_device(beta_support_radii, ray_origins, "beta_support_radii", "ray_origins");
+    require_same_cuda_device(gaussian_means, ray_origins, "gaussian_means", "ray_origins");
+    require_same_cuda_device(gaussian_inverse_covariances, ray_origins, "gaussian_inverse_covariances", "ray_origins");
+    require_same_cuda_device(gaussian_support_radius_sq, ray_origins, "gaussian_support_radius_sq", "ray_origins");
     require_same_cuda_device(carrier_ids, ray_origins, "carrier_ids", "ray_origins");
     require_same_cuda_device(colors, ray_origins, "colors", "ray_origins");
     require_same_cuda_device(opacities, ray_origins, "opacities", "ray_origins");
@@ -129,6 +141,15 @@ pybind11::dict render_rays(
     require_shape2(plane_points, "plane_points", element_count_64, 3);
     require_shape2(plane_normals, "plane_normals", element_count_64, 3);
     require_shape2(beta_support_radii, "beta_support_radii", element_count_64, 3);
+    require_shape2(gaussian_means, "gaussian_means", element_count_64, 3);
+    TORCH_CHECK(
+        gaussian_inverse_covariances.dim() == 3 &&
+        gaussian_inverse_covariances.size(0) == element_count_64 &&
+        gaussian_inverse_covariances.size(1) == 3 &&
+        gaussian_inverse_covariances.size(2) == 3,
+        "gaussian_inverse_covariances must be elementCount x 3 x 3"
+    );
+    require_shape1(gaussian_support_radius_sq, "gaussian_support_radius_sq", element_count_64);
     require_shape1(carrier_ids, "carrier_ids", element_count_64);
     require_shape2(colors, "colors", element_count_64, 3);
     require_shape1(opacities, "opacities", element_count_64);
@@ -169,6 +190,9 @@ pybind11::dict render_rays(
         plane_points.data_ptr<float>(),
         plane_normals.data_ptr<float>(),
         beta_support_radii.data_ptr<float>(),
+        gaussian_means.data_ptr<float>(),
+        gaussian_inverse_covariances.data_ptr<float>(),
+        gaussian_support_radius_sq.data_ptr<float>(),
         carrier_ids.data_ptr<int>(),
         colors.data_ptr<float>(),
         opacities.data_ptr<float>(),

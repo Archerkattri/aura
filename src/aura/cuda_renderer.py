@@ -49,6 +49,9 @@ class CudaRendererSceneBuffers:
     plane_points: tuple[float, ...]
     plane_normals: tuple[float, ...]
     beta_support_radii: tuple[float, ...]
+    gaussian_means: tuple[float, ...]
+    gaussian_inverse_covariances: tuple[float, ...]
+    gaussian_support_radius_sq: tuple[float, ...]
     colors: tuple[float, ...]
     opacities: tuple[float, ...]
     confidences: tuple[float, ...]
@@ -68,6 +71,9 @@ class CudaRendererSceneBuffers:
             ("plane_points", self.plane_points, element_count * 3),
             ("plane_normals", self.plane_normals, element_count * 3),
             ("beta_support_radii", self.beta_support_radii, element_count * 3),
+            ("gaussian_means", self.gaussian_means, element_count * 3),
+            ("gaussian_inverse_covariances", self.gaussian_inverse_covariances, element_count * 9),
+            ("gaussian_support_radius_sq", self.gaussian_support_radius_sq, element_count),
             ("colors", self.colors, element_count * 3),
             ("payload_params", self.payload_params, element_count * 4),
         ):
@@ -94,6 +100,13 @@ class CudaRendererSceneBuffers:
             "planePoints": _flat_buffer_metadata(self.plane_points, "float32", (self.element_count, 3)),
             "planeNormals": _flat_buffer_metadata(self.plane_normals, "float32", (self.element_count, 3)),
             "betaSupportRadii": _flat_buffer_metadata(self.beta_support_radii, "float32", (self.element_count, 3)),
+            "gaussianMeans": _flat_buffer_metadata(self.gaussian_means, "float32", (self.element_count, 3)),
+            "gaussianInverseCovariances": _flat_buffer_metadata(
+                self.gaussian_inverse_covariances,
+                "float32",
+                (self.element_count, 3, 3),
+            ),
+            "gaussianSupportRadiusSq": _flat_buffer_metadata(self.gaussian_support_radius_sq, "float32", (self.element_count,)),
             "colors": _flat_buffer_metadata(self.colors, "float32", (self.element_count, 3)),
             "opacities": _flat_buffer_metadata(self.opacities, "float32", (self.element_count,)),
             "confidences": _flat_buffer_metadata(self.confidences, "float32", (self.element_count,)),
@@ -149,6 +162,9 @@ class CudaRendererKernelInputBuffers:
             "plane_points": self.scene.plane_points,
             "plane_normals": self.scene.plane_normals,
             "beta_support_radii": self.scene.beta_support_radii,
+            "gaussian_means": self.scene.gaussian_means,
+            "gaussian_inverse_covariances": self.scene.gaussian_inverse_covariances,
+            "gaussian_support_radius_sq": self.scene.gaussian_support_radius_sq,
             "carrier_ids": self.scene.carrier_kernel_ids,
             "colors": self.scene.colors,
             "opacities": self.scene.opacities,
@@ -479,6 +495,14 @@ def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
         plane_points=tuple(value for element in scene.elements for value in _cuda_renderer_plane_point(element)),
         plane_normals=tuple(value for element in scene.elements for value in _cuda_renderer_plane_normal(element)),
         beta_support_radii=tuple(value for element in scene.elements for value in _cuda_renderer_beta_support_radius(element)),
+        gaussian_means=tuple(value for element in scene.elements for value in _cuda_renderer_gaussian_mean(element)),
+        gaussian_inverse_covariances=tuple(
+            value
+            for element in scene.elements
+            for row in _cuda_renderer_gaussian_inverse_covariance(element)
+            for value in row
+        ),
+        gaussian_support_radius_sq=tuple(_cuda_renderer_gaussian_support_radius_sq(element) for element in scene.elements),
         colors=tuple(value for element in scene.elements for value in element.color),
         opacities=tuple(float(element.opacity) for element in scene.elements),
         confidences=tuple(float(element.confidence) for element in scene.elements),
@@ -568,6 +592,49 @@ def _cuda_renderer_beta_support_radius(element: Any) -> tuple[float, float, floa
     max_corner = tuple(float(value) for value in element.bounds.max_corner)
     radii = tuple(max((max_corner[index] - min_corner[index]) * 0.5, 1.0e-4) for index in range(3))
     return radii  # type: ignore[return-value]
+
+
+def _cuda_renderer_gaussian_mean(element: Any) -> tuple[float, float, float]:
+    if element.payload.get("type") != "gaussian_fallback" and element.carrier_id != "gaussian":
+        return _nan_vec3()
+    mean = element.payload.get("mean")
+    if not isinstance(mean, (list, tuple)) or len(mean) != 3:
+        return _nan_vec3()
+    try:
+        return tuple(float(value) for value in mean)  # type: ignore[return-value]
+    except (TypeError, ValueError):
+        return _nan_vec3()
+
+
+def _cuda_renderer_gaussian_inverse_covariance(element: Any) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    if element.payload.get("type") != "gaussian_fallback" and element.carrier_id != "gaussian":
+        return _nan_matrix3()
+    covariance = element.payload.get("covariance")
+    if not _is_matrix3(covariance):
+        return _nan_matrix3()
+    try:
+        matrix = tuple(tuple(float(value) for value in row) for row in covariance)
+    except (TypeError, ValueError):
+        return _nan_matrix3()
+    inverse = _inverse_matrix3(matrix)  # type: ignore[arg-type]
+    return inverse if inverse is not None else _nan_matrix3()
+
+
+def _cuda_renderer_gaussian_support_radius_sq(element: Any) -> float:
+    if element.payload.get("type") != "gaussian_fallback" and element.carrier_id != "gaussian":
+        return float("nan")
+    explicit = element.payload.get("support_radius_sq")
+    if explicit is not None:
+        try:
+            value = float(explicit)
+        except (TypeError, ValueError):
+            return float("nan")
+        return value if value > 0.0 else float("nan")
+    try:
+        sigma = float(element.payload.get("support_sigma", 3.0))
+    except (TypeError, ValueError):
+        return float("nan")
+    return sigma * sigma if sigma > 0.0 else float("nan")
 
 
 def cuda_renderer_kernel_inputs(
@@ -745,6 +812,24 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
                     bounded_entry = max(hit[0], beta_hit[0])
                     bounded_exit = min(hit[1], beta_hit[1])
                     hit = (bounded_entry, bounded_exit, hit[2]) if bounded_exit >= bounded_entry else None
+            elif carrier_id == CUDA_RENDERER_CARRIER_IDS["gaussian"]:
+                gaussian_hit = _simulate_ray_gaussian_ellipsoid_intersect(
+                    origin,
+                    direction,
+                    _flat_vec3(inputs.scene.gaussian_means, element_index),
+                    _flat_matrix3(inputs.scene.gaussian_inverse_covariances, element_index),
+                    inputs.scene.gaussian_support_radius_sq[element_index],
+                )
+                if gaussian_hit is not None and hit is not None:
+                    bounded_entry = max(hit[0], gaussian_hit[0])
+                    bounded_exit = min(hit[1], gaussian_hit[1])
+                    hit = (bounded_entry, bounded_exit, gaussian_hit[2]) if bounded_exit >= bounded_entry else None
+                elif _valid_gaussian_geometry(
+                    _flat_vec3(inputs.scene.gaussian_means, element_index),
+                    _flat_matrix3(inputs.scene.gaussian_inverse_covariances, element_index),
+                    inputs.scene.gaussian_support_radius_sq[element_index],
+                ):
+                    hit = None
             if hit is None:
                 continue
             depth, _exit_depth, normal = hit
@@ -1363,6 +1448,9 @@ def _compiled_extension_batch(
         torch.tensor(scene_buffers.plane_points, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.plane_normals, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.beta_support_radii, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.gaussian_means, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.gaussian_inverse_covariances, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3, 3).contiguous(),
+        torch.tensor(scene_buffers.gaussian_support_radius_sq, dtype=torch.float32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.carrier_kernel_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
@@ -1601,8 +1689,37 @@ def _nan_vec3() -> tuple[float, float, float]:
     return (float("nan"), float("nan"), float("nan"))
 
 
+def _nan_matrix3() -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    return (
+        (float("nan"), float("nan"), float("nan")),
+        (float("nan"), float("nan"), float("nan")),
+        (float("nan"), float("nan"), float("nan")),
+    )
+
+
 def _is_nan_vec3(vector: tuple[float, float, float]) -> bool:
     return any(value != value for value in vector)
+
+
+def _is_matrix3(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 3 and all(isinstance(row, (list, tuple)) and len(row) == 3 for row in value)
+
+
+def _inverse_matrix3(
+    matrix: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]] | None:
+    a, b, c = matrix[0]
+    d, e, f = matrix[1]
+    g, h, i = matrix[2]
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(det) <= 1.0e-12:
+        return None
+    inv_det = 1.0 / det
+    return (
+        ((e * i - f * h) * inv_det, (c * h - b * i) * inv_det, (b * f - c * e) * inv_det),
+        ((f * g - d * i) * inv_det, (a * i - c * g) * inv_det, (c * d - a * f) * inv_det),
+        ((d * h - e * g) * inv_det, (b * g - a * h) * inv_det, (a * e - b * d) * inv_det),
+    )
 
 
 def _valid_support_radii(vector: tuple[float, float, float]) -> bool:
@@ -1612,6 +1729,18 @@ def _valid_support_radii(vector: tuple[float, float, float]) -> bool:
 def _flat_vec3(values: Sequence[float], index: int) -> tuple[float, float, float]:
     offset = index * 3
     return (float(values[offset]), float(values[offset + 1]), float(values[offset + 2]))
+
+
+def _flat_matrix3(
+    values: Sequence[float],
+    index: int,
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    offset = index * 9
+    return (
+        (float(values[offset]), float(values[offset + 1]), float(values[offset + 2])),
+        (float(values[offset + 3]), float(values[offset + 4]), float(values[offset + 5])),
+        (float(values[offset + 6]), float(values[offset + 7]), float(values[offset + 8])),
+    )
 
 
 def _clamp_unit(value: float) -> float:
@@ -1721,6 +1850,71 @@ def _beta_ellipsoid_normal(
         return _normalize_vec3(gradient)
     except ValueError:
         return (0.0, 0.0, 0.0)
+
+
+def _simulate_ray_gaussian_ellipsoid_intersect(
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    mean: tuple[float, float, float],
+    inverse_covariance: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+    support_radius_sq: float,
+) -> tuple[float, float, tuple[float, float, float]] | None:
+    if not _valid_gaussian_geometry(mean, inverse_covariance, support_radius_sq):
+        return None
+    delta = tuple(origin[axis] - mean[axis] for axis in range(3))
+    inv_direction = _matvec3(inverse_covariance, direction)
+    inv_delta = _matvec3(inverse_covariance, delta)
+    a = sum(inv_direction[axis] * direction[axis] for axis in range(3))
+    b = 2.0 * sum(inv_delta[axis] * direction[axis] for axis in range(3))
+    c = sum(inv_delta[axis] * delta[axis] for axis in range(3)) - support_radius_sq
+    discriminant = b * b - 4.0 * a * c
+    if a <= 1.0e-8 or discriminant < 0.0:
+        return None
+    root = discriminant ** 0.5
+    denom = 2.0 * a
+    near = (-b - root) / denom
+    far = (-b + root) / denom
+    entry = near if near >= 0.0 else 0.0
+    if far < 0.0 or entry < 0.0:
+        return None
+    normal = _gaussian_ellipsoid_normal(origin, direction, entry, mean, inverse_covariance)
+    return (entry, max(far, 0.0), normal)
+
+
+def _gaussian_ellipsoid_normal(
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    depth: float,
+    mean: tuple[float, float, float],
+    inverse_covariance: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+) -> tuple[float, float, float]:
+    point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
+    delta = tuple(point[axis] - mean[axis] for axis in range(3))
+    gradient = _matvec3(inverse_covariance, delta)
+    try:
+        return _normalize_vec3(gradient)
+    except ValueError:
+        return (0.0, 0.0, 0.0)
+
+
+def _valid_gaussian_geometry(
+    mean: tuple[float, float, float],
+    inverse_covariance: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+    support_radius_sq: float,
+) -> bool:
+    return (
+        not _is_nan_vec3(mean)
+        and not any(value != value for row in inverse_covariance for value in row)
+        and support_radius_sq == support_radius_sq
+        and support_radius_sq > 0.0
+    )
+
+
+def _matvec3(
+    matrix: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+    vector: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return tuple(sum(matrix[row][column] * vector[column] for column in range(3)) for row in range(3))  # type: ignore[return-value]
 
 
 def _flat_buffer_metadata(values: Sequence[object], dtype: str, shape: tuple[int, ...]) -> dict[str, object]:

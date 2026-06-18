@@ -281,6 +281,42 @@ def test_cuda_renderer_kernel_simulation_uses_beta_support_ellipsoid():
     assert simulation.out_depth[1] > 1.0e30
 
 
+def test_cuda_renderer_kernel_simulation_uses_gaussian_ellipsoid_support():
+    scene = AuraScene(
+        name="cuda_gaussian_support_simulation_test",
+        elements=(
+            AuraElement(
+                id="fallback",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 2.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 1.0],
+                    "covariance": [[0.25, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.0, 0.25]],
+                    "support_sigma": 1.0,
+                },
+            ),
+        ),
+    )
+    inputs = cuda_renderer_kernel_inputs(
+        scene,
+        ((0.0, 0.0, -1.0), (0.75, 0.0, -1.0)),
+        ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
+        max_hits=1,
+    )
+
+    simulation = simulate_cuda_renderer_kernel(inputs)
+
+    assert inputs.scene.gaussian_means == pytest.approx((0.0, 0.0, 1.0))
+    assert inputs.scene.gaussian_support_radius_sq == pytest.approx((1.0,))
+    assert simulation.first_hit_indices == (0, -1)
+    assert simulation.out_depth[0] == pytest.approx(1.5)
+    assert simulation.out_depth[1] > 1.0e30
+
+
 def test_cuda_renderer_kernel_simulation_uses_surface_plane_geometry():
     scene = AuraScene(
         name="cuda_surface_plane_simulation_test",
@@ -418,6 +454,52 @@ def test_cuda_render_rays_compiled_extension_uses_beta_support_ellipsoid_on_cuda
 
     assert batch.backend == "cuda"
     assert batch.depth[0] == pytest.approx(1.75)
+    assert batch.depth[1] is None
+    assert tuple(3.402823466e38 if depth is None else depth for depth in batch.depth) == pytest.approx(simulation.out_depth)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_compiled_extension_uses_gaussian_ellipsoid_on_cuda():
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    scene = AuraScene(
+        name="cuda_compiled_gaussian_support_scene",
+        elements=(
+            AuraElement(
+                id="fallback",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 2.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 1.0],
+                    "covariance": [[0.25, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.0, 0.25]],
+                    "support_sigma": 1.0,
+                },
+            ),
+        ),
+    )
+    ray_origins = ((0.0, 0.0, -1.0), (0.75, 0.0, -1.0))
+    ray_directions = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0))
+    simulation = simulate_cuda_renderer_kernel(cuda_renderer_kernel_inputs(scene, ray_origins, ray_directions, max_hits=1))
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        require_cuda=True,
+        fallback_backend="none",
+        max_hits=1,
+    )
+
+    assert batch.backend == "cuda"
+    assert batch.depth[0] == pytest.approx(1.5)
     assert batch.depth[1] is None
     assert tuple(3.402823466e38 if depth is None else depth for depth in batch.depth) == pytest.approx(simulation.out_depth)
 
@@ -630,6 +712,9 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
             plane_points,
             plane_normals,
             beta_support_radii,
+            gaussian_means,
+            gaussian_inverse_covariances,
+            gaussian_support_radius_sq,
             carrier_ids,
             colors,
             opacities,
@@ -640,7 +725,20 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
             max_hits,
             threads_per_block,
         ):
-            del ray_directions, element_mins, element_maxs, plane_points, plane_normals, beta_support_radii, carrier_ids, payload_params, threads_per_block
+            del (
+                ray_directions,
+                element_mins,
+                element_maxs,
+                plane_points,
+                plane_normals,
+                beta_support_radii,
+                gaussian_means,
+                gaussian_inverse_covariances,
+                gaussian_support_radius_sq,
+                carrier_ids,
+                payload_params,
+                threads_per_block,
+            )
             ray_count = int(ray_origins.shape[0])
             ordered_hits = torch.full((ray_count, max_hits), -1, dtype=torch.int32)
             ordered_hits[0, 0] = 0

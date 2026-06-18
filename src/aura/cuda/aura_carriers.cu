@@ -298,6 +298,103 @@ __device__ bool aura_beta_radii_valid(const float* radii) {
     return isfinite(radii[0]) && isfinite(radii[1]) && isfinite(radii[2]) && radii[0] > 0.0f && radii[1] > 0.0f && radii[2] > 0.0f;
 }
 
+__device__ bool aura_gaussian_geometry_valid(
+    const float* mean,
+    const float* inverse_covariance,
+    float support_radius_sq
+) {
+    if (!isfinite(support_radius_sq) || support_radius_sq <= 0.0f) {
+        return false;
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!isfinite(mean[axis])) {
+            return false;
+        }
+    }
+    for (int index = 0; index < 9; ++index) {
+        if (!isfinite(inverse_covariance[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+__device__ void aura_matvec3(const float* matrix, const float* vector, float* out) {
+    out[0] = matrix[0] * vector[0] + matrix[1] * vector[1] + matrix[2] * vector[2];
+    out[1] = matrix[3] * vector[0] + matrix[4] * vector[1] + matrix[5] * vector[2];
+    out[2] = matrix[6] * vector[0] + matrix[7] * vector[1] + matrix[8] * vector[2];
+}
+
+__device__ void aura_gaussian_ellipsoid_normal(
+    const float* origin,
+    const float* direction,
+    float depth,
+    const float* mean,
+    const float* inverse_covariance,
+    float* out_normal
+) {
+    const float delta[3] = {
+        origin[0] + direction[0] * depth - mean[0],
+        origin[1] + direction[1] * depth - mean[1],
+        origin[2] + direction[2] * depth - mean[2],
+    };
+    float gradient[3] = {0.0f, 0.0f, 0.0f};
+    aura_matvec3(inverse_covariance, delta, gradient);
+    const float norm = sqrtf(gradient[0] * gradient[0] + gradient[1] * gradient[1] + gradient[2] * gradient[2]);
+    if (norm <= 1.0e-12f) {
+        out_normal[0] = 0.0f;
+        out_normal[1] = 0.0f;
+        out_normal[2] = 0.0f;
+        return;
+    }
+    out_normal[0] = gradient[0] / norm;
+    out_normal[1] = gradient[1] / norm;
+    out_normal[2] = gradient[2] / norm;
+}
+
+__device__ bool aura_ray_gaussian_ellipsoid_intersect(
+    const float* origin,
+    const float* direction,
+    const float* mean,
+    const float* inverse_covariance,
+    float support_radius_sq,
+    float* out_enter,
+    float* out_exit,
+    float* out_normal
+) {
+    if (!aura_gaussian_geometry_valid(mean, inverse_covariance, support_radius_sq)) {
+        return false;
+    }
+    const float delta[3] = {
+        origin[0] - mean[0],
+        origin[1] - mean[1],
+        origin[2] - mean[2],
+    };
+    float inv_direction[3] = {0.0f, 0.0f, 0.0f};
+    float inv_delta[3] = {0.0f, 0.0f, 0.0f};
+    aura_matvec3(inverse_covariance, direction, inv_direction);
+    aura_matvec3(inverse_covariance, delta, inv_delta);
+    const float a = inv_direction[0] * direction[0] + inv_direction[1] * direction[1] + inv_direction[2] * direction[2];
+    const float b = 2.0f * (inv_delta[0] * direction[0] + inv_delta[1] * direction[1] + inv_delta[2] * direction[2]);
+    const float c = inv_delta[0] * delta[0] + inv_delta[1] * delta[1] + inv_delta[2] * delta[2] - support_radius_sq;
+    const float discriminant = b * b - 4.0f * a * c;
+    if (a <= 1.0e-8f || discriminant < 0.0f) {
+        return false;
+    }
+    const float root = sqrtf(fmaxf(discriminant, 0.0f));
+    const float denom = 2.0f * a;
+    const float near_depth = (-b - root) / denom;
+    const float far_depth = (-b + root) / denom;
+    const float entry = near_depth >= 0.0f ? near_depth : 0.0f;
+    if (far_depth < 0.0f || entry < 0.0f) {
+        return false;
+    }
+    *out_enter = entry;
+    *out_exit = fmaxf(far_depth, 0.0f);
+    aura_gaussian_ellipsoid_normal(origin, direction, entry, mean, inverse_covariance, out_normal);
+    return true;
+}
+
 __device__ void aura_beta_ellipsoid_normal(
     const float* origin,
     const float* direction,
@@ -428,6 +525,9 @@ extern "C" __global__ void aura_render_rays_kernel(
     const float* plane_points,
     const float* plane_normals,
     const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -532,6 +632,39 @@ extern "C" __global__ void aura_render_rays_kernel(
                     continue;
                 }
             } else if (aura_beta_radii_valid(beta_radii)) {
+                continue;
+            } else if (!hit) {
+                continue;
+            }
+        } else if (carrier_ids[element_i] == 6) {
+            const float* gaussian_mean = gaussian_means + element_i * 3;
+            const float* gaussian_inverse_covariance = gaussian_inverse_covariances + element_i * 9;
+            const float gaussian_support = gaussian_support_radius_sq[element_i];
+            float gaussian_enter = 0.0f;
+            float gaussian_exit = 0.0f;
+            float gaussian_normal[3] = {0.0f, 0.0f, 0.0f};
+            const bool gaussian_hit = aura_ray_gaussian_ellipsoid_intersect(
+                origin,
+                direction,
+                gaussian_mean,
+                gaussian_inverse_covariance,
+                gaussian_support,
+                &gaussian_enter,
+                &gaussian_exit,
+                gaussian_normal
+            );
+            if (gaussian_hit && hit) {
+                if (gaussian_enter > enter_depth) {
+                    enter_depth = gaussian_enter;
+                    normal[0] = gaussian_normal[0];
+                    normal[1] = gaussian_normal[1];
+                    normal[2] = gaussian_normal[2];
+                }
+                exit_depth = fminf(exit_depth, gaussian_exit);
+                if (exit_depth < enter_depth) {
+                    continue;
+                }
+            } else if (aura_gaussian_geometry_valid(gaussian_mean, gaussian_inverse_covariance, gaussian_support)) {
                 continue;
             } else if (!hit) {
                 continue;
@@ -677,6 +810,9 @@ extern "C" void aura_render_rays_launcher(
     const float* plane_points,
     const float* plane_normals,
     const float* beta_support_radii,
+    const float* gaussian_means,
+    const float* gaussian_inverse_covariances,
+    const float* gaussian_support_radius_sq,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -718,6 +854,9 @@ extern "C" void aura_render_rays_launcher(
         plane_points,
         plane_normals,
         beta_support_radii,
+        gaussian_means,
+        gaussian_inverse_covariances,
+        gaussian_support_radius_sq,
         carrier_ids,
         colors,
         opacities,
