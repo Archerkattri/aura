@@ -190,3 +190,49 @@ def test_training_loss_weights_validate_report_contract():
 def test_differentiable_scene_rays_require_targets():
     with pytest.raises(ValueError, match="at least one target"):
         differentiate_scene_rays(AuraScene(name="empty", elements=()), ())
+
+
+# ---- Deliverable 7 tests ----
+
+def test_training_loss_weights_depth_distortion_defaults_zero():
+    weights = TrainingLossWeights()
+    assert weights.depth_distortion == 0.0
+
+
+def test_training_loss_weights_normal_consistency_defaults_zero():
+    weights = TrainingLossWeights()
+    assert weights.normal_consistency == 0.0
+
+
+def test_training_loss_weights_new_terms_excluded_from_total_by_default():
+    weights = TrainingLossWeights()
+    total_default = weights.total(
+        image_loss=1.0, depth_loss=1.0, query_loss=1.0, normal_loss=1.0
+    )
+    total_explicit_zero = weights.total(
+        image_loss=1.0, depth_loss=1.0, query_loss=1.0, normal_loss=1.0,
+        depth_distortion_loss=99.0, normal_consistency_loss=99.0,
+    )
+    assert total_default == pytest.approx(total_explicit_zero)
+
+
+def test_training_loss_weights_depth_distortion_opt_in():
+    weights_without = TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0)
+    weights_with = TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0, depth_distortion=1.0)
+    total_without = weights_without.total(image_loss=1.0, depth_loss=0.0, query_loss=0.0, normal_loss=0.0, depth_distortion_loss=5.0)
+    total_with = weights_with.total(image_loss=1.0, depth_loss=0.0, query_loss=0.0, normal_loss=0.0, depth_distortion_loss=5.0)
+    assert total_with > total_without
+
+
+def test_training_loss_weights_normal_consistency_opt_in():
+    weights_without = TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0)
+    weights_with = TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0, normal_consistency=1.0)
+    total_without = weights_without.total(image_loss=1.0, depth_loss=0.0, query_loss=0.0, normal_loss=0.0, normal_consistency_loss=3.0)
+    total_with = weights_with.total(image_loss=1.0, depth_loss=0.0, query_loss=0.0, normal_loss=0.0, normal_consistency_loss=3.0)
+    assert total_with > total_without
+
+
+def test_training_loss_weights_depth_distortion_alone_is_valid():
+    # With all others at 0, depth_distortion=1.0 should be valid (sum > 0)
+    weights = TrainingLossWeights(image=0.0, depth=0.0, query=0.0, normal=0.0, mask=0.0, depth_distortion=1.0)
+    assert weights.depth_distortion == 1.0

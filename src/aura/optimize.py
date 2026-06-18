@@ -47,12 +47,18 @@ class TrainingLossWeights:
     normal: float = 1.0
     mask: float = 1.0
     confidence: float = 0.0
+    depth_distortion: float = 0.0
+    normal_consistency: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in asdict(self).items():
             if not isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} loss weight must be finite and non-negative")
-        if self.image + self.depth + self.query + self.normal + self.mask + self.confidence <= 0.0:
+        if (
+            self.image + self.depth + self.query + self.normal + self.mask + self.confidence
+            + self.depth_distortion + self.normal_consistency
+            <= 0.0
+        ):
             raise ValueError("at least one training loss weight must be positive")
 
     def total(
@@ -64,6 +70,8 @@ class TrainingLossWeights:
         normal_loss: float,
         mask_loss: float = 0.0,
         confidence_loss: float = 0.0,
+        depth_distortion_loss: float = 0.0,
+        normal_consistency_loss: float = 0.0,
     ) -> float:
         return (
             self.image * image_loss
@@ -72,6 +80,8 @@ class TrainingLossWeights:
             + self.normal * normal_loss
             + self.mask * mask_loss
             + self.confidence * confidence_loss
+            + self.depth_distortion * depth_distortion_loss
+            + self.normal_consistency * normal_consistency_loss
         )
 
     def to_dict(self) -> dict:

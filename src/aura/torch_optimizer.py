@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
-from math import isfinite, sqrt
+from dataclasses import asdict, dataclass, field, replace
+from math import exp, isfinite, log, sqrt
 from typing import Any, Sequence
 
 from aura.decomposition import carrier_lod_elements_and_chunks
@@ -40,6 +40,27 @@ class TorchOptimizationConfig:
     evolution_policy: CarrierEvolutionPolicy | None = None
     iteration_offset: int = 0
     checkpoint_interval: int | None = None
+    # Deliverable 1: Per-attribute Adam
+    optimizer_type: str = 'sgd'
+    position_learning_rate: float = 1.6e-4
+    scale_learning_rate: float = 5e-3
+    rotation_learning_rate: float = 1e-3
+    opacity_learning_rate: float = 5e-2
+    feature_learning_rate: float = 2.5e-3
+    # Deliverable 2: LR schedules
+    position_lr_final: float = 1.6e-6
+    position_lr_warmup_steps: int = 0
+    lr_decay_steps: int = 0
+    # Deliverable 3: AbsGS gradient accumulator
+    grad_accum_window: int = 0
+    # Deliverable 4: Opacity soft-reset
+    opacity_reset_interval: int = 0
+    opacity_reset_value: float = 0.01
+    recovery_window: int = 100
+    # Deliverable 6: Budget ceiling
+    max_carriers: int = 0
+    # Deliverable 8: Coarse-to-fine schedule
+    coarse_to_fine_schedule: tuple = ()
 
     def __post_init__(self) -> None:
         if self.iterations <= 0:
@@ -60,6 +81,16 @@ class TorchOptimizationConfig:
             raise ValueError("torch iteration_offset must be non-negative")
         if self.checkpoint_interval is not None and self.checkpoint_interval <= 0:
             raise ValueError("torch checkpoint_interval must be positive when set")
+        if self.optimizer_type not in ('sgd', 'adam'):
+            raise ValueError("torch optimizer_type must be 'sgd' or 'adam'")
+        if not (0.0 <= self.opacity_reset_value <= 1.0):
+            raise ValueError("torch opacity_reset_value must be in [0, 1]")
+        if self.recovery_window < 0:
+            raise ValueError("torch recovery_window must be non-negative")
+        if self.lr_decay_steps < 0:
+            raise ValueError("torch lr_decay_steps must be non-negative")
+        if self.position_lr_final <= 0.0:
+            raise ValueError("torch position_lr_final must be positive")
 
 
 @dataclass(frozen=True)
@@ -86,6 +117,14 @@ class TorchOptimizationStep:
     max_samples_per_batch: int | None
     source_windows: tuple[dict[str, Any], ...] = ()
     carrier_evolution: tuple[dict[str, Any], ...] = ()
+    # New optional fields (all with defaults) - Deliverables 3-8
+    grad_stats: tuple = ()
+    opacity_reset_due: bool = False
+    recovery_phase: bool = False
+    importance_scores: tuple = ()
+    carrier_count: int = 0
+    over_budget: bool = False
+    resolution_scale: float = 1.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -136,6 +175,18 @@ class _TorchEvolutionPrediction:
     normal_loss: float
     target_color: tuple[float, float, float]
     target_point: tuple[float, float, float] | None = None
+
+
+def compute_importance_scores(
+    opacities: dict[str, float],
+    transmittances: dict[str, float],
+) -> dict[str, float]:
+    """Compute per-carrier importance as max(opacity * transmittance) over views. (RadSplat arXiv:2403.13806)"""
+    scores = {}
+    for carrier_id, opacity in opacities.items():
+        transmittance = transmittances.get(carrier_id, 1.0)
+        scores[carrier_id] = opacity * transmittance
+    return scores
 
 
 def torch_optimize_capture_batch(
@@ -207,6 +258,97 @@ def torch_optimize_capture_batches(
     return TorchOptimizationResult(scene=optimized_scene, steps=tuple(steps), scene_checkpoints=scene_checkpoints)
 
 
+# Parameter group name assignments based on parameter names
+_POSITION_PARAMS = {"min_corner", "max_corner", "plane_point", "gaussian_mean"}
+_SCALE_PARAMS = {"support_radius", "gaussian_covariance_diag", "bandwidth"}
+_ROTATION_PARAMS = {"frequency", "normal"}
+_OPACITY_PARAMS = {"opacity", "density", "alpha", "beta"}
+_COLOR_PARAMS = {"color", "residual_scale"}
+_FEATURE_PARAMS = {"confidence", "phase"}
+
+
+def _build_adam_optimizer(
+    torch: Any,
+    carrier_parameters: dict[str, dict[str, Any]],
+    config: TorchOptimizationConfig,
+) -> Any:
+    """Build Adam optimizer with per-attribute parameter groups."""
+    position_params = []
+    scale_params = []
+    rotation_params = []
+    opacity_params = []
+    color_params = []
+    feature_params = []
+
+    for fields in carrier_parameters.values():
+        for name, parameter in fields.items():
+            if not hasattr(parameter, 'requires_grad'):
+                continue
+            if name in _POSITION_PARAMS:
+                position_params.append(parameter)
+            elif name in _SCALE_PARAMS:
+                scale_params.append(parameter)
+            elif name in _ROTATION_PARAMS:
+                rotation_params.append(parameter)
+            elif name in _OPACITY_PARAMS:
+                opacity_params.append(parameter)
+            elif name in _COLOR_PARAMS:
+                color_params.append(parameter)
+            elif name in _FEATURE_PARAMS:
+                feature_params.append(parameter)
+            else:
+                # Default to color group for unknown params
+                color_params.append(parameter)
+
+    param_groups = []
+    if position_params:
+        param_groups.append({'params': position_params, 'lr': config.position_learning_rate, 'name': 'position'})
+    if scale_params:
+        param_groups.append({'params': scale_params, 'lr': config.scale_learning_rate, 'name': 'scale'})
+    if rotation_params:
+        param_groups.append({'params': rotation_params, 'lr': config.rotation_learning_rate, 'name': 'rotation'})
+    if opacity_params:
+        param_groups.append({'params': opacity_params, 'lr': config.opacity_learning_rate, 'name': 'opacity'})
+    if color_params:
+        param_groups.append({'params': color_params, 'lr': config.color_learning_rate, 'name': 'color'})
+    if feature_params:
+        param_groups.append({'params': feature_params, 'lr': config.feature_learning_rate, 'name': 'feature'})
+
+    if not param_groups:
+        # Fallback: empty group
+        return None
+
+    return torch.optim.Adam(param_groups, betas=(0.9, 0.999))
+
+
+def _compute_position_lr(config: TorchOptimizationConfig, step: int) -> float:
+    """Compute position learning rate with exponential decay."""
+    if config.lr_decay_steps <= 0:
+        return config.position_learning_rate
+    # Warmup
+    if step < config.position_lr_warmup_steps:
+        return config.position_learning_rate
+    decay_step = step - config.position_lr_warmup_steps
+    if decay_step >= config.lr_decay_steps:
+        return config.position_lr_final
+    # Exponential interpolation
+    t = decay_step / config.lr_decay_steps
+    lr_init = config.position_learning_rate
+    lr_final = config.position_lr_final
+    return lr_init * (lr_final / lr_init) ** t
+
+
+def _coarse_to_fine_scale(schedule: tuple, step: int) -> float:
+    """Find current resolution scale from schedule breakpoints."""
+    if not schedule:
+        return 1.0
+    current_scale = 1.0
+    for breakpoint_step, scale in schedule:
+        if step >= breakpoint_step:
+            current_scale = scale
+    return current_scale
+
+
 def _optimization_step_from_objective(
     iteration: int,
     objective: Any,
@@ -219,6 +361,13 @@ def _optimization_step_from_objective(
     loss_weights: TrainingLossWeights,
     update: "_TorchGradientStepState",
     max_samples_per_batch: int | None,
+    optimizer_label: str = "sgd",
+    grad_stats: tuple = (),
+    opacity_reset_due: bool = False,
+    recovery_phase: bool = False,
+    importance_scores: tuple = (),
+    max_carriers: int = 0,
+    resolution_scale: float = 1.0,
 ) -> TorchOptimizationStep:
     image_loss = _tensor_scalar(objective.image_loss)
     depth_loss = _tensor_scalar(objective.depth_loss)
@@ -226,6 +375,9 @@ def _optimization_step_from_objective(
     normal_loss = _tensor_scalar(objective.normal_loss)
     mask_loss = _tensor_scalar(objective.mask_loss)
     confidence_loss = _tensor_scalar(objective.confidence_loss)
+    carrier_counts = _carrier_counts(elements)
+    carrier_count = sum(carrier_counts.values())
+    over_budget = max_carriers > 0 and carrier_count > max_carriers
     return TorchOptimizationStep(
         iteration=iteration,
         batch_index=batch_index,
@@ -246,15 +398,22 @@ def _optimization_step_from_objective(
             mask_loss=mask_loss,
             confidence_loss=confidence_loss,
         ),
-        carrier_counts=_carrier_counts(elements),
+        carrier_counts=carrier_counts,
         loss_weights=loss_weights.to_dict(),
-        optimizer="sgd",
+        optimizer=optimizer_label,
         gradient_norm=update.gradient_norm,
         applied_gradient_norm=update.applied_gradient_norm,
         gradient_clip_norm=update.gradient_clip_norm,
         updated_parameter_count=update.updated_parameter_count,
         max_samples_per_batch=max_samples_per_batch,
         source_windows=source_windows,
+        grad_stats=grad_stats,
+        opacity_reset_due=opacity_reset_due,
+        recovery_phase=recovery_phase,
+        importance_scores=importance_scores,
+        carrier_count=carrier_count,
+        over_budget=over_budget,
+        resolution_scale=resolution_scale,
     )
 
 
@@ -280,6 +439,20 @@ def _optimize_torch_batches(
                 f"torch optimization batch has {sample_count} samples, exceeding max_samples_per_batch "
                 f"{config.max_samples_per_batch}"
             )
+
+    # Set up optimizer for Adam path
+    use_adam = config.optimizer_type == 'adam'
+    adam_optimizer = None
+    if use_adam:
+        adam_optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
+
+    # Gradient accumulator state (Deliverable 3)
+    grad_accumulator: dict[str, float] = {}
+    grad_accum_step_count: int = 0
+
+    # Opacity reset tracking (Deliverable 4)
+    steps_since_reset: int = 0
+
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
         iteration_summaries: list[TorchCaptureRenderSummary] = []
@@ -289,8 +462,47 @@ def _optimize_torch_batches(
             config.checkpoint_interval is not None
             and (iteration + 1) % config.checkpoint_interval == 0
         )
+
+        # Deliverable 8: Coarse-to-fine schedule
+        resolution_scale = _coarse_to_fine_scale(config.coarse_to_fine_schedule, absolute_iteration)
+
+        # Deliverable 4: Opacity reset
+        opacity_reset_due = False
+        if (
+            config.opacity_reset_interval > 0
+            and absolute_iteration > 0
+            and absolute_iteration % config.opacity_reset_interval == 0
+        ):
+            opacity_reset_due = True
+            steps_since_reset = 0
+            # Soft-reset opacity parameters
+            with torch.no_grad():
+                for fields in carrier_parameters.values():
+                    for name, parameter in fields.items():
+                        if name in _OPACITY_PARAMS:
+                            parameter.fill_(config.opacity_reset_value)
+        else:
+            steps_since_reset += 1
+
+        recovery_phase = (
+            config.opacity_reset_interval > 0
+            and steps_since_reset < config.recovery_window
+            and not opacity_reset_due
+        )
+
+        # Deliverable 2: Update position LR if using Adam with decay
+        if use_adam and adam_optimizer is not None and config.lr_decay_steps > 0:
+            new_position_lr = _compute_position_lr(config, absolute_iteration)
+            for group in adam_optimizer.param_groups:
+                if group.get('name') == 'position':
+                    group['lr'] = new_position_lr
+
         for batch, batch_index, target_offset, source_windows in prepared_batches:
-            _zero_carrier_parameter_grads(carrier_parameters)
+            if use_adam and adam_optimizer is not None:
+                adam_optimizer.zero_grad()
+            else:
+                _zero_carrier_parameter_grads(carrier_parameters)
+
             objective = torch_render_capture_training_objective(
                 current_scene,
                 batch,
@@ -299,13 +511,110 @@ def _optimize_torch_batches(
             )
             weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
             weighted_loss.backward()
-            update = _gradient_step_carrier_parameters(
-                torch,
-                carrier_parameters,
-                learning_rate=config.color_learning_rate,
-                gradient_clip_norm=config.gradient_clip_norm,
-            )
-            _zero_carrier_parameter_grads(carrier_parameters)
+
+            if use_adam and adam_optimizer is not None:
+                # Clip gradients before Adam step
+                all_params = [p for fields in carrier_parameters.values() for p in fields.values()]
+                params_with_grad = [p for p in all_params if getattr(p, 'grad', None) is not None]
+                gradient_sq_terms = []
+                for p in params_with_grad:
+                    gradient_sq_terms.append(torch.sum(p.grad.detach() * p.grad.detach()))
+
+                if gradient_sq_terms:
+                    gradient_sq_sum = torch.stack(gradient_sq_terms).sum()
+                    gradient_norm_tensor = torch.sqrt(gradient_sq_sum)
+                    if config.gradient_clip_norm is not None:
+                        clip_tensor = torch.as_tensor(
+                            float(config.gradient_clip_norm),
+                            dtype=gradient_norm_tensor.dtype,
+                            device=gradient_norm_tensor.device
+                        )
+                        scale_tensor = torch.clamp(
+                            clip_tensor / torch.clamp(gradient_norm_tensor, min=1e-12), max=1.0
+                        )
+                        torch.nn.utils.clip_grad_norm_(params_with_grad, config.gradient_clip_norm)
+                    else:
+                        scale_tensor = None
+                else:
+                    gradient_norm_tensor = None
+                    scale_tensor = None
+
+                # Deliverable 3: Accumulate absolute gradients
+                if config.grad_accum_window > 0:
+                    grad_accum_step_count += 1
+                    for element_id, fields in carrier_parameters.items():
+                        for param_name, parameter in fields.items():
+                            if getattr(parameter, 'grad', None) is not None:
+                                key = f"{element_id}.{param_name}"
+                                abs_grad = float(parameter.grad.abs().mean().item())
+                                grad_accumulator[key] = grad_accumulator.get(key, 0.0) + abs_grad
+
+                adam_optimizer.step()
+                update = _TorchGradientStepState(
+                    gradient_norm_tensor=gradient_norm_tensor,
+                    scale_tensor=scale_tensor,
+                    gradient_clip_norm=config.gradient_clip_norm,
+                    updated_parameter_count=len(params_with_grad),
+                )
+                # Apply clamping constraints after Adam step
+                with torch.no_grad():
+                    for fields in carrier_parameters.values():
+                        for name, parameter in fields.items():
+                            if name in {"color", "opacity", "confidence", "density", "bandwidth", "residual_scale"}:
+                                parameter.clamp_(0.0, 1.0)
+                            elif name in {"alpha", "beta"}:
+                                parameter.clamp_(1e-4)
+                            elif name in {"support_radius", "gaussian_covariance_diag"}:
+                                parameter.clamp_(1e-4)
+                    for fields in carrier_parameters.values():
+                        if "min_corner" in fields and "max_corner" in fields:
+                            min_corner = fields["min_corner"]
+                            max_corner = fields["max_corner"]
+                            lower = torch.minimum(min_corner, max_corner - 1e-4)
+                            upper = torch.maximum(max_corner, min_corner + 1e-4)
+                            min_corner.copy_(lower)
+                            max_corner.copy_(upper)
+            else:
+                # SGD path: Deliverable 3 grad accumulation
+                if config.grad_accum_window > 0:
+                    grad_accum_step_count += 1
+                    for element_id, fields in carrier_parameters.items():
+                        for param_name, parameter in fields.items():
+                            if getattr(parameter, 'grad', None) is not None:
+                                key = f"{element_id}.{param_name}"
+                                abs_grad = float(parameter.grad.abs().mean().item())
+                                grad_accumulator[key] = grad_accumulator.get(key, 0.0) + abs_grad
+
+                update = _gradient_step_carrier_parameters(
+                    torch,
+                    carrier_parameters,
+                    learning_rate=config.color_learning_rate,
+                    gradient_clip_norm=config.gradient_clip_norm,
+                )
+
+            # Deliverable 3: Build grad_stats snapshot and reset if window elapsed
+            current_grad_stats: tuple = ()
+            if config.grad_accum_window > 0 and grad_accumulator:
+                window = config.grad_accum_window
+                if grad_accum_step_count >= window:
+                    # Summarize mean over window
+                    current_grad_stats = tuple(
+                        (k, v / grad_accum_step_count) for k, v in sorted(grad_accumulator.items())
+                    )
+                    # Reset
+                    grad_accumulator.clear()
+                    grad_accum_step_count = 0
+                else:
+                    # Partial snapshot
+                    current_grad_stats = tuple(
+                        (k, v / grad_accum_step_count) for k, v in sorted(grad_accumulator.items())
+                    )
+
+            if use_adam and adam_optimizer is not None:
+                _zero_carrier_parameter_grads(carrier_parameters)
+            else:
+                _zero_carrier_parameter_grads(carrier_parameters)
+
             with torch.no_grad():
                 checkpoint_objective = torch_render_capture_training_objective(
                     current_scene,
@@ -336,6 +645,13 @@ def _optimize_torch_batches(
                     loss_weights=config.loss_weights,
                     update=update,
                     max_samples_per_batch=config.max_samples_per_batch,
+                    optimizer_label="adam" if use_adam else "sgd",
+                    grad_stats=current_grad_stats,
+                    opacity_reset_due=opacity_reset_due,
+                    recovery_phase=recovery_phase,
+                    importance_scores=(),
+                    max_carriers=config.max_carriers,
+                    resolution_scale=resolution_scale,
                 )
             )
         if evolution_enabled or checkpoint_due:
@@ -367,6 +683,9 @@ def _optimize_torch_batches(
                     )
                 scene_tensors = torch_scene_tensors(current_scene, device=device)
                 carrier_parameters = scene_tensors.carrier_parameters
+                # Rebuild Adam optimizer after evolution (carrier parameters changed)
+                if use_adam:
+                    adam_optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
                 materialization_summary = None
         if checkpoint_due:
             scene_checkpoints.append(

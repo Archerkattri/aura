@@ -1596,3 +1596,529 @@ def _fake_capture_training_batch():
             "target_normal_present": None,
         },
     )()
+
+
+# ---- New Deliverable Tests ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimization_config_adam_is_valid():
+    config = TorchOptimizationConfig(optimizer_type='adam')
+    assert config.optimizer_type == 'adam'
+    assert config.position_learning_rate == pytest.approx(1.6e-4)
+    assert config.scale_learning_rate == pytest.approx(5e-3)
+    assert config.rotation_learning_rate == pytest.approx(1e-3)
+    assert config.opacity_learning_rate == pytest.approx(5e-2)
+    assert config.feature_learning_rate == pytest.approx(2.5e-3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimization_config_rejects_invalid_optimizer_type():
+    with pytest.raises(ValueError, match="optimizer_type"):
+        TorchOptimizationConfig(optimizer_type='rmsprop')
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_with_adam_reduces_loss():
+    scene = AuraScene(
+        name="adam_optimizer_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+                depth=CaptureTensor(
+                    path="frame.pgm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=1, values=(2.0,),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.5,
+            optimizer_type='adam',
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result.steps[0].image_loss > result.steps[-1].image_loss
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_adam_reports_adam_optimizer():
+    scene = AuraScene(
+        name="adam_label_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=1,
+            color_learning_rate=0.5,
+            optimizer_type='adam',
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result.steps[0].optimizer == "adam"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_sgd_stays_backward_compatible():
+    scene = AuraScene(
+        name="sgd_compat_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=1,
+            color_learning_rate=0.5,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result.steps[0].optimizer == "sgd"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_lr_schedule_position_decay():
+    config = TorchOptimizationConfig(
+        optimizer_type='adam',
+        position_learning_rate=1e-3,
+        position_lr_final=1e-6,
+        lr_decay_steps=10,
+        color_learning_rate=0.1,
+        loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+    )
+    # LR at step 0 should be initial
+    lr_0 = torch_optimizer_module._compute_position_lr(config, 0)
+    # LR at step 10 should be at or near final
+    lr_10 = torch_optimizer_module._compute_position_lr(config, 10)
+    # LR at step 5 should be in between
+    lr_5 = torch_optimizer_module._compute_position_lr(config, 5)
+    assert lr_0 == pytest.approx(1e-3)
+    assert lr_10 == pytest.approx(1e-6)
+    assert lr_5 < lr_0
+    assert lr_5 > lr_10
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_grad_stats_accumulated_when_enabled():
+    scene = AuraScene(
+        name="grad_accum_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=5,
+            color_learning_rate=0.1,
+            grad_accum_window=5,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    # After 5 steps, at least the last step should have non-empty grad_stats
+    assert len(result.steps) == 5
+    # Some step should have grad_stats
+    all_stats = [step.grad_stats for step in result.steps]
+    assert any(len(s) > 0 for s in all_stats)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_opacity_reset_signals_in_report():
+    scene = AuraScene(
+        name="opacity_reset_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=4,
+            color_learning_rate=0.1,
+            opacity_reset_interval=2,
+            opacity_reset_value=0.01,
+            recovery_window=100,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert len(result.steps) == 4
+    # Step at iteration 2 (index 2) should have opacity_reset_due=True
+    reset_steps = [step for step in result.steps if step.opacity_reset_due]
+    assert len(reset_steps) >= 1
+    assert reset_steps[0].opacity_reset_due is True
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_importance_scores_function():
+    opacities = {"carrier_a": 0.8, "carrier_b": 0.5}
+    transmittances = {"carrier_a": 0.9, "carrier_b": 0.3}
+    scores = torch_optimizer_module.compute_importance_scores(opacities, transmittances)
+    assert scores["carrier_a"] == pytest.approx(0.72)
+    assert scores["carrier_b"] == pytest.approx(0.15)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_importance_scores_function_missing_transmittance():
+    opacities = {"carrier_x": 0.6}
+    transmittances = {}
+    scores = torch_optimizer_module.compute_importance_scores(opacities, transmittances)
+    # Defaults transmittance to 1.0 if missing
+    assert scores["carrier_x"] == pytest.approx(0.6)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_budget_ceiling_over_budget_signal():
+    scene = AuraScene(
+        name="budget_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    # max_carriers=0 means unlimited => over_budget=False
+    result_unlimited = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=1, color_learning_rate=0.1, max_carriers=0,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result_unlimited.steps[0].over_budget is False
+    assert result_unlimited.steps[0].carrier_count == 1
+
+    # max_carriers=1 with 1 element => not over budget
+    result_exact = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=1, color_learning_rate=0.1, max_carriers=1,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result_exact.steps[0].over_budget is False
+    assert result_exact.steps[0].carrier_count == 1
+
+    # max_carriers=0 means unlimited, still False
+    result_over = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=1, color_learning_rate=0.1, max_carriers=0,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result_over.steps[0].over_budget is False
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_coarse_to_fine_schedule_returns_correct_scale():
+    schedule = ((0, 0.5), (5, 1.0))
+
+    scale_at_0 = torch_optimizer_module._coarse_to_fine_scale(schedule, 0)
+    assert scale_at_0 == pytest.approx(0.5)
+
+    scale_at_3 = torch_optimizer_module._coarse_to_fine_scale(schedule, 3)
+    assert scale_at_3 == pytest.approx(0.5)
+
+    scale_at_5 = torch_optimizer_module._coarse_to_fine_scale(schedule, 5)
+    assert scale_at_5 == pytest.approx(1.0)
+
+    scale_empty = torch_optimizer_module._coarse_to_fine_scale((), 10)
+    assert scale_empty == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_coarse_to_fine_in_step_report():
+    scene = AuraScene(
+        name="c2f_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.1,
+            coarse_to_fine_schedule=((0, 0.5), (1, 1.0)),
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result.steps[0].resolution_scale == pytest.approx(0.5)
+    assert result.steps[1].resolution_scale == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_recovery_phase_after_opacity_reset():
+    scene = AuraScene(
+        name="recovery_phase_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm", format="Netpbm", backend="stdlib",
+                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+
+    result = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=5,
+            color_learning_rate=0.1,
+            opacity_reset_interval=2,
+            opacity_reset_value=0.01,
+            recovery_window=100,  # large window so all post-reset steps are in recovery
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    # Step 2 (index 2, iteration 2) should have opacity_reset_due=True
+    # Steps after a reset should have recovery_phase=True
+    reset_step = next((s for s in result.steps if s.opacity_reset_due), None)
+    assert reset_step is not None
+    # Steps after reset should be in recovery (iteration 3, 4 -> step indices 3, 4)
+    recovery_steps = [s for s in result.steps if s.recovery_phase]
+    assert len(recovery_steps) > 0
