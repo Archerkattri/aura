@@ -765,21 +765,27 @@ def test_gabor_kernel_keeps_frequency_phase_bandwidth_differentiable():
         "plane_point",
         "normal",
         "color",
+        "opacity",
+        "confidence",
         "frequency",
         "phase",
         "bandwidth",
     }
     assert carrier_parameters["gabor"]["plane_point"].requires_grad is True
     assert carrier_parameters["gabor"]["color"].grad is not None
+    assert carrier_parameters["gabor"]["opacity"].grad is not None
+    assert carrier_parameters["gabor"]["confidence"].grad is not None
     assert carrier_parameters["gabor"]["frequency"].grad is not None
     assert carrier_parameters["gabor"]["phase"].grad is not None
     assert carrier_parameters["gabor"]["bandwidth"].grad is not None
     assert torch.all(torch.isfinite(carrier_parameters["gabor"]["color"].grad))
+    assert torch.isfinite(carrier_parameters["gabor"]["opacity"].grad)
+    assert torch.isfinite(carrier_parameters["gabor"]["confidence"].grad)
     assert torch.all(torch.isfinite(carrier_parameters["gabor"]["frequency"].grad))
     assert torch.isfinite(carrier_parameters["gabor"]["phase"].grad)
     assert torch.isfinite(carrier_parameters["gabor"]["bandwidth"].grad)
-    assert opacities.grad is not None
-    assert confidences.grad is not None
+    assert opacities.grad is None
+    assert confidences.grad is None
     assert residual.tolist() == [False]
 
 

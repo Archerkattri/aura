@@ -73,7 +73,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
         TorchCarrierKernelSpec(
             payload_type="gabor_frequency",
             carrier_id="gabor",
-            differentiable_fields=("color", "frequency", "phase", "bandwidth"),
+            differentiable_fields=("color", "opacity", "confidence", "frequency", "phase", "bandwidth"),
             description="Frequency-modulated radiance torch autograd kernel; CUDA production kernel is still required.",
             implementation_stage="torch_autograd_gabor_kernel",
             autograd_kernel=True,
@@ -232,6 +232,16 @@ def torch_carrier_response_tensors(
             confidence[mask] = torch.clamp(confidences[element_index], min=0.0, max=1.0)
         elif payload_type == "gabor_frequency":
             gabor_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
+            gabor_opacity = torch.clamp(
+                _carrier_parameter(torch, element, "opacity", carrier_parameters, device, default=element.opacity),
+                min=0.0,
+                max=1.0,
+            )
+            gabor_confidence = torch.clamp(
+                _carrier_parameter(torch, element, "confidence", carrier_parameters, device, default=element.confidence),
+                min=0.0,
+                max=1.0,
+            )
             frequency = _carrier_vector_parameter(
                 torch,
                 element,
@@ -249,8 +259,8 @@ def torch_carrier_response_tensors(
             wave = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * frequency, dim=1) + phase)
             modulation = 1.0 - bandwidth + bandwidth * wave
             carrier_colors[mask] = torch.clamp(gabor_color * modulation.unsqueeze(1), min=0.0, max=1.0)
-            transmittance[mask] = torch.clamp(1.0 - opacities[element_index], min=0.0, max=1.0)
-            confidence[mask] = torch.clamp(confidences[element_index] * bandwidth, min=0.0, max=1.0)
+            transmittance[mask] = torch.clamp(1.0 - gabor_opacity, min=0.0, max=1.0)
+            confidence[mask] = torch.clamp(gabor_confidence * bandwidth, min=0.0, max=1.0)
         elif payload_type == "neural_residual":
             neural_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             residual_scale = _carrier_parameter(
@@ -414,6 +424,18 @@ def torch_carrier_parameter_tensors(
                 **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "opacity": torch.tensor(
+                    float(element.payload.get("opacity", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,
