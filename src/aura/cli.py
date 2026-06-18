@@ -41,6 +41,7 @@ from aura.optimize import TrainingLossWeights
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
 from aura.imaging import write_radiance_image, write_video
+from aura.memory import run_memory_stability_probe
 from aura.render import (
     compare_images,
     read_ppm,
@@ -323,6 +324,22 @@ def main(argv: list[str] | None = None) -> int:
         "--external-visual-reference",
         action="store_true",
         help="Mark the visual gate context as external; run benchmark-visual separately for actual metrics",
+    )
+
+    memory_probe = sub.add_parser(
+        "memory-stability-probe",
+        help="Run many render/query iterations and assert memory stays bounded",
+    )
+    memory_probe.add_argument("package_dir", type=Path)
+    memory_probe.add_argument("--iterations", type=int, default=64)
+    memory_probe.add_argument("--width", type=int, default=16)
+    memory_probe.add_argument("--height", type=int, default=16)
+    memory_probe.add_argument("--device", default=None, help="Torch device for CUDA memory tracking, such as cuda")
+    memory_probe.add_argument(
+        "--growth-threshold-bytes",
+        type=float,
+        default=4096.0,
+        help="Max tolerated sustained Python allocation growth per iteration",
     )
 
     ray_benchmark = sub.add_parser("benchmark-ray-query", help="Score ray-query correctness for a .aura package")
@@ -632,6 +649,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
+    if args.command == "memory-stability-probe":
+        package = load_package(args.package_dir)
+        report = run_memory_stability_probe(
+            package.scene,
+            iterations=args.iterations,
+            width=args.width,
+            height=args.height,
+            device=args.device,
+            backend="cpu" if args.device is None else "torch",
+            growth_threshold_bytes_per_iteration=args.growth_threshold_bytes,
+        )
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return 0 if report.stable else 1
     if args.command == "benchmark-ray-query":
         package = load_package(args.package_dir)
         if not args.native_demo_expectations:

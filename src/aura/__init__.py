@@ -148,6 +148,7 @@ from aura.imaging import (
     write_radiance_image,
     write_video,
 )
+from aura.memory import MemoryStabilityReport, run_memory_stability_probe
 from aura.render import (
     RenderImage,
     compare_images,
@@ -362,6 +363,8 @@ __all__ = [
     "production_readiness_report",
     "package_3dgs_export",
     "propose_training_regions_from_tensors",
+    "MemoryStabilityReport",
+    "run_memory_stability_probe",
     "read_ppm",
     "read_pfm_image",
     "render_orthographic",
