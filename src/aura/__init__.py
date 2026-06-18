@@ -74,6 +74,21 @@ from aura.cuda_renderer import (
     cuda_renderer_scene_buffers,
     simulate_cuda_renderer_kernel,
 )
+from aura.allocation import (
+    AllocationConfig,
+    AllocationDecision,
+    AllocationReport,
+    GraphCluster,
+    ResidualCorrectionHook,
+    SemanticCarrierBias,
+    SoftCarrierScores,
+    SoftEvolutionScores,
+    build_graph_clusters,
+    residual_correction_hooks,
+    semantic_graph_allocation,
+    soft_carrier_scores,
+    soft_evolution_scores,
+)
 from aura.decomposition import EvidenceSample, decompose_evidence
 from aura.elements import AuraChunk, AuraElement, Bounds
 from aura.ingest import (
@@ -218,6 +233,9 @@ from aura.torch_optimizer import (
 )
 
 __all__ = [
+    "AllocationConfig",
+    "AllocationDecision",
+    "AllocationReport",
     "AuraChunk",
     "AuraElement",
     "AuraPackage",
@@ -264,6 +282,7 @@ __all__ = [
     "EvidenceSample",
     "FramePrediction",
     "GaborFrequencyPayload",
+    "GraphCluster",
     "GaussianFallbackPayload",
     "GaussianSplatSample",
     "IngestAdapterSpec",
@@ -271,6 +290,7 @@ __all__ = [
     "MigrationReport",
     "Ray",
     "RayHitTrace",
+    "ResidualCorrectionHook",
     "RayInspection",
     "RayQueryExpectation",
     "RayQueryResult",
@@ -285,11 +305,14 @@ __all__ = [
     "RenderImage",
     "RenderTarget",
     "RuntimeExportReport",
+    "SemanticCarrierBias",
     "SemanticFeaturePayload",
     "SemanticEdge",
     "SemanticGraph",
     "SemanticNode",
     "SemanticMaskRegion",
+    "SoftCarrierScores",
+    "SoftEvolutionScores",
     "SparsePointPrior",
     "SurfaceCellPayload",
     "TrainingFrame",
@@ -307,6 +330,7 @@ __all__ = [
     "TorchSceneTensors",
     "VolumeCellPayload",
     "apply_ablation",
+    "build_graph_clusters",
     "capture_manifest_template",
     "capture_tensors_to_training_dataset",
     "capture_proposal_features",
@@ -381,6 +405,7 @@ __all__ = [
     "write_frame_sequence",
     "write_video",
     "reconstruct_demo_scene",
+    "residual_correction_hooks",
     "run_ablation_benchmarks",
     "run_capture_reconstruction_benchmark",
     "run_core_reconstruction_benchmark",
@@ -390,6 +415,9 @@ __all__ = [
     "run_visual_quality_benchmark",
     "runtime_export_report",
     "score_capture_proposals",
+    "semantic_graph_allocation",
+    "soft_carrier_scores",
+    "soft_evolution_scores",
     "train_capture_proposal_model",
     "inspect_ray",
     "inspect_scene_rays",
