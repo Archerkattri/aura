@@ -2,136 +2,49 @@
 
 AURA means **Adaptive Unified Radiance Asset**.
 
-This repo is being developed into **AURA-Core**, an end-to-end native
-reconstruction engine for the post-3DGS captured-scene representation:
+AURA-Core is the native reconstruction engine for the post-3DGS captured-scene
+representation:
 
-> Photogrammetry -> NeRF -> 3D Gaussian Splatting -> AURA
+```text
+Photogrammetry -> NeRF -> 3D Gaussian Splatting -> AURA
+```
 
-AURA is not "Gaussian splatting but certified" and not a 3DGS package wrapper.
-The target is a reconstruction system that trains adaptive local radiance
-carriers directly from images, video, poses, depth, and priors. Each region
-should become the simplest bounded carrier that explains its geometry,
-appearance, uncertainty, semantics, and interaction needs while exposing one
-ray-query, editing, confidence, LOD, and export contract.
+AURA is not a 3DGS wrapper. Gaussian splats are allowed as ingest evidence or a
+baseline only. The native path trains adaptive bounded carriers directly from
+posed capture assets and exports a queryable `.aura` scene package.
 
 ## Current Status
 
-Current code is still an early AURA-Core scaffold. It already contains the
-native representation contract pieces:
+Internal completion estimate: **72%**.
 
-- carrier registry;
-- native carrier payload models for surface, volume, beta, gabor, neural,
-  Gaussian fallback, and semantic carriers;
-- payload/carrier consistency validation with typed payload constructor checks;
-- evidence-to-carrier assignment;
-- evidence-to-element adaptive decomposition with deterministic carrier/LOD
-  chunking;
-- package-level confidence maps and edit metadata;
-- semantic/object graph package artifact;
-- bounded AURA elements and carrier/LOD chunks;
-- runtime export reports for carrier/LOD chunks, native ray-query fields, and
-  reference acceleration contract metadata;
-- carrier-aware reference ray-query response with linear chunk traversal and
-  cached BVH traversal metrics;
-- carrier-specific reference query tests for surface, volume, beta, gabor,
-  neural residual, semantic, and covariance-weighted Gaussian fallback
-  carriers;
-- CPU reference interaction probes for hit points, shadow transmittance,
-  reflection directions, and collision proxy distances;
-- simple front-to-back scene query;
-- tiny JSON/ASCII/binary little-endian PLY 3DGS export reader for means/opacities/covariances;
-- quaternion-aware PLY covariance conversion from 3DGS log-scales;
-- AURA-Ingest adapters that convert 3DGS, depth, semantic mask, and sparse
-  point priors into `EvidenceSample` contracts;
-- COLMAP binary/text sparse-model pose/intrinsics import to `AURA_CAPTURE_MANIFEST`;
-- COLMAP sparse point depth-layer priors for native region initialization;
-- COLMAP dense depth-map links and deterministic depth summaries for capture
-  manifests;
-- COLMAP normal-map links and average-normal summaries for normal-aware native
-  priors;
-- depth asset statistics that seed deterministic multi-region native
-  surface-prior `TrainingRegion` evidence during manifest-to-training
-  conversion;
-- mask asset coverage that seeds native semantic/object `TrainingRegion`
-  evidence during manifest-to-training conversion;
-- semantic graph aggregation across multiple regions with the same object label;
-- `.aura` package writer;
-- `.aura` package loader/validator;
-- explicit `.aura` format/version compatibility checks;
-- JSON package inspection output and JSON Schema documents;
-- runtime JSON Schema validation for package files;
-- schema-validated AURA-Core posed frame and native evidence-region inputs;
-- per-pixel capture asset tensors for PNG, PPM/PGM, COLMAP depth maps, COLMAP
-  normal maps, and optional `imageio` EXR/HDR/video backends;
-- packed host float buffers for loaded capture tensor payloads instead of
-  Python tuple payloads;
-- torch/CUDA capture asset batching for manifest image/depth/mask/normal tensors
-  via `torch_capture_asset_batch`;
-- per-pixel capture training target generation from image/depth/mask/normal
-  tensors via `capture_tensors_to_render_targets` and
-  `torch_capture_training_batch`;
-- packed tiled capture optimization via `torch_optimize_capture_batches`, which
-  streams bounded `CapturePackedRenderBatch` source windows through one native
-  torch carrier-parameter state;
-- torch reference rendering from capture training batches via
-  `torch_render_capture_training_batch`, using carrier parameter tensors;
-- live torch render objectives via `torch_render_target_objective` for
-  image/depth/normal/mask losses and backpropagation through carrier parameter tensors;
-- torch reference optimization steps via `torch_optimize_capture_batch`, using
-  live render objectives for gradient updates over native carrier tensors;
-- configurable adaptive carrier evolution thresholds for split/promote/merge/
-  demote actions, emitted in reconstruction reports;
-- explicit torch carrier kernel specs and autograd parameter tensors for
-  surface, volume, beta, gabor, neural, semantic, and Gaussian fallback
-  semantics;
-- packaged CUDA carrier source entry points for every native/fallback carrier,
-  reported by `torch-kernel-report` but not yet compiled or production-ready;
-- a packaged CUDA renderer source entry point, `aura_render_rays_kernel`, for
-  batched native AABB first-hit ray-query outputs, reported separately from
-  carrier kernels and not yet compiled or production-ready;
-- a packaged PyTorch extension binding source, `cuda/aura_bindings.cpp`, that
-  exposes `render_rays(...)` as the Python-callable target for the CUDA renderer
-  launcher once built on a CUDA machine;
-- an explicit `cuda-kernel-build-report --build` probe for GPU machines to
-  compile/load the packaged carrier extension and keep readiness claims gated;
-- capture-manifest reconstruction with `--load-assets` feeds per-pixel tensor
-  targets into the CPU reference optimization loop;
-- model-scored native feature proposals from image/depth/mask/normal tensor
-  features, producing high-frequency and compact-detail `TrainingRegion`
-  evidence before decomposition;
-- dependency-free learned capture proposal weights via
-  `train_capture_proposal_model`, keeping image/depth/mask/normal feature
-  labels on the same native region proposal contract;
-- deterministic capture asset summaries built from the same tensor path for
-  manifest-backed native training fixtures;
-- deterministic orthographic package preview rendering and reference
-  MSE/PSNR/SSIM/LPIPS-proxy image metrics;
-- CPU differentiable reference ray samples with image/depth/query losses,
-  normal-target/query losses, color/depth gradients, and ray-query contract
-  outputs for native AURA-Core fixture optimization;
-- residual-driven confidence updates and confidence maps on optimized native
-  carriers;
-- optional PyTorch renderer contract with ordered native carrier compositing,
-  first-hit depth/normal/material/semantic metadata, transmittance, opacity,
-  confidence, residual, provenance, and query-loss outputs when installed with
-  `aura-core[gpu]`;
-- reproducible benchmark plans plus CPU reference package/query/render timing,
-  runtime export readiness, confidence-quality, and interaction-quality
-  metrics;
-- ray-query correctness scoring for first-hit, ordered carrier traces, carrier,
-  depth, transmittance, semantic, material, normal, and residual contract
-  checks;
-- strict-JSON render comparison metrics for regression checks;
-- package-backed glTF/USD exchange-target metadata;
-- fixture CLI commands and tests.
+Implemented today:
 
-It does **not** yet contain the full AURA-Core reconstruction engine:
-production EXR/video tensor loading, production GPU differentiable
-optimization, compiled CUDA kernels, production GPU BVH traversal, neural
-proposal networks trained on real captures, or end-to-end benchmark results.
+- native carrier registry and payloads for surface, volume, beta, gabor,
+  neural residual, semantic, and Gaussian fallback carriers;
+- `.aura` package writer, loader, validator, JSON schemas, chunks, confidence
+  maps, edit metadata, and semantic graph artifacts;
+- capture manifests for posed image/depth/mask/normal assets;
+- COLMAP sparse camera/pose/point import into capture manifests;
+- packed capture tensor loading for PNG, PPM/PGM, COLMAP depth maps, COLMAP
+  normal maps, and optional `imageio` assets;
+- tiled PyTorch capture optimization through `aura train`;
+- ordered front-to-back native torch carrier compositing with color, alpha,
+  transmittance, depth, normal, confidence, material, semantic, residual, and
+  ordered hit outputs;
+- trainable native carrier parameters for color, opacity/density, shape,
+  normals, confidence, residual scale, and frequency fields where supported;
+- adaptive split, promote, merge, and demote decisions during torch training;
+- checkpoint and resume metadata for training runs;
+- deterministic CPU/torch package rendering, query demos, ray-query scoring,
+  and visual metric helpers;
+- packaged CUDA kernel and PyTorch extension sources with build/status probes.
 
-See `docs/AURA_CORE_RESEARCH.md` for the current research direction and why the
-next milestone must be native reconstruction rather than more package polish.
+Still missing before this can be called production:
+
+- compiled CUDA renderer dispatch parity and runtime benchmarks;
+- production GPU BVH/traversal instead of the current AABB-centered tensor path;
+- larger real-scene benchmarks against COLMAP, NeRF, and 3DGS baselines;
+- production EXR/video streaming and long-run memory tests.
 
 ## Install
 
@@ -141,16 +54,10 @@ Use Python 3.11+.
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-# GPU development machine:
-python -m pip install -e ".[dev,gpu]"
-# Real capture tensor loading extras:
 python -m pip install -e ".[dev,gpu,assets]"
 ```
 
-## GPU Runtime
-
-Expose the primary CUDA device for GPU development:
+On the GPU machine, expose CUDA device 0:
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
@@ -158,215 +65,127 @@ aura torch-renderer-status
 aura cuda-kernel-build-report --build
 ```
 
-The PyTorch renderer is currently a native AABB reference path with ordered
-front-to-back carrier compositing, first-hit query metadata, ordered per-carrier
-hit traces, and export-report acceleration metadata. It is not yet production
-CUDA rendering or production GPU BVH traversal. The CUDA renderer now has
-packaged kernel, launcher, and Python binding sources, but production readiness
-still requires compiling/importing the extension, parity tests, and speed
-benchmarks on CUDA hardware.
+## Train AURA
 
-## Quick Smoke Commands
+The primary path is capture manifest -> native AURA carriers -> optimized
+`.aura` package:
+
+```bash
+aura write-capture-manifest-template --output outputs/capture-manifest.json
+aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
+aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json \
+  --tile-size 256 --pixel-stride 8 --max-targets-per-frame 4096
+aura train data/custom-captures/<scene>/capture-manifest.json \
+  --device cuda \
+  --output outputs/scene.aura \
+  --iterations 8 \
+  --tile-size 256 \
+  --pixel-stride 8 \
+  --max-targets-per-frame 4096 \
+  --max-targets-per-batch 1024 \
+  --checkpoint-interval 2
+```
+
+Resume from a checkpoint or trained package:
+
+```bash
+aura train data/custom-captures/<scene>/capture-manifest.json \
+  --device cuda \
+  --output outputs/scene-resumed.aura \
+  --resume-from outputs/scene.aura/checkpoints/iter_000001.aura
+```
+
+Training writes `training_report.json`, optional checkpoint packages, and the
+optimized native package under the selected output directory.
+
+## Render And Query
+
+```bash
+aura validate-package outputs/scene.aura
+aura inspect-package outputs/scene.aura
+aura render outputs/scene.aura --backend torch --device cuda --output outputs/scene.ppm --width 256 --height 256
+aura benchmark-reference outputs/scene.aura --width 64 --height 64
+aura benchmark-visual outputs/scene.aura outputs/reference.ppm --min-psnr 30
+```
+
+Use `--backend cuda --require-cuda` only after the CUDA renderer extension builds
+and imports on the target machine.
+
+## Fixture Smoke Tests
+
+These commands exercise the small deterministic package and reconstruction
+fixtures without requiring external datasets:
 
 ```bash
 aura build-native-demo --output-dir outputs/native-demo.aura
-# writes a native mixed-carrier demo with carrier role metadata, semantic object links, confidence/edit maps, and fallback export references
-aura validate-package outputs/native-demo.aura
-# validates mixed native carriers, typed payloads, confidence maps, edit metadata, semantic graph links, and chunks
-aura inspect-package outputs/native-demo.aura
-# prints the native package summary as stable JSON
-aura export-report outputs/native-demo.aura
-# reports native AURA preservation versus glTF/USD fallback losses, object metadata, and chunk/export readiness
-aura torch-kernel-report
-# reports native carrier autograd/CUDA readiness; all carriers have autograd paths, CUDA is still required
-aura render-package outputs/native-demo.aura --output outputs/native-demo.ppm --width 128 --height 128
-# writes a deterministic PPM preview for package validation
-aura query-demo --x -0.5 --y -0.5
-# queries the native mixed-carrier fixture
-aura inspect-rays outputs/native-demo.aura --native-demo-probes
-# prints material-aware occlusion, semantic-object, shadow, reflection, and collision ray-query inspections
-aura benchmark-reference outputs/native-demo.aura --width 32 --height 32
-# runs CPU reference package/query/render timing, runtime export, confidence, and interaction metrics
-aura benchmark-visual outputs/native-demo.aura outputs/native-reference.ppm --baseline-label native_self --min-psnr 40
-# compares a package render against a teacher/reference PPM using MSE/PSNR/SSIM/LPIPS-proxy/FPS JSON metrics
-aura benchmark-reference outputs/native-demo.aura --include-ablations
-# runs carrier assignment ablation metrics
+aura render outputs/native-demo.aura --backend torch --output outputs/native-demo.ppm
 aura benchmark-ray-query outputs/native-demo.aura --native-demo-expectations
-# scores native ray-query correctness against expected first-hit/depth/material/semantic probes
-aura benchmark-core --iterations 6
-# compares AURA-Core adaptive reconstruction against a static-carrier fixture run
-aura migration-plan outputs/native-demo.aura
-# prints package schema migration status
-
-# AURA-Core reconstruction path:
 aura write-training-frames-demo --output outputs/training-frames.json
-# writes posed color/depth/semantic frames plus native evidence regions
-aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6
-# runs posed image/depth/query losses and adaptive split/promote/merge/demote carriers, without 3DGS
-aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6 --split-image-loss-threshold 0.04 --demote-after-iteration 4
-# tunes the adaptive evolution policy written into training_report.json
-
-# Real-capture manifest path:
-aura write-capture-manifest-template --output outputs/capture-manifest.json
-# writes the schema-backed image/depth/mask/normal/camera/evidence manifest template
-aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json
-# validates the manifest and converts it to the AURA-Core training dataset contract
-aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6
-# runs the current CPU reference reconstruction path from a real-capture manifest
-aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture-static.aura --iterations 6 --disable-adaptive-evolution
-# runs the same path with carrier split/promote/merge/demote decisions disabled
-
-# Asset-backed fixture captures:
-aura inspect-capture-assets data/custom-captures/<scene>/capture-manifest.json
-# loads existing PNG, PPM/PGM, or COLMAP depth-map assets and prints deterministic summaries
-aura inspect-capture-tensors data/custom-captures/<scene>/capture-manifest.json
-# prints per-frame image/depth/mask/normal tensor shape, backend, and sample metadata
-aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
-# prints deterministic tiled pixel sampling counts for CPU reference or future GPU loaders
-aura capture-manifest-to-training data/custom-captures/<scene>/capture-manifest.json --output outputs/training-from-capture-assets.json --load-assets
-# replaces target color/depth summaries from PNG, PPM/PGM, or COLMAP depth-map assets
-aura reconstruct-capture-manifest data/custom-captures/<scene>/capture-manifest.json --load-assets --tile-size 256 --pixel-stride 8 --max-targets-per-frame 1024
-# feeds sampled per-pixel capture tensor targets into the CPU reference reconstruction loop
-aura torch-optimize-capture-manifest data/custom-captures/<scene>/capture-manifest.json --device cuda --tile-size 256 --pixel-stride 8 --max-targets-per-frame 4096 --max-targets-per-batch 1024 --iterations 6
-# streams packed native capture tensor batches through the torch reference optimization scaffold
-
-# COLMAP pose/intrinsics ingest:
-aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap --root data/custom-captures/<scene> --output outputs/capture-from-colmap.json
-# converts COLMAP cameras/images/points3D .bin or .txt files, plus standard stereo/depth_maps when present, into the native capture manifest contract
-
-# AURA-Ingest bootstrap path for 3DGS evidence:
-aura write-splat-demo-package --input tests/fixtures/tiny_3dgs_export.ply --output-dir outputs/splat-demo.aura
-aura import-3dgs third_party/gaussian-splatting/output/<scene> --output-dir outputs/<scene>.aura
-# imports direct PLY/JSON exports or point_cloud/iteration_*/point_cloud.ply layouts
-aura compare-renders outputs/baseline.ppm outputs/splat-demo.ppm --min-psnr 35
-# prints strict JSON MSE/PSNR/SSIM/LPIPS-proxy metrics and exits nonzero if the threshold fails
-aura benchmark-plan
-# prints benchmark and carrier ablation plan JSON
-aura ingest-adapters
-# prints AURA-Ingest sources and their EvidenceSample contracts
+aura reconstruct-demo --frames outputs/training-frames.json --output-dir outputs/reconstruct-demo.aura --iterations 6 --render-backend torch
 python -m pytest
 ```
 
-The native demo package is a schema/contract fixture. It intentionally exercises
-surface, volume, beta, gabor, neural residual, semantic, and Gaussian fallback
-carriers with typed payloads, confidence/edit metadata, semantic object
-relationships, interaction probes, and glTF/USD fallback metadata. It is not a
-renderable research result or a production quality claim.
+## Data Layout
 
-## What AURA Is
-
-An AURA scene should eventually contain:
-
-- **surface carriers** for high-confidence opaque geometry;
-- **volume carriers** for fuzzy, uncertain, translucent, or soft regions;
-- **Beta-like bounded kernels** for compact adaptive local support;
-- **Gabor/frequency carriers** for high-frequency texture;
-- **neural residual carriers** for view-dependent effects;
-- **Gaussian fallback carriers** when vanilla splats are sufficient;
-- **semantic/object carriers** for editing and language/object grouping;
-- **ray-query acceleration** for shadows, reflections, picking, collision, and
-  engine interaction;
-- **asset export** to native `.aura` plus glTF/USD fallbacks.
-
-## Data And Baselines To Download
-
-Keep data and external baselines under ignored `data/` or sibling ignored
-`third_party/` paths. Do not vendor large datasets into the repo.
+Keep datasets and third-party baselines out of git:
 
 ```text
 data/
-  mipnerf360/
-  tanks-and-temples/
-  deep-blending/
-  nerfstudio-fixtures/
-  custom-captures/
+  custom-captures/<scene>/
+    capture-manifest.json
+    images/
+    depth/
+    masks/
+    normals/
+    colmap/
 third_party/
   gaussian-splatting/
   gsplat/
   nerfstudio/
-  colmap-scripts/
 ```
 
-Recommended benchmark/baseline sources:
+Generate capture manifests from COLMAP sparse models when available:
 
-| Source | Purpose |
-| --- | --- |
-| Mip-NeRF 360 | standard novel-view benchmark |
-| Tanks and Temples | larger real scenes and geometry stress |
-| Deep Blending | indoor view synthesis stress |
-| LLFF / nerfstudio fixtures | small smoke scenes |
-| Original 3DGS implementation | baseline/teacher/initializer |
-| gsplat or nerfstudio | practical splat training/rendering baseline |
-| COLMAP | camera poses and sparse point initialization |
-| 3DGRT / EVER / Volumetric 3DGS papers | ray-query and volumetric correctness baselines |
-| Beta/Gabor/Splat-the-Net/Radiance Meshes papers | carrier registry competitors/substrates |
-
-## Expected AURA-Core Milestone
-
-Do not add more 3DGS convenience before the native engine exists. The next
-milestone is a small end-to-end AURA-Core reconstruction path:
-
-1. write or import an `AURA_CAPTURE_MANIFEST` with image/depth/mask/normal paths,
-   camera intrinsics, posed frame summaries, and native seed regions;
-2. convert that manifest into the `AURA_TRAINING_FRAMES` contract;
-3. initialize native AURA evidence cells from those region specs without 3DGS;
-4. replace the current CPU reference prediction with differentiable rendering;
-5. compute image/depth/ray-query losses from real frames;
-6. adaptively split/promote/merge/demote carriers based on residuals and confidence;
-7. optimize native carrier parameters on GPU;
-8. export a native `.aura` package and training report;
-9. compare the result against COLMAP/NeRF/3DGS-style baselines.
+```bash
+aura colmap-to-capture-manifest data/custom-captures/<scene>/colmap \
+  --root data/custom-captures/<scene> \
+  --output outputs/capture-from-colmap.json
+```
 
 ## Repository Map
 
 ```text
 src/aura/
-  asset.py       manifest/capability models
-  assignment.py  evidence-to-carrier selection
-  carriers.py    carrier registry
-  carrier_payloads.py native carrier payload contracts
-  cli.py         fixture CLI
-  decomposition.py evidence samples to mixed native AURA elements
-  elements.py    bounded elements/chunks
-  exchange.py    package-backed glTF/USD exchange target metadata
-  optimize.py    CPU differentiable reference ray samples and gradients
-  package.py     native .aura package writer/loader/validator
-  ray.py         ray and ray-query response contracts
-  render.py      deterministic orthographic preview and image metrics
-  schema.py      native package format and supported schema versions
-  semantic.py    object graph nodes and relationships
-  benchmark.py   benchmark and ablation plan contracts
-  core.py        AURA-Core reconstruction engine contracts
-  scene.py       reference scene query and chunk traversal
-  ingest/
-    baselines.py  3DGS export discovery and import adapter
-    colmap.py     COLMAP binary/text camera/pose/sparse-point manifest importer
-    capture.py    image/depth/mask/normal/camera manifest to AURA-Core training dataset
-    splats.py     JSON/PLY 3DGS evidence reader and AURA conversion
-tests/           contract tests
-docs/            GPU handoff, production handoff, and dataset docs
-docs/schemas/    JSON Schemas for native .aura package files
+  cli.py               command-line training, rendering, ingest, benchmarks
+  core.py              reconstruction contracts and adaptive evolution policy
+  torch_renderer.py    native torch render batches, compositing, objectives
+  torch_optimizer.py   tiled capture optimization and checkpoint snapshots
+  torch_kernels.py     carrier parameter tensors and differentiable responses
+  cuda_renderer.py     CUDA renderer ABI and dispatch boundary
+  cuda/                packaged CUDA and PyTorch extension sources
+  ingest/              capture, COLMAP, 3DGS, depth, and semantic adapters
+  package.py           .aura package IO and validation
+  scene.py             ray-query traversal and response assembly
+tests/                 deterministic contract, optimizer, renderer, CLI tests
+docs/                  handoff notes, datasets, schemas, and research notes
 ```
 
-The `ingest/` package is intentionally an adapter boundary. 3DGS splats are
-converted to `EvidenceSample` records before decomposition, then become
-Gaussian fallback carriers only when the evidence does not justify a stronger
-native carrier. Depth priors, semantic masks, COLMAP sparse points, and future
-PixelSplat/IDESplat adapters are also represented as evidence contracts rather
-than direct renderer-specific elements.
+`src/aura/ingest/` is an adapter boundary. 3DGS exports become `EvidenceSample`
+records and only survive as Gaussian fallback carriers when native carrier
+assignment does not justify a stronger representation.
 
-## Paper Claim Boundary
+## Baselines
 
-Safe claim:
+Use 3DGS, gsplat, nerfstudio, COLMAP, LLFF/nerfstudio fixtures, Mip-NeRF 360,
+Tanks and Temples, and Deep Blending as baselines or datasets. Keep their
+outputs under ignored `data/`, `third_party/`, or `outputs/` directories.
 
-> AURA is a proposed adaptive traceable radiance asset contract for post-3DGS
-> captured scenes.
+## Development Rules
 
-Unsafe claims until implementation exists:
-
-- replacement for 3DGS in quality or speed;
-- physically correct inverse rendering;
-- full PBR material recovery;
-- robust dynamic scenes;
-- real-time renderer complete;
-- engine-ready production format.
+- Keep generated `.aura` packages, datasets, checkpoints, renders, and secrets
+  out of git.
+- Prefer implementation work in renderer, optimizer, CUDA dispatch, carrier
+  evolution, and real benchmarks over new status documents.
+- Prefix commit subjects with the current completion percentage, for example
+  `73% feat: train neural opacity from masks`.
+- Commit as `Archerkattri <krishiattriwork@gmail.com>`.
