@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isinf, log10
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Literal, Sequence
 
 from aura.elements import Bounds
 from aura.ray import Ray, Vec3
@@ -97,6 +97,70 @@ def render_orthographic(
             result = scene.ray_query(Ray(origin=(x, y, z), direction=(0.0, 0.0, 1.0)))
             pixels.append(result.color)
     return RenderImage(width=width, height=height, pixels=tuple(pixels))
+
+
+def render_orthographic_cuda(
+    scene: AuraScene,
+    *,
+    width: int = 64,
+    height: int = 64,
+    bounds: Bounds | None = None,
+    camera_z: float | None = None,
+    fallback_backend: Literal["cpu", "torch", "auto", "none"] = "auto",
+    device: str | None = None,
+    require_cuda: bool = False,
+    threads_per_block: int = 128,
+    max_hits: int = 8,
+    extension: Any | None = None,
+    extension_module: Any | None = None,
+) -> RenderImage:
+    """Render an orthographic preview through the batched CUDA renderer boundary."""
+
+    ray_origins, ray_directions = orthographic_camera_rays(
+        scene,
+        width=width,
+        height=height,
+        bounds=bounds,
+        camera_z=camera_z,
+    )
+    from aura.cuda_renderer import cuda_render_rays
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        fallback_backend=fallback_backend,
+        device=device,
+        require_cuda=require_cuda,
+        threads_per_block=threads_per_block,
+        max_hits=max_hits,
+        extension=extension,
+        extension_module=extension_module,
+    )
+    return RenderImage(width=width, height=height, pixels=batch.color)
+
+
+def orthographic_camera_rays(
+    scene: AuraScene,
+    *,
+    width: int = 64,
+    height: int = 64,
+    bounds: Bounds | None = None,
+    camera_z: float | None = None,
+) -> tuple[tuple[Vec3, ...], tuple[Vec3, ...]]:
+    if width <= 0 or height <= 0:
+        raise ValueError("render dimensions must be positive")
+    frame = bounds or _scene_bounds(scene)
+    z = camera_z if camera_z is not None else frame.min_corner[2] - 1.0
+    origins: list[Vec3] = []
+    directions: list[Vec3] = []
+    for row in range(height):
+        y = _lerp(frame.max_corner[1], frame.min_corner[1], _center_fraction(row, height))
+        for col in range(width):
+            x = _lerp(frame.min_corner[0], frame.max_corner[0], _center_fraction(col, width))
+            origins.append((x, y, z))
+            directions.append((0.0, 0.0, 1.0))
+    return tuple(origins), tuple(directions)
 
 
 def image_mse(left: RenderImage, right: RenderImage) -> float:

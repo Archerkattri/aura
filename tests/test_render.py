@@ -16,6 +16,7 @@ from aura import (
     package_scene,
     read_ppm,
     render_orthographic,
+    render_orthographic_cuda,
 )
 from aura.cli import demo_scene
 
@@ -73,6 +74,18 @@ def test_render_orthographic_uses_ordered_native_compositing():
     image = render_orthographic(scene, width=1, height=1)
 
     assert image.pixel(0, 0) == pytest.approx((0.5, 0.0, 0.25))
+
+
+def test_render_orthographic_cuda_cpu_fallback_matches_cpu_preview():
+    scene = demo_scene()
+
+    image = render_orthographic_cuda(scene, width=4, height=4, fallback_backend="cpu")
+    expected = render_orthographic(scene, width=4, height=4)
+
+    assert image.width == 4
+    assert image.height == 4
+    for pixel, expected_pixel in zip(image.pixels, expected.pixels):
+        assert pixel == pytest.approx(expected_pixel)
 
 
 def test_render_image_writes_ascii_ppm(tmp_path):
@@ -161,6 +174,39 @@ def test_render_cli_alias_writes_preview(tmp_path):
             "4",
             "--height",
             "4",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert str(preview_path) in result.stdout
+    assert preview_path.read_text(encoding="ascii").startswith("P3\n4 4\n255\n")
+
+
+def test_render_cli_can_use_cuda_boundary_cpu_fallback(tmp_path):
+    package_dir = tmp_path / "demo.aura"
+    preview_path = tmp_path / "render_cuda_boundary.ppm"
+    package_scene(demo_scene()).write(package_dir)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "render",
+            str(package_dir),
+            "--output",
+            str(preview_path),
+            "--width",
+            "4",
+            "--height",
+            "4",
+            "--backend",
+            "auto",
+            "--device",
+            "cpu",
         ],
         check=True,
         stdout=subprocess.PIPE,

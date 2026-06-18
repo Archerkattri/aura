@@ -38,7 +38,7 @@ from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
-from aura.render import compare_images, read_ppm, render_orthographic
+from aura.render import compare_images, read_ppm, render_orthographic, render_orthographic_cuda
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
@@ -229,12 +229,14 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("--output", type=Path, default=Path("outputs/preview.ppm"))
     render.add_argument("--width", type=int, default=64)
     render.add_argument("--height", type=int, default=64)
+    _add_render_backend_args(render)
 
     render_native = sub.add_parser("render", help="Render a .aura package to a PPM image")
     render_native.add_argument("package_dir", type=Path)
     render_native.add_argument("--output", type=Path, default=Path("outputs/render.ppm"))
     render_native.add_argument("--width", type=int, default=64)
     render_native.add_argument("--height", type=int, default=64)
+    _add_render_backend_args(render_native)
 
     compare = sub.add_parser("compare-renders", help="Compare two PPM previews and print JSON MSE/PSNR metrics")
     compare.add_argument("expected", type=Path)
@@ -507,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command in {"render-package", "render"}:
         package = load_package(args.package_dir)
-        image = render_orthographic(package.scene, width=args.width, height=args.height)
+        image = _render_package_image(package.scene, args)
         print(image.write_ppm(args.output))
         return 0
     if args.command == "compare-renders":
@@ -635,6 +637,45 @@ def _add_reconstruction_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--demote-after-iteration", type=int, default=3)
     parser.add_argument("--demote-image-loss-threshold", type=float, default=0.045)
     parser.add_argument("--demote-depth-loss-threshold", type=float, default=0.02)
+
+
+def _add_render_backend_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--backend",
+        choices=("cpu", "auto", "torch", "cuda"),
+        default="cpu",
+        help="Render backend; cuda requires the compiled CUDA renderer dispatch",
+    )
+    parser.add_argument("--device", default=None, help="Torch/CUDA render device such as cpu, cuda, or cuda:0")
+    parser.add_argument("--require-cuda", action="store_true", help="Fail unless render dispatch runs through CUDA")
+    parser.add_argument("--threads-per-block", type=int, default=128)
+    parser.add_argument("--max-hits", type=int, default=8)
+
+
+def _render_package_image(scene: AuraScene, args: argparse.Namespace):
+    if args.backend == "cpu":
+        if args.require_cuda:
+            raise SystemExit("--require-cuda cannot be used with --backend cpu")
+        return render_orthographic(scene, width=args.width, height=args.height)
+    if args.backend == "cuda":
+        fallback_backend = "none"
+        require_cuda = True
+    elif args.backend == "torch":
+        fallback_backend = "torch"
+        require_cuda = args.require_cuda
+    else:
+        fallback_backend = "auto"
+        require_cuda = args.require_cuda
+    return render_orthographic_cuda(
+        scene,
+        width=args.width,
+        height=args.height,
+        fallback_backend=fallback_backend,
+        device=args.device,
+        require_cuda=require_cuda,
+        threads_per_block=args.threads_per_block,
+        max_hits=args.max_hits,
+    )
 
 
 def _reconstruction_config_from_args(args: argparse.Namespace) -> ReconstructionConfig:

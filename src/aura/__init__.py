@@ -147,6 +147,7 @@ from aura.render import (
     image_ssim,
     read_ppm,
     render_orthographic,
+    render_orthographic_cuda,
 )
 from aura.runtime_export import RuntimeExportReport, runtime_export_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
@@ -344,6 +345,7 @@ __all__ = [
     "propose_training_regions_from_tensors",
     "read_ppm",
     "render_orthographic",
+    "render_orthographic_cuda",
     "reconstruct_demo_scene",
     "run_ablation_benchmarks",
     "run_capture_reconstruction_benchmark",
