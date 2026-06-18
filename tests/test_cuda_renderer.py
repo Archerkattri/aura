@@ -246,6 +246,69 @@ def test_cuda_renderer_kernel_simulation_uses_payload_specific_carrier_responses
     assert simulation.out_color[0] > 0.0
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_compiled_extension_matches_kernel_simulation_on_cuda():
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    scene = AuraScene(
+        name="cuda_compiled_parity_scene",
+        elements=(
+            AuraElement(
+                id="front_surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                color=(0.9, 0.2, 0.1),
+                opacity=0.75,
+                confidence=0.8,
+                material_id="paint",
+                semantic_id="front",
+                payload={"type": "surface_cell"},
+            ),
+            AuraElement(
+                id="back_residual",
+                carrier_id="neural",
+                bounds=Bounds((-0.5, -0.5, 0.3), (0.5, 0.5, 0.5)),
+                color=(0.1, 0.2, 0.9),
+                opacity=0.5,
+                confidence=0.6,
+                semantic_id="back",
+                payload={"type": "neural_residual", "residual_scale": 0.2},
+            ),
+        ),
+    )
+    ray_origins = ((0.0, 0.0, -1.0), (0.0, 0.0, 0.25), (2.0, 0.0, -1.0))
+    ray_directions = ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0))
+    inputs = cuda_renderer_kernel_inputs(scene, ray_origins, ray_directions, max_hits=2)
+    simulation = simulate_cuda_renderer_kernel(inputs)
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        require_cuda=True,
+        fallback_backend="none",
+        max_hits=2,
+    )
+
+    assert batch.backend == "cuda"
+    assert batch.reason == "compiled_cuda_renderer_python_binding"
+    assert batch.to_dict()["available"] is True
+    assert _flatten_nested(batch.color) == pytest.approx(simulation.out_color)
+    assert batch.opacity == pytest.approx(simulation.out_alpha)
+    assert batch.transmittance == pytest.approx(simulation.out_transmittance)
+    assert tuple(3.402823466e38 if depth is None else depth for depth in batch.depth) == pytest.approx(simulation.out_depth)
+    assert _flatten_nested(tuple((0.0, 0.0, 0.0) if normal is None else normal for normal in batch.normal)) == pytest.approx(
+        simulation.out_normal
+    )
+    assert batch.confidence == pytest.approx(simulation.out_confidence)
+    assert tuple(int(value) for value in batch.residual) == simulation.out_residual
+    assert tuple(hit[0]["kernelElementIndex"] if hit else -1 for hit in batch.ordered_hits) == simulation.first_hit_indices
+
+
 def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
     scene = AuraScene(
         name="cuda_dispatch_contract_test",
@@ -271,6 +334,7 @@ def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
         threads_per_block=64,
         max_hits=2,
         fallback_backend="cpu",
+        extension=_unavailable_extension_status(),
     )
     payload = contract.to_dict()
 
@@ -474,6 +538,23 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
     assert batch.to_dict()["productionReady"] is False
 
 
+def _flatten_nested(values):
+    return tuple(item for row in values for item in row)
+
+
+def _unavailable_extension_status():
+    return CudaExtensionStatus(
+        available=False,
+        build_attempted=False,
+        compiled=False,
+        loadable=False,
+        module_name="aura_cuda_carriers",
+        source_paths=("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays"),
+        reason="build_not_attempted",
+    )
+
+
 def test_cuda_renderer_scene_buffers_reject_unknown_carrier_for_kernel_abi():
     scene = AuraScene(
         name="unsupported_cuda_carrier",
@@ -525,6 +606,7 @@ def test_cuda_render_rays_cpu_fallback_matches_aura_ray_query_contract():
         fallback_backend="cpu",
         threads_per_block=64,
         max_hits=1,
+        extension=_unavailable_extension_status(),
     )
     payload = batch.to_dict()
     expected_hit = scene.traverse_ray(Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)))

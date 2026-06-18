@@ -862,6 +862,7 @@ def cuda_renderer_boundary_report(
             ray_directions=(tuple(float(value) for value in probe_ray_direction),),
             fallback_backend=fallback_backend,
             max_hits=max_hits,
+            extension=extension,
         )
         batch = cuda_render_rays(
             scene,
@@ -869,6 +870,7 @@ def cuda_renderer_boundary_report(
             ray_directions=(tuple(float(value) for value in probe_ray_direction),),
             fallback_backend=fallback_backend,
             max_hits=max_hits,
+            extension=extension,
         )
     except Exception as exc:
         report["fallbackProbe"] = {
