@@ -19,6 +19,7 @@ from aura.optimize import TrainingLossWeights
 from aura.scene import AuraScene
 from aura.training_targets import CapturePackedRenderBatch
 from aura.torch_renderer import (
+    TorchCaptureRenderSummary,
     TorchCaptureTrainingBatch,
     TorchRenderBatch,
     require_torch,
@@ -26,6 +27,7 @@ from aura.torch_renderer import (
     torch_capture_training_batch_from_packed,
     torch_scene_tensors,
     torch_render_capture_training_batch,
+    torch_render_capture_training_summary,
     torch_render_capture_training_objective,
 )
 
@@ -333,7 +335,7 @@ def _optimize_torch_batches(
             )
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
-        iteration_rendered: list[TorchRenderBatch] = []
+        iteration_summaries: list[TorchCaptureRenderSummary] = []
         evolution_enabled = config.evolution_policy is not None and config.evolution_policy.enabled
         checkpoint_due = (
             config.checkpoint_interval is not None
@@ -363,7 +365,16 @@ def _optimize_torch_batches(
                     carrier_parameters=carrier_parameters,
                     scene_tensors=scene_tensors,
                 )
-                if evolution_enabled or checkpoint_due:
+                if evolution_enabled:
+                    iteration_summaries.append(
+                        torch_render_capture_training_summary(
+                            current_scene,
+                            batch,
+                            carrier_parameters=carrier_parameters,
+                            scene_tensors=scene_tensors,
+                        )
+                    )
+                if checkpoint_due:
                     rendered = torch_render_capture_training_batch(
                         current_scene,
                         batch,
@@ -373,7 +384,6 @@ def _optimize_torch_batches(
                 else:
                     rendered = None
             if rendered is not None:
-                iteration_rendered.append(rendered)
                 steps.append(
                     _optimization_step_from_rendered(
                         absolute_iteration,
@@ -407,11 +417,11 @@ def _optimize_torch_batches(
                 )
         if evolution_enabled or checkpoint_due:
             current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
-        if evolution_enabled and iteration_rendered:
+        if evolution_enabled and iteration_summaries:
             predictions = tuple(
                 prediction
-                for batch_rendered in iteration_rendered
-                for prediction in _evolution_predictions_from_rendered(batch_rendered)
+                for summary in iteration_summaries
+                for prediction in _evolution_predictions_from_summary(summary)
             )
             decisions = carrier_evolution_decisions(
                 predictions,
@@ -497,6 +507,31 @@ def _evolution_predictions_from_rendered(rendered: TorchRenderBatch) -> tuple[_T
             rendered.normal_loss,
             rendered.target_color,
         ))
+    )
+
+
+def _evolution_predictions_from_summary(summary: TorchCaptureRenderSummary) -> tuple[_TorchEvolutionPrediction, ...]:
+    return tuple(
+        _TorchEvolutionPrediction(
+            element_id=element_id,
+            carrier_id=carrier_id,
+            image_loss=float(image_loss),
+            depth_loss=float(depth_loss),
+            query_loss=float(query_loss),
+            normal_loss=float(normal_loss),
+            target_color=target_color,
+            target_point=target_point,
+        )
+        for element_id, carrier_id, image_loss, depth_loss, query_loss, normal_loss, target_color, target_point in zip(
+            summary.element_ids,
+            summary.carrier_ids,
+            summary.image_loss,
+            summary.depth_loss,
+            summary.query_loss,
+            summary.normal_loss,
+            summary.target_color,
+            summary.target_point,
+        )
     )
 
 

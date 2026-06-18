@@ -166,6 +166,7 @@ from aura.training_targets import (
 )
 from aura.torch_renderer import (
     TorchCaptureAssetBatch,
+    TorchCaptureRenderSummary,
     TorchCaptureTrainingBatch,
     TorchRenderBatch,
     TorchRenderObjective,
@@ -175,6 +176,7 @@ from aura.torch_renderer import (
     torch_capture_asset_batch,
     torch_capture_training_batch,
     torch_capture_training_batch_from_packed,
+    torch_render_capture_training_summary,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
     torch_render_ray_color_tensor,

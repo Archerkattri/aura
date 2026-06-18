@@ -252,6 +252,89 @@ def test_torch_optimize_capture_batch_avoids_per_step_render_serialization_witho
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_uses_compact_summaries_for_evolution(monkeypatch):
+    scene = AuraScene(
+        name="torch_optimizer_summary_evolution_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(
+                    path="frame.ppm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=3,
+                    values=(1.0, 0.0, 0.0),
+                ),
+                depth=CaptureTensor(
+                    path="frame.pgm",
+                    format="Netpbm",
+                    backend="stdlib",
+                    width=1,
+                    height=1,
+                    channels=1,
+                    values=(2.0,),
+                ),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    original_summary = torch_optimizer_module.torch_render_capture_training_summary
+    original_render = torch_optimizer_module.torch_render_capture_training_batch
+    summary_calls = []
+    render_batch_calls = []
+
+    def counted_summary(*args, **kwargs):
+        summary_calls.append(1)
+        return original_summary(*args, **kwargs)
+
+    def counted_render(*args, **kwargs):
+        render_batch_calls.append(1)
+        return original_render(*args, **kwargs)
+
+    monkeypatch.setattr(torch_optimizer_module, "torch_render_capture_training_summary", counted_summary)
+    monkeypatch.setattr(torch_optimizer_module, "torch_render_capture_training_batch", counted_render)
+
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.05,
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0, query=0.0, normal=0.0, mask=0.0),
+            evolution_policy=CarrierEvolutionPolicy(split_image_loss_threshold=0.0),
+            max_samples_per_batch=1,
+        ),
+    )
+
+    assert summary_calls == [1, 1, 1]
+    assert render_batch_calls == [1]
+    assert any(step.carrier_evolution for step in result.steps)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batch_trains_surface_confidence_from_targets():
     scene = AuraScene(
         name="torch_optimizer_surface_confidence_scene",

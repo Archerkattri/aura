@@ -91,6 +91,32 @@ class TorchRenderBatch:
 
 
 @dataclass(frozen=True)
+class TorchCaptureRenderSummary:
+    device: str
+    element_ids: tuple[str | None, ...]
+    carrier_ids: tuple[str | None, ...]
+    target_color: tuple[tuple[float, float, float], ...]
+    target_point: tuple[tuple[float, float, float] | None, ...]
+    image_loss: tuple[float, ...]
+    depth_loss: tuple[float, ...]
+    query_loss: tuple[float, ...]
+    normal_loss: tuple[float, ...]
+
+    def to_dict(self) -> dict:
+        return {
+            "device": self.device,
+            "elementIds": list(self.element_ids),
+            "carrierIds": list(self.carrier_ids),
+            "targetColor": [list(color) for color in self.target_color],
+            "targetPoint": [list(point) if point is not None else None for point in self.target_point],
+            "imageLoss": list(self.image_loss),
+            "depthLoss": list(self.depth_loss),
+            "queryLoss": list(self.query_loss),
+            "normalLoss": list(self.normal_loss),
+        }
+
+
+@dataclass(frozen=True)
 class TorchRenderObjective:
     device: str
     frame_ids: tuple[str, ...]
@@ -608,6 +634,83 @@ def torch_render_capture_training_batch(
         device=str(batch.ray_origins.device),
         carrier_parameters=carrier_parameters,
         scene_tensors=scene_tensors,
+    )
+
+
+def torch_render_capture_training_summary(
+    scene: AuraScene,
+    batch: TorchCaptureTrainingBatch,
+    *,
+    carrier_parameters: dict[str, dict[str, Any]] | None = None,
+    scene_tensors: TorchSceneTensors | None = None,
+) -> TorchCaptureRenderSummary:
+    """Render compact per-sample training metadata for adaptive evolution."""
+
+    torch = require_torch()
+    if int(batch.frame_indices.numel()) == 0:
+        raise ValueError("torch capture training batch requires at least one target")
+    device = str(batch.ray_origins.device)
+    composited, scene_tensors, element_normals = _torch_composited_scene_rays(
+        torch,
+        scene,
+        batch.ray_origins,
+        batch.ray_directions,
+        device=device,
+        carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
+        collect_traces=False,
+    )
+    has_hit = composited["has_hit"]
+    first_index = composited["first_index"]
+    first_depth = composited["first_depth"]
+    predicted_color = composited["color"]
+    predicted_depth = torch.where(has_hit, first_depth, torch.zeros_like(first_depth))
+    image_loss = torch.mean((predicted_color - batch.target_color) ** 2, dim=1)
+    depth_loss = torch.where(has_hit, torch.abs(predicted_depth - batch.target_depth), batch.target_depth)
+    predicted_normals, predicted_normal_present = _predicted_normal_tensors_from_indices(
+        torch,
+        first_index,
+        has_hit,
+        element_normals,
+        scene_tensors.element_normal_present,
+    )
+    normal_loss = _torch_normal_loss(
+        torch,
+        predicted_normals,
+        predicted_normal_present,
+        batch.target_normal,
+        batch.target_normal_present,
+    )
+    hit_flags = has_hit.detach().cpu().tolist()
+    best_indices = first_index.detach().cpu().tolist()
+    elements = tuple(scene.elements)
+    semantic_ids = tuple(_semantic_id_for(elements[index]) if hit else None for index, hit in zip(best_indices, hit_flags))
+    material_ids = tuple(elements[index].material_id if hit else None for index, hit in zip(best_indices, hit_flags))
+    query_loss = tuple(
+        _query_contract_loss(predicted_semantic, target_semantic, predicted_material, target_material)
+        for predicted_semantic, target_semantic, predicted_material, target_material in zip(
+            semantic_ids,
+            batch.target_semantic_ids,
+            material_ids,
+            batch.target_material_ids,
+        )
+    )
+    target_points = batch.ray_origins + batch.ray_directions * batch.target_depth[:, None]
+    target_point_values = target_points.detach().cpu().tolist()
+    target_depth_values = batch.target_depth.detach().cpu().tolist()
+    return TorchCaptureRenderSummary(
+        device=device,
+        element_ids=tuple(elements[index].id if hit else None for index, hit in zip(best_indices, hit_flags)),
+        carrier_ids=tuple(elements[index].carrier_id if hit else None for index, hit in zip(best_indices, hit_flags)),
+        target_color=_tensor_vec3_tuple(batch.target_color.detach().cpu().tolist()),
+        target_point=tuple(
+            (float(point[0]), float(point[1]), float(point[2])) if float(depth) > 0.0 else None
+            for point, depth in zip(target_point_values, target_depth_values)
+        ),
+        image_loss=tuple(float(value) for value in image_loss.detach().cpu().tolist()),
+        depth_loss=tuple(float(value) for value in depth_loss.detach().cpu().tolist()),
+        query_loss=query_loss,
+        normal_loss=tuple(float(value) for value in normal_loss.detach().cpu().tolist()),
     )
 
 

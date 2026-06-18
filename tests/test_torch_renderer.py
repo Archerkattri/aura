@@ -19,6 +19,7 @@ from aura import (
     torch_carrier_parameter_tensors,
     torch_render_capture_training_batch,
     torch_render_capture_training_objective,
+    torch_render_capture_training_summary,
     torch_render_ray_color_tensor,
     torch_render_rays,
     torch_render_target_objective,
@@ -407,6 +408,62 @@ def test_torch_render_capture_training_batch_matches_render_target_path():
     assert rendered.depth_loss == direct_batch.depth_loss
     assert rendered.target_normal == direct_batch.target_normal
     assert rendered.normal_loss == direct_batch.normal_loss
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_capture_training_summary_skips_full_batch_serialization(monkeypatch):
+    scene = AuraScene(
+        name="torch_capture_summary_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.25, 0.5, 0.75),
+                opacity=0.8,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame_a",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                image_values=(1.0, 0.0, 0.0),
+                depth_values=(2.0,),
+                mask_values=None,
+                normal_values=(0.0, 0.0, -1.0),
+                width=1,
+                height=1,
+            ),
+        ),
+        device="cpu",
+    )
+    capture_batch = torch_capture_training_batch((frame,), assets)
+
+    def fail_full_batch(*_args, **_kwargs):
+        raise AssertionError("capture summary should not build a full render batch")
+
+    monkeypatch.setattr(torch_renderer_module, "_torch_render_tensor_targets", fail_full_batch)
+
+    summary = torch_render_capture_training_summary(scene, capture_batch)
+
+    assert summary.element_ids == ("surface",)
+    assert summary.carrier_ids == ("surface",)
+    assert summary.target_color == ((1.0, 0.0, 0.0),)
+    assert summary.target_point[0] == pytest.approx((0.0, 0.0, 0.0))
+    assert summary.image_loss[0] == pytest.approx(((0.2 - 1.0) ** 2 + 0.4**2 + 0.6**2) / 3.0)
+    assert summary.depth_loss == pytest.approx((0.0,))
+    assert summary.normal_loss == pytest.approx((0.0,))
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
