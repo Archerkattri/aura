@@ -1501,6 +1501,121 @@ def test_torch_gaussian_ellipsoid_invalid_geometry_masks_to_miss():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_carrier_hits_batches_mixed_native_geometry_like_scalar_helpers():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    scene = native_demo_scene()
+    scene_tensors = torch_scene_tensors(scene, device=device, requires_grad=False)
+    origins = torch.tensor(
+        [
+            (0.0, 0.0, -2.0),
+            (0.7, -0.45, -2.0),
+            (-0.65, 0.55, -2.0),
+            (0.35, 0.55, -2.0),
+        ],
+        dtype=torch.float32,
+        device=device,
+    )
+    directions = torch.tensor([(0.0, 0.0, 1.0)] * 4, dtype=torch.float32, device=device)
+
+    entry, exit_depth, hits = torch_renderer_module._torch_carrier_hits(
+        torch,
+        scene.elements,
+        origins,
+        directions,
+        scene_tensors.mins,
+        scene_tensors.maxs,
+        scene_tensors.surface_plane_points,
+        scene_tensors.surface_normals,
+        scene_tensors.gabor_plane_points,
+        scene_tensors.gabor_normals,
+        scene_tensors.gaussian_means,
+        scene_tensors.gaussian_inverse_covariances,
+        scene_tensors.gaussian_support_radius_sq,
+        scene_tensors.beta_support_radii,
+    )
+    base_entry, base_exit, base_hits = torch_renderer_module._torch_aabb_hits(
+        torch,
+        origins,
+        directions,
+        scene_tensors.mins,
+        scene_tensors.maxs,
+    )
+
+    expected_entries = []
+    expected_exits = []
+    expected_hits = []
+    for index, element in enumerate(scene.elements):
+        scalar_entry = base_entry[:, index]
+        scalar_exit = base_exit[:, index]
+        scalar_hits = base_hits[:, index]
+        payload_type = element.payload.get("type")
+        if payload_type == "surface_cell" or element.carrier_id == "surface":
+            surface_entry, surface_exit, surface_hits = torch_renderer_module._torch_surface_plane_hits(
+                torch,
+                origins,
+                directions,
+                scene_tensors.mins[index],
+                scene_tensors.maxs[index],
+                scene_tensors.surface_plane_points[index],
+                scene_tensors.surface_normals[index],
+            )
+            valid = torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
+            scalar_entry = torch.where(valid, surface_entry, scalar_entry)
+            scalar_exit = torch.where(valid, surface_exit, scalar_exit)
+            scalar_hits = torch.where(valid, surface_hits, scalar_hits)
+        elif payload_type == "gabor_frequency":
+            gabor_entry, gabor_exit, gabor_hits = torch_renderer_module._torch_surface_plane_hits(
+                torch,
+                origins,
+                directions,
+                scene_tensors.mins[index],
+                scene_tensors.maxs[index],
+                scene_tensors.gabor_plane_points[index],
+                scene_tensors.gabor_normals[index],
+            )
+            valid = torch.isfinite(gabor_entry) & torch.isfinite(gabor_exit)
+            scalar_entry = torch.where(valid, gabor_entry, scalar_entry)
+            scalar_exit = torch.where(valid, gabor_exit, scalar_exit)
+            scalar_hits = torch.where(valid, gabor_hits, scalar_hits)
+        elif payload_type == "beta_kernel":
+            beta_entry, beta_exit, beta_hits = torch_renderer_module._torch_beta_ellipsoid_hits(
+                torch,
+                origins,
+                directions,
+                (scene_tensors.mins[index] + scene_tensors.maxs[index]) * 0.5,
+                scene_tensors.beta_support_radii[index],
+            )
+            scalar_entry = torch.maximum(base_entry[:, index], beta_entry)
+            scalar_exit = torch.minimum(base_exit[:, index], beta_exit)
+            scalar_hits = base_hits[:, index] & beta_hits & (scalar_exit >= scalar_entry)
+        elif payload_type == "gaussian_fallback":
+            gaussian_entry, gaussian_exit, gaussian_hits = torch_renderer_module._torch_gaussian_ellipsoid_hits(
+                torch,
+                origins,
+                directions,
+                scene_tensors.gaussian_means[index],
+                scene_tensors.gaussian_inverse_covariances[index],
+                scene_tensors.gaussian_support_radius_sq[index],
+            )
+            scalar_entry = torch.maximum(base_entry[:, index], gaussian_entry)
+            scalar_exit = torch.minimum(base_exit[:, index], gaussian_exit)
+            scalar_hits = base_hits[:, index] & gaussian_hits & (scalar_exit >= scalar_entry)
+        expected_entries.append(scalar_entry)
+        expected_exits.append(scalar_exit)
+        expected_hits.append(scalar_hits)
+
+    expected_entry = torch.stack(tuple(expected_entries), dim=1)
+    expected_exit = torch.stack(tuple(expected_exits), dim=1)
+    expected_hit = torch.stack(tuple(expected_hits), dim=1)
+
+    assert hits.tolist() == expected_hit.tolist()
+    assert torch.allclose(torch.nan_to_num(entry, posinf=1.0e9), torch.nan_to_num(expected_entry, posinf=1.0e9))
+    assert torch.allclose(torch.nan_to_num(exit_depth, posinf=1.0e9), torch.nan_to_num(expected_exit, posinf=1.0e9))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_uses_gabor_surface_support_plane():
     scene = AuraScene(
         name="torch_gabor_surface_geometry_scene",

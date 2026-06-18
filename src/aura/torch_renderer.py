@@ -1328,87 +1328,114 @@ def _torch_carrier_hits(
     beta_support_radii: Any,
 ) -> tuple[Any, Any, Any]:
     entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
-    entry_columns = []
-    exit_columns = []
-    hit_columns = []
-    for element_index, element in enumerate(elements):
-        current_entry = entry[:, element_index]
-        current_exit = exit_depth[:, element_index]
-        current_hits = hits[:, element_index]
-        payload_type = element.payload.get("type")
-        if payload_type == "surface_cell" or element.carrier_id == "surface":
-            surface_entry, surface_exit, surface_hits = _torch_surface_plane_hits(
-                torch,
-                origins,
-                directions,
-                mins[element_index],
-                maxs[element_index],
-                surface_plane_points[element_index],
-                surface_normals[element_index],
-            )
-            valid = torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
-            current_hits = torch.where(valid, surface_hits, current_hits)
-            current_entry = torch.where(valid, surface_entry, current_entry)
-            current_exit = torch.where(valid, surface_exit, current_exit)
-        elif payload_type == "gaussian_fallback":
-            gaussian_entry, gaussian_exit, gaussian_hits = _torch_gaussian_ellipsoid_hits(
-                torch,
-                origins,
-                directions,
-                gaussian_means[element_index],
-                gaussian_inverse_covariances[element_index],
-                gaussian_support_radius_sq[element_index],
-            )
-            valid = (
-                torch.isfinite(gaussian_means[element_index]).all()
-                & torch.isfinite(gaussian_inverse_covariances[element_index]).all()
-                & torch.isfinite(gaussian_support_radius_sq[element_index])
-                & (gaussian_support_radius_sq[element_index] > 0.0)
-            )
-            bounded_entry = torch.maximum(entry[:, element_index], gaussian_entry)
-            bounded_exit = torch.minimum(exit_depth[:, element_index], gaussian_exit)
-            bounded_hits = hits[:, element_index] & gaussian_hits & (bounded_exit >= bounded_entry)
-            current_hits = torch.where(valid, bounded_hits, current_hits)
-            current_entry = torch.where(valid, bounded_entry, current_entry)
-            current_exit = torch.where(valid, bounded_exit, current_exit)
-        elif payload_type == "beta_kernel":
-            center = (mins[element_index] + maxs[element_index]) * 0.5
-            beta_entry, beta_exit, beta_hits = _torch_beta_ellipsoid_hits(
-                torch,
-                origins,
-                directions,
-                center,
-                beta_support_radii[element_index],
-            )
-            valid = torch.isfinite(beta_support_radii[element_index]).all() & torch.all(beta_support_radii[element_index] > 0.0)
-            bounded_entry = torch.maximum(entry[:, element_index], beta_entry)
-            bounded_exit = torch.minimum(exit_depth[:, element_index], beta_exit)
-            bounded_hits = hits[:, element_index] & beta_hits & (bounded_exit >= bounded_entry)
-            current_hits = torch.where(valid, bounded_hits, current_hits)
-            current_entry = torch.where(valid, bounded_entry, current_entry)
-            current_exit = torch.where(valid, bounded_exit, current_exit)
-        elif payload_type == "gabor_frequency":
-            gabor_entry, gabor_exit, gabor_hits = _torch_surface_plane_hits(
-                torch,
-                origins,
-                directions,
-                mins[element_index],
-                maxs[element_index],
-                gabor_plane_points[element_index],
-                gabor_normals[element_index],
-            )
-            valid = torch.isfinite(gabor_entry) & torch.isfinite(gabor_exit)
-            current_hits = torch.where(valid, gabor_hits, current_hits)
-            current_entry = torch.where(valid, gabor_entry, current_entry)
-            current_exit = torch.where(valid, gabor_exit, current_exit)
-        entry_columns.append(current_entry)
-        exit_columns.append(current_exit)
-        hit_columns.append(current_hits)
-    return (
-        torch.stack(tuple(entry_columns), dim=1),
-        torch.stack(tuple(exit_columns), dim=1),
-        torch.stack(tuple(hit_columns), dim=1),
+    element_count = len(elements)
+    if element_count == 0:
+        return entry, exit_depth, hits
+
+    payload_types = tuple(str(element.payload.get("type", "")) for element in elements)
+    carrier_ids = tuple(str(element.carrier_id) for element in elements)
+    surface_mask_values = tuple(payload_type == "surface_cell" or carrier_id == "surface" for payload_type, carrier_id in zip(payload_types, carrier_ids))
+    gaussian_mask_values = tuple(payload_type == "gaussian_fallback" for payload_type in payload_types)
+    beta_mask_values = tuple(payload_type == "beta_kernel" for payload_type in payload_types)
+    gabor_mask_values = tuple(payload_type == "gabor_frequency" for payload_type in payload_types)
+    surface_mask = torch.tensor(surface_mask_values, dtype=torch.bool, device=origins.device)
+    gaussian_mask = torch.tensor(gaussian_mask_values, dtype=torch.bool, device=origins.device)
+    beta_mask = torch.tensor(beta_mask_values, dtype=torch.bool, device=origins.device)
+    gabor_mask = torch.tensor(gabor_mask_values, dtype=torch.bool, device=origins.device)
+
+    current_entry = entry
+    current_exit = exit_depth
+    current_hits = hits
+    if any(surface_mask_values):
+        surface_entry, surface_exit, surface_hits, surface_valid = _torch_surface_plane_hits_batched(
+            torch,
+            origins,
+            directions,
+            mins,
+            maxs,
+            surface_plane_points,
+            surface_normals,
+        )
+        active = surface_mask.unsqueeze(0) & surface_valid.unsqueeze(0) & torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
+        current_hits = torch.where(active, surface_hits, current_hits)
+        current_entry = torch.where(active, surface_entry, current_entry)
+        current_exit = torch.where(active, surface_exit, current_exit)
+    if any(gaussian_mask_values):
+        gaussian_entry, gaussian_exit, gaussian_hits, gaussian_valid = _torch_gaussian_ellipsoid_hits_batched(
+            torch,
+            origins,
+            directions,
+            gaussian_means,
+            gaussian_inverse_covariances,
+            gaussian_support_radius_sq,
+        )
+        bounded_entry = torch.maximum(entry, gaussian_entry)
+        bounded_exit = torch.minimum(exit_depth, gaussian_exit)
+        bounded_hits = hits & gaussian_hits & (bounded_exit >= bounded_entry)
+        active = gaussian_mask.unsqueeze(0) & gaussian_valid.unsqueeze(0)
+        current_hits = torch.where(active, bounded_hits, current_hits)
+        current_entry = torch.where(active, bounded_entry, current_entry)
+        current_exit = torch.where(active, bounded_exit, current_exit)
+    if any(beta_mask_values):
+        beta_entry, beta_exit, beta_hits, beta_valid = _torch_beta_ellipsoid_hits_batched(
+            torch,
+            origins,
+            directions,
+            (mins + maxs) * 0.5,
+            beta_support_radii,
+        )
+        bounded_entry = torch.maximum(entry, beta_entry)
+        bounded_exit = torch.minimum(exit_depth, beta_exit)
+        bounded_hits = hits & beta_hits & (bounded_exit >= bounded_entry)
+        active = beta_mask.unsqueeze(0) & beta_valid.unsqueeze(0)
+        current_hits = torch.where(active, bounded_hits, current_hits)
+        current_entry = torch.where(active, bounded_entry, current_entry)
+        current_exit = torch.where(active, bounded_exit, current_exit)
+    if any(gabor_mask_values):
+        gabor_entry, gabor_exit, gabor_hits, gabor_valid = _torch_surface_plane_hits_batched(
+            torch,
+            origins,
+            directions,
+            mins,
+            maxs,
+            gabor_plane_points,
+            gabor_normals,
+        )
+        active = gabor_mask.unsqueeze(0) & gabor_valid.unsqueeze(0) & torch.isfinite(gabor_entry) & torch.isfinite(gabor_exit)
+        current_hits = torch.where(active, gabor_hits, current_hits)
+        current_entry = torch.where(active, gabor_entry, current_entry)
+        current_exit = torch.where(active, gabor_exit, current_exit)
+    return current_entry, current_exit, current_hits
+
+
+def _torch_surface_plane_hits_batched(
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    mins: Any,
+    maxs: Any,
+    plane_points: Any,
+    normals: Any,
+) -> tuple[Any, Any, Any, Any]:
+    ray_count = int(origins.shape[0])
+    element_count = int(mins.shape[0])
+    invalid_entry = torch.full((ray_count, element_count), float("inf"), dtype=origins.dtype, device=origins.device)
+    valid_surface = torch.isfinite(plane_points).all(dim=1) & torch.isfinite(normals).all(dim=1)
+    safe_plane_points = torch.where(torch.isfinite(plane_points), plane_points, torch.zeros_like(plane_points))
+    safe_normals = torch.where(
+        torch.isfinite(normals).all(dim=1, keepdim=True),
+        normals,
+        torch.tensor((0.0, 0.0, 1.0), dtype=normals.dtype, device=normals.device).reshape(1, 3).expand_as(normals),
     )
+    denom = torch.sum(directions[:, None, :] * safe_normals[None, :, :], dim=2)
+    numerator = torch.sum((safe_plane_points[None, :, :] - origins[:, None, :]) * safe_normals[None, :, :], dim=2)
+    parallel = torch.abs(denom) < 1e-8
+    depth = numerator / torch.where(parallel, torch.ones_like(denom), denom)
+    points = origins[:, None, :] + directions[:, None, :] * depth.unsqueeze(2)
+    inside = torch.all((points >= mins[None, :, :] - 1e-5) & (points <= maxs[None, :, :] + 1e-5), dim=2)
+    hits = valid_surface.unsqueeze(0) & (~parallel) & (depth >= 0.0) & inside
+    safe_depth = torch.where(hits, depth, invalid_entry)
+    return safe_depth, safe_depth, hits, valid_surface
 
 
 def _torch_surface_plane_hits(
@@ -1468,6 +1495,54 @@ def _torch_gaussian_ellipsoid_hits(
     return entry, exit_depth, hits
 
 
+def _torch_gaussian_ellipsoid_hits_batched(
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    means: Any,
+    inverse_covariances: Any,
+    support_radius_sq: Any,
+) -> tuple[Any, Any, Any, Any]:
+    ray_count = int(origins.shape[0])
+    element_count = int(means.shape[0])
+    invalid_entry = torch.full((ray_count, element_count), float("inf"), dtype=origins.dtype, device=origins.device)
+    identity = torch.eye(3, dtype=inverse_covariances.dtype, device=inverse_covariances.device).reshape(1, 3, 3).expand_as(inverse_covariances)
+    valid_gaussian = (
+        torch.isfinite(means).all(dim=1)
+        & torch.isfinite(inverse_covariances).reshape(element_count, -1).all(dim=1)
+        & torch.isfinite(support_radius_sq)
+        & (support_radius_sq > 0.0)
+    )
+    safe_means = torch.where(torch.isfinite(means), means, torch.zeros_like(means))
+    safe_inverse_covariances = torch.where(torch.isfinite(inverse_covariances), inverse_covariances, identity)
+    safe_support_radius_sq = torch.where(
+        torch.isfinite(support_radius_sq) & (support_radius_sq > 0.0),
+        support_radius_sq,
+        torch.ones_like(support_radius_sq),
+    )
+
+    delta = origins[:, None, :] - safe_means[None, :, :]
+    inv_directions = torch.einsum("rd,edk->rek", directions, safe_inverse_covariances)
+    inv_delta = torch.einsum("red,edk->rek", delta, safe_inverse_covariances)
+    a = torch.sum(inv_directions * directions[:, None, :], dim=2)
+    b = 2.0 * torch.sum(inv_delta * directions[:, None, :], dim=2)
+    c = torch.sum(inv_delta * delta, dim=2) - safe_support_radius_sq.unsqueeze(0)
+    discriminant = b * b - 4.0 * a * c
+    valid = (a > 1e-8) & (discriminant >= 0.0)
+    sqrt_discriminant = torch.sqrt(torch.clamp(discriminant, min=0.0))
+    denom = torch.clamp(2.0 * a, min=1e-8)
+    near = (-b - sqrt_discriminant) / denom
+    far = (-b + sqrt_discriminant) / denom
+    entry = torch.where(near >= 0.0, near, torch.zeros_like(near))
+    hits = valid_gaussian.unsqueeze(0) & valid & (far >= 0.0) & (entry >= 0.0)
+    return (
+        torch.where(hits, entry, invalid_entry),
+        torch.where(hits, torch.clamp(far, min=0.0), invalid_entry),
+        hits,
+        valid_gaussian,
+    )
+
+
 def _torch_beta_ellipsoid_hits(
     torch: Any,
     origins: Any,
@@ -1498,6 +1573,46 @@ def _torch_beta_ellipsoid_hits(
         torch.where(hits, entry, invalid_entry),
         torch.where(hits, exit_depth, invalid_entry),
         hits,
+    )
+
+
+def _torch_beta_ellipsoid_hits_batched(
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    centers: Any,
+    support_radii: Any,
+) -> tuple[Any, Any, Any, Any]:
+    ray_count = int(origins.shape[0])
+    element_count = int(centers.shape[0])
+    invalid_entry = torch.full((ray_count, element_count), float("inf"), dtype=origins.dtype, device=origins.device)
+    valid_beta = torch.isfinite(centers).all(dim=1) & torch.isfinite(support_radii).all(dim=1) & torch.all(support_radii > 0.0, dim=1)
+    safe_centers = torch.where(torch.isfinite(centers), centers, torch.zeros_like(centers))
+    safe_support_radii = torch.where(
+        torch.isfinite(support_radii) & (support_radii > 0.0),
+        support_radii,
+        torch.ones_like(support_radii),
+    )
+
+    scaled_origin = (origins[:, None, :] - safe_centers[None, :, :]) / safe_support_radii[None, :, :]
+    scaled_direction = directions[:, None, :] / safe_support_radii[None, :, :]
+    a = torch.sum(scaled_direction * scaled_direction, dim=2)
+    b = 2.0 * torch.sum(scaled_origin * scaled_direction, dim=2)
+    c = torch.sum(scaled_origin * scaled_origin, dim=2) - 1.0
+    discriminant = b * b - 4.0 * a * c
+    valid = (a > 1e-8) & (discriminant >= 0.0)
+    sqrt_discriminant = torch.sqrt(torch.clamp(discriminant, min=0.0))
+    denom = torch.where(a.abs() > 1e-8, 2.0 * a, torch.ones_like(a))
+    near = (-b - sqrt_discriminant) / denom
+    far = (-b + sqrt_discriminant) / denom
+    entry = torch.clamp(torch.minimum(near, far), min=0.0)
+    exit_depth = torch.maximum(near, far)
+    hits = valid_beta.unsqueeze(0) & valid & (exit_depth >= entry)
+    return (
+        torch.where(hits, entry, invalid_entry),
+        torch.where(hits, exit_depth, invalid_entry),
+        hits,
+        valid_beta,
     )
 
 
