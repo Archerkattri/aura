@@ -24,9 +24,8 @@ from aura.scene import BVH_CHUNK_THRESHOLD, AuraScene
 from aura.semantic import SemanticGraph
 from aura.torch_optimizer import TorchOptimizationConfig, torch_optimize_capture_batches
 from aura.torch_renderer import (
-    TorchRenderBatch,
     torch_capture_training_batch_from_packed,
-    torch_render_capture_training_batch,
+    torch_render_capture_training_summary,
 )
 from aura.training_targets import capture_tensors_to_packed_render_batches, plan_capture_tensor_sampling
 from aura.cuda_kernels import cuda_renderer_report
@@ -592,8 +591,8 @@ def _evaluate_capture_scene_predictions(
     device: str | None,
 ) -> dict:
     render_start = perf_counter()
-    rendered_batches = tuple(
-        torch_render_capture_training_batch(
+    summaries = tuple(
+        torch_render_capture_training_summary(
             scene,
             torch_capture_training_batch_from_packed(packed_batch, device=device),
         )
@@ -601,26 +600,25 @@ def _evaluate_capture_scene_predictions(
         if packed_batch.target_count > 0
     )
     render_seconds = perf_counter() - render_start
-    if not rendered_batches:
+    if not summaries:
         raise ValueError("capture evaluation requires at least one rendered batch")
-    predicted_colors = tuple(color for batch in rendered_batches for color in batch.predicted_color)
-    target_colors = tuple(color for batch in rendered_batches for color in batch.target_color)
+    predicted_colors = tuple(color for summary in summaries for color in summary.predicted_color)
+    target_colors = tuple(color for summary in summaries for color in summary.target_color)
     target_count = len(target_colors)
     predicted_image = RenderImage(width=target_count, height=1, pixels=predicted_colors)
     target_image = RenderImage(width=target_count, height=1, pixels=target_colors)
     metrics = compare_images(target_image, predicted_image)
     depth_errors = tuple(
         abs((predicted if predicted is not None else 0.0) - target)
-        for batch in rendered_batches
-        for predicted, target in zip(batch.predicted_depth, batch.target_depth)
+        for summary in summaries
+        for predicted, target in zip(summary.predicted_depth, summary.target_depth)
     )
-    normal_losses = tuple(value for batch in rendered_batches for value in batch.normal_loss)
-    transmittance = tuple(value for batch in rendered_batches for value in batch.transmittance)
-    trace_lengths = tuple(len(trace) for batch in rendered_batches for trace in batch.ordered_hits)
-    hit_count = sum(1 for batch in rendered_batches for element_id in batch.element_ids if element_id is not None)
+    normal_losses = tuple(value for summary in summaries for value in summary.normal_loss)
+    transmittance = tuple(value for summary in summaries for value in summary.transmittance)
+    hit_count = sum(1 for summary in summaries for element_id in summary.element_ids if element_id is not None)
     return {
         "label": label,
-        "device": rendered_batches[0].device,
+        "device": summaries[0].device,
         "sampleCount": target_count,
         "renderSeconds": render_seconds,
         "samplesPerSecond": 0.0 if render_seconds <= 0.0 else target_count / render_seconds,
@@ -628,8 +626,9 @@ def _evaluate_capture_scene_predictions(
         "depthMeanAbsoluteError": _mean(depth_errors),
         "normalLossMean": _mean(normal_losses),
         "hitRate": 0.0 if target_count == 0 else hit_count / target_count,
-        "orderedTraceMeanLength": _mean(trace_lengths),
+        "orderedTraceMeanLength": 0.0,
         "transmittanceMean": _mean(transmittance),
+        "evaluationSummary": "compact_trace_free_capture_summary",
     }
 
 
@@ -719,16 +718,16 @@ def _capture_ray_query_expectations(
         if packed_batch.target_count <= 0:
             continue
         torch_batch = torch_capture_training_batch_from_packed(packed_batch, device=device)
-        rendered = torch_render_capture_training_batch(scene, torch_batch)
+        summary = torch_render_capture_training_summary(scene, torch_batch)
         for index, (origin, direction, element_id, carrier_id, depth, transmittance, normal) in enumerate(
             zip(
-                rendered.ray_origins,
-                rendered.ray_directions,
-                rendered.element_ids,
-                rendered.carrier_ids,
-                rendered.predicted_depth,
-                rendered.transmittance,
-                rendered.normal,
+                summary.ray_origins,
+                summary.ray_directions,
+                summary.element_ids,
+                summary.carrier_ids,
+                summary.predicted_depth,
+                summary.transmittance,
+                summary.normal,
             )
         ):
             expectations.append(

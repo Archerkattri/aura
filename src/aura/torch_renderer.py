@@ -93,9 +93,16 @@ class TorchRenderBatch:
 @dataclass(frozen=True)
 class TorchCaptureRenderSummary:
     device: str
+    ray_origins: tuple[tuple[float, float, float], ...]
+    ray_directions: tuple[tuple[float, float, float], ...]
     element_ids: tuple[str | None, ...]
     carrier_ids: tuple[str | None, ...]
+    predicted_color: tuple[tuple[float, float, float], ...]
+    predicted_depth: tuple[float | None, ...]
+    transmittance: tuple[float, ...]
+    normal: tuple[tuple[float, float, float] | None, ...]
     target_color: tuple[tuple[float, float, float], ...]
+    target_depth: tuple[float, ...]
     target_point: tuple[tuple[float, float, float] | None, ...]
     image_loss: tuple[float, ...]
     depth_loss: tuple[float, ...]
@@ -105,9 +112,16 @@ class TorchCaptureRenderSummary:
     def to_dict(self) -> dict:
         return {
             "device": self.device,
+            "rayOrigins": [list(origin) for origin in self.ray_origins],
+            "rayDirections": [list(direction) for direction in self.ray_directions],
             "elementIds": list(self.element_ids),
             "carrierIds": list(self.carrier_ids),
+            "predictedColor": [list(color) for color in self.predicted_color],
+            "predictedDepth": list(self.predicted_depth),
+            "transmittance": list(self.transmittance),
+            "normal": [list(normal) if normal is not None else None for normal in self.normal],
             "targetColor": [list(color) for color in self.target_color],
+            "targetDepth": list(self.target_depth),
             "targetPoint": [list(point) if point is not None else None for point in self.target_point],
             "imageLoss": list(self.image_loss),
             "depthLoss": list(self.depth_loss),
@@ -681,6 +695,7 @@ def torch_render_capture_training_summary(
         batch.target_normal,
         batch.target_normal_present,
     )
+    output_normals = _optional_target_normal_tuple(predicted_normals, predicted_normal_present)
     hit_flags = has_hit.detach().cpu().tolist()
     best_indices = first_index.detach().cpu().tolist()
     elements = tuple(scene.elements)
@@ -700,9 +715,16 @@ def torch_render_capture_training_summary(
     target_depth_values = batch.target_depth.detach().cpu().tolist()
     return TorchCaptureRenderSummary(
         device=device,
+        ray_origins=_tensor_vec3_tuple(batch.ray_origins.detach().cpu().tolist()),
+        ray_directions=_tensor_vec3_tuple(batch.ray_directions.detach().cpu().tolist()),
         element_ids=tuple(elements[index].id if hit else None for index, hit in zip(best_indices, hit_flags)),
         carrier_ids=tuple(elements[index].carrier_id if hit else None for index, hit in zip(best_indices, hit_flags)),
+        predicted_color=_tensor_vec3_tuple(predicted_color.detach().cpu().tolist()),
+        predicted_depth=tuple(float(value) if hit else None for value, hit in zip(predicted_depth.detach().cpu().tolist(), hit_flags)),
+        transmittance=tuple(float(value) for value in composited["transmittance"].detach().cpu().tolist()),
+        normal=output_normals,
         target_color=_tensor_vec3_tuple(batch.target_color.detach().cpu().tolist()),
+        target_depth=tuple(float(value) for value in batch.target_depth.detach().cpu().tolist()),
         target_point=tuple(
             (float(point[0]), float(point[1]), float(point[2])) if float(depth) > 0.0 else None
             for point, depth in zip(target_point_values, target_depth_values)
