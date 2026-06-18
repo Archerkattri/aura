@@ -525,6 +525,15 @@ def _optimize_torch_batches(
             weighted_loss = _weighted_torch_loss(objective, config.loss_weights)
             weighted_loss.backward()
 
+            # Replace non-finite gradients with zero so a degenerate carrier
+            # (e.g. a near-singular covariance) cannot drive its parameters to
+            # NaN/Inf and destabilise the whole optimisation.
+            for fields in carrier_parameters.values():
+                for parameter in fields.values():
+                    grad = getattr(parameter, "grad", None)
+                    if grad is not None:
+                        torch.nan_to_num_(grad, nan=0.0, posinf=0.0, neginf=0.0)
+
             if use_adam and adam_optimizer is not None:
                 # Clip gradients before Adam step
                 all_params = [p for fields in carrier_parameters.values() for p in fields.values()]
@@ -911,19 +920,31 @@ def _scene_from_carrier_parameters(
         bounds = element.bounds
         normal = element.normal
         payload = dict(element.payload)
+        # Guard against non-finite optimized parameters (a carrier whose params
+        # diverged to NaN/Inf keeps its last valid values). Without this, a
+        # single NaN bound poisons the chunk union and corrupts the package.
         if "min_corner" in fields and "max_corner" in fields:
             min_corner = _tensor_vec3(fields["min_corner"])
             max_corner = _tensor_vec3(fields["max_corner"])
-            bounds = Bounds(min_corner=min_corner, max_corner=max_corner)
+            if _all_finite(min_corner) and _all_finite(max_corner):
+                bounds = Bounds(min_corner=min_corner, max_corner=max_corner)
         if "plane_point" in fields:
-            payload["plane_point"] = list(_tensor_vec3(fields["plane_point"]))
+            plane_point = _tensor_vec3(fields["plane_point"])
+            if _all_finite(plane_point):
+                payload["plane_point"] = list(plane_point)
         if "normal" in fields:
-            normal = _normalized_vec3(_tensor_vec3(fields["normal"]))
-            payload["normal"] = list(normal)
+            candidate_normal = _tensor_vec3(fields["normal"])
+            if _all_finite(candidate_normal):
+                normal = _normalized_vec3(candidate_normal)
+                payload["normal"] = list(normal)
         if "gaussian_mean" in fields:
-            payload["mean"] = list(_tensor_vec3(fields["gaussian_mean"]))
+            mean = _tensor_vec3(fields["gaussian_mean"])
+            if _all_finite(mean):
+                payload["mean"] = list(mean)
         if "color" in fields:
-            color = _tensor_vec3(fields["color"])
+            candidate_color = _tensor_vec3(fields["color"])
+            if _all_finite(candidate_color):
+                color = candidate_color
         if "opacity" in fields:
             opacity = _clamp_unit(_tensor_scalar(fields["opacity"]))
             if payload.get("type") in {"volume_cell", "neural_residual"}:
@@ -1081,6 +1102,11 @@ def _tensor_scalar(value: Any) -> float:
 def _tensor_vec3(value: Any) -> tuple[float, float, float]:
     items = value.detach().cpu().tolist()
     return (float(items[0]), float(items[1]), float(items[2]))
+
+
+def _all_finite(values: Sequence[float]) -> bool:
+    """True when every component is a finite number (no NaN/Inf)."""
+    return all(isfinite(float(item)) for item in values)
 
 
 def _normalized_vec3(value: tuple[float, float, float]) -> tuple[float, float, float]:

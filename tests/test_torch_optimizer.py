@@ -2119,3 +2119,44 @@ def test_torch_recovery_phase_after_opacity_reset():
     # Steps after reset should be in recovery (iteration 3, 4 -> step indices 3, 4)
     recovery_steps = [s for s in result.steps if s.recovery_phase]
     assert len(recovery_steps) > 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_scene_materialization_keeps_finite_bounds_when_params_diverge():
+    """A carrier whose optimized bounds went NaN must keep its last valid bounds
+    so the chunk union (and the written package) stays finite/valid."""
+    import torch
+    from aura.torch_optimizer import _scene_from_carrier_parameters, _all_finite
+
+    assert _all_finite((1.0, 2.0, 3.0)) is True
+    assert _all_finite((1.0, float("nan"), 3.0)) is False
+    assert _all_finite((float("inf"), 0.0, 0.0)) is False
+
+    scene = AuraScene(
+        name="nan_guard",
+        elements=(
+            AuraElement(
+                id="g", carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 1.0), (1.0, 1.0, 3.0)),
+                color=(0.5, 0.5, 0.5), opacity=0.8, confidence=1.0,
+                payload={"type": "gaussian_fallback", "mean": [0.0, 0.0, 2.0],
+                         "covariance": [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]},
+            ),
+        ),
+    )
+    nan = float("nan")
+    carrier_parameters = {
+        "g": {
+            "min_corner": torch.tensor([nan, nan, 1.0]),
+            "max_corner": torch.tensor([1.0, 1.0, 3.0]),
+            "gaussian_mean": torch.tensor([nan, 0.0, 2.0]),
+        }
+    }
+    out = _scene_from_carrier_parameters(scene, carrier_parameters)
+    el = out.elements[0]
+    # NaN-divergent bounds/mean are rejected; the original valid values survive.
+    assert _all_finite(el.bounds.min_corner) and _all_finite(el.bounds.max_corner)
+    assert _all_finite(el.payload["mean"])
+    # Chunk bounds (the union) are therefore finite too.
+    for chunk in out.chunks:
+        assert _all_finite(chunk.bounds.min_corner) and _all_finite(chunk.bounds.max_corner)
