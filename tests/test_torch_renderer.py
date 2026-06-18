@@ -896,6 +896,51 @@ def test_torch_render_target_objective_backpropagates_carrier_parameters():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_uses_shared_composited_scene_rays(monkeypatch):
+    scene = AuraScene(
+        name="torch_objective_shared_compositor_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.25, 0.5, 0.75),
+                opacity=0.8,
+                confidence=0.5,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    original_compositor = torch_renderer_module._torch_composited_scene_rays
+    calls = []
+
+    def counted_compositor(*args, **kwargs):
+        calls.append(kwargs.get("collect_traces"))
+        return original_compositor(*args, **kwargs)
+
+    monkeypatch.setattr(torch_renderer_module, "_torch_composited_scene_rays", counted_compositor)
+
+    objective = torch_render_target_objective(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+    )
+    objective.total_loss.backward()
+
+    assert calls == [False]
+    assert objective.total_loss.detach().cpu().item() > 0.0
+    assert objective.carrier_parameters["surface"]["color"].grad is not None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_target_objective_backpropagates_confidence_target():
     scene = AuraScene(
         name="torch_confidence_objective_scene",

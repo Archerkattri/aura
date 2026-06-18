@@ -1290,63 +1290,17 @@ def _torch_render_objective_tensor_targets(
     if target_confidence_present is None:
         target_confidence_present = torch.zeros((len(frame_ids),), dtype=torch.bool, device=device)
 
-    scene_tensors = _resolve_scene_tensors(scene, scene_tensors=scene_tensors, device=device)
-    colors = scene_tensors.colors
-    opacities = scene_tensors.opacities
-    confidences = scene_tensors.confidences
-    carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
-    (
-        mins,
-        maxs,
-        surface_plane_points,
-        gabor_plane_points,
-        gaussian_means,
-        gaussian_inverse_covariances,
-        beta_support_radii,
-        surface_normals,
-        gabor_normals,
-        element_normals,
-    ) = _torch_geometry_from_carrier_parameters(
+    composited, scene_tensors, element_normals = _torch_composited_scene_rays(
         torch,
-        tuple(scene.elements),
-        carrier_parameters,
-        scene_tensors.mins,
-        scene_tensors.maxs,
-        scene_tensors.surface_plane_points,
-        scene_tensors.gabor_plane_points,
-        scene_tensors.gaussian_means,
-        scene_tensors.gaussian_inverse_covariances,
-        scene_tensors.beta_support_radii,
-        scene_tensors.surface_normals,
-        scene_tensors.gabor_normals,
-        scene_tensors.element_normals,
-    )
-
-    composited = _torch_composite_carrier_hits(
-        torch,
-        tuple(scene.elements),
+        scene,
         origins,
         directions,
-        mins,
-        maxs,
-        colors,
-        opacities,
-        confidences,
-        scene_tensors.chunk_mins,
-        scene_tensors.chunk_maxs,
-        scene_tensors.element_chunk_indices,
-        surface_plane_points,
-        surface_normals,
-        gabor_plane_points,
-        gabor_normals,
-        gaussian_means,
-        gaussian_inverse_covariances,
-        scene_tensors.gaussian_support_radius_sq,
-        beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
+        scene_tensors=scene_tensors,
         collect_traces=False,
     )
+    carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
     has_hit = composited["has_hit"]
     first_index = composited["first_index"]
     first_depth = composited["first_depth"]
