@@ -153,18 +153,21 @@ def render_orthographic_torch(
 ) -> RenderImage:
     """Render an orthographic preview through the native tensor torch renderer."""
 
-    from aura.torch_renderer import torch_render_rays, torch_renderer_status
+    from aura.torch_renderer import require_torch, torch_render_rays, torch_renderer_status
 
     status = torch_renderer_status()
     resolved_device = device or status.default_device or "cpu"
     if require_cuda and not str(resolved_device).startswith("cuda"):
         raise RuntimeError("torch orthographic render requires a CUDA torch device")
-    ray_origins, ray_directions = orthographic_camera_rays(
+    torch = require_torch()
+    ray_origins, ray_directions = _orthographic_camera_ray_tensors(
+        torch,
         scene,
         width=width,
         height=height,
         bounds=bounds,
         camera_z=camera_z,
+        device=str(resolved_device),
     )
 
     batch = torch_render_rays(
@@ -176,6 +179,32 @@ def render_orthographic_torch(
         scene_tensors=scene_tensors,
     )
     return RenderImage(width=width, height=height, pixels=batch.predicted_color)
+
+
+def _orthographic_camera_ray_tensors(
+    torch: Any,
+    scene: AuraScene,
+    *,
+    width: int = 64,
+    height: int = 64,
+    bounds: Bounds | None = None,
+    camera_z: float | None = None,
+    device: str,
+) -> tuple[Any, Any]:
+    if width <= 0 or height <= 0:
+        raise ValueError("render dimensions must be positive")
+    frame = bounds or _scene_bounds(scene)
+    z = camera_z if camera_z is not None else frame.min_corner[2] - 1.0
+    x_fraction = (torch.arange(width, dtype=torch.float32, device=device) + 0.5) / float(width)
+    y_fraction = (torch.arange(height, dtype=torch.float32, device=device) + 0.5) / float(height)
+    x_values = float(frame.min_corner[0]) + (float(frame.max_corner[0]) - float(frame.min_corner[0])) * x_fraction
+    y_values = float(frame.max_corner[1]) + (float(frame.min_corner[1]) - float(frame.max_corner[1])) * y_fraction
+    y_grid, x_grid = torch.meshgrid(y_values, x_values, indexing="ij")
+    z_values = torch.full_like(x_grid, float(z))
+    origins = torch.stack((x_grid, y_grid, z_values), dim=2).reshape(width * height, 3)
+    directions = torch.zeros((width * height, 3), dtype=torch.float32, device=device)
+    directions[:, 2] = 1.0
+    return origins.contiguous(), directions.contiguous()
 
 
 def orthographic_camera_rays(

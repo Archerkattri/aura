@@ -3,6 +3,7 @@ import subprocess
 import sys
 
 import pytest
+import aura.render as render_module
 
 from aura import (
     AuraElement,
@@ -114,6 +115,35 @@ def test_render_orthographic_torch_matches_cpu_preview():
     assert image.height == 3
     for pixel, expected_pixel in zip(image.pixels, expected.pixels):
         assert pixel == pytest.approx(expected_pixel)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_render_orthographic_torch_builds_rays_as_tensors(monkeypatch):
+    scene = AuraScene(
+        name="torch_tensor_grid_preview",
+        elements=(
+            AuraElement(
+                id="red",
+                carrier_id="surface",
+                bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+
+    def fail_python_ray_grid(*_args, **_kwargs):
+        raise AssertionError("torch orthographic render should not build Python ray tuples")
+
+    monkeypatch.setattr(render_module, "orthographic_camera_rays", fail_python_ray_grid)
+
+    image = render_orthographic_torch(scene, width=2, height=2, device="cpu")
+
+    assert image.width == 2
+    assert image.height == 2
+    assert all(pixel == pytest.approx((1.0, 0.0, 0.0)) for pixel in image.pixels)
 
 
 def test_render_image_writes_ascii_ppm(tmp_path):
