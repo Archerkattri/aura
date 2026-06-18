@@ -933,10 +933,14 @@ def test_gaussian_fallback_kernel_keeps_color_opacity_confidence_differentiable(
     assert carrier_parameters["gaussian"]["color"].grad is not None
     assert carrier_parameters["gaussian"]["opacity"].grad is not None
     assert carrier_parameters["gaussian"]["confidence"].grad is not None
+    assert carrier_parameters["gaussian"]["gaussian_mean"].grad is not None
     assert carrier_parameters["gaussian"]["gaussian_covariance_diag"].grad is not None
     assert carrier_parameters["gaussian"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
     assert carrier_parameters["gaussian"]["opacity"].grad.item() == pytest.approx(-0.882497)
     assert carrier_parameters["gaussian"]["confidence"].grad.item() == pytest.approx(0.882497)
+    assert carrier_parameters["gaussian"]["gaussian_mean"].grad[0].item() > 0.0
+    assert carrier_parameters["gaussian"]["gaussian_mean"].grad[1].item() == pytest.approx(0.0)
+    assert carrier_parameters["gaussian"]["gaussian_mean"].grad[2].item() == pytest.approx(0.0)
     assert torch.all(torch.isfinite(carrier_parameters["gaussian"]["gaussian_covariance_diag"].grad))
     assert colors.grad is None
     assert opacities.grad is None

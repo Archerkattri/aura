@@ -1171,6 +1171,54 @@ def test_torch_render_targets_uses_trainable_gaussian_covariance():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_trainable_gaussian_mean():
+    import torch
+
+    scene = AuraScene(
+        name="torch_gaussian_trainable_mean_scene",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.5],
+                    "covariance": [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]],
+                    "support_sigma": 1.0,
+                },
+            ),
+        ),
+    )
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+    carrier_parameters["gaussian"]["gaussian_mean"] = torch.tensor(
+        [0.5, 0.0, 0.5],
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+
+    batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.5, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+
+    assert batch.element_ids == ("gaussian",)
+    assert batch.predicted_depth == pytest.approx((2.4,))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_uses_gabor_surface_support_plane():
     scene = AuraScene(
         name="torch_gabor_surface_geometry_scene",

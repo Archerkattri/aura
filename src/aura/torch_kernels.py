@@ -97,7 +97,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
         TorchCarrierKernelSpec(
             payload_type="gaussian_fallback",
             carrier_id="gaussian",
-            differentiable_fields=("color", "opacity", "confidence"),
+            differentiable_fields=("color", "opacity", "confidence", "gaussian_mean", "gaussian_covariance_diag"),
             description="Gaussian fallback torch autograd kernel for evidence that does not justify a native carrier; CUDA production kernel is still required.",
             implementation_stage="torch_autograd_gaussian_fallback_kernel",
             autograd_kernel=True,
@@ -292,7 +292,15 @@ def torch_carrier_response_tensors(
                 device,
                 default=_gaussian_covariance_diag(element),
             )
-            gaussian_weight = _torch_gaussian_weight(torch, hit_points[mask], element, device, covariance_diag=covariance_diag)
+            gaussian_mean = _carrier_gaussian_mean_parameter(torch, element, carrier_parameters, device)
+            gaussian_weight = _torch_gaussian_weight(
+                torch,
+                hit_points[mask],
+                element,
+                device,
+                mean=gaussian_mean,
+                covariance_diag=covariance_diag,
+            )
             carrier_colors[mask] = torch.clamp(gaussian_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - gaussian_opacity * gaussian_weight, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(gaussian_confidence * gaussian_weight, min=0.0, max=1.0)
@@ -589,6 +597,21 @@ def _carrier_vector_parameter(
     return torch.tensor(tuple(default), dtype=torch.float32, device=device)
 
 
+def _carrier_gaussian_mean_parameter(
+    torch: Any,
+    element: Any,
+    carrier_parameters: dict[str, dict[str, Any]] | None,
+    device: str,
+) -> Any | None:
+    if carrier_parameters is not None:
+        parameter = carrier_parameters.get(element.id, {}).get("gaussian_mean")
+        if parameter is not None:
+            return parameter
+    if _has_gaussian_mean(element):
+        return torch.tensor(_gaussian_mean(element), dtype=torch.float32, device=device)
+    return None
+
+
 def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, support_radius: Any, alpha: Any, beta: Any) -> Any:
     center = (mins + maxs) * 0.5
     radius = torch.clamp(support_radius, min=1e-6)
@@ -606,17 +629,35 @@ def _torch_beta_weight(torch: Any, points: Any, mins: Any, maxs: Any, *, support
     return torch.clamp(raw, min=0.0, max=1.0)
 
 
-def _torch_gaussian_weight(torch: Any, points: Any, element: Any, device: str, *, covariance_diag: Any | None = None) -> Any:
-    mean = element.payload.get("mean")
+def _torch_gaussian_weight(
+    torch: Any,
+    points: Any,
+    element: Any,
+    device: str,
+    *,
+    mean: Any | None = None,
+    covariance_diag: Any | None = None,
+) -> Any:
+    if mean is None:
+        return torch.ones((int(points.shape[0]),), dtype=torch.float32, device=device)
     if covariance_diag is None:
         covariance_diag = torch.tensor(_gaussian_covariance_diag(element), dtype=torch.float32, device=device)
-    if not isinstance(mean, (list, tuple)) or len(mean) != 3:
-        return torch.ones((int(points.shape[0]),), dtype=torch.float32, device=device)
-    mean_tensor = torch.tensor(tuple(float(item) for item in mean), dtype=torch.float32, device=device)
     safe_covariance_diag = torch.clamp(covariance_diag, min=1e-6)
-    delta = points - mean_tensor
+    delta = points - mean.unsqueeze(0)
     mahalanobis = torch.sum((delta * delta) / safe_covariance_diag.unsqueeze(0), dim=1)
     return torch.clamp(torch.exp(-0.5 * torch.clamp(mahalanobis, min=0.0)), min=0.0, max=1.0)
+
+
+def _gaussian_mean(element: Any) -> tuple[float, float, float]:
+    mean = element.payload.get("mean")
+    if isinstance(mean, (list, tuple)) and len(mean) == 3:
+        return tuple(float(item) for item in mean)  # type: ignore[return-value]
+    return _center_point(element)
+
+
+def _has_gaussian_mean(element: Any) -> bool:
+    mean = element.payload.get("mean")
+    return isinstance(mean, (list, tuple)) and len(mean) == 3
 
 
 def _gaussian_covariance_diag(element: Any) -> tuple[float, float, float]:
