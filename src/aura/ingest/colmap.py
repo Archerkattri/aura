@@ -188,6 +188,64 @@ def colmap_binary_to_capture_manifest(
     )
 
 
+def _probe_image_size(path: Path) -> tuple[int, int] | None:
+    """Return ``(width, height)`` of an image file without decoding all pixels.
+
+    Returns ``None`` when the file is missing or no backend can read it, so the
+    caller can fall back to the COLMAP camera dimensions unchanged.
+    """
+    if not path.exists():
+        return None
+    try:
+        import imageio.v3 as imageio  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    try:
+        props = imageio.improps(path)
+        shape = tuple(int(item) for item in props.shape)
+    except Exception:
+        try:
+            shape = tuple(int(item) for item in imageio.imread(path).shape)
+        except Exception:
+            return None
+    if len(shape) < 2:
+        return None
+    height, width = shape[0], shape[1]
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _intrinsics_for_image(intrinsics: dict[str, float], image_file: Path) -> dict[str, float]:
+    """Scale COLMAP intrinsics to the resolution of the actual image file.
+
+    Real capture datasets (Tanks and Temples, Mip-NeRF 360, Deep Blending) ship
+    images downsampled from the resolution COLMAP was run on, so the sparse model
+    reports e.g. 1957x1091 while ``images/`` holds 979x546 frames. Rays built
+    from the unscaled intrinsics would be wrong; this rescales fx/fy/cx/cy and
+    sets width/height to match the image actually loaded. No-op when the image
+    is absent or already matches the camera resolution.
+    """
+    size = _probe_image_size(image_file)
+    if size is None:
+        return intrinsics
+    actual_w, actual_h = size
+    cam_w = intrinsics.get("width", 0.0)
+    cam_h = intrinsics.get("height", 0.0)
+    if cam_w <= 0 or cam_h <= 0 or (actual_w == int(cam_w) and actual_h == int(cam_h)):
+        return intrinsics
+    sx = actual_w / cam_w
+    sy = actual_h / cam_h
+    return {
+        "fx": intrinsics["fx"] * sx,
+        "fy": intrinsics["fy"] * sy,
+        "cx": intrinsics["cx"] * sx,
+        "cy": intrinsics["cy"] * sy,
+        "width": float(actual_w),
+        "height": float(actual_h),
+    }
+
+
 def _colmap_to_capture_manifest(
     model_path: Path,
     cameras: dict[str, ColmapCamera],
@@ -211,15 +269,19 @@ def _colmap_to_capture_manifest(
         origin = image.camera_origin
         look_at = centroid if centroid is not None else _add(origin, image.forward)
         depth = _distance(origin, look_at) if centroid is not None else default_depth
+        relative_image_path = Path(image_dir) / image.name
+        intrinsics = _intrinsics_for_image(
+            camera.intrinsics(), Path(root) / relative_image_path
+        )
         frames.append(
             {
                 "id": f"colmap_image_{image.id}",
-                "image_path": str(Path(image_dir) / image.name),
+                "image_path": str(relative_image_path),
                 "depth_path": _find_colmap_depth_path(model_path, image.name),
                 "mask_path": None,
                 "normal_path": _find_colmap_normal_path(model_path, image.name),
                 "camera_model": camera.model,
-                "intrinsics": camera.intrinsics(),
+                "intrinsics": intrinsics,
                 "camera_origin": list(origin),
                 "look_at": list(look_at),
                 "target_color": list(_point_average_color(points) or target_color),

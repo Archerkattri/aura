@@ -395,3 +395,32 @@ def _png_chunk(kind, data):
     checksum = zlib.crc32(kind)
     checksum = zlib.crc32(data, checksum) & 0xFFFFFFFF
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+
+def test_intrinsics_scaled_to_actual_image_resolution(tmp_path):
+    """COLMAP cameras are often at a higher resolution than the shipped images
+    (e.g. Tanks and Temples: 1957x1091 model vs 979x546 images). Intrinsics must
+    be rescaled to the real image or every ray is wrong."""
+    import importlib.util
+    if importlib.util.find_spec("imageio") is None:
+        import pytest
+        pytest.skip("imageio not installed")
+    import numpy as np
+    import imageio.v3 as iio
+    from aura.ingest.colmap import _intrinsics_for_image, _probe_image_size
+
+    img = tmp_path / "frame.jpg"
+    iio.imwrite(img, np.zeros((50, 100, 3), dtype=np.uint8))  # H=50, W=100
+
+    assert _probe_image_size(img) == (100, 50)
+
+    # Camera modelled at twice the resolution of the actual image.
+    cam = {"fx": 200.0, "fy": 200.0, "cx": 100.0, "cy": 50.0, "width": 200.0, "height": 100.0}
+    scaled = _intrinsics_for_image(cam, img)
+    assert scaled["width"] == 100.0 and scaled["height"] == 50.0
+    assert scaled["fx"] == 100.0 and scaled["fy"] == 100.0
+    assert scaled["cx"] == 50.0 and scaled["cy"] == 25.0
+
+    # Matching resolution is a no-op; missing file leaves intrinsics unchanged.
+    assert _intrinsics_for_image(dict(scaled), img) == scaled
+    assert _intrinsics_for_image(cam, tmp_path / "missing.jpg") == cam
