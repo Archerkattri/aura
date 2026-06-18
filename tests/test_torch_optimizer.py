@@ -50,6 +50,28 @@ def test_torch_optimization_config_validates_bounds():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_gradient_step_clips_with_device_side_norm():
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    parameter = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32, device=device, requires_grad=True)
+    parameter.grad = torch.tensor([3.0, 4.0, 0.0], dtype=torch.float32, device=device)
+
+    update = torch_optimizer_module._gradient_step_carrier_parameters(
+        torch,
+        {"surface": {"color": parameter}},
+        learning_rate=0.1,
+        gradient_clip_norm=2.0,
+    )
+
+    assert update.gradient_norm == pytest.approx(5.0)
+    assert update.applied_gradient_norm == pytest.approx(2.0)
+    assert update.updated_parameter_count == 1
+    assert str(parameter.device).startswith(device)
+    assert parameter.detach().cpu().tolist() == pytest.approx([0.38, 0.34, 0.5])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batch_updates_native_carrier_color():
     scene = AuraScene(
         name="torch_optimizer_scene",

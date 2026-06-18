@@ -491,23 +491,36 @@ def _gradient_step_carrier_parameters(
     gradient_clip_norm: float | None,
 ) -> _TorchGradientStepState:
     parameters = []
-    gradient_sq_sum = 0.0
+    gradient_sq_terms = []
     for fields in carrier_parameters.values():
         for parameter in fields.values():
             if getattr(parameter, "grad", None) is None:
                 continue
             parameters.append(parameter)
-            gradient_sq_sum += float(torch.sum(parameter.grad.detach() * parameter.grad.detach()).cpu().item())
-    gradient_norm = sqrt(gradient_sq_sum)
-    scale = 1.0
-    if gradient_clip_norm is not None and gradient_norm > gradient_clip_norm and gradient_norm > 0.0:
-        scale = gradient_clip_norm / gradient_norm
+            gradient = parameter.grad.detach()
+            gradient_sq_terms.append(torch.sum(gradient * gradient))
+    if gradient_sq_terms:
+        gradient_sq_sum = torch.stack(gradient_sq_terms).sum()
+        gradient_norm_tensor = torch.sqrt(gradient_sq_sum)
+        if gradient_clip_norm is not None:
+            clip_tensor = torch.as_tensor(float(gradient_clip_norm), dtype=gradient_norm_tensor.dtype, device=gradient_norm_tensor.device)
+            scale_tensor = torch.clamp(clip_tensor / torch.clamp(gradient_norm_tensor, min=1e-12), max=1.0)
+        else:
+            scale_tensor = torch.ones((), dtype=gradient_norm_tensor.dtype, device=gradient_norm_tensor.device)
+        gradient_norm = float(gradient_norm_tensor.detach().cpu().item())
+        scale = float(scale_tensor.detach().cpu().item())
+    else:
+        gradient_norm_tensor = None
+        scale_tensor = None
+        gradient_norm = 0.0
+        scale = 1.0
     with torch.no_grad():
         for fields in carrier_parameters.values():
             for name, parameter in fields.items():
                 if getattr(parameter, "grad", None) is None:
                     continue
-                parameter.sub_(learning_rate * scale * parameter.grad)
+                step_scale = scale_tensor if scale_tensor is not None else scale
+                parameter.sub_(learning_rate * step_scale * parameter.grad)
                 if name in {"color", "opacity", "confidence", "density", "bandwidth", "residual_scale"}:
                     parameter.clamp_(0.0, 1.0)
                 elif name in {"alpha", "beta"}:
