@@ -15,7 +15,7 @@ posed capture assets and exports a queryable `.aura` scene package.
 
 ## Current Status
 
-Internal completion estimate: **72%**.
+Internal completion estimate: **77%**.
 
 Implemented today:
 
@@ -33,6 +33,9 @@ Implemented today:
   ordered hit outputs;
 - trainable native carrier parameters for color, opacity/density, shape,
   normals, confidence, residual scale, and frequency fields where supported;
+- configurable image, depth, query, normal, mask, and confidence loss weights;
+- mask-derived confidence targets so occluded or partial evidence can train
+  carrier confidence instead of forcing every sampled ray to full certainty;
 - adaptive split, promote, merge, and demote decisions during torch training;
 - checkpoint and resume metadata for training runs;
 - deterministic CPU/torch package rendering, query demos, ray-query scoring,
@@ -83,6 +86,12 @@ aura train data/custom-captures/<scene>/capture-manifest.json \
   --pixel-stride 8 \
   --max-targets-per-frame 4096 \
   --max-targets-per-batch 1024 \
+  --image-loss-weight 1.0 \
+  --depth-loss-weight 1.0 \
+  --query-loss-weight 1.0 \
+  --normal-loss-weight 1.0 \
+  --mask-loss-weight 1.0 \
+  --confidence-loss-weight 1.0 \
   --checkpoint-interval 2
 ```
 
@@ -96,7 +105,9 @@ aura train data/custom-captures/<scene>/capture-manifest.json \
 ```
 
 Training writes `training_report.json`, optional checkpoint packages, and the
-optimized native package under the selected output directory.
+optimized native package under the selected output directory. Reports include
+the effective loss weights, per-step loss curves, source windows, and checkpoint
+metadata.
 
 ## Render And Query
 

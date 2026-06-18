@@ -163,10 +163,13 @@ def test_torch_capture_training_batch_samples_per_pixel_targets():
     assert batch.target_color.tolist() == [[1.0, 0.0, 0.0]]
     assert batch.target_depth.tolist() == [0.25]
     assert batch.target_mask.tolist() == [1.0]
+    assert batch.target_confidence.tolist() == [1.0]
+    assert batch.target_confidence_present.tolist() == [True]
     assert batch.target_normal.tolist() == [[0.0, 0.0, -1.0]]
     assert batch.target_normal_present.tolist() == [True]
     assert batch.ray_directions.tolist()[0] == [0.0, 0.0, 1.0]
     assert payload["targetColor"]["shape"] == [1, 3]
+    assert payload["targetConfidence"]["shape"] == [1]
     assert payload["targetNormalPresent"]["shape"] == [1]
 
 
@@ -936,8 +939,11 @@ def test_torch_render_capture_training_objective_includes_mask_loss():
     assert payload["depthLoss"] == pytest.approx(0.0)
     assert payload["normalLoss"] == pytest.approx(0.0)
     assert payload["maskLoss"] == pytest.approx(1.0)
-    assert payload["totalLoss"] == pytest.approx(1.0)
+    assert payload["confidenceLoss"] == pytest.approx(1.0)
+    assert payload["totalLoss"] == pytest.approx(2.0)
+    assert batch.target_confidence.tolist() == [0.0]
     assert carrier_parameters["surface"]["opacity"].grad is not None
+    assert carrier_parameters["surface"]["confidence"].grad is not None
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

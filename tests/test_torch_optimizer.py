@@ -14,6 +14,7 @@ from aura import (
     capture_tensors_to_packed_render_batches,
     torch_capture_asset_batch,
     torch_capture_training_batch,
+    torch_capture_training_batch_from_packed,
     torch_optimize_capture_batch,
     torch_optimize_capture_batches,
 )
@@ -1149,6 +1150,15 @@ def test_torch_optimize_capture_batches_stream_packed_source_windows():
                 channels=1,
                 values=(2.0, 2.0),
             ),
+            mask=CaptureTensor(
+                path="frame-mask.pgm",
+                format="Netpbm",
+                backend="stdlib",
+                width=2,
+                height=1,
+                channels=1,
+                values=(1.0, 0.5),
+            ),
         ),
     )
     packed_batches = capture_tensors_to_packed_render_batches(
@@ -1173,6 +1183,10 @@ def test_torch_optimize_capture_batches_stream_packed_source_windows():
     assert result.steps[1].source_windows[0]["tileIndex"] == 1
     assert result.steps[0].max_samples_per_batch == 1
     assert result.scene.elements[0].color[0] > scene.elements[0].color[0]
+    first_batch = torch_capture_training_batch_from_packed(packed_batches[0], device="cpu")
+    second_batch = torch_capture_training_batch_from_packed(packed_batches[1], device="cpu")
+    assert first_batch.target_confidence.tolist() == [1.0]
+    assert second_batch.target_confidence.tolist() == [0.5]
     assert result.to_dict()["steps"][0]["source_windows"][0]["targetCount"] == 1
 
 

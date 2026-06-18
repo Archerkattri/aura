@@ -446,7 +446,7 @@ def torch_capture_training_batch(
     target_mask = assets.mask[index_tensor, y_index, x_index, 0] if assets.mask is not None else None
     target_normal = assets.normal[index_tensor, y_index, x_index, :3] if assets.normal is not None else None
     target_normal_present = assets.normal_present[index_tensor] if assets.normal_present is not None else None
-    target_confidence = torch.ones((len(frame_indices),), dtype=torch.float32, device=device)
+    target_confidence = torch.clamp(target_mask, min=0.0, max=1.0) if target_mask is not None else torch.ones((len(frame_indices),), dtype=torch.float32, device=device)
     target_confidence_present = torch.ones((len(frame_indices),), dtype=torch.bool, device=device)
     return TorchCaptureTrainingBatch(
         device=str(device),
@@ -497,7 +497,7 @@ def torch_capture_training_batch_from_packed(
         if batch.target_normal_present is not None
         else None
     )
-    target_confidence = torch.ones((target_count,), dtype=torch.float32, device=resolved_device)
+    target_confidence = torch.clamp(target_mask, min=0.0, max=1.0) if target_mask is not None else torch.ones((target_count,), dtype=torch.float32, device=resolved_device)
     target_confidence_present = torch.ones((target_count,), dtype=torch.bool, device=resolved_device)
     return TorchCaptureTrainingBatch(
         device=str(resolved_device),
