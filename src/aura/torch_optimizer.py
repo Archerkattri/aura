@@ -258,6 +258,57 @@ def _optimization_step_from_rendered(
     )
 
 
+def _optimization_step_from_objective(
+    iteration: int,
+    objective: Any,
+    elements: Sequence[AuraElement],
+    *,
+    batch_index: int | None,
+    target_offset: int | None,
+    source_windows: tuple[dict[str, Any], ...],
+    sample_count: int,
+    loss_weights: TrainingLossWeights,
+    update: "_TorchGradientStepState",
+    max_samples_per_batch: int | None,
+) -> TorchOptimizationStep:
+    image_loss = _tensor_scalar(objective.image_loss)
+    depth_loss = _tensor_scalar(objective.depth_loss)
+    query_loss = _tensor_scalar(objective.query_loss)
+    normal_loss = _tensor_scalar(objective.normal_loss)
+    mask_loss = _tensor_scalar(objective.mask_loss)
+    confidence_loss = _tensor_scalar(objective.confidence_loss)
+    return TorchOptimizationStep(
+        iteration=iteration,
+        batch_index=batch_index,
+        device=objective.device,
+        sample_count=sample_count,
+        target_offset=target_offset,
+        image_loss=image_loss,
+        depth_loss=depth_loss,
+        query_loss=query_loss,
+        normal_loss=normal_loss,
+        mask_loss=mask_loss,
+        confidence_loss=confidence_loss,
+        total_loss=loss_weights.total(
+            image_loss=image_loss,
+            depth_loss=depth_loss,
+            query_loss=query_loss,
+            normal_loss=normal_loss,
+            mask_loss=mask_loss,
+            confidence_loss=confidence_loss,
+        ),
+        carrier_counts=_carrier_counts(elements),
+        loss_weights=loss_weights.to_dict(),
+        optimizer="sgd",
+        gradient_norm=update.gradient_norm,
+        applied_gradient_norm=update.applied_gradient_norm,
+        gradient_clip_norm=update.gradient_clip_norm,
+        updated_parameter_count=update.updated_parameter_count,
+        max_samples_per_batch=max_samples_per_batch,
+        source_windows=source_windows,
+    )
+
+
 def _optimize_torch_batches(
     scene: AuraScene,
     batches: Sequence[CapturePackedRenderBatch | tuple[TorchCaptureTrainingBatch, int | None, int | None, tuple[dict[str, Any], ...]]],
@@ -283,6 +334,11 @@ def _optimize_torch_batches(
     for iteration in range(config.iterations):
         absolute_iteration = config.iteration_offset + iteration
         iteration_rendered: list[TorchRenderBatch] = []
+        evolution_enabled = config.evolution_policy is not None and config.evolution_policy.enabled
+        checkpoint_due = (
+            config.checkpoint_interval is not None
+            and (iteration + 1) % config.checkpoint_interval == 0
+        )
         for batch, batch_index, target_offset, source_windows in prepared_batches:
             _zero_carrier_parameter_grads(carrier_parameters)
             objective = torch_render_capture_training_objective(
@@ -307,31 +363,50 @@ def _optimize_torch_batches(
                     carrier_parameters=carrier_parameters,
                     scene_tensors=scene_tensors,
                 )
-                rendered = torch_render_capture_training_batch(
-                    current_scene,
-                    batch,
-                    carrier_parameters=carrier_parameters,
-                    scene_tensors=scene_tensors,
+                if evolution_enabled or checkpoint_due:
+                    rendered = torch_render_capture_training_batch(
+                        current_scene,
+                        batch,
+                        carrier_parameters=carrier_parameters,
+                        scene_tensors=scene_tensors,
+                    )
+                else:
+                    rendered = None
+            if rendered is not None:
+                iteration_rendered.append(rendered)
+                steps.append(
+                    _optimization_step_from_rendered(
+                        absolute_iteration,
+                        rendered,
+                        current_scene.elements,
+                        batch_index=batch_index,
+                        target_offset=target_offset,
+                        source_windows=source_windows,
+                        loss_weights=config.loss_weights,
+                        mask_loss=_tensor_scalar(checkpoint_objective.mask_loss),
+                        confidence_loss=_tensor_scalar(checkpoint_objective.confidence_loss),
+                        query_loss=_tensor_scalar(checkpoint_objective.query_loss),
+                        update=update,
+                        max_samples_per_batch=config.max_samples_per_batch,
+                    )
                 )
-            iteration_rendered.append(rendered)
-            steps.append(
-                _optimization_step_from_rendered(
-                    absolute_iteration,
-                    rendered,
-                    current_scene.elements,
-                    batch_index=batch_index,
-                    target_offset=target_offset,
-                    source_windows=source_windows,
-                    loss_weights=config.loss_weights,
-                    mask_loss=_tensor_scalar(checkpoint_objective.mask_loss),
-                    confidence_loss=_tensor_scalar(checkpoint_objective.confidence_loss),
-                    query_loss=_tensor_scalar(checkpoint_objective.query_loss),
-                    update=update,
-                    max_samples_per_batch=config.max_samples_per_batch,
+            else:
+                steps.append(
+                    _optimization_step_from_objective(
+                        absolute_iteration,
+                        checkpoint_objective,
+                        current_scene.elements,
+                        batch_index=batch_index,
+                        target_offset=target_offset,
+                        source_windows=source_windows,
+                        sample_count=_batch_sample_count(batch),
+                        loss_weights=config.loss_weights,
+                        update=update,
+                        max_samples_per_batch=config.max_samples_per_batch,
+                    )
                 )
-            )
         current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
-        if config.evolution_policy is not None and config.evolution_policy.enabled and iteration_rendered:
+        if evolution_enabled and iteration_rendered:
             predictions = tuple(
                 prediction
                 for batch_rendered in iteration_rendered
@@ -354,10 +429,6 @@ def _optimize_torch_batches(
                 scene_tensors = torch_scene_tensors(current_scene, device=device)
                 carrier_parameters = scene_tensors.carrier_parameters
                 rendered = None
-        checkpoint_due = (
-            config.checkpoint_interval is not None
-            and (iteration + 1) % config.checkpoint_interval == 0
-        )
         if checkpoint_due:
             current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
             scene_checkpoints.append(
@@ -367,6 +438,15 @@ def _optimize_torch_batches(
                     step_count=len(steps),
                     scene=current_scene,
                 )
+            )
+    if rendered is None and prepared_batches:
+        final_batch = prepared_batches[-1][0]
+        with torch.no_grad():
+            rendered = torch_render_capture_training_batch(
+                current_scene,
+                final_batch,
+                carrier_parameters=carrier_parameters,
+                scene_tensors=scene_tensors,
             )
     if rendered is not None:
         current_scene = _scene_from_carrier_parameters(current_scene, carrier_parameters, rendered)
