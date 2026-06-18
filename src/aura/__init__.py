@@ -14,6 +14,7 @@ from aura.benchmark import (
     run_capture_reconstruction_benchmark,
     run_core_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
+    run_real_scene_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
 )
@@ -138,6 +139,17 @@ from aura.proposals import (
 )
 from aura.ray import Ray, RayQueryResult
 from aura.readiness import ProductionReadinessReport, ReadinessPillar, production_readiness_report
+from aura.imaging import (
+    exr_export_capability,
+    read_pfm_image,
+    video_export_capability,
+    write_exr_image,
+    write_frame_sequence,
+    write_pfm_image,
+    write_radiance_image,
+    write_video,
+)
+from aura.memory import MemoryStabilityReport, run_memory_stability_probe
 from aura.render import (
     RenderImage,
     compare_images,
@@ -149,6 +161,8 @@ from aura.render import (
     render_orthographic,
     render_orthographic_cuda,
     render_orthographic_torch,
+    render_turntable_frames,
+    turntable_camera_path,
 )
 from aura.runtime_export import RuntimeExportReport, runtime_export_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
@@ -350,15 +364,28 @@ __all__ = [
     "production_readiness_report",
     "package_3dgs_export",
     "propose_training_regions_from_tensors",
+    "MemoryStabilityReport",
+    "run_memory_stability_probe",
     "read_ppm",
+    "read_pfm_image",
     "render_orthographic",
     "render_orthographic_cuda",
     "render_orthographic_torch",
+    "render_turntable_frames",
+    "turntable_camera_path",
+    "exr_export_capability",
+    "video_export_capability",
+    "write_exr_image",
+    "write_pfm_image",
+    "write_radiance_image",
+    "write_frame_sequence",
+    "write_video",
     "reconstruct_demo_scene",
     "run_ablation_benchmarks",
     "run_capture_reconstruction_benchmark",
     "run_core_reconstruction_benchmark",
     "run_ray_query_correctness_benchmark",
+    "run_real_scene_benchmark",
     "run_reference_benchmark",
     "run_visual_quality_benchmark",
     "runtime_export_report",

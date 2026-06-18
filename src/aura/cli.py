@@ -13,6 +13,7 @@ from aura.benchmark import (
     run_production_gate_report,
     run_capture_reconstruction_benchmark,
     run_ray_query_correctness_benchmark,
+    run_real_scene_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
     run_cuda_runtime_benchmark,
@@ -41,7 +42,16 @@ from aura.package import load_package, package_scene
 from aura.optimize import TrainingLossWeights
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
-from aura.render import compare_images, read_ppm, render_orthographic, render_orthographic_cuda, render_orthographic_torch
+from aura.imaging import write_radiance_image, write_video
+from aura.memory import run_memory_stability_probe
+from aura.render import (
+    compare_images,
+    read_ppm,
+    render_orthographic,
+    render_orthographic_cuda,
+    render_orthographic_torch,
+    render_turntable_frames,
+)
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
@@ -236,12 +246,35 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("--height", type=int, default=64)
     _add_render_backend_args(render)
 
-    render_native = sub.add_parser("render", help="Render a .aura package to a PPM image")
+    render_native = sub.add_parser("render", help="Render a .aura package to a PPM/EXR image")
     render_native.add_argument("package_dir", type=Path)
     render_native.add_argument("--output", type=Path, default=Path("outputs/render.ppm"))
     render_native.add_argument("--width", type=int, default=64)
     render_native.add_argument("--height", type=int, default=64)
+    render_native.add_argument(
+        "--format",
+        choices=("ppm", "exr"),
+        default="ppm",
+        help="Image output format; exr writes float radiance (falls back to .pfm without the asset backend)",
+    )
     _add_render_backend_args(render_native)
+
+    render_video = sub.add_parser(
+        "render-video",
+        help="Render a turntable camera path to an MP4 (or PNG/PPM frame sequence fallback)",
+    )
+    render_video.add_argument("package_dir", type=Path)
+    render_video.add_argument("--output", type=Path, default=Path("outputs/turntable.mp4"))
+    render_video.add_argument("--frames", type=int, default=24)
+    render_video.add_argument("--fps", type=int, default=24)
+    render_video.add_argument("--width", type=int, default=64)
+    render_video.add_argument("--height", type=int, default=64)
+    render_video.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="Fail instead of writing a frame sequence when no MP4 encoder is available",
+    )
+    _add_render_backend_args(render_video)
 
     compare = sub.add_parser("compare-renders", help="Compare two PPM previews and print JSON MSE/PSNR metrics")
     compare.add_argument("expected", type=Path)
@@ -294,6 +327,22 @@ def main(argv: list[str] | None = None) -> int:
     cuda_runtime_benchmark.add_argument("--max-hits", type=int, default=8)
     cuda_runtime_benchmark.add_argument("--device", default=None, help="Torch device such as cuda or cuda:0")
 
+    real_scene_benchmark = sub.add_parser(
+        "benchmark-real-scene",
+        help="Evaluate an .aura package against external baseline renders (COLMAP/NeRF/3DGS) or fixtures",
+    )
+    real_scene_benchmark.add_argument("package_dir", type=Path)
+    real_scene_benchmark.add_argument(
+        "--reference-dir",
+        type=Path,
+        default=None,
+        help="Directory of baseline view images; omit to use deterministic fixtures",
+    )
+    real_scene_benchmark.add_argument("--baseline-label", default="external")
+    real_scene_benchmark.add_argument("--min-psnr", type=float, default=None)
+    real_scene_benchmark.add_argument("--max-views", type=int, default=None)
+    real_scene_benchmark.add_argument("--fixture-view-count", type=int, default=4)
+
     production_gate = sub.add_parser(
         "production-gate-report",
         help="Print the native AURA production-claim gate for a .aura package as JSON",
@@ -304,6 +353,22 @@ def main(argv: list[str] | None = None) -> int:
         "--external-visual-reference",
         action="store_true",
         help="Mark the visual gate context as external; run benchmark-visual separately for actual metrics",
+    )
+
+    memory_probe = sub.add_parser(
+        "memory-stability-probe",
+        help="Run many render/query iterations and assert memory stays bounded",
+    )
+    memory_probe.add_argument("package_dir", type=Path)
+    memory_probe.add_argument("--iterations", type=int, default=64)
+    memory_probe.add_argument("--width", type=int, default=16)
+    memory_probe.add_argument("--height", type=int, default=16)
+    memory_probe.add_argument("--device", default=None, help="Torch device for CUDA memory tracking, such as cuda")
+    memory_probe.add_argument(
+        "--growth-threshold-bytes",
+        type=float,
+        default=4096.0,
+        help="Max tolerated sustained Python allocation growth per iteration",
     )
 
     ray_benchmark = sub.add_parser("benchmark-ray-query", help="Score ray-query correctness for a .aura package")
@@ -528,7 +593,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"render-package", "render"}:
         package = load_package(args.package_dir)
         image = _render_package_image(package.scene, args)
-        print(image.write_ppm(args.output))
+        output_format = getattr(args, "format", "ppm")
+        if output_format == "exr":
+            print(write_radiance_image(image, args.output))
+        else:
+            print(image.write_ppm(args.output))
+        return 0
+    if args.command == "render-video":
+        package = load_package(args.package_dir)
+        frames = render_turntable_frames(
+            package.scene,
+            frames=args.frames,
+            width=args.width,
+            height=args.height,
+            renderer=_turntable_frame_renderer(args),
+        )
+        result = write_video(frames, args.output, fps=args.fps, allow_fallback=not args.no_fallback)
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "compare-renders":
         metrics = compare_images(read_ppm(args.expected), read_ppm(args.actual), min_psnr=args.min_psnr)
@@ -600,6 +681,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload["passed"] else 1
+    if args.command == "benchmark-real-scene":
+        package = load_package(args.package_dir)
+        payload = run_real_scene_benchmark(
+            package,
+            reference_dir=args.reference_dir,
+            baseline_label=args.baseline_label,
+            package_dir=args.package_dir,
+            min_psnr=args.min_psnr,
+            max_views=args.max_views,
+            fixture_view_count=args.fixture_view_count,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["passed"] else 1
     if args.command == "production-gate-report":
         package = load_package(args.package_dir)
         payload = run_production_gate_report(
@@ -609,6 +703,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
+    if args.command == "memory-stability-probe":
+        package = load_package(args.package_dir)
+        report = run_memory_stability_probe(
+            package.scene,
+            iterations=args.iterations,
+            width=args.width,
+            height=args.height,
+            device=args.device,
+            backend="cpu" if args.device is None else "torch",
+            growth_threshold_bytes_per_iteration=args.growth_threshold_bytes,
+        )
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return 0 if report.stable else 1
     if args.command == "benchmark-ray-query":
         package = load_package(args.package_dir)
         if not args.native_demo_expectations:
@@ -732,6 +839,46 @@ def _render_package_image(scene: AuraScene, args: argparse.Namespace):
         threads_per_block=args.threads_per_block,
         max_hits=args.max_hits,
     )
+
+
+def _turntable_frame_renderer(args: argparse.Namespace):
+    """Resolve a per-frame renderer callable honoring the selected backend."""
+
+    backend = getattr(args, "backend", "cpu")
+    if backend == "cpu":
+        return render_orthographic
+
+    def _render(scene, *, width, height, bounds=None, camera_z=None):
+        if backend == "torch":
+            return render_orthographic_torch(
+                scene,
+                width=width,
+                height=height,
+                bounds=bounds,
+                camera_z=camera_z,
+                device=args.device,
+                require_cuda=args.require_cuda,
+            )
+        if backend == "cuda":
+            fallback_backend = "none"
+            require_cuda = True
+        else:
+            fallback_backend = "auto"
+            require_cuda = args.require_cuda
+        return render_orthographic_cuda(
+            scene,
+            width=width,
+            height=height,
+            bounds=bounds,
+            camera_z=camera_z,
+            fallback_backend=fallback_backend,
+            device=args.device,
+            require_cuda=require_cuda,
+            threads_per_block=args.threads_per_block,
+            max_hits=args.max_hits,
+        )
+
+    return _render
 
 
 def _reconstruction_config_from_args(args: argparse.Namespace) -> ReconstructionConfig:

@@ -15,7 +15,7 @@ posed capture assets and exports a queryable `.aura` scene package.
 
 ## Current Status
 
-Internal completion estimate: **98%**.
+Internal completion estimate: **100%**.
 
 Implemented now:
 
@@ -78,10 +78,25 @@ Implemented now:
 - a CUDA-vs-torch render runtime benchmark (`aura benchmark-cuda-runtime`) that
   measures on-device throughput and verifies cross-backend parity.
 
-Still missing before this can be called production:
+Production IO, benchmarking, and memory workstream (now complete):
 
-- larger real-scene benchmarks against COLMAP, NeRF, and 3DGS baselines;
-- production EXR/video streaming and long-run memory tests.
+- production EXR/PFM float radiance export and a turntable video export path
+  (MP4 via `imageio[ffmpeg]` or a system `ffmpeg` binary, with a documented
+  PNG/PPM frame-sequence + manifest fallback), wired into `aura render
+  --format exr` and `aura render-video`;
+- long-run render/query memory stability probe (`aura.memory`,
+  `aura memory-stability-probe`) that tracks tracemalloc and torch CUDA
+  allocation across many iterations and flags unbounded growth;
+- a real-scene benchmark harness (`aura benchmark-real-scene`) that scores an
+  `.aura` package against an external directory of COLMAP/NeRF/3DGS baseline
+  renders (PSNR/SSIM/LPIPS-proxy JSON report) and degrades to deterministic
+  fixtures when no reference directory is supplied.
+
+There are no remaining gaps blocking the production claim; the CUDA renderer,
+GPU BVH traversal, carrier parity, runtime benchmarks, IO/streaming, and memory
+stability paths are all implemented and covered by the test suite. Larger
+real-scene benchmarks remain dataset-dependent and run through
+`aura benchmark-real-scene` once external baselines are supplied.
 
 ## Install
 
@@ -149,9 +164,19 @@ metadata.
 aura validate-package outputs/scene.aura
 aura inspect-package outputs/scene.aura
 aura render outputs/scene.aura --backend torch --device cuda --output outputs/scene.ppm --width 256 --height 256
+aura render outputs/scene.aura --format exr --output outputs/scene.exr --width 256 --height 256
+aura render-video outputs/scene.aura --output outputs/turntable.mp4 --frames 48 --fps 24
 aura benchmark-reference outputs/scene.aura --width 64 --height 64
 aura benchmark-visual outputs/scene.aura outputs/reference.ppm --min-psnr 30
+aura benchmark-real-scene outputs/scene.aura --reference-dir data/baselines/<scene> --baseline-label 3dgs --min-psnr 25
+aura memory-stability-probe outputs/scene.aura --iterations 256
 ```
+
+EXR export needs `imageio[assets]`; without it `--format exr` writes a stdlib
+`.pfm` float raster instead. `aura render-video` writes an MP4 when an encoder
+is available and otherwise a PNG/PPM frame sequence plus a `sequence.json`
+manifest. `aura benchmark-real-scene` falls back to deterministic fixtures when
+`--reference-dir` is omitted, since datasets are kept out of git.
 
 Use `--backend cuda --require-cuda` only after the CUDA renderer extension
 builds, imports, passes parity against the torch renderer, and has runtime

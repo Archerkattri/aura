@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: aura-core
+Version: 0.1.0
+Summary: AURA-Core native adaptive radiance reconstruction scaffold
+Requires-Python: >=3.11
+Requires-Dist: jsonschema>=4
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Provides-Extra: gpu
+Requires-Dist: torch>=2.3; extra == "gpu"
+Provides-Extra: assets
+Requires-Dist: imageio>=2.34; extra == "assets"

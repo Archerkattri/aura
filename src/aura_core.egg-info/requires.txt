@@ -1,0 +1,10 @@
+jsonschema>=4
+
+[assets]
+imageio>=2.34
+
+[dev]
+pytest>=8
+
+[gpu]
+torch>=2.3
