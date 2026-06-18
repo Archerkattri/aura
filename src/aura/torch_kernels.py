@@ -579,8 +579,35 @@ def torch_carrier_response_tensors(
                 _anchor_ratio = min(float(_anchor_dim) / max(float(_latent_dim), 1.0), 1.0)
                 residual_strength = residual_strength * _anchor_ratio
             if _use_anchor:
-                # Hook for cross-carrier conditioning: no-op (returns zeros) when no neighbors provided
-                _anchor_contribution = torch.zeros(1, dtype=torch.float32, device=device)
+                # Real cross-carrier neural-residual MLP (Scaffold-GS arXiv:2312.00109).
+                # The MLP is keyed under "cross_carrier_mlp" in the carrier_parameters dict.
+                # When neighbors are present AND the MLP weights exist, we run a real
+                # differentiable forward pass that conditions residual_strength on the
+                # neighboring carriers' features (color, opacity, residual, centroid).
+                # When no neighbors / no MLP weights are configured the correction is 0.
+                _neighbor_elements = element.payload.get("neighbor_elements", None)
+                _mlp_module = (
+                    (carrier_parameters or {}).get(element.id, {}).get("cross_carrier_mlp", None)
+                )
+                if _neighbor_elements is not None and _mlp_module is not None:
+                    from aura.cross_carrier import (
+                        cross_carrier_residual_correction,
+                        neighbor_features_from_carrier_parameters,
+                    )
+                    _neighbor_feats = neighbor_features_from_carrier_parameters(
+                        torch, _neighbor_elements, carrier_parameters, device
+                    )
+                    if _neighbor_feats is not None:
+                        _nb_colors, _nb_opacities, _nb_residuals, _nb_centroids = _neighbor_feats
+                        _anchor_contribution = cross_carrier_residual_correction(
+                            torch, _mlp_module,
+                            _nb_colors, _nb_opacities, _nb_residuals, _nb_centroids,
+                            device,
+                        )
+                    else:
+                        _anchor_contribution = torch.zeros((), dtype=torch.float32, device=device)
+                else:
+                    _anchor_contribution = torch.zeros((), dtype=torch.float32, device=device)
                 residual_strength = torch.clamp(residual_strength + _anchor_contribution, min=0.0, max=1.0)
             carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - neural_opacity * residual_strength, min=0.0, max=1.0)
@@ -776,7 +803,7 @@ def torch_carrier_parameter_tensors(
                 ),
             }
         elif payload_type == "neural_residual":
-            parameters[element.id] = {
+            _neural_params: dict[str, Any] = {
                 **geometry_parameters,
                 "color": torch.tensor(
                     tuple(element.payload.get("color", element.color)),
@@ -801,8 +828,19 @@ def torch_carrier_parameter_tensors(
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,
-                )
+                ),
             }
+            # When use_anchor_conditioning is enabled, attach a real cross-carrier MLP.
+            # The MLP weights are real trainable nn.Parameters; the module is stored under
+            # "cross_carrier_mlp" so the optimizer can discover and train them via
+            # mlp_parameter_tensors_from_module().
+            if bool(element.payload.get("use_anchor_conditioning", False)) and requires_grad:
+                from aura.cross_carrier import build_cross_carrier_mlp, mlp_parameter_tensors_from_module
+                _mlp = build_cross_carrier_mlp(torch, device)
+                _neural_params["cross_carrier_mlp"] = _mlp
+                # Also surface individual weight/bias tensors so existing SGD/Adam can train them
+                _neural_params.update(mlp_parameter_tensors_from_module(torch, _mlp, requires_grad=requires_grad))
+            parameters[element.id] = _neural_params
         elif payload_type == "semantic_feature":
             parameters[element.id] = {
                 **geometry_parameters,

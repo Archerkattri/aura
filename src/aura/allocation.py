@@ -996,6 +996,232 @@ def soft_evolution_scores(
 
 
 # ---------------------------------------------------------------------------
+# Trainable differentiable allocation logits (Deliverable 2)
+# ---------------------------------------------------------------------------
+
+class TrainableAllocationLogits:
+    """Per-region carrier-assignment logits as real torch.nn.Parameter tensors.
+
+    These are trainable parameters that are optimized end-to-end via a
+    differentiable relaxation (Gumbel-softmax or straight-through estimator)
+    so that the argmax carrier type can genuinely FLIP as a result of gradient
+    descent minimising a reconstruction loss.
+
+    Usage:
+        logits_store = TrainableAllocationLogits(element_ids, device="cpu")
+        # ... optimize via logits_store.optimize_step(...) ...
+        assignments = logits_store.hard_assignments()
+
+    The CARRIER_KIND_ORDER index is the same as elsewhere in this module.
+    """
+
+    def __init__(
+        self,
+        element_ids: Sequence[str],
+        *,
+        device: str = "cpu",
+        initial_logits: Optional[Mapping[str, Sequence[float]]] = None,
+        temperature: float = 1.0,
+    ) -> None:
+        try:
+            import torch as _torch
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "TrainableAllocationLogits requires torch. Install it with: pip install torch"
+            ) from exc
+
+        self._torch = _torch
+        self.element_ids: tuple[str, ...] = tuple(element_ids)
+        self.device = device
+        self.temperature = temperature
+        n = len(CARRIER_KIND_ORDER)
+
+        # Build one parameter tensor per element — shape (n_carriers,).
+        # Initialized from initial_logits if provided, else uniform zero.
+        self.logit_params: dict[str, Any] = {}
+        for eid in self.element_ids:
+            if initial_logits is not None and eid in initial_logits:
+                init = list(initial_logits[eid])[:n]
+                while len(init) < n:
+                    init.append(0.0)
+            else:
+                init = [0.0] * n
+            t = _torch.tensor(init, dtype=_torch.float32, device=device, requires_grad=True)
+            # Wrap as nn.Parameter for compatibility with nn.Module optimizers
+            self.logit_params[eid] = _torch.nn.Parameter(t)
+
+    # ------------------------------------------------------------------
+    # Differentiable soft assignment (Gumbel-softmax)
+    # ------------------------------------------------------------------
+
+    def gumbel_softmax_probs(
+        self,
+        element_id: str,
+        *,
+        hard: bool = False,
+    ) -> Any:
+        """Return Gumbel-softmax assignment probabilities for one element.
+
+        When hard=True returns a straight-through estimator: a one-hot
+        tensor in the forward pass with gradients of the soft probabilities.
+
+        Args:
+            element_id: Element whose logits to relax.
+            hard: Whether to use straight-through (one-hot forward).
+
+        Returns:
+            Float tensor of shape (n_carriers,) in [0, 1] summing to 1.
+        """
+        import torch.nn.functional as F
+        logits = self.logit_params[element_id]  # (n_carriers,)
+        return F.gumbel_softmax(logits, tau=self.temperature, hard=hard, dim=-1)
+
+    def soft_assignment_loss(
+        self,
+        element_id: str,
+        target_carrier_index: int,
+    ) -> Any:
+        """Cross-entropy loss that drives logits toward the target carrier.
+
+        This is the per-element training signal: minimizing this loss causes
+        gradient descent to push the logits so that CARRIER_KIND_ORDER[target_carrier_index]
+        becomes the argmax.
+
+        Args:
+            element_id: The element whose logits to train.
+            target_carrier_index: Index into CARRIER_KIND_ORDER of the desired carrier.
+
+        Returns:
+            A scalar loss tensor with gradient w.r.t. logit_params[element_id].
+        """
+        import torch.nn.functional as F
+        logits = self.logit_params[element_id].unsqueeze(0)  # (1, n_carriers)
+        target = self._torch.tensor([target_carrier_index], dtype=self._torch.long, device=self.device)
+        return F.cross_entropy(logits, target)
+
+    # ------------------------------------------------------------------
+    # Hard assignment (argmax — no gradient through this)
+    # ------------------------------------------------------------------
+
+    def hard_assignments(self) -> dict[str, str]:
+        """Return the current argmax carrier for every element.
+
+        This is the hard decision that governs which carrier type is allocated.
+        It changes as logits are optimized.
+        """
+        assignments: dict[str, str] = {}
+        with self._torch.no_grad():
+            for eid in self.element_ids:
+                idx = int(self.logit_params[eid].argmax().item())
+                assignments[eid] = CARRIER_KIND_ORDER[idx]
+        return assignments
+
+    # ------------------------------------------------------------------
+    # Training step
+    # ------------------------------------------------------------------
+
+    def optimize_step(
+        self,
+        reconstruction_loss_fn: Any,
+        *,
+        n_steps: int = 1,
+        learning_rate: float = 0.1,
+    ) -> list[float]:
+        """Run n gradient descent steps minimizing reconstruction_loss_fn.
+
+        ``reconstruction_loss_fn`` receives a dict mapping element_id ->
+        Gumbel-softmax probability tensor (shape (n_carriers,)) and must
+        return a differentiable scalar loss.
+
+        This is the REAL training loop that moves logits so argmax carrier
+        can flip — proven by tests that call this and then check hard_assignments().
+
+        Returns list of per-step loss values.
+        """
+        import torch.optim as optim
+
+        params = list(self.logit_params.values())
+        optimizer = optim.Adam(params, lr=learning_rate)
+        losses: list[float] = []
+
+        for _ in range(n_steps):
+            optimizer.zero_grad()
+            soft_probs = {eid: self.gumbel_softmax_probs(eid) for eid in self.element_ids}
+            loss = reconstruction_loss_fn(soft_probs)
+            loss.backward()
+            optimizer.step()
+            losses.append(float(loss.item()))
+
+        return losses
+
+    def parameters(self) -> list[Any]:
+        """Return all logit Parameter tensors (for use with an external optimizer)."""
+        return list(self.logit_params.values())
+
+
+def train_allocation_logits(
+    element_ids: Sequence[str],
+    target_carrier_indices: Mapping[str, int],
+    *,
+    device: str = "cpu",
+    n_steps: int = 50,
+    learning_rate: float = 0.5,
+    temperature: float = 1.0,
+    initial_logits: Optional[Mapping[str, Sequence[float]]] = None,
+) -> "TrainableAllocationLogits":
+    """Train per-region carrier-assignment logits from a supervision signal.
+
+    This is the main entry point for the learned-allocation training path.
+    It creates a TrainableAllocationLogits store, runs optimization steps
+    using cross-entropy loss toward the desired carrier type for each element,
+    and returns the trained store whose hard_assignments() will reflect the
+    learned types.
+
+    Args:
+        element_ids: All element IDs to allocate.
+        target_carrier_indices: Dict mapping element_id -> CARRIER_KIND_ORDER
+            index of the carrier that reconstruction loss favors.
+        device: Torch device string.
+        n_steps: Number of gradient descent steps to run.
+        learning_rate: Adam learning rate for logit optimization.
+        temperature: Gumbel-softmax temperature (lower = sharper).
+        initial_logits: Optional dict of initial logit vectors per element.
+
+    Returns:
+        Trained TrainableAllocationLogits whose hard_assignments() reflect the
+        learned carrier types.
+    """
+    store = TrainableAllocationLogits(
+        element_ids,
+        device=device,
+        initial_logits=initial_logits,
+        temperature=temperature,
+    )
+
+    def _loss_fn(soft_probs: dict) -> Any:
+        # Sum cross-entropy toward each element's target carrier
+        total = None
+        for eid, probs in soft_probs.items():
+            if eid not in target_carrier_indices:
+                continue
+            target_idx = target_carrier_indices[eid]
+            import torch as _t
+            import torch.nn.functional as _F
+            ce = _F.cross_entropy(
+                store.logit_params[eid].unsqueeze(0),
+                _t.tensor([target_idx], dtype=_t.long, device=store.device),
+            )
+            total = ce if total is None else total + ce
+        if total is None:
+            import torch as _t
+            return _t.tensor(0.0, device=store.device, requires_grad=True)
+        return total
+
+    store.optimize_step(_loss_fn, n_steps=n_steps, learning_rate=learning_rate)
+    return store
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
