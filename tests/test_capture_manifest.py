@@ -575,6 +575,8 @@ def test_torch_optimize_capture_manifest_cli_writes_package_and_report(tmp_path)
         "normal": 0.0,
         "mask": 1.0,
         "confidence": 0.25,
+        "depth_distortion": 0.0,
+        "normal_consistency": 0.0,
     }
     assert report["steps"][0]["sample_count"] == 1
     assert report["steps"][0]["loss_weights"] == report["lossWeights"]
