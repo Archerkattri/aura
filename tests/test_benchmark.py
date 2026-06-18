@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import subprocess
 import sys
@@ -744,3 +745,94 @@ def _write_colmap_normal_map(path, width, height, normals):
         handle.write(f"{width}&{height}&3&".encode("ascii"))
         for normal in normals:
             handle.write(struct.pack("<fff", *normal))
+
+
+def test_benchmark_ray_grid_builds_front_facing_sweep():
+    from aura.benchmark import _benchmark_ray_grid
+
+    scene = native_demo_scene()
+    origins, directions = _benchmark_ray_grid(scene, 64)
+
+    assert len(origins) == 64
+    assert len(directions) == 64
+    assert all(direction == (0.0, 0.0, 1.0) for direction in directions)
+    min_z = min(float(element.bounds.min_corner[2]) for element in scene.elements)
+    assert all(origin[2] < min_z for origin in origins)
+
+
+def test_run_cuda_runtime_benchmark_reports_skip_without_cuda(monkeypatch):
+    import importlib
+
+    from aura.benchmark import run_cuda_runtime_benchmark
+
+    torch_module = importlib.import_module("torch") if importlib.util.find_spec("torch") else None
+    if torch_module is not None:
+        monkeypatch.setattr(torch_module.cuda, "is_available", lambda: False)
+
+    report = run_cuda_runtime_benchmark(native_demo_scene(), ray_count=16, iterations=1, warmup=0)
+
+    assert report["format"] == "AURA_CUDA_RUNTIME_BENCHMARK"
+    assert report["executed"] is False
+    assert report["cudaAvailable"] is False
+    assert report["parityPassed"] is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_run_cuda_runtime_benchmark_measures_throughput_and_parity_on_cuda():
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    from aura.benchmark import run_cuda_runtime_benchmark
+
+    report = run_cuda_runtime_benchmark(native_demo_scene(), ray_count=512, iterations=3, warmup=1, max_hits=8)
+
+    assert report["executed"] is True
+    assert report["cudaAvailable"] is True
+    assert report["parityPassed"] is True
+    assert report["elementMatchRate"] == 1.0
+    assert report["maxColorDelta"] <= 1.0e-4
+    assert report["cuda"]["raysPerSecond"] > 0.0
+    assert report["torch"]["raysPerSecond"] > 0.0
+    assert report["cuda"]["backend"] == "cuda"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_benchmark_cuda_runtime_cli_runs_on_native_demo_scene():
+    import os
+    from pathlib import Path
+
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    worktree_src = Path(__file__).resolve().parents[1] / "src"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join((str(worktree_src), env.get("PYTHONPATH", "")))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aura.cli",
+            "benchmark-cuda-runtime",
+            "--ray-count",
+            "256",
+            "--iterations",
+            "2",
+            "--warmup",
+            "1",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["format"] == "AURA_CUDA_RUNTIME_BENCHMARK"
+    assert payload["executed"] is True
+    assert payload["parityPassed"] is True

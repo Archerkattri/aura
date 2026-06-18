@@ -317,6 +317,173 @@ def run_cuda_renderer_abi_parity_benchmark(
     }
 
 
+def _benchmark_ray_grid(scene: AuraScene, ray_count: int) -> tuple[tuple[tuple[float, float, float], ...], tuple[tuple[float, float, float], ...]]:
+    """Build a deterministic +z ray sweep across the scene bounds."""
+
+    if ray_count <= 0:
+        raise ValueError("ray_count must be positive")
+    mins = [float("inf"), float("inf"), float("inf")]
+    maxs = [float("-inf"), float("-inf"), float("-inf")]
+    for element in scene.elements:
+        for axis in range(3):
+            mins[axis] = min(mins[axis], float(element.bounds.min_corner[axis]))
+            maxs[axis] = max(maxs[axis], float(element.bounds.max_corner[axis]))
+    if not scene.elements:
+        mins = [-1.0, -1.0, -1.0]
+        maxs = [1.0, 1.0, 1.0]
+    span_x = max(maxs[0] - mins[0], 1.0e-3)
+    span_y = max(maxs[1] - mins[1], 1.0e-3)
+    origin_z = mins[2] - 1.0
+    side = max(int(ray_count ** 0.5), 1)
+    origins: list[tuple[float, float, float]] = []
+    directions: list[tuple[float, float, float]] = []
+    for index in range(ray_count):
+        row = index // side
+        col = index % side
+        u = (col + 0.5) / side
+        v = (row + 0.5) / side
+        origins.append((mins[0] + u * span_x, mins[1] + v * span_y, origin_z))
+        directions.append((0.0, 0.0, 1.0))
+    return tuple(origins), tuple(directions)
+
+
+def run_cuda_runtime_benchmark(
+    scene: AuraScene,
+    *,
+    ray_count: int = 4096,
+    iterations: int = 5,
+    warmup: int = 2,
+    max_hits: int = 8,
+    device: str | None = None,
+) -> dict:
+    """Measure CUDA-vs-torch render throughput for a scene on device.
+
+    When CUDA hardware and the compiled extension are available, this renders
+    the same batched rays through both the compiled CUDA renderer and the torch
+    reference renderer, times wall-clock throughput, and verifies first-hit and
+    color parity between the two backends. On machines without CUDA it returns a
+    report that records why the on-device measurement was skipped.
+    """
+
+    if iterations <= 0:
+        raise ValueError("iterations must be positive")
+    origins, directions = _benchmark_ray_grid(scene, ray_count)
+    report: dict[str, Any] = {
+        "format": "AURA_CUDA_RUNTIME_BENCHMARK",
+        "scene": scene.name,
+        "rayCount": ray_count,
+        "iterations": iterations,
+        "warmup": max(warmup, 0),
+        "maxHits": max_hits,
+        "cudaAvailable": False,
+        "executed": False,
+        "parityPassed": None,
+        "reason": "cuda_unavailable",
+        "notes": (
+            "Runtime throughput comparison between the compiled CUDA renderer and the torch reference "
+            "renderer over an identical batched ray sweep."
+        ),
+    }
+
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - torch is expected in the GPU env.
+        report["reason"] = f"torch_unavailable: {type(exc).__name__}"
+        return report
+    if not bool(torch.cuda.is_available()):
+        report["reason"] = "cuda_hardware_unavailable"
+        return report
+
+    from aura.cuda_renderer import cuda_render_rays
+    from aura.torch_renderer import torch_render_rays
+
+    resolved_device = device or "cuda"
+    report["cudaAvailable"] = True
+    report["device"] = resolved_device
+
+    origin_tensor = torch.tensor(origins, dtype=torch.float32, device=resolved_device).contiguous()
+    direction_tensor = torch.tensor(directions, dtype=torch.float32, device=resolved_device).contiguous()
+
+    def _cuda_call() -> Any:
+        return cuda_render_rays(
+            scene,
+            ray_origins=origin_tensor,
+            ray_directions=direction_tensor,
+            device=resolved_device,
+            require_cuda=True,
+            fallback_backend="none",
+            max_hits=max_hits,
+        )
+
+    def _torch_call() -> Any:
+        return torch_render_rays(scene, origin_tensor, direction_tensor, device=resolved_device, collect_traces=False)
+
+    try:
+        for _ in range(max(warmup, 0)):
+            _cuda_call()
+            _torch_call()
+        torch.cuda.synchronize()
+
+        cuda_start = perf_counter()
+        cuda_batch = None
+        for _ in range(iterations):
+            cuda_batch = _cuda_call()
+        torch.cuda.synchronize()
+        cuda_seconds = (perf_counter() - cuda_start) / iterations
+
+        torch_start = perf_counter()
+        torch_batch = None
+        for _ in range(iterations):
+            torch_batch = _torch_call()
+        torch.cuda.synchronize()
+        torch_seconds = (perf_counter() - torch_start) / iterations
+    except Exception as exc:
+        report["reason"] = f"render_failed: {type(exc).__name__}: {exc}"
+        return report
+
+    max_color_delta = 0.0
+    max_transmittance_delta = 0.0
+    for ray_index in range(ray_count):
+        for channel in range(3):
+            max_color_delta = max(
+                max_color_delta,
+                abs(float(cuda_batch.color[ray_index][channel]) - float(torch_batch.predicted_color[ray_index][channel])),
+            )
+        max_transmittance_delta = max(
+            max_transmittance_delta,
+            abs(float(cuda_batch.transmittance[ray_index]) - float(torch_batch.transmittance[ray_index])),
+        )
+    element_match = sum(
+        1 for ray_index in range(ray_count) if cuda_batch.element_ids[ray_index] == torch_batch.element_ids[ray_index]
+    )
+    parity_passed = max_color_delta <= 1.0e-4 and max_transmittance_delta <= 1.0e-4 and element_match == ray_count
+
+    cuda_throughput = ray_count / cuda_seconds if cuda_seconds > 0 else 0.0
+    torch_throughput = ray_count / torch_seconds if torch_seconds > 0 else 0.0
+    report.update(
+        {
+            "executed": True,
+            "reason": None,
+            "parityPassed": parity_passed,
+            "elementMatchRate": element_match / ray_count if ray_count else 0.0,
+            "maxColorDelta": max_color_delta,
+            "maxTransmittanceDelta": max_transmittance_delta,
+            "cuda": {
+                "backend": cuda_batch.backend,
+                "secondsPerRender": cuda_seconds,
+                "raysPerSecond": cuda_throughput,
+            },
+            "torch": {
+                "backend": "torch",
+                "secondsPerRender": torch_seconds,
+                "raysPerSecond": torch_throughput,
+            },
+            "cudaSpeedup": (torch_seconds / cuda_seconds) if cuda_seconds > 0 else 0.0,
+        }
+    )
+    return report
+
+
 def run_reference_benchmark(
     package: AuraPackage,
     *,

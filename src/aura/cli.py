@@ -15,6 +15,7 @@ from aura.benchmark import (
     run_ray_query_correctness_benchmark,
     run_reference_benchmark,
     run_visual_quality_benchmark,
+    run_cuda_runtime_benchmark,
     default_benchmark_suite,
 )
 from aura.core import ReconstructionConfig, load_training_dataset, reconstruct_demo_scene, write_synthetic_training_frames
@@ -282,6 +283,17 @@ def main(argv: list[str] | None = None) -> int:
     visual_benchmark.add_argument("--height", type=int, default=None)
     visual_benchmark.add_argument("--min-psnr", type=float, default=None)
 
+    cuda_runtime_benchmark = sub.add_parser(
+        "benchmark-cuda-runtime",
+        help="Measure CUDA-vs-torch render throughput on device for a .aura package or the native demo scene",
+    )
+    cuda_runtime_benchmark.add_argument("package_dir", type=Path, nargs="?", default=None)
+    cuda_runtime_benchmark.add_argument("--ray-count", type=int, default=4096)
+    cuda_runtime_benchmark.add_argument("--iterations", type=int, default=5)
+    cuda_runtime_benchmark.add_argument("--warmup", type=int, default=2)
+    cuda_runtime_benchmark.add_argument("--max-hits", type=int, default=8)
+    cuda_runtime_benchmark.add_argument("--device", default=None, help="Torch device such as cuda or cuda:0")
+
     production_gate = sub.add_parser(
         "production-gate-report",
         help="Print the native AURA production-claim gate for a .aura package as JSON",
@@ -546,6 +558,18 @@ def main(argv: list[str] | None = None) -> int:
             payload = run_ablation_benchmarks(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
         else:
             payload = run_reference_benchmark(package, package_dir=args.package_dir, render_width=args.width, render_height=args.height)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "benchmark-cuda-runtime":
+        scene = load_package(args.package_dir).scene if args.package_dir is not None else native_scene
+        payload = run_cuda_runtime_benchmark(
+            scene,
+            ray_count=args.ray_count,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            max_hits=args.max_hits,
+            device=args.device,
+        )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     if args.command == "benchmark-capture":
