@@ -231,6 +231,52 @@ def test_torch_capture_training_batch_filters_masked_pixels_before_limit():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_treats_absent_frame_mask_as_visible():
+    frames = (
+        TrainingFrame(
+            id="frame_a",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.0, 0.0, 0.0),
+            target_depth=2.0,
+            intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 2.0, "height": 1.0},
+        ),
+        TrainingFrame(
+            id="frame_b",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.0, 0.0, 0.0),
+            target_depth=2.0,
+            intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 2.0, "height": 1.0},
+        ),
+    )
+    assets = torch_capture_asset_batch(
+        (
+            _capture_tensor_frame(
+                frame_id="frame_a",
+                image_values=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+                depth_values=(2.0, 2.0),
+                mask_values=(0.0, 1.0),
+            ),
+            _capture_tensor_frame(
+                frame_id="frame_b",
+                image_values=(0.0, 0.0, 1.0, 1.0, 1.0, 1.0),
+                depth_values=(2.0, 2.0),
+                mask_values=None,
+            ),
+        ),
+        device="cpu",
+    )
+
+    batch = torch_capture_training_batch(frames, assets)
+
+    assert batch.frame_indices.tolist() == [0, 1, 1]
+    assert batch.pixel_xy.tolist() == [[1, 0], [0, 0], [1, 0]]
+    assert batch.target_mask.tolist() == [1.0, 1.0, 1.0]
+    assert batch.target_confidence.tolist() == [1.0, 1.0, 1.0]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_capture_training_batch_builds_ray_tensors_on_asset_device():
     import torch
 

@@ -446,6 +446,8 @@ def torch_capture_training_batch(
         frame_depths = torch.tensor([by_frame[frame_id].target_depth for frame_id in assets.frame_ids], dtype=torch.float32, device=device)
         target_depth = frame_depths[index_tensor]
     target_mask = assets.mask[index_tensor, y_index, x_index, 0] if assets.mask is not None else None
+    if target_mask is not None and assets.mask_present is not None:
+        target_mask = torch.where(assets.mask_present[index_tensor], target_mask, torch.ones_like(target_mask))
     target_normal = assets.normal[index_tensor, y_index, x_index, :3] if assets.normal is not None else None
     target_normal_present = assets.normal_present[index_tensor] if assets.normal_present is not None else None
     target_count = int(index_tensor.shape[0])
@@ -486,11 +488,10 @@ def _sampled_training_pixels_for_frame(
     x_values = torch.arange(0, width, pixel_stride, dtype=torch.long, device=device)
     y_grid, x_grid = torch.meshgrid(y_values, x_values, indexing="ij")
     pixel_xy = torch.stack((x_grid.reshape(-1), y_grid.reshape(-1)), dim=1)
-    has_mask = assets.mask is not None and (
-        assets.mask_present is None or bool(assets.mask_present[frame_index].detach().cpu().item())
-    )
-    if has_mask and not include_masked_targets:
+    if assets.mask is not None and not include_masked_targets:
         mask_values = assets.mask[frame_index, pixel_xy[:, 1], pixel_xy[:, 0], 0]
+        if assets.mask_present is not None:
+            mask_values = torch.where(assets.mask_present[frame_index], mask_values, torch.ones_like(mask_values))
         pixel_xy = pixel_xy[mask_values > 0.0]
     if max_targets_per_frame is not None:
         pixel_xy = pixel_xy[:max_targets_per_frame]
