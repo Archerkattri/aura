@@ -1,52 +1,41 @@
-# Agent Instructions - AURA
+# AGENTS.md — AURA-Core
 
-You are working on AURA, Adaptive Unified Radiance Asset.
+This file is read by automated coding agents (Claude Code, etc.) working on
+this repository.
 
 ## Read First
 
-1. `README.md`
-2. `docs/AURA_CORE_RESEARCH.md`
-3. `docs/PRODUCTION_HANDOFF.md`
-4. `docs/GPU_MVP.md`
-5. `docs/DATASETS.md`
-6. `src/aura/cli.py`
-7. `tests/`
+1. `README.md` — project overview, install, quickstart, repository map.
+2. `docs/ARCHITECTURE.md` — carrier families, reconstruction pipeline, adaptive
+   evolution contract, CUDA renderer, package format.
+3. `docs/DATASETS.md` — dataset conventions, baseline methods, capture asset
+   contracts.
+4. `CONTRIBUTING.md` — build/test setup, commit convention, branch workflow,
+   guardrails.
+5. `src/aura/cli.py` — all CLI commands.
+6. `tests/` — deterministic contract and integration tests.
 
-## Guardrails
+## Scope
 
-- Do not commit datasets, trained checkpoints, rendered outputs, tokens, `.env`,
+- **Edit freely:** `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/`,
+  `.gitignore`, `.env.example`, `pyproject.toml`.
+- **Do not edit** any `.py` files without explicit instruction. Source code
+  is owned by the main development branch.
+
+## Core Guardrails
+
+- Do not commit datasets, checkpoints, rendered outputs, secrets, `.env`,
   or `LOCAL_SECRETS.md`.
-- Keep data under ignored `data/`.
-- Keep generated packages under ignored `outputs/`.
-- Treat this as the GPU development path and expose CUDA device 0 by default.
-- Do not reduce AURA to one new splat kernel, a package format, or a 3DGS
-  wrapper. AURA-Core is the native reconstruction engine over adaptive carriers.
-- Keep 3DGS-specific logic under `aura.ingest`; splats are evidence inputs, not
-  the native representation center.
-- New ingest sources must produce `EvidenceSample` records before decomposition.
+- AURA is the native reconstruction engine over adaptive carriers. Do not
+  reduce it to a 3DGS wrapper or a file-format layer.
+- Keep all 3DGS-specific logic under `aura.ingest`; splats are evidence inputs,
+  not native elements.
+- New ingest sources must produce `EvidenceSample` records before carrier
+  assignment.
+- Run `python -m pytest -q` and confirm it passes before committing.
 
-## First Tasks On A GPU Machine
+## Commit Author
 
-1. Install with `python -m pip install -e ".[dev]"`.
-2. Run `python -m pytest -q`.
-3. Run `aura write-capture-manifest-template --output outputs/capture-manifest.json`.
-4. Run `aura capture-manifest-to-training outputs/capture-manifest.json --output outputs/training-from-capture.json`.
-5. Run `aura reconstruct-capture-manifest outputs/capture-manifest.json --output-dir outputs/reconstruct-capture.aura --iterations 6`.
-6. Run `aura validate-package outputs/reconstruct-capture.aura`.
-7. Run `aura build-native-demo --output-dir outputs/native-demo.aura`.
-8. Run `aura inspect-rays outputs/native-demo.aura --native-demo-probes`.
-9. Run `aura benchmark-reference outputs/native-demo.aura --include-ablations`.
-10. Run `aura migration-plan outputs/native-demo.aura`.
-11. Run `aura ingest-adapters`.
-12. Replace the fixture reconstruction loop with real image/depth loading and differentiable rendering.
-13. Add adaptive carrier promote/split/merge tests and real-data benchmarks.
-14. Extend mixed-carrier decomposition fixtures and query tests.
-15. Add more ray-query paths for first-hit/depth/transmittance.
-16. Extend the tiny JSON/ASCII/binary PLY 3DGS export fixtures when parser coverage needs it.
-17. Harden the 3DGS export reader for means/covariances/opacities toward real baseline exports.
-18. Use `aura import-3dgs` on real baseline output directories only after the native reconstruction path is first-class.
-
-## Research Positioning
-
-The paper target is not better PSNR alone. The target is scene behavior: ray
-queries, confidence, geometry proxies, editability, LOD, and export.
+```
+Archerkattri <krishiattriwork@gmail.com>
+```
