@@ -184,9 +184,13 @@ def test_capture_reconstruction_benchmark_trains_and_scores_capture_targets(tmp_
     assert payload["packedTargetCount"] == 1
     assert payload["trainingSteps"] == 2
     assert payload["initialReference"]["metrics"]["psnrInfinite"] is False
+    assert payload["captureBaseline"]["label"] == "capture_leave_one_out_color_depth_baseline"
+    assert payload["captureBaseline"]["baselineKind"] == "leave_one_out_capture_color_depth"
+    assert payload["captureBaseline"]["metrics"]["psnrInfinite"] is False
     assert payload["trained"]["metrics"]["psnr"] is not None
     assert payload["trained"]["metrics"]["ssim"] >= 0.0
     assert payload["trained"]["metrics"]["lpipsProxy"] >= 0.0
+    assert "psnrDelta" in payload["improvementVsCaptureBaseline"]
     assert payload["rayQueryCorrectness"]["passed"] is True
     assert payload["baseline"] is None
     assert (output_dir / "manifest.json").exists()
@@ -228,7 +232,9 @@ def test_capture_benchmark_cli_prints_json(tmp_path):
     assert payload["trained"]["label"] == "aura_native_trained"
     assert payload["trained"]["sampleCount"] == 1
     assert payload["trained"]["metrics"]["mse"] >= 0.0
-    assert payload["notes"]["baseline"].startswith("3DGS")
+    assert payload["captureBaseline"]["sampleCount"] == 1
+    assert payload["notes"]["captureBaseline"].startswith("Built-in non-AURA")
+    assert "3DGS" in payload["notes"]["baseline"]
 
 
 def test_visual_quality_benchmark_compares_package_render_to_reference():

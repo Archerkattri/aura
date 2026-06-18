@@ -549,6 +549,11 @@ def run_capture_reconstruction_benchmark(
         if baseline_package is not None
         else None
     )
+    capture_baseline_eval = _evaluate_capture_leave_one_out_baseline(
+        "capture_leave_one_out_color_depth_baseline",
+        packed_batches,
+        device=trained_eval["device"],
+    )
     query_expectations = _capture_ray_query_expectations(result.scene, packed_batches, device=device)
     ray_query = run_ray_query_correctness_benchmark(result.scene, query_expectations) if query_expectations else None
 
@@ -564,14 +569,17 @@ def run_capture_reconstruction_benchmark(
         "packedBatchCount": len(packed_batches),
         "packedTargetCount": sum(batch.target_count for batch in packed_batches),
         "initialReference": initial_eval,
+        "captureBaseline": capture_baseline_eval,
         "trained": trained_eval,
         "baseline": baseline_eval,
         "improvement": _capture_metric_delta(initial_eval, trained_eval),
+        "improvementVsCaptureBaseline": _capture_metric_delta(capture_baseline_eval, trained_eval),
         "rayQueryCorrectness": ray_query,
         "training": result.to_dict(),
         "notes": {
             "visualMetrics": "PSNR/SSIM/LPIPS-proxy are computed against capture image samples, not self-reference renders.",
-            "baseline": "3DGS or another external package is only reported when --baseline-package is supplied.",
+            "captureBaseline": "Built-in non-AURA baseline predicts each target from other sampled capture colors/depths, with a neutral fallback for one-sample smokes.",
+            "baseline": "3DGS or another external package is reported separately when --baseline-package is supplied.",
         },
     }
 
@@ -623,6 +631,61 @@ def _evaluate_capture_scene_predictions(
         "orderedTraceMeanLength": _mean(trace_lengths),
         "transmittanceMean": _mean(transmittance),
     }
+
+
+def _evaluate_capture_leave_one_out_baseline(label: str, packed_batches: Sequence[Any], *, device: str | None) -> dict:
+    target_colors: list[tuple[float, float, float]] = []
+    target_depths: list[float] = []
+    for packed_batch in packed_batches:
+        if packed_batch.target_count <= 0:
+            continue
+        colors = tuple(float(value) for value in packed_batch.target_color)
+        depths = tuple(float(value) for value in packed_batch.target_depth)
+        target_colors.extend(
+            (colors[index], colors[index + 1], colors[index + 2])
+            for index in range(0, len(colors), 3)
+        )
+        target_depths.extend(depths)
+    if not target_colors:
+        raise ValueError("capture mean baseline requires at least one target")
+    predicted_colors = _leave_one_out_color_predictions(tuple(target_colors))
+    predicted_depths = _leave_one_out_scalar_predictions(tuple(target_depths), fallback=0.0)
+    target_image = RenderImage(width=len(target_colors), height=1, pixels=tuple(target_colors))
+    predicted_image = RenderImage(width=len(predicted_colors), height=1, pixels=predicted_colors)
+    depth_errors = tuple(abs(predicted - target) for predicted, target in zip(predicted_depths, target_depths))
+    return {
+        "label": label,
+        "device": device or "cpu",
+        "sampleCount": len(target_colors),
+        "renderSeconds": 0.0,
+        "samplesPerSecond": 0.0,
+        "metrics": compare_images(target_image, predicted_image),
+        "depthMeanAbsoluteError": _mean(depth_errors),
+        "normalLossMean": 0.0,
+        "hitRate": 0.0,
+        "orderedTraceMeanLength": 0.0,
+        "transmittanceMean": 1.0,
+        "baselineKind": "leave_one_out_capture_color_depth",
+    }
+
+
+def _leave_one_out_color_predictions(colors: tuple[tuple[float, float, float], ...]) -> tuple[tuple[float, float, float], ...]:
+    if len(colors) == 1:
+        return ((0.0, 0.0, 0.0),)
+    totals = tuple(sum(color[channel] for color in colors) for channel in range(3))
+    denominator = len(colors) - 1
+    return tuple(
+        tuple((totals[channel] - color[channel]) / denominator for channel in range(3))  # type: ignore[misc]
+        for color in colors
+    )
+
+
+def _leave_one_out_scalar_predictions(values: tuple[float, ...], *, fallback: float) -> tuple[float, ...]:
+    if len(values) == 1:
+        return (fallback,)
+    total = sum(values)
+    denominator = len(values) - 1
+    return tuple((total - value) / denominator for value in values)
 
 
 def _capture_metric_delta(initial: dict, trained: dict) -> dict:
