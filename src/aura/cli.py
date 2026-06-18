@@ -1020,7 +1020,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
             feature_learning_rate=getattr(args, "feature_lr", 2.5e-3),
             grad_accum_window=getattr(args, "grad_accum_window", 100),
             opacity_reset_interval=getattr(args, "opacity_reset_interval", 0),
-            max_carriers=getattr(args, "max_carriers", 0),
+            max_carriers=args.max_carriers or 0,
             evolution_policy=None
             if args.disable_evolution
             else CarrierEvolutionPolicy(
