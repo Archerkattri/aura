@@ -391,6 +391,8 @@ def test_torch_scene_tensors_groups_native_demo_carriers_for_dispatch():
         "surface": [0],
         "volume": [1],
     }
+    assert payload["betaSupportRadii"]["shape"] == [len(scene.elements), 3]
+    assert scene_tensors.beta_support_radii[5].tolist() == pytest.approx([0.15, 0.15, 0.075])
     assert sorted(index for indices in payload["carrierGroupIndices"].values() for index in indices) == list(range(len(scene.elements)))
 
 
@@ -1114,6 +1116,61 @@ def test_torch_render_targets_uses_gaussian_ellipsoid_support():
     assert batch.element_ids == (None,)
     assert batch.predicted_depth == (None,)
     assert batch.predicted_color == ((0.0, 0.0, 0.0),)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_uses_beta_support_ellipsoid():
+    scene = AuraScene(
+        name="torch_beta_ellipsoid_geometry_scene",
+        elements=(
+            AuraElement(
+                id="beta",
+                carrier_id="beta",
+                bounds=Bounds((-2.0, -2.0, 0.0), (2.0, 2.0, 2.0)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "beta_kernel",
+                    "alpha": 2.0,
+                    "beta": 2.0,
+                    "support_radius": [0.5, 0.5, 0.5],
+                },
+            ),
+        ),
+    )
+
+    outside_batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="outside",
+                ray=Ray(origin=(1.5, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(0.0, 0.0, 0.0),
+                target_depth=2.0,
+            ),
+        ),
+        device="cpu",
+    )
+    center_batch = torch_render_targets(
+        scene,
+        (
+            RenderTarget(
+                frame_id="center",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.0, 0.0),
+                target_depth=2.5,
+            ),
+        ),
+        device="cpu",
+    )
+
+    assert outside_batch.element_ids == (None,)
+    assert outside_batch.predicted_depth == (None,)
+    assert outside_batch.transmittance == (1.0,)
+    assert center_batch.element_ids == ("beta",)
+    assert center_batch.predicted_depth == pytest.approx((2.5,))
+    assert center_batch.ordered_hits[0][0]["depth"] == pytest.approx(2.5)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")

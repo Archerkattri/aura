@@ -136,6 +136,7 @@ class TorchSceneTensors:
     gaussian_means: Any
     gaussian_inverse_covariances: Any
     gaussian_support_radius_sq: Any
+    beta_support_radii: Any
     carrier_parameters: dict[str, dict[str, Any]]
 
     def to_dict(self) -> dict:
@@ -163,6 +164,7 @@ class TorchSceneTensors:
             "gaussianMeans": _torch_tensor_metadata(self.gaussian_means),
             "gaussianInverseCovariances": _torch_tensor_metadata(self.gaussian_inverse_covariances),
             "gaussianSupportRadiusSq": _torch_tensor_metadata(self.gaussian_support_radius_sq),
+            "betaSupportRadii": _torch_tensor_metadata(self.beta_support_radii),
             "carrierParameterIds": sorted(self.carrier_parameters),
         }
 
@@ -299,6 +301,11 @@ def torch_scene_tensors(
         ),
         gaussian_support_radius_sq=torch.tensor(
             [_gaussian_support_radius_sq(element) for element in elements],
+            dtype=torch.float32,
+            device=resolved_device,
+        ),
+        beta_support_radii=torch.tensor(
+            [_beta_support_radius_or_nan(element) for element in elements],
             dtype=torch.float32,
             device=resolved_device,
         ),
@@ -699,6 +706,7 @@ def _torch_render_tensor_targets(
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
+        scene_tensors.beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
         collect_traces=True,
@@ -824,6 +832,7 @@ def _torch_render_objective_tensor_targets(
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
         scene_tensors.gaussian_support_radius_sq,
+        scene_tensors.beta_support_radii,
         device=device,
         carrier_parameters=carrier_parameters,
         collect_traces=False,
@@ -944,6 +953,7 @@ def _torch_composite_carrier_hits(
     gaussian_means: Any,
     gaussian_inverse_covariances: Any,
     gaussian_support_radius_sq: Any,
+    beta_support_radii: Any,
     *,
     device: str,
     carrier_parameters: dict[str, dict[str, Any]] | None,
@@ -961,6 +971,7 @@ def _torch_composite_carrier_hits(
         gaussian_means,
         gaussian_inverse_covariances,
         gaussian_support_radius_sq,
+        beta_support_radii,
     )
     chunk_culling_active = chunk_mins is not None and chunk_maxs is not None and element_chunk_indices is not None
     if chunk_culling_active:
@@ -1078,6 +1089,7 @@ def _torch_carrier_hits(
     gaussian_means: Any,
     gaussian_inverse_covariances: Any,
     gaussian_support_radius_sq: Any,
+    beta_support_radii: Any,
 ) -> tuple[Any, Any, Any]:
     entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
     entry_columns = []
@@ -1120,6 +1132,22 @@ def _torch_carrier_hits(
             bounded_entry = torch.maximum(entry[:, element_index], gaussian_entry)
             bounded_exit = torch.minimum(exit_depth[:, element_index], gaussian_exit)
             bounded_hits = hits[:, element_index] & gaussian_hits & (bounded_exit >= bounded_entry)
+            current_hits = torch.where(valid, bounded_hits, current_hits)
+            current_entry = torch.where(valid, bounded_entry, current_entry)
+            current_exit = torch.where(valid, bounded_exit, current_exit)
+        elif payload_type == "beta_kernel":
+            center = (mins[element_index] + maxs[element_index]) * 0.5
+            beta_entry, beta_exit, beta_hits = _torch_beta_ellipsoid_hits(
+                torch,
+                origins,
+                directions,
+                center,
+                beta_support_radii[element_index],
+            )
+            valid = torch.isfinite(beta_support_radii[element_index]).all() & torch.all(beta_support_radii[element_index] > 0.0)
+            bounded_entry = torch.maximum(entry[:, element_index], beta_entry)
+            bounded_exit = torch.minimum(exit_depth[:, element_index], beta_exit)
+            bounded_hits = hits[:, element_index] & beta_hits & (bounded_exit >= bounded_entry)
             current_hits = torch.where(valid, bounded_hits, current_hits)
             current_entry = torch.where(valid, bounded_entry, current_entry)
             current_exit = torch.where(valid, bounded_exit, current_exit)
@@ -1190,6 +1218,41 @@ def _torch_gaussian_ellipsoid_hits(
     entry = torch.where(hits, entry, invalid_entry)
     exit_depth = torch.where(hits, torch.clamp(far, min=0.0), invalid_entry)
     return entry, exit_depth, hits
+
+
+def _torch_beta_ellipsoid_hits(
+    torch: Any,
+    origins: Any,
+    directions: Any,
+    center: Any,
+    support_radii: Any,
+) -> tuple[Any, Any, Any]:
+    ray_count = int(origins.shape[0])
+    invalid_entry = torch.full((ray_count,), float("inf"), dtype=origins.dtype, device=origins.device)
+    invalid_hits = torch.zeros((ray_count,), dtype=torch.bool, device=origins.device)
+    valid_beta = torch.isfinite(center).all() & torch.isfinite(support_radii).all() & torch.all(support_radii > 0.0)
+    if not bool(valid_beta.detach().cpu().item()):
+        return invalid_entry, invalid_entry, invalid_hits
+
+    scaled_origin = (origins - center.unsqueeze(0)) / support_radii.unsqueeze(0)
+    scaled_direction = directions / support_radii.unsqueeze(0)
+    a = torch.sum(scaled_direction * scaled_direction, dim=1)
+    b = 2.0 * torch.sum(scaled_origin * scaled_direction, dim=1)
+    c = torch.sum(scaled_origin * scaled_origin, dim=1) - 1.0
+    discriminant = b * b - 4.0 * a * c
+    valid = (a > 1e-8) & (discriminant >= 0.0)
+    sqrt_discriminant = torch.sqrt(torch.clamp(discriminant, min=0.0))
+    denom = torch.where(a.abs() > 1e-8, 2.0 * a, torch.ones_like(a))
+    near = (-b - sqrt_discriminant) / denom
+    far = (-b + sqrt_discriminant) / denom
+    entry = torch.clamp(torch.minimum(near, far), min=0.0)
+    exit_depth = torch.maximum(near, far)
+    hits = valid & (exit_depth >= entry)
+    return (
+        torch.where(hits, entry, invalid_entry),
+        torch.where(hits, exit_depth, invalid_entry),
+        hits,
+    )
 
 
 def _torch_carrier_sample_points(
@@ -1393,6 +1456,21 @@ def _gaussian_support_radius_sq(element: Any) -> float:
     except (TypeError, ValueError):
         return float("nan")
     return sigma * sigma if sigma > 0.0 else float("nan")
+
+
+def _beta_support_radius_or_nan(element: Any) -> tuple[float, float, float]:
+    if element.payload.get("type") != "beta_kernel":
+        return (float("nan"), float("nan"), float("nan"))
+    support_radius = element.payload.get("support_radius")
+    if not isinstance(support_radius, (list, tuple)) or len(support_radius) != 3:
+        return (float("nan"), float("nan"), float("nan"))
+    try:
+        radii = tuple(float(value) for value in support_radius)
+    except (TypeError, ValueError):
+        return (float("nan"), float("nan"), float("nan"))
+    if any(value <= 0.0 for value in radii):
+        return (float("nan"), float("nan"), float("nan"))
+    return radii  # type: ignore[return-value]
 
 
 def _nan_matrix3() -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
