@@ -1163,9 +1163,9 @@ def cuda_render_rays(
     explicit CPU/torch fallback batch with the AURA ray-query contract fields.
     """
 
-    rays = _validated_rays(ray_origins, ray_directions)
+    ray_count = _ray_count_from_inputs(ray_origins, ray_directions)
     launch_config = cuda_renderer_launch_config(
-        len(rays),
+        ray_count,
         threads_per_block=threads_per_block,
         max_hits=max_hits,
         fallback_backend=fallback_backend,
@@ -1185,12 +1185,13 @@ def cuda_render_rays(
         and symbol_probe.binding_callable
         and extension_module is not None
     ):
-        return _compiled_extension_batch(scene, rays, launch_config, extension, extension_module, device=device)
+        return _compiled_extension_batch(scene, ray_origins, ray_directions, launch_config, extension, extension_module, device=device)
     if extension.available and (require_cuda or fallback_backend == "none"):
         raise RuntimeError(f"CUDA renderer Python dispatch is unavailable: {symbol_probe.reason or 'binding_not_ready'}")
     if require_cuda or fallback_backend == "none":
         raise RuntimeError(f"CUDA renderer extension is unavailable: {extension.reason or 'not_available'}")
 
+    rays = _validated_rays(ray_origins, ray_directions)
     resolved_backend = _resolve_fallback_backend(fallback_backend, scene=scene)
     if resolved_backend == "torch":
         return _torch_fallback_batch(scene, rays, launch_config, extension, device=device, symbol_probe=symbol_probe)
@@ -1199,6 +1200,33 @@ def cuda_render_rays(
 
 def _device_requests_cuda(device: str | None) -> bool:
     return device is None or str(device).startswith("cuda")
+
+
+def _ray_count_from_inputs(ray_origins: Sequence[Sequence[float]] | Any, ray_directions: Sequence[Sequence[float]] | Any) -> int:
+    origin_count = _ray_count_from_rows(ray_origins, "ray_origins")
+    direction_count = _ray_count_from_rows(ray_directions, "ray_directions")
+    if origin_count != direction_count:
+        raise ValueError(f"ray_origins count {origin_count} does not match ray_directions count {direction_count}")
+    if origin_count <= 0:
+        raise ValueError("ray_count must be positive")
+    return origin_count
+
+
+def _ray_count_from_rows(values: Sequence[Sequence[float]] | Any, name: str) -> int:
+    if values is None:
+        raise ValueError(f"{name} is required")
+    shape = getattr(values, "shape", None)
+    if shape is not None:
+        shape_tuple = tuple(int(dim) for dim in shape)
+        if len(shape_tuple) != 2 or shape_tuple[1] != 3:
+            raise ValueError(f"{name} must have shape rayCount x 3")
+        return shape_tuple[0]
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{name} must be a sequence or tensor-like object with shape")
+    for row in values:
+        if not isinstance(row, Sequence) or isinstance(row, (str, bytes)) or len(row) != 3:
+            raise ValueError(f"{name} must contain 3D ray vectors")
+    return len(values)
 
 
 def _validated_rays(ray_origins: Sequence[Sequence[float]] | Any, ray_directions: Sequence[Sequence[float]] | Any) -> tuple[Ray, ...]:
@@ -1434,7 +1462,8 @@ def _torch_fallback_batch(
 
 def _compiled_extension_batch(
     scene: AuraScene,
-    rays: Sequence[Ray],
+    ray_origins: Sequence[Sequence[float]] | Any,
+    ray_directions: Sequence[Sequence[float]] | Any,
     launch_config: CudaRendererLaunchConfig,
     extension: CudaExtensionStatus,
     extension_module: Any,
@@ -1443,36 +1472,37 @@ def _compiled_extension_batch(
 ) -> CudaRendererBatch:
     torch = _require_torch_for_cuda_dispatch()
     resolved_device = device or "cuda"
-    inputs = cuda_renderer_kernel_inputs(
-        scene,
-        ray_origins=tuple(ray.origin for ray in rays),
-        ray_directions=tuple(ray.direction for ray in rays),
-        max_hits=launch_config.max_hits,
-    )
-    scene_buffers = inputs.scene
+    scene_buffers = cuda_renderer_scene_buffers(scene)
+    element_count = scene_buffers.element_count
+    ray_origin_tensor = _cuda_float_ray_tensor(torch, ray_origins, "ray_origins", resolved_device)
+    ray_direction_tensor = _cuda_float_ray_tensor(torch, ray_directions, "ray_directions", resolved_device)
+    if int(ray_origin_tensor.shape[0]) != launch_config.ray_count:
+        raise ValueError(f"ray_origins count {int(ray_origin_tensor.shape[0])} does not match launch config ray count")
+    if int(ray_direction_tensor.shape[0]) != launch_config.ray_count:
+        raise ValueError(f"ray_directions count {int(ray_direction_tensor.shape[0])} does not match launch config ray count")
     outputs = getattr(extension_module, CUDA_RENDERER_BINDING_SYMBOL)(
-        torch.tensor(inputs.ray_origins, dtype=torch.float32, device=resolved_device).reshape(inputs.ray_count, 3).contiguous(),
-        torch.tensor(inputs.ray_directions, dtype=torch.float32, device=resolved_device).reshape(inputs.ray_count, 3).contiguous(),
-        torch.tensor(scene_buffers.element_mins, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
-        torch.tensor(scene_buffers.element_maxs, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
-        torch.tensor(scene_buffers.plane_points, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
-        torch.tensor(scene_buffers.plane_normals, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
-        torch.tensor(scene_buffers.beta_support_radii, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
-        torch.tensor(scene_buffers.gaussian_means, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
-        torch.tensor(scene_buffers.gaussian_inverse_covariances, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3, 3).contiguous(),
+        ray_origin_tensor,
+        ray_direction_tensor,
+        torch.tensor(scene_buffers.element_mins, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.element_maxs, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.plane_points, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.plane_normals, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.beta_support_radii, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.gaussian_means, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.gaussian_inverse_covariances, dtype=torch.float32, device=resolved_device).reshape(element_count, 3, 3).contiguous(),
         torch.tensor(scene_buffers.gaussian_support_radius_sq, dtype=torch.float32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.carrier_kernel_ids, dtype=torch.int32, device=resolved_device).contiguous(),
-        torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(element_count, 3).contiguous(),
         torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.confidences, dtype=torch.float32, device=resolved_device).contiguous(),
-        torch.tensor(scene_buffers.payload_params, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 5).contiguous(),
+        torch.tensor(scene_buffers.payload_params, dtype=torch.float32, device=resolved_device).reshape(element_count, 5).contiguous(),
         torch.tensor(scene_buffers.material_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.semantic_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         int(launch_config.max_hits),
         int(launch_config.threads_per_block),
     )
     return _batch_from_compiled_outputs(
-        inputs,
+        launch_config.ray_count,
         outputs,
         launch_config,
         extension,
@@ -1481,8 +1511,22 @@ def _compiled_extension_batch(
     )
 
 
+def _cuda_float_ray_tensor(torch: Any, values: Sequence[Sequence[float]] | Any, name: str, device: str) -> Any:
+    if values is None:
+        raise ValueError(f"{name} is required")
+    if hasattr(values, "shape") and hasattr(values, "to"):
+        tensor = values.to(device=device, dtype=torch.float32)
+    else:
+        tensor = torch.as_tensor(values, dtype=torch.float32, device=device)
+    if len(tuple(int(dim) for dim in tensor.shape)) != 2 or int(tensor.shape[1]) != 3:
+        raise ValueError(f"{name} must have shape rayCount x 3")
+    if int(tensor.shape[0]) <= 0:
+        raise ValueError("ray_count must be positive")
+    return tensor.contiguous()
+
+
 def _batch_from_compiled_outputs(
-    inputs: CudaRendererKernelInputBuffers,
+    ray_count: int,
     outputs: Mapping[str, Any],
     launch_config: CudaRendererLaunchConfig,
     extension: CudaExtensionStatus,
@@ -1501,7 +1545,7 @@ def _batch_from_compiled_outputs(
     out_semantic = _tensor_to_int_tuple(outputs["out_semantic_id"])
     ordered_indices = _tensor_to_int_tuple(outputs["ordered_hits"])
     ordered_hits, overflow = _compiled_ordered_hits(scene_buffers, ordered_indices, launch_config.max_hits)
-    first_indices = tuple(ordered_indices[index * launch_config.max_hits] for index in range(inputs.ray_count))
+    first_indices = tuple(ordered_indices[index * launch_config.max_hits] for index in range(ray_count))
     return CudaRendererBatch(
         launch_config=launch_config,
         backend="cuda",

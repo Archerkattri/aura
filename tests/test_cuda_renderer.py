@@ -2,6 +2,7 @@ import importlib.util
 
 import pytest
 
+import aura.cuda_renderer as cuda_renderer_module
 from aura import AuraElement, AuraScene, Bounds, Ray
 from aura.cuda_kernels import CudaExtensionStatus
 from aura.cuda_renderer import (
@@ -878,6 +879,119 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
     assert batch.ordered_hits[0][0]["elementId"] == "surface"
     assert batch.to_dict()["available"] is True
     assert batch.to_dict()["productionReady"] is False
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_keeps_tensor_rays_on_compiled_path(monkeypatch):
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    extension = CudaExtensionStatus(
+        available=True,
+        build_attempted=True,
+        compiled=True,
+        loadable=True,
+        module_name="aura_cuda_carriers",
+        source_paths=("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        symbols=("aura_render_rays_kernel", "aura_render_rays_launcher", "render_rays"),
+    )
+
+    class FakeCudaModule:
+        aura_render_rays_kernel = object()
+        aura_render_rays_launcher = object()
+        ray_origin_device = None
+
+        @classmethod
+        def render_rays(
+            cls,
+            ray_origins,
+            ray_directions,
+            element_mins,
+            element_maxs,
+            plane_points,
+            plane_normals,
+            beta_support_radii,
+            gaussian_means,
+            gaussian_inverse_covariances,
+            gaussian_support_radius_sq,
+            carrier_ids,
+            colors,
+            opacities,
+            confidences,
+            payload_params,
+            material_ids,
+            semantic_ids,
+            max_hits,
+            threads_per_block,
+        ):
+            del (
+                ray_directions,
+                element_mins,
+                element_maxs,
+                plane_points,
+                plane_normals,
+                beta_support_radii,
+                gaussian_means,
+                gaussian_inverse_covariances,
+                gaussian_support_radius_sq,
+                carrier_ids,
+                colors,
+                opacities,
+                confidences,
+                payload_params,
+                material_ids,
+                semantic_ids,
+                threads_per_block,
+            )
+            cls.ray_origin_device = str(ray_origins.device)
+            assert ray_origins.is_cuda
+            ray_count = int(ray_origins.shape[0])
+            return {
+                "out_color": torch.zeros((ray_count, 3), dtype=torch.float32, device=ray_origins.device),
+                "out_alpha": torch.zeros((ray_count,), dtype=torch.float32, device=ray_origins.device),
+                "out_transmittance": torch.ones((ray_count,), dtype=torch.float32, device=ray_origins.device),
+                "out_depth": torch.full((ray_count,), 3.402823466e38, dtype=torch.float32, device=ray_origins.device),
+                "out_normal": torch.zeros((ray_count, 3), dtype=torch.float32, device=ray_origins.device),
+                "out_confidence": torch.zeros((ray_count,), dtype=torch.float32, device=ray_origins.device),
+                "out_residual": torch.zeros((ray_count,), dtype=torch.uint8, device=ray_origins.device),
+                "out_material_id": torch.full((ray_count,), -1, dtype=torch.int32, device=ray_origins.device),
+                "out_semantic_id": torch.full((ray_count,), -1, dtype=torch.int32, device=ray_origins.device),
+                "ordered_hits": torch.full((ray_count, max_hits), -1, dtype=torch.int32, device=ray_origins.device),
+            }
+
+    def fail_python_ray_validation(*_args, **_kwargs):
+        raise AssertionError("compiled CUDA dispatch must not materialize Python Ray objects")
+
+    monkeypatch.setattr(cuda_renderer_module, "_validated_rays", fail_python_ray_validation)
+    scene = AuraScene(
+        name="cuda_tensor_direct_dispatch_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.2)),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    ray_origins = torch.tensor(((0.0, 0.0, -1.0), (2.0, 0.0, -1.0)), dtype=torch.float32, device="cuda")
+    ray_directions = torch.tensor(((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)), dtype=torch.float32, device="cuda")
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        extension=extension,
+        extension_module=FakeCudaModule,
+        device="cuda",
+        max_hits=2,
+    )
+
+    assert batch.backend == "cuda"
+    assert batch.depth == (None, None)
+    assert FakeCudaModule.ray_origin_device == "cuda:0"
 
 
 def _flatten_nested(values):
