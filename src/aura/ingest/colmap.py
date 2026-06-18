@@ -642,7 +642,7 @@ def _sparse_prior_region(
         "bounds": {"min": list(min_corner), "max": list(max_corner)},
         "evidence": {"geometry_confidence": confidence, "ray_need": 0.6, "edit_need": 0.25},
         "color": list(_point_average_color(points) or (0.5, 0.5, 0.5)),
-        "opacity": 0.45,
+        "opacity": 0.1,
         "confidence": confidence,
         "normal": None,
         "material_id": "mat_colmap_sparse_prior",

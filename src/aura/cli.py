@@ -963,6 +963,14 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
             max_samples_per_batch=sampling_plan.max_targets_per_batch,
             iteration_offset=resume_iteration_offset,
             checkpoint_interval=args.checkpoint_interval,
+            optimizer_type="adam",
+            position_learning_rate=getattr(args, "position_lr", 1.6e-4),
+            scale_learning_rate=getattr(args, "scale_lr", 5e-3),
+            opacity_learning_rate=getattr(args, "opacity_lr", 5e-2),
+            feature_learning_rate=getattr(args, "feature_lr", 2.5e-3),
+            grad_accum_window=getattr(args, "grad_accum_window", 100),
+            opacity_reset_interval=getattr(args, "opacity_reset_interval", 0),
+            max_carriers=getattr(args, "max_carriers", 0),
             evolution_policy=None
             if args.disable_evolution
             else CarrierEvolutionPolicy(
