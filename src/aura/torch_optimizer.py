@@ -559,7 +559,7 @@ def _scene_from_carrier_parameters(
                 payload["opacity"] = opacity
         if "confidence" in fields:
             confidence = _clamp_unit(_tensor_scalar(fields["confidence"]))
-            if payload.get("type") in {"neural_residual", "semantic_feature"}:
+            if payload.get("type") in {"beta_kernel", "neural_residual", "semantic_feature"}:
                 payload["confidence"] = confidence
         for name in ("density", "alpha", "beta", "phase", "bandwidth", "residual_scale"):
             if name in fields:

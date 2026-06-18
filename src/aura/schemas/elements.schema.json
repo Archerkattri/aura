@@ -186,6 +186,7 @@
         "type": { "const": "beta_kernel" },
         "alpha": { "type": "number", "exclusiveMinimum": 0 },
         "beta": { "type": "number", "exclusiveMinimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "support_radius": { "$ref": "#/$defs/vec3" }
       }
     },
@@ -209,6 +210,8 @@
       "properties": {
         "type": { "const": "neural_residual" },
         "latent_dim": { "type": "integer", "minimum": 1 },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "residual_scale": { "type": "number", "minimum": 0, "maximum": 1 },
         "model_ref": { "type": ["string", "null"] }
       }

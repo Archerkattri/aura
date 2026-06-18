@@ -65,7 +65,7 @@ def torch_carrier_kernel_specs() -> tuple[TorchCarrierKernelSpec, ...]:
         TorchCarrierKernelSpec(
             payload_type="beta_kernel",
             carrier_id="beta",
-            differentiable_fields=("color", "opacity", "alpha", "beta", "support_radius"),
+            differentiable_fields=("color", "opacity", "confidence", "alpha", "beta", "support_radius"),
             description="Bounded beta support torch autograd kernel; CUDA production kernel is still required.",
             implementation_stage="torch_autograd_beta_kernel",
             autograd_kernel=True,
@@ -208,6 +208,11 @@ def torch_carrier_response_tensors(
                 min=0.0,
                 max=1.0,
             )
+            beta_confidence = torch.clamp(
+                _carrier_parameter(torch, element, "confidence", carrier_parameters, device, default=element.payload.get("confidence", element.confidence)),
+                min=0.0,
+                max=1.0,
+            )
             alpha = _carrier_parameter(torch, element, "alpha", carrier_parameters, device, default=element.payload.get("alpha", 1.0))
             beta_value = _carrier_parameter(torch, element, "beta", carrier_parameters, device, default=element.payload.get("beta", 1.0))
             support_radius = _carrier_vector_parameter(
@@ -229,7 +234,7 @@ def torch_carrier_response_tensors(
             )
             carrier_colors[mask] = torch.clamp(beta_color, min=0.0, max=1.0)
             transmittance[mask] = torch.clamp(1.0 - beta_opacity * weight, min=0.0, max=1.0)
-            confidence[mask] = torch.clamp(confidences[element_index], min=0.0, max=1.0)
+            confidence[mask] = beta_confidence
         elif payload_type == "gabor_frequency":
             gabor_color = _carrier_vector_parameter(torch, element, "color", carrier_parameters, device, default=element.color)
             gabor_opacity = torch.clamp(
@@ -406,6 +411,12 @@ def torch_carrier_parameter_tensors(
                 ),
                 "opacity": torch.tensor(
                     float(element.payload.get("opacity", element.opacity)),
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=requires_grad,
+                ),
+                "confidence": torch.tensor(
+                    float(element.payload.get("confidence", element.confidence)),
                     dtype=torch.float32,
                     device=device,
                     requires_grad=requires_grad,

@@ -701,18 +701,29 @@ def test_beta_kernel_keeps_shape_parameters_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["beta"]) == {"min_corner", "max_corner", "color", "opacity", "alpha", "beta", "support_radius"}
+    assert set(carrier_parameters["beta"]) == {
+        "min_corner",
+        "max_corner",
+        "color",
+        "opacity",
+        "confidence",
+        "alpha",
+        "beta",
+        "support_radius",
+    }
     assert carrier_parameters["beta"]["color"].grad is not None
     assert carrier_parameters["beta"]["opacity"].grad is not None
+    assert carrier_parameters["beta"]["confidence"].grad is not None
     assert carrier_parameters["beta"]["alpha"].grad is not None
     assert carrier_parameters["beta"]["beta"].grad is not None
     assert carrier_parameters["beta"]["support_radius"].grad is not None
     assert carrier_parameters["beta"]["color"].grad.tolist() == pytest.approx([1.0, 1.0, 1.0])
     assert torch.isfinite(carrier_parameters["beta"]["opacity"].grad)
+    assert carrier_parameters["beta"]["confidence"].grad.item() == pytest.approx(1.0)
     assert torch.isfinite(carrier_parameters["beta"]["alpha"].grad)
     assert torch.isfinite(carrier_parameters["beta"]["beta"].grad)
     assert torch.all(torch.isfinite(carrier_parameters["beta"]["support_radius"].grad))
-    assert confidences.grad.tolist() == pytest.approx([1.0])
+    assert confidences.grad is None
     assert residual.tolist() == [False]
 
 

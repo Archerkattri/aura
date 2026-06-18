@@ -430,6 +430,7 @@ def test_torch_optimize_capture_batch_persists_beta_support_radius():
                     "type": "beta_kernel",
                     "alpha": 2.0,
                     "beta": 2.0,
+                    "confidence": 0.7,
                     "support_radius": [0.5, 0.5, 0.5],
                 },
             ),
@@ -486,6 +487,7 @@ def test_torch_optimize_capture_batch_persists_beta_support_radius():
     support_radius = result.scene.elements[0].payload["support_radius"]
     assert result.steps[0].depth_loss > result.steps[-1].depth_loss
     assert support_radius[2] > 0.5
+    assert result.scene.elements[0].payload["confidence"] == pytest.approx(result.scene.elements[0].confidence)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
