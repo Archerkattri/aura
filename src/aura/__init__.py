@@ -138,6 +138,16 @@ from aura.proposals import (
 )
 from aura.ray import Ray, RayQueryResult
 from aura.readiness import ProductionReadinessReport, ReadinessPillar, production_readiness_report
+from aura.imaging import (
+    exr_export_capability,
+    read_pfm_image,
+    video_export_capability,
+    write_exr_image,
+    write_frame_sequence,
+    write_pfm_image,
+    write_radiance_image,
+    write_video,
+)
 from aura.render import (
     RenderImage,
     compare_images,
@@ -149,6 +159,8 @@ from aura.render import (
     render_orthographic,
     render_orthographic_cuda,
     render_orthographic_torch,
+    render_turntable_frames,
+    turntable_camera_path,
 )
 from aura.runtime_export import RuntimeExportReport, runtime_export_report
 from aura.schema import AURA_FORMAT, AURA_SCHEMA_VERSION, AURA_SUPPORTED_MAJOR_VERSIONS
@@ -351,9 +363,19 @@ __all__ = [
     "package_3dgs_export",
     "propose_training_regions_from_tensors",
     "read_ppm",
+    "read_pfm_image",
     "render_orthographic",
     "render_orthographic_cuda",
     "render_orthographic_torch",
+    "render_turntable_frames",
+    "turntable_camera_path",
+    "exr_export_capability",
+    "video_export_capability",
+    "write_exr_image",
+    "write_pfm_image",
+    "write_radiance_image",
+    "write_frame_sequence",
+    "write_video",
     "reconstruct_demo_scene",
     "run_ablation_benchmarks",
     "run_capture_reconstruction_benchmark",

@@ -230,6 +230,56 @@ def orthographic_camera_rays(
     return tuple(origins), tuple(directions)
 
 
+def turntable_camera_path(
+    scene: AuraScene,
+    *,
+    frames: int = 24,
+    bounds: Bounds | None = None,
+) -> tuple[float, ...]:
+    """Deterministic camera-depth sweep used as a renderable camera path.
+
+    The orthographic renderers accept a ``camera_z`` plane. A turntable-style
+    fly-through is produced by sweeping that plane from in front of the scene to
+    just behind its near face, giving a continuous parallax sequence without
+    requiring a full perspective camera rig. Returns one ``camera_z`` per frame.
+    """
+
+    if frames <= 0:
+        raise ValueError("frame count must be positive")
+    frame = bounds or _scene_bounds(scene)
+    depth = max(frame.max_corner[2] - frame.min_corner[2], 1e-3)
+    near = frame.min_corner[2] - depth
+    far = frame.min_corner[2] - 1e-4
+    if frames == 1:
+        return (near,)
+    return tuple(near + (far - near) * (index / (frames - 1)) for index in range(frames))
+
+
+def render_turntable_frames(
+    scene: AuraScene,
+    *,
+    frames: int = 24,
+    width: int = 64,
+    height: int = 64,
+    bounds: Bounds | None = None,
+    renderer: Any | None = None,
+) -> tuple[RenderImage, ...]:
+    """Render a turntable camera path to an ordered tuple of frames.
+
+    ``renderer`` defaults to the deterministic CPU orthographic renderer; pass a
+    callable taking ``(scene, width, height, bounds, camera_z)`` keywords to use
+    the torch/CUDA backends instead.
+    """
+
+    frame = bounds or _scene_bounds(scene)
+    render = renderer or render_orthographic
+    path = turntable_camera_path(scene, frames=frames, bounds=frame)
+    return tuple(
+        render(scene, width=width, height=height, bounds=frame, camera_z=camera_z)
+        for camera_z in path
+    )
+
+
 def image_mse(left: RenderImage, right: RenderImage) -> float:
     if left.width != right.width or left.height != right.height:
         raise ValueError("images must have matching dimensions")

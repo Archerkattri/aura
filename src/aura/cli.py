@@ -40,7 +40,15 @@ from aura.package import load_package, package_scene
 from aura.optimize import TrainingLossWeights
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
-from aura.render import compare_images, read_ppm, render_orthographic, render_orthographic_cuda, render_orthographic_torch
+from aura.imaging import write_radiance_image, write_video
+from aura.render import (
+    compare_images,
+    read_ppm,
+    render_orthographic,
+    render_orthographic_cuda,
+    render_orthographic_torch,
+    render_turntable_frames,
+)
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
@@ -235,12 +243,35 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("--height", type=int, default=64)
     _add_render_backend_args(render)
 
-    render_native = sub.add_parser("render", help="Render a .aura package to a PPM image")
+    render_native = sub.add_parser("render", help="Render a .aura package to a PPM/EXR image")
     render_native.add_argument("package_dir", type=Path)
     render_native.add_argument("--output", type=Path, default=Path("outputs/render.ppm"))
     render_native.add_argument("--width", type=int, default=64)
     render_native.add_argument("--height", type=int, default=64)
+    render_native.add_argument(
+        "--format",
+        choices=("ppm", "exr"),
+        default="ppm",
+        help="Image output format; exr writes float radiance (falls back to .pfm without the asset backend)",
+    )
     _add_render_backend_args(render_native)
+
+    render_video = sub.add_parser(
+        "render-video",
+        help="Render a turntable camera path to an MP4 (or PNG/PPM frame sequence fallback)",
+    )
+    render_video.add_argument("package_dir", type=Path)
+    render_video.add_argument("--output", type=Path, default=Path("outputs/turntable.mp4"))
+    render_video.add_argument("--frames", type=int, default=24)
+    render_video.add_argument("--fps", type=int, default=24)
+    render_video.add_argument("--width", type=int, default=64)
+    render_video.add_argument("--height", type=int, default=64)
+    render_video.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="Fail instead of writing a frame sequence when no MP4 encoder is available",
+    )
+    _add_render_backend_args(render_video)
 
     compare = sub.add_parser("compare-renders", help="Compare two PPM previews and print JSON MSE/PSNR metrics")
     compare.add_argument("expected", type=Path)
@@ -516,7 +547,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"render-package", "render"}:
         package = load_package(args.package_dir)
         image = _render_package_image(package.scene, args)
-        print(image.write_ppm(args.output))
+        output_format = getattr(args, "format", "ppm")
+        if output_format == "exr":
+            print(write_radiance_image(image, args.output))
+        else:
+            print(image.write_ppm(args.output))
+        return 0
+    if args.command == "render-video":
+        package = load_package(args.package_dir)
+        frames = render_turntable_frames(
+            package.scene,
+            frames=args.frames,
+            width=args.width,
+            height=args.height,
+            renderer=_turntable_frame_renderer(args),
+        )
+        result = write_video(frames, args.output, fps=args.fps, allow_fallback=not args.no_fallback)
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "compare-renders":
         metrics = compare_images(read_ppm(args.expected), read_ppm(args.actual), min_psnr=args.min_psnr)
@@ -708,6 +755,46 @@ def _render_package_image(scene: AuraScene, args: argparse.Namespace):
         threads_per_block=args.threads_per_block,
         max_hits=args.max_hits,
     )
+
+
+def _turntable_frame_renderer(args: argparse.Namespace):
+    """Resolve a per-frame renderer callable honoring the selected backend."""
+
+    backend = getattr(args, "backend", "cpu")
+    if backend == "cpu":
+        return render_orthographic
+
+    def _render(scene, *, width, height, bounds=None, camera_z=None):
+        if backend == "torch":
+            return render_orthographic_torch(
+                scene,
+                width=width,
+                height=height,
+                bounds=bounds,
+                camera_z=camera_z,
+                device=args.device,
+                require_cuda=args.require_cuda,
+            )
+        if backend == "cuda":
+            fallback_backend = "none"
+            require_cuda = True
+        else:
+            fallback_backend = "auto"
+            require_cuda = args.require_cuda
+        return render_orthographic_cuda(
+            scene,
+            width=width,
+            height=height,
+            bounds=bounds,
+            camera_z=camera_z,
+            fallback_backend=fallback_backend,
+            device=args.device,
+            require_cuda=require_cuda,
+            threads_per_block=args.threads_per_block,
+            max_hits=args.max_hits,
+        )
+
+    return _render
 
 
 def _reconstruction_config_from_args(args: argparse.Namespace) -> ReconstructionConfig:
