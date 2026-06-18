@@ -5,9 +5,27 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aura-core"
 version = "0.1.0"
-description = "AURA-Core native adaptive radiance reconstruction scaffold"
+description = "AURA-Core: adaptive unified radiance asset reconstruction engine"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Archerkattri", email = "krishiattriwork@gmail.com" }]
 requires-python = ">=3.11"
 dependencies = ["jsonschema>=4"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+]
+
+[project.urls]
+Homepage = "https://github.com/Archerkattri/aura"
+Repository = "https://github.com/Archerkattri/aura"
+Issues = "https://github.com/Archerkattri/aura/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

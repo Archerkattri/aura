@@ -1,6 +1,7 @@
-# Datasets And Baselines - AURA
+# Datasets and Baselines
 
-All datasets and external baseline repos belong under ignored directories.
+All datasets and external baseline repositories belong under ignored directories
+and must not be committed to the repository.
 
 ## Directory Convention
 
@@ -18,78 +19,89 @@ third_party/
   nerfstudio/
 ```
 
-## Priority Benchmarks
+## Supported Datasets
 
 | Dataset | Purpose |
-| --- | --- |
-| Mip-NeRF 360 | standard NVS quality comparison |
-| Tanks and Temples | outdoor/geometry stress |
-| Deep Blending | indoor view-synthesis stress |
-| LLFF | smaller smoke/regression scenes |
-| Custom room/courtyard capture | AURA asset behavior demo |
+|---|---|
+| Mip-NeRF 360 | Standard novel-view synthesis quality comparison |
+| Tanks and Temples | Outdoor / geometry stress tests |
+| Deep Blending | Indoor view-synthesis stress tests |
+| LLFF | Smaller smoke / regression scenes |
+| Custom captures | AURA asset behavior on proprietary scenes |
 
-## Priority Baselines
+## Baseline Methods
 
 | Baseline | Purpose |
-| --- | --- |
-| Original 3DGS | visual quality and teacher/initializer |
-| gsplat / nerfstudio | practical modern training/rendering harness |
-| 2DGS | geometry-oriented splat baseline |
-| 3DGRT | ray-query Gaussian baseline |
-| EVER / volumetrically consistent 3DGS | volumetric correctness comparison |
-| Beta/Gabor splatting | carrier-specific competitors |
-| Splat the Net / Radiance Meshes | closest post-3DGS substrate comparisons |
+|---|---|
+| Original 3DGS | Visual quality reference and evidence ingest source |
+| gsplat / nerfstudio | Practical modern training and rendering harness |
+| 2DGS | Geometry-oriented splat baseline |
+| 3DGRT | Ray-query Gaussian baseline |
+| EVER | Volumetrically consistent 3DGS comparison |
+| Beta/Gabor splatting | Carrier-specific competitors |
+| Splat the Net / Radiance Meshes | Closest post-3DGS substrate comparisons |
 
-## Benchmark Harnesses
+## Benchmark Commands
 
-The current reproducible harness is `aura benchmark-reference <package>`,
-optionally with `--include-ablations`. It reports CPU reference package/query/
-render timing, native carrier coverage, runtime export readiness, interaction
-quality, ray-query correctness, and `cudaRendererAbiParity`.
-`cudaRendererAbiParity` is a CPU oracle for the packaged CUDA renderer ABI:
-it validates deterministic flat-buffer inputs and first-hit output parity, but
-it keeps `productionReady: false` until compiled CUDA dispatch exists.
+```bash
+# Reference benchmark against a built package (no external data required)
+aura benchmark-reference outputs/scene.aura --include-ablations
 
-Use `aura benchmark-visual <package> <teacher.ppm>` only with teacher or
-baseline renders generated from ignored dataset/baseline directories when
-making visual-quality comparisons. Self-reference previews remain smoke tests.
-Run `aura production-gate-report <package>` beside every benchmark result used
-for a claim; the gate must remain blocked while CUDA renderer readiness,
-external visual baselines, or native carrier coverage are incomplete.
+# Visual quality comparison against a teacher or baseline render
+aura benchmark-visual outputs/scene.aura data/baselines/<scene>/reference.ppm
 
-## First Data Rule
+# Real-scene benchmark against an external baseline directory
+aura benchmark-real-scene outputs/scene.aura \
+  --reference-dir data/baselines/<scene> \
+  --baseline-label 3dgs \
+  --min-psnr 25
 
-Start with one tiny mixed native AURA fixture, then one small trained 3DGS scene
-as an ingest evidence source. AURA should first prove that adaptive typed
-carriers can be packaged, loaded, queried, and inspected before adding large
-benchmark suites.
+# CUDA vs. torch runtime throughput and parity
+aura benchmark-cuda-runtime
+```
 
-The current scaffold accepts fixture JSON, ASCII PLY, and binary little-endian
-PLY Gaussian splat exports. PLY scale fields follow the original 3DGS log-scale
-convention, and rotation quaternions are applied when computing world
-covariance. Full checkpoint loading and renderer-specific checkpoint adapters
-remain explicit next steps.
+`benchmark-real-scene` falls back to deterministic fixtures when
+`--reference-dir` is omitted, since datasets are kept out of git.
 
-The `aura import-3dgs` command accepts either a direct `.ply`/fixture `.json`
-export or a common original-3DGS output directory containing
-`point_cloud/iteration_*/point_cloud.ply`. When multiple standard iterations
-exist, the latest numeric iteration is selected. Ambiguous arbitrary directories
-with several unrelated `.ply` files are rejected.
+## Importing 3DGS Exports
 
-## Real Capture Tensor Contracts
+`aura import-3dgs` accepts either a direct `.ply` / fixture `.json` export or a
+standard original-3DGS output directory containing
+`point_cloud/iteration_*/point_cloud.ply`. When multiple iterations exist, the
+latest numeric iteration is selected. Directories with several unrelated `.ply`
+files are rejected to avoid ambiguity.
+
+PLY scale fields follow the original 3DGS log-scale convention. Rotation
+quaternions are applied when computing world covariance. Imported splats become
+`EvidenceSample` records and are assigned Gaussian fallback carriers only where
+native carrier evidence is insufficient.
+
+## Capture Asset Contracts
 
 Capture manifests may reference image, depth, mask, and normal assets. The
-stdlib path loads PNG, PPM/PGM, and COLMAP dense maps into packed float buffers;
-optional asset backends handle EXR/HDR/video when installed. Loaded
-`CaptureTensor` and `CaptureFrameTensors` records report `loadedBytes` so
-callers can audit host memory before moving a batch to CPU or torch training.
+standard path loads PNG, PPM/PGM, and COLMAP dense maps into packed float
+buffers. Optional backends (`imageio[assets]`) handle EXR, HDR, and video
+frames.
 
-Use `load_capture_asset_tensors(manifest, max_loaded_bytes=..., max_frame_bytes=...)`
-when loading real captures from scripts. The first limit caps the decoded
-manifest batch, and the second caps each decoded frame. Tiled sampling remains
-the path for large captures: `plan_capture_tensor_sampling(...)` records
-deterministic tile counts, and `capture_tensors_to_packed_render_batches(...)`
-materializes bounded array-backed batches. Each packed batch now includes
-`sourceWindows`, which identify the exact tile target ranges used to build that
-batch so a streaming or GPU loader can reproduce the same row-major sampling
-without keeping an unbounded per-pixel target list.
+```python
+from aura.ingest.capture import load_capture_asset_tensors
+
+tensors = load_capture_asset_tensors(
+    manifest,
+    max_loaded_bytes=4 * 1024**3,   # cap total decoded batch
+    max_frame_bytes=256 * 1024**2,  # cap per-frame decode
+)
+```
+
+For large captures, use tiled sampling:
+
+```bash
+aura plan-capture-sampling data/custom-captures/<scene>/capture-manifest.json \
+  --tile-size 256 --pixel-stride 8 --max-targets-per-frame 4096
+```
+
+`plan_capture_tensor_sampling` records deterministic tile counts and
+`capture_tensors_to_packed_render_batches` materializes bounded batches. Each
+packed batch includes `sourceWindows` — the exact tile target ranges used —
+so a streaming or GPU loader can reproduce the same row-major sampling without
+keeping an unbounded per-pixel target list.
