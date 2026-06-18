@@ -493,6 +493,18 @@ def _carrier_geometry_parameter_tensors(
             device=device,
             requires_grad=requires_grad,
         )
+    if element.payload.get("type") == "gabor_frequency" or element.carrier_id == "gabor":
+        point = element.payload.get("plane_point") or element.payload.get("point")
+        if isinstance(point, (list, tuple)) and len(point) == 3:
+            plane_point = tuple(float(value) for value in point)
+        else:
+            plane_point = _center_point(element)
+        parameters["plane_point"] = torch.tensor(
+            plane_point,
+            dtype=torch.float32,
+            device=device,
+            requires_grad=requires_grad,
+        )
     if element.payload.get("type") == "gaussian_fallback":
         mean = element.payload.get("mean")
         if isinstance(mean, (list, tuple)) and len(mean) == 3:
@@ -515,6 +527,12 @@ def _surface_plane_point(element: Any) -> tuple[float, float, float]:
         dominant_axis = max(range(3), key=lambda index: abs(normal[index]))
         center[dominant_axis] = min_corner[dominant_axis] if normal[dominant_axis] < 0.0 else max_corner[dominant_axis]
     return tuple(center)  # type: ignore[return-value]
+
+
+def _center_point(element: Any) -> tuple[float, float, float]:
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    return tuple((lo + hi) * 0.5 for lo, hi in zip(min_corner, max_corner))  # type: ignore[return-value]
 
 
 def _half_extent(element: Any) -> tuple[float, float, float]:

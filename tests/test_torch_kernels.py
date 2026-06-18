@@ -755,7 +755,16 @@ def test_gabor_kernel_keeps_frequency_phase_bandwidth_differentiable():
     loss = carrier_colors.sum() + transmittance.sum() + confidence.sum()
     loss.backward()
 
-    assert set(carrier_parameters["gabor"]) == {"min_corner", "max_corner", "color", "frequency", "phase", "bandwidth"}
+    assert set(carrier_parameters["gabor"]) == {
+        "min_corner",
+        "max_corner",
+        "plane_point",
+        "color",
+        "frequency",
+        "phase",
+        "bandwidth",
+    }
+    assert carrier_parameters["gabor"]["plane_point"].requires_grad is True
     assert carrier_parameters["gabor"]["color"].grad is not None
     assert carrier_parameters["gabor"]["frequency"].grad is not None
     assert carrier_parameters["gabor"]["phase"].grad is not None

@@ -74,15 +74,25 @@ class GaborFrequencyPayload:
     frequency: Vec3
     bandwidth: float
     phase: float = 0.0
+    plane_point: Vec3 | None = None
 
     def to_dict(self) -> dict:
         _positive("bandwidth", self.bandwidth)
-        return {"type": "gabor_frequency", **asdict(self)}
+        payload = {"type": "gabor_frequency", **asdict(self)}
+        if self.plane_point is None:
+            payload.pop("plane_point")
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "GaborFrequencyPayload":
         _require_type(payload, "gabor_frequency")
-        return cls(frequency=_vec3(payload["frequency"]), bandwidth=float(payload["bandwidth"]), phase=float(payload["phase"]))
+        plane_point = _vec3(payload["plane_point"]) if "plane_point" in payload else None
+        return cls(
+            frequency=_vec3(payload["frequency"]),
+            bandwidth=float(payload["bandwidth"]),
+            phase=float(payload["phase"]),
+            plane_point=plane_point,
+        )
 
 
 @dataclass(frozen=True)

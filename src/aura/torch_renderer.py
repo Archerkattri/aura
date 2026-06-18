@@ -692,13 +692,14 @@ def _torch_render_tensor_targets(
     opacities = scene_tensors.opacities
     confidences = scene_tensors.confidences
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
-    mins, maxs, surface_plane_points, gaussian_means, beta_support_radii = _torch_geometry_from_carrier_parameters(
+    mins, maxs, surface_plane_points, gabor_plane_points, gaussian_means, beta_support_radii = _torch_geometry_from_carrier_parameters(
         torch,
         tuple(scene.elements),
         carrier_parameters,
         scene_tensors.mins,
         scene_tensors.maxs,
         scene_tensors.surface_plane_points,
+        scene_tensors.gabor_plane_points,
         scene_tensors.gaussian_means,
         scene_tensors.beta_support_radii,
     )
@@ -718,7 +719,7 @@ def _torch_render_tensor_targets(
         scene_tensors.element_chunk_indices,
         surface_plane_points,
         scene_tensors.surface_normals,
-        scene_tensors.gabor_plane_points,
+        gabor_plane_points,
         scene_tensors.gabor_normals,
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
@@ -821,13 +822,14 @@ def _torch_render_objective_tensor_targets(
     opacities = scene_tensors.opacities
     confidences = scene_tensors.confidences
     carrier_parameters = carrier_parameters or scene_tensors.carrier_parameters
-    mins, maxs, surface_plane_points, gaussian_means, beta_support_radii = _torch_geometry_from_carrier_parameters(
+    mins, maxs, surface_plane_points, gabor_plane_points, gaussian_means, beta_support_radii = _torch_geometry_from_carrier_parameters(
         torch,
         tuple(scene.elements),
         carrier_parameters,
         scene_tensors.mins,
         scene_tensors.maxs,
         scene_tensors.surface_plane_points,
+        scene_tensors.gabor_plane_points,
         scene_tensors.gaussian_means,
         scene_tensors.beta_support_radii,
     )
@@ -847,7 +849,7 @@ def _torch_render_objective_tensor_targets(
         scene_tensors.element_chunk_indices,
         surface_plane_points,
         scene_tensors.surface_normals,
-        scene_tensors.gabor_plane_points,
+        gabor_plane_points,
         scene_tensors.gabor_normals,
         gaussian_means,
         scene_tensors.gaussian_inverse_covariances,
@@ -933,27 +935,35 @@ def _torch_geometry_from_carrier_parameters(
     base_mins: Any,
     base_maxs: Any,
     base_surface_plane_points: Any,
+    base_gabor_plane_points: Any,
     base_gaussian_means: Any,
     base_beta_support_radii: Any,
-) -> tuple[Any, Any, Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any, Any, Any]:
     if carrier_parameters is None:
-        return base_mins, base_maxs, base_surface_plane_points, base_gaussian_means, base_beta_support_radii
+        return base_mins, base_maxs, base_surface_plane_points, base_gabor_plane_points, base_gaussian_means, base_beta_support_radii
     mins = []
     maxs = []
     surface_plane_points = []
+    gabor_plane_points = []
     gaussian_means = []
     beta_support_radii = []
     for index, element in enumerate(elements):
         fields = carrier_parameters.get(element.id, {})
         mins.append(fields.get("min_corner", base_mins[index]))
         maxs.append(fields.get("max_corner", base_maxs[index]))
-        surface_plane_points.append(fields.get("plane_point", base_surface_plane_points[index]))
+        if element.payload.get("type") == "gabor_frequency" or element.carrier_id == "gabor":
+            surface_plane_points.append(base_surface_plane_points[index])
+            gabor_plane_points.append(fields.get("plane_point", base_gabor_plane_points[index]))
+        else:
+            surface_plane_points.append(fields.get("plane_point", base_surface_plane_points[index]))
+            gabor_plane_points.append(base_gabor_plane_points[index])
         gaussian_means.append(fields.get("gaussian_mean", base_gaussian_means[index]))
         beta_support_radii.append(fields.get("support_radius", base_beta_support_radii[index]))
     return (
         torch.stack(tuple(mins), dim=0),
         torch.stack(tuple(maxs), dim=0),
         torch.stack(tuple(surface_plane_points), dim=0),
+        torch.stack(tuple(gabor_plane_points), dim=0),
         torch.stack(tuple(gaussian_means), dim=0),
         torch.stack(tuple(beta_support_radii), dim=0),
     )

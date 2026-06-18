@@ -1163,6 +1163,50 @@ def test_torch_render_targets_uses_gabor_surface_support_plane():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_objective_backpropagates_gabor_plane_point():
+    scene = AuraScene(
+        name="torch_gabor_geometry_objective_scene",
+        elements=(
+            AuraElement(
+                id="gabor",
+                carrier_id="gabor",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.2)),
+                color=(1.0, 0.5, 0.25),
+                opacity=1.0,
+                confidence=1.0,
+                payload={
+                    "type": "gabor_frequency",
+                    "frequency": [1.0, 0.0, 0.0],
+                    "bandwidth": 0.5,
+                    "phase": 0.0,
+                },
+            ),
+        ),
+    )
+    torch = require_torch()
+    carrier_parameters = torch_carrier_parameter_tensors(torch, scene.elements, device="cpu")
+
+    objective = torch_render_target_objective(
+        scene,
+        (
+            RenderTarget(
+                frame_id="frame",
+                ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+                target_color=(1.0, 0.5, 0.25),
+                target_depth=1.8,
+            ),
+        ),
+        device="cpu",
+        carrier_parameters=carrier_parameters,
+    )
+    objective.total_loss.backward()
+
+    assert objective.depth_loss.detach().cpu().item() > 0.0
+    assert carrier_parameters["gabor"]["plane_point"].grad is not None
+    assert carrier_parameters["gabor"]["plane_point"].grad[2].detach().cpu().item() > 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_render_targets_uses_beta_support_ellipsoid():
     scene = AuraScene(
         name="torch_beta_ellipsoid_geometry_scene",

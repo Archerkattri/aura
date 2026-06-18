@@ -49,7 +49,14 @@ def test_native_carrier_payloads_round_trip_from_dict():
         ),
         (VolumeCellPayload, VolumeCellPayload(density=0.4, phase_anisotropy=0.1).to_dict()),
         (BetaKernelPayload, BetaKernelPayload(alpha=2.0, beta=3.0, support_radius=(0.1, 0.2, 0.3)).to_dict()),
-        (GaborFrequencyPayload, GaborFrequencyPayload(frequency=(1.0, 0.0, 0.0), bandwidth=0.5).to_dict()),
+        (
+            GaborFrequencyPayload,
+            GaborFrequencyPayload(
+                frequency=(1.0, 0.0, 0.0),
+                bandwidth=0.5,
+                plane_point=(0.0, 0.0, 0.125),
+            ).to_dict(),
+        ),
         (NeuralResidualPayload, NeuralResidualPayload(latent_dim=16, residual_scale=0.25, model_ref="models/local.pt").to_dict()),
         (
             GaussianFallbackPayload,

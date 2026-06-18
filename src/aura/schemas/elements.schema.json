@@ -196,7 +196,8 @@
         "type": { "const": "gabor_frequency" },
         "frequency": { "$ref": "#/$defs/vec3" },
         "bandwidth": { "type": "number", "exclusiveMinimum": 0 },
-        "phase": { "type": "number" }
+        "phase": { "type": "number" },
+        "plane_point": { "$ref": "#/$defs/vec3" }
       }
     },
     "neural_payload": {
