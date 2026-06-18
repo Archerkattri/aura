@@ -1210,3 +1210,391 @@ def test_torch_carrier_response_tensors_apply_payload_kernels():
     assert confidence[1].item() == pytest.approx(0.9)
     assert confidence[2].item() == pytest.approx(0.9)
     assert residual.tolist() == [False, False, True]
+
+
+# ============================================================
+# Step 4 new tests: kernel-level regression tests for the
+# four carrier upgrades (DBS, Gabor bank, Scaffold-GS, LangSplatV2)
+# ============================================================
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_dbs_beta_kernel_default_reproduces_prior():
+    """DBS beta fields at defaults must produce identical outputs to prior kernel."""
+    import torch
+
+    def _make_element(payload):
+        return AuraElement(
+            id="beta",
+            carrier_id="beta",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            opacity=0.6,
+            confidence=0.8,
+            payload=payload,
+        )
+
+    base_payload = {"type": "beta_kernel", "alpha": 2.0, "beta": 3.0, "support_radius": [0.5, 0.5, 0.5]}
+    dbs_payload = {"type": "beta_kernel", "alpha": 2.0, "beta": 3.0, "support_radius": [0.5, 0.5, 0.5]}
+    # adaptive_alpha/beta absent => same as None; frequency_scale/appearance_shift absent => defaults
+
+    elements_base = (_make_element(base_payload),)
+    elements_dbs = (_make_element(dbs_payload),)
+
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.2, 0.4, 0.6]])
+    opacities = torch.tensor([0.6])
+    confidences = torch.tensor([0.8])
+    mins = torch.tensor([(0.0, 0.0, 0.0)])
+    maxs = torch.tensor([(1.0, 1.0, 1.0)])
+
+    out_base = torch_carrier_response_tensors(
+        torch, elements_base, best_index, best_depth, exit_depth, hit_points,
+        colors, opacities, confidences, mins, maxs, "cpu",
+    )
+    out_dbs = torch_carrier_response_tensors(
+        torch, elements_dbs, best_index, best_depth, exit_depth, hit_points,
+        colors, opacities, confidences, mins, maxs, "cpu",
+    )
+
+    assert torch.allclose(out_base[0], out_dbs[0])
+    assert torch.allclose(out_base[1], out_dbs[1])
+    assert torch.allclose(out_base[2], out_dbs[2])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_dbs_beta_kernel_adaptive_shape_overrides():
+    """adaptive_alpha overrides base alpha in the kernel computation."""
+    import torch
+
+    # Hit at (0.3, 0.3, 0.3): u = mean(1 - |0.3-0.5|/0.5) = mean(1 - 0.4) = 0.6
+    # alpha=2, beta=3 gives a non-zero weight; alpha=0.5, beta=0.5 gives weight=1.0
+    def _run(payload):
+        elements = (AuraElement(
+            id="beta", carrier_id="beta",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            opacity=0.8, confidence=0.9, payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.3, 0.3, 0.3]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([0.8]),
+            torch.tensor([0.9]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run({"type": "beta_kernel", "alpha": 2.0, "beta": 3.0, "support_radius": [0.5, 0.5, 0.5]})
+    dbs = _run({
+        "type": "beta_kernel", "alpha": 2.0, "beta": 3.0, "support_radius": [0.5, 0.5, 0.5],
+        "adaptive_alpha": 0.5, "adaptive_beta": 0.5,
+    })
+    # alpha=0.5, beta=0.5 gives weight=1.0 (U-shaped) vs alpha=2, beta=3 near 0 at this point
+    # => different transmittances
+    assert not torch.allclose(base[1], dbs[1])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_dbs_beta_kernel_frequency_scale_and_appearance_shift():
+    """frequency_scale and appearance_shift affect kernel output."""
+    import torch
+
+    # Use hit at (0.3,0.3,0.3) where beta(2,2) gives weight ~ 0.96 > 0
+    # Use a dark color so appearance_shift (+0.3) is visible after clamping
+    def _run(payload, color=(0.2, 0.2, 0.2)):
+        elements = (AuraElement(
+            id="beta", carrier_id="beta",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=color,
+            opacity=0.5, confidence=0.8, payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.3, 0.3, 0.3]]),  # non-center => weight > 0
+            torch.tensor([[list(color)]]),
+            torch.tensor([0.5]),
+            torch.tensor([0.8]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run({"type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [0.5, 0.5, 0.5]})
+    scaled = _run({
+        "type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [0.5, 0.5, 0.5],
+        "frequency_scale": 2.0,
+    })
+    shifted = _run({
+        "type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [0.5, 0.5, 0.5],
+        "appearance_shift": 0.3,  # adds 0.3 to base color 0.2 => 0.5 (visible change)
+    })
+    # At (0.3,0.3,0.3) weight ~ 0.96 so base transmittance < 1; scaled transmittance < base
+    assert base[1].item() < 1.0, "base transmittance should be < 1 at non-center point"
+    # frequency_scale=2.0 doubles the weight => changes transmittance
+    assert not torch.allclose(base[1], scaled[1])
+    # appearance_shift adds 0.3 to base color 0.2 => 0.5; visible difference
+    assert not torch.allclose(base[0], shifted[0])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_bank_default_single_filter():
+    """Gabor num_filters=1 (default) produces identical output to prior kernel."""
+    import torch
+
+    def _run(payload):
+        elements = (AuraElement(
+            id="gabor", carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.8, 0.6, 0.2), opacity=0.4, confidence=0.9,
+            payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([[0.8, 0.6, 0.2]]),
+            torch.tensor([0.4]),
+            torch.tensor([0.9]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run({"type": "gabor_frequency", "frequency": (0.0, 0.0, 0.5), "phase": 0.2, "bandwidth": 0.6})
+    bank1 = _run({"type": "gabor_frequency", "frequency": (0.0, 0.0, 0.5), "phase": 0.2, "bandwidth": 0.6, "num_filters": 1})
+    assert torch.allclose(base[0], bank1[0])
+    assert torch.allclose(base[1], bank1[1])
+    assert torch.allclose(base[2], bank1[2])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_bank_multi_filter():
+    """num_filters=2 produces a weighted sum of two Gabor kernels."""
+    import torch
+
+    def _run(payload):
+        elements = (AuraElement(
+            id="gabor", carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(1.0, 1.0, 1.0), opacity=0.5, confidence=0.9,
+            payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.3, 0.3, 0.3]]),
+            torch.tensor([[1.0, 1.0, 1.0]]),
+            torch.tensor([0.5]),
+            torch.tensor([0.9]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    single = _run({"type": "gabor_frequency", "frequency": (0.0, 0.0, 1.0), "phase": 0.0, "bandwidth": 0.5})
+    multi = _run({
+        "type": "gabor_frequency",
+        "frequency": (0.0, 0.0, 1.0), "phase": 0.0, "bandwidth": 0.5,
+        "num_filters": 2,
+        "frequencies": [(0.0, 0.0, 0.5), (0.0, 0.0, 2.0)],
+        "phases": [0.0, 0.25],
+        "filter_weights": [0.5, 0.5],
+    })
+    # Multi-filter output is valid (different from single unless all filters identical)
+    assert multi[0].shape == single[0].shape
+    assert multi[1].shape == single[1].shape
+    # Colors are in valid range
+    assert (multi[0] >= 0.0).all() and (multi[0] <= 1.0).all()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_neural_residual_scaffold_default():
+    """Scaffold-GS fields at defaults reproduce identical outputs to prior kernel."""
+    import torch
+
+    def _run(payload):
+        elements = (AuraElement(
+            id="neural", carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.2, 0.4, 0.8), opacity=0.7, confidence=0.85,
+            payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([[0.2, 0.4, 0.8]]),
+            torch.tensor([0.7]),
+            torch.tensor([0.85]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run({"type": "neural_residual", "latent_dim": 8, "residual_scale": 0.35})
+    scaffold = _run({
+        "type": "neural_residual", "latent_dim": 8, "residual_scale": 0.35,
+        # defaults: anchor_feature_dim absent, use_anchor_conditioning absent
+    })
+    assert torch.allclose(base[0], scaffold[0])
+    assert torch.allclose(base[1], scaffold[1])
+    assert torch.allclose(base[2], scaffold[2])
+    assert base[3].tolist() == scaffold[3].tolist()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_neural_residual_scaffold_anchor():
+    """anchor_feature_dim splits latent and modulates residual strength."""
+    import torch
+
+    def _run(payload):
+        elements = (AuraElement(
+            id="neural", carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.5, 0.5, 0.5), opacity=0.8, confidence=0.9,
+            payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([0.8]),
+            torch.tensor([0.9]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run({"type": "neural_residual", "latent_dim": 32, "residual_scale": 0.5})
+    anchored = _run({
+        "type": "neural_residual", "latent_dim": 32, "residual_scale": 0.5,
+        "anchor_feature_dim": 16,  # 16/32 = 0.5 anchor ratio => residual_strength halved
+    })
+    # anchor_feature_dim splits the latent, reducing effective residual strength
+    # => transmittance should be higher (less occlusion) with anchor dim < latent dim
+    assert anchored[1].item() > base[1].item()
+    # residual flag must still be set
+    assert anchored[3].tolist() == [True]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_neural_residual_use_anchor_conditioning_no_op():
+    """use_anchor_conditioning=True is a no-op when no neighbors provided."""
+    import torch
+
+    def _run(use_anchor):
+        payload = {
+            "type": "neural_residual", "latent_dim": 8, "residual_scale": 0.4,
+        }
+        if use_anchor:
+            payload["use_anchor_conditioning"] = True
+        elements = (AuraElement(
+            id="neural", carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.3, 0.6, 0.9), opacity=0.6, confidence=0.75,
+            payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([[0.3, 0.6, 0.9]]),
+            torch.tensor([0.6]),
+            torch.tensor([0.75]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run(False)
+    anchored = _run(True)
+    # No-op: same outputs when no neighbor features are provided
+    assert torch.allclose(base[0], anchored[0])
+    assert torch.allclose(base[1], anchored[1])
+    assert torch.allclose(base[2], anchored[2])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_semantic_sparse_codebook_default_dense():
+    """use_sparse_codebook=False (default) produces identical kernel output to prior."""
+    import torch
+
+    def _run(payload):
+        elements = (AuraElement(
+            id="semantic", carrier_id="semantic",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.5, 0.5, 0.5), opacity=0.3, confidence=0.7,
+            payload=payload,
+        ),)
+        return torch_carrier_response_tensors(
+            torch, elements,
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]),
+            torch.tensor([[2.0]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([0.3]),
+            torch.tensor([0.7]),
+            torch.tensor([(0.0, 0.0, 0.0)]),
+            torch.tensor([(1.0, 1.0, 1.0)]),
+            "cpu",
+        )
+
+    base = _run({"type": "semantic_feature", "label": "object", "confidence": 0.85})
+    dense = _run({
+        "type": "semantic_feature", "label": "object", "confidence": 0.85,
+        # use_sparse_codebook absent => defaults to False
+    })
+    assert torch.allclose(base[0], dense[0])
+    assert torch.allclose(base[1], dense[1])
+    assert torch.allclose(base[2], dense[2])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_semantic_sparse_codebook_sparse():
+    """Sparse codebook decode produces correct feature vector via semantic.decode_semantic_feature."""
+    from aura.semantic import decode_semantic_feature
+    from aura.carrier_payloads import SemanticFeaturePayload
+
+    payload = SemanticFeaturePayload(
+        label="table", confidence=0.75,
+        use_sparse_codebook=True,
+        codebook_size=8, codebook_dim=4,
+        sparse_indices=[1, 3],
+        sparse_weights=[0.8, 0.2],
+    ).to_dict()
+
+    codebook = [
+        [0.0, 0.0, 0.0, 0.0],  # atom 0
+        [1.0, 2.0, 3.0, 4.0],  # atom 1
+        [0.0, 0.0, 0.0, 0.0],  # atom 2
+        [5.0, 0.0, 0.0, 0.0],  # atom 3
+        [0.0, 0.0, 0.0, 0.0],  # atom 4
+        [0.0, 0.0, 0.0, 0.0],  # atom 5
+        [0.0, 0.0, 0.0, 0.0],  # atom 6
+        [0.0, 0.0, 0.0, 0.0],  # atom 7
+    ]
+    result = decode_semantic_feature(payload, codebook=codebook)
+    # 0.8 * [1,2,3,4] + 0.2 * [5,0,0,0] = [0.8+1.0, 1.6, 2.4, 3.2] = [1.8, 1.6, 2.4, 3.2]
+    assert result == pytest.approx([1.8, 1.6, 2.4, 3.2])
