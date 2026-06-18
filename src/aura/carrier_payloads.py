@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, List, Mapping, Optional
+from typing import Any, List, Mapping, Optional, Tuple
 
 from aura.ray import Vec3
+
+# Relighting colour triple (RGB in [0, 1])
+_AlbedoRGB = Tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -350,6 +353,64 @@ class SemanticFeaturePayload:
             codebook_dim=int(payload.get("codebook_dim", 64)),
             sparse_indices=sparse_indices,
             sparse_weights=sparse_weights,
+        )
+
+
+@dataclass(frozen=True)
+class RelightingPayload:
+    """Per-carrier PBR material parameters for the relighting shading pipeline.
+
+    This payload is **not** serialised to JSON (schema files are not owned and
+    use ``additionalProperties: false``).  Attach it to a scene element's
+    payload at runtime or training time; the shading module reads
+    ``payload.get("albedo")``, ``payload.get("shading_roughness")``, and
+    ``payload.get("shading_metallic")``.
+
+    Relighting fields (GS-IR arXiv:2311.16473):
+    - ``albedo``: physical albedo RGB in [0, 1]³ (default: reproduce emissive)
+    - ``shading_roughness``: PBR roughness in [0, 1] (default 0.5)
+    - ``shading_metallic``: metallic factor in [0, 1] (default 0.0 = dielectric)
+
+    All fields default to values that leave the emissive output unchanged when
+    shading is OFF (the renderer's default).  The ``albedo`` field defaults to
+    ``None``, meaning the shading module falls back to the element's emissive
+    color, thus preserving bit-identical output with shading disabled.
+
+    Note: new fields are only included in to_dict() when non-default so that
+    existing JSON schemas (which use additionalProperties: false) stay valid.
+    Because full payload type keys are owned by existing payloads this
+    dataclass serialises as ``type: "relighting"`` for any *new* standalone
+    usage, but the fields can also be embedded into existing payload dicts at
+    runtime (the shading module reads them by key, not by type).
+    """
+
+    albedo: Optional[_AlbedoRGB] = None          # None → use emissive color
+    shading_roughness: float = 0.5
+    shading_metallic: float = 0.0
+
+    def to_dict(self) -> dict:
+        for name, value in (("shading_roughness", self.shading_roughness), ("shading_metallic", self.shading_metallic)):
+            _unit(name, value)
+        payload: dict = {"type": "relighting"}
+        # Only emit non-default fields so additionalProperties schemas stay valid
+        if self.albedo is not None:
+            if not (isinstance(self.albedo, (list, tuple)) and len(self.albedo) == 3):
+                raise ValueError("albedo must be an RGB triple")
+            payload["albedo"] = [float(self.albedo[0]), float(self.albedo[1]), float(self.albedo[2])]
+        if self.shading_roughness != 0.5:
+            payload["shading_roughness"] = self.shading_roughness
+        if self.shading_metallic != 0.0:
+            payload["shading_metallic"] = self.shading_metallic
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "RelightingPayload":
+        _require_type(payload, "relighting")
+        albedo = _vec3(payload["albedo"]) if "albedo" in payload else None
+        return cls(
+            albedo=albedo,
+            shading_roughness=float(payload.get("shading_roughness", 0.5)),
+            shading_metallic=float(payload.get("shading_metallic", 0.0)),
         )
 
 
