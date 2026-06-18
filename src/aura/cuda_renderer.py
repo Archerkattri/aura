@@ -46,6 +46,8 @@ class CudaRendererSceneBuffers:
     semantic_ids: tuple[int, ...]
     element_mins: tuple[float, ...]
     element_maxs: tuple[float, ...]
+    plane_points: tuple[float, ...]
+    plane_normals: tuple[float, ...]
     colors: tuple[float, ...]
     opacities: tuple[float, ...]
     confidences: tuple[float, ...]
@@ -62,6 +64,8 @@ class CudaRendererSceneBuffers:
             ("confidences", self.confidences, element_count),
             ("element_mins", self.element_mins, element_count * 3),
             ("element_maxs", self.element_maxs, element_count * 3),
+            ("plane_points", self.plane_points, element_count * 3),
+            ("plane_normals", self.plane_normals, element_count * 3),
             ("colors", self.colors, element_count * 3),
             ("payload_params", self.payload_params, element_count * 4),
         ):
@@ -85,6 +89,8 @@ class CudaRendererSceneBuffers:
             "semanticIds": _flat_buffer_metadata(self.semantic_ids, "int32", (self.element_count,)),
             "elementMins": _flat_buffer_metadata(self.element_mins, "float32", (self.element_count, 3)),
             "elementMaxs": _flat_buffer_metadata(self.element_maxs, "float32", (self.element_count, 3)),
+            "planePoints": _flat_buffer_metadata(self.plane_points, "float32", (self.element_count, 3)),
+            "planeNormals": _flat_buffer_metadata(self.plane_normals, "float32", (self.element_count, 3)),
             "colors": _flat_buffer_metadata(self.colors, "float32", (self.element_count, 3)),
             "opacities": _flat_buffer_metadata(self.opacities, "float32", (self.element_count,)),
             "confidences": _flat_buffer_metadata(self.confidences, "float32", (self.element_count,)),
@@ -137,6 +143,8 @@ class CudaRendererKernelInputBuffers:
             "ray_directions": self.ray_directions,
             "element_mins": self.scene.element_mins,
             "element_maxs": self.scene.element_maxs,
+            "plane_points": self.scene.plane_points,
+            "plane_normals": self.scene.plane_normals,
             "carrier_ids": self.scene.carrier_kernel_ids,
             "colors": self.scene.colors,
             "opacities": self.scene.opacities,
@@ -464,6 +472,8 @@ def cuda_renderer_scene_buffers(scene: AuraScene) -> CudaRendererSceneBuffers:
         semantic_ids=tuple(_lookup_table_id(semantic_table, element.semantic_id) for element in scene.elements),
         element_mins=tuple(value for element in scene.elements for value in element.bounds.min_corner),
         element_maxs=tuple(value for element in scene.elements for value in element.bounds.max_corner),
+        plane_points=tuple(value for element in scene.elements for value in _cuda_renderer_plane_point(element)),
+        plane_normals=tuple(value for element in scene.elements for value in _cuda_renderer_plane_normal(element)),
         colors=tuple(value for element in scene.elements for value in element.color),
         opacities=tuple(float(element.opacity) for element in scene.elements),
         confidences=tuple(float(element.confidence) for element in scene.elements),
@@ -490,6 +500,52 @@ def _cuda_renderer_payload_params(element: Any) -> tuple[float, float, float, fl
     if payload_type == "neural_residual" or element.carrier_id == "neural":
         return (float(element.payload.get("residual_scale", 0.0)), 0.0, 0.0, 0.0)
     return (0.0, 0.0, 0.0, 0.0)
+
+
+def _cuda_renderer_plane_normal(element: Any) -> tuple[float, float, float]:
+    payload_type = element.payload.get("type")
+    if payload_type == "surface_cell" or element.carrier_id == "surface":
+        normal = _normal_for_element(element)
+        if normal is None:
+            return _nan_vec3()
+        try:
+            return _normalize_vec3(normal)
+        except ValueError:
+            return _nan_vec3()
+    if payload_type == "gabor_frequency" or element.carrier_id == "gabor":
+        normal = element.payload.get("normal")
+        if isinstance(normal, (list, tuple)) and len(normal) == 3:
+            try:
+                return _normalize_vec3(tuple(float(value) for value in normal))
+            except ValueError:
+                return _nan_vec3()
+        min_corner = tuple(float(value) for value in element.bounds.min_corner)
+        max_corner = tuple(float(value) for value in element.bounds.max_corner)
+        extents = tuple(max_corner[index] - min_corner[index] for index in range(3))
+        if any(value <= 0.0 for value in extents):
+            return _nan_vec3()
+        axis = min(range(3), key=lambda index: extents[index])
+        values = [0.0, 0.0, 0.0]
+        values[axis] = 1.0
+        return tuple(values)  # type: ignore[return-value]
+    return _nan_vec3()
+
+
+def _cuda_renderer_plane_point(element: Any) -> tuple[float, float, float]:
+    payload_type = element.payload.get("type")
+    normal = _cuda_renderer_plane_normal(element)
+    if _is_nan_vec3(normal):
+        return _nan_vec3()
+    point = element.payload.get("plane_point") or element.payload.get("point")
+    if isinstance(point, (list, tuple)) and len(point) == 3:
+        return tuple(float(value) for value in point)  # type: ignore[return-value]
+    min_corner = tuple(float(value) for value in element.bounds.min_corner)
+    max_corner = tuple(float(value) for value in element.bounds.max_corner)
+    center = [(min_corner[index] + max_corner[index]) * 0.5 for index in range(3)]
+    if payload_type == "surface_cell" or element.carrier_id == "surface":
+        dominant_axis = max(range(3), key=lambda index: abs(normal[index]))
+        center[dominant_axis] = min_corner[dominant_axis] if normal[dominant_axis] < 0.0 else max_corner[dominant_axis]
+    return tuple(center)  # type: ignore[return-value]
 
 
 def cuda_renderer_kernel_inputs(
@@ -634,12 +690,24 @@ def simulate_cuda_renderer_kernel(inputs: CudaRendererKernelInputBuffers) -> Cud
         direction = _flat_vec3(inputs.ray_directions, ray_index)
         ray_hits: list[tuple[float, float, tuple[float, float, float], int]] = []
         for element_index in range(inputs.element_count):
+            carrier_id = inputs.scene.carrier_kernel_ids[element_index]
             hit = _simulate_ray_aabb_intersect(
                 origin,
                 direction,
                 _flat_vec3(inputs.scene.element_mins, element_index),
                 _flat_vec3(inputs.scene.element_maxs, element_index),
             )
+            if carrier_id in (CUDA_RENDERER_CARRIER_IDS["surface"], CUDA_RENDERER_CARRIER_IDS["gabor"]):
+                plane_hit = _simulate_ray_plane_intersect(
+                    origin,
+                    direction,
+                    _flat_vec3(inputs.scene.element_mins, element_index),
+                    _flat_vec3(inputs.scene.element_maxs, element_index),
+                    _flat_vec3(inputs.scene.plane_points, element_index),
+                    _flat_vec3(inputs.scene.plane_normals, element_index),
+                )
+                if plane_hit is not None:
+                    hit = plane_hit
             if hit is None:
                 continue
             depth, _exit_depth, normal = hit
@@ -1246,6 +1314,8 @@ def _compiled_extension_batch(
         torch.tensor(inputs.ray_directions, dtype=torch.float32, device=resolved_device).reshape(inputs.ray_count, 3).contiguous(),
         torch.tensor(scene_buffers.element_mins, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.element_maxs, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.plane_points, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
+        torch.tensor(scene_buffers.plane_normals, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.carrier_kernel_ids, dtype=torch.int32, device=resolved_device).contiguous(),
         torch.tensor(scene_buffers.colors, dtype=torch.float32, device=resolved_device).reshape(inputs.element_count, 3).contiguous(),
         torch.tensor(scene_buffers.opacities, dtype=torch.float32, device=resolved_device).contiguous(),
@@ -1464,6 +1534,30 @@ def _lookup_table_id(table: Sequence[str], value: str | None) -> int:
         raise ValueError(f"value {value!r} is missing from CUDA renderer id table") from exc
 
 
+def _normal_for_element(element: Any) -> tuple[float, float, float] | None:
+    if element.normal is not None:
+        return tuple(float(value) for value in element.normal)  # type: ignore[return-value]
+    normal = element.payload.get("normal")
+    if isinstance(normal, (list, tuple)) and len(normal) == 3:
+        return tuple(float(value) for value in normal)  # type: ignore[return-value]
+    return None
+
+
+def _normalize_vec3(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    norm = sum(value * value for value in vector) ** 0.5
+    if norm <= 1e-12:
+        raise ValueError("cannot normalize zero vector")
+    return (vector[0] / norm, vector[1] / norm, vector[2] / norm)
+
+
+def _nan_vec3() -> tuple[float, float, float]:
+    return (float("nan"), float("nan"), float("nan"))
+
+
+def _is_nan_vec3(vector: tuple[float, float, float]) -> bool:
+    return any(value != value for value in vector)
+
+
 def _flat_vec3(values: Sequence[float], index: int) -> tuple[float, float, float]:
     offset = index * 3
     return (float(values[offset]), float(values[offset + 1]), float(values[offset + 2]))
@@ -1509,6 +1603,28 @@ def _simulate_ray_aabb_intersect(
     if t_max < 0.0:
         return None
     return (t_min, t_max, normal)
+
+
+def _simulate_ray_plane_intersect(
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    box_min: tuple[float, float, float],
+    box_max: tuple[float, float, float],
+    plane_point: tuple[float, float, float],
+    normal: tuple[float, float, float],
+) -> tuple[float, float, tuple[float, float, float]] | None:
+    if _is_nan_vec3(plane_point) or _is_nan_vec3(normal):
+        return None
+    denom = sum(direction[axis] * normal[axis] for axis in range(3))
+    if abs(denom) < 1.0e-8:
+        return None
+    depth = sum((plane_point[axis] - origin[axis]) * normal[axis] for axis in range(3)) / denom
+    if depth < 0.0:
+        return None
+    point = tuple(origin[axis] + direction[axis] * depth for axis in range(3))
+    if any(point[axis] < box_min[axis] - 1.0e-5 or point[axis] > box_max[axis] + 1.0e-5 for axis in range(3)):
+        return None
+    return (depth, depth, normal)
 
 
 def _flat_buffer_metadata(values: Sequence[object], dtype: str, shape: tuple[int, ...]) -> dict[str, object]:

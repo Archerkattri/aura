@@ -11,6 +11,8 @@ extern "C" void aura_render_rays_launcher(
     const float* ray_directions,
     const float* element_mins,
     const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -74,6 +76,8 @@ pybind11::dict render_rays(
     torch::Tensor ray_directions,
     torch::Tensor element_mins,
     torch::Tensor element_maxs,
+    torch::Tensor plane_points,
+    torch::Tensor plane_normals,
     torch::Tensor carrier_ids,
     torch::Tensor colors,
     torch::Tensor opacities,
@@ -88,6 +92,8 @@ pybind11::dict render_rays(
     require_cuda_float_tensor(ray_directions, "ray_directions");
     require_cuda_float_tensor(element_mins, "element_mins");
     require_cuda_float_tensor(element_maxs, "element_maxs");
+    require_cuda_float_tensor(plane_points, "plane_points");
+    require_cuda_float_tensor(plane_normals, "plane_normals");
     require_cuda_int_tensor(carrier_ids, "carrier_ids");
     require_cuda_float_tensor(colors, "colors");
     require_cuda_float_tensor(opacities, "opacities");
@@ -98,6 +104,8 @@ pybind11::dict render_rays(
     require_same_cuda_device(ray_directions, ray_origins, "ray_directions", "ray_origins");
     require_same_cuda_device(element_mins, ray_origins, "element_mins", "ray_origins");
     require_same_cuda_device(element_maxs, ray_origins, "element_maxs", "ray_origins");
+    require_same_cuda_device(plane_points, ray_origins, "plane_points", "ray_origins");
+    require_same_cuda_device(plane_normals, ray_origins, "plane_normals", "ray_origins");
     require_same_cuda_device(carrier_ids, ray_origins, "carrier_ids", "ray_origins");
     require_same_cuda_device(colors, ray_origins, "colors", "ray_origins");
     require_same_cuda_device(opacities, ray_origins, "opacities", "ray_origins");
@@ -114,6 +122,8 @@ pybind11::dict render_rays(
     TORCH_CHECK(element_mins.dim() == 2 && element_mins.size(1) == 3, "element_mins must be elementCount x 3");
     const int64_t element_count_64 = element_mins.size(0);
     require_shape2(element_maxs, "element_maxs", element_count_64, 3);
+    require_shape2(plane_points, "plane_points", element_count_64, 3);
+    require_shape2(plane_normals, "plane_normals", element_count_64, 3);
     require_shape1(carrier_ids, "carrier_ids", element_count_64);
     require_shape2(colors, "colors", element_count_64, 3);
     require_shape1(opacities, "opacities", element_count_64);
@@ -151,6 +161,8 @@ pybind11::dict render_rays(
         ray_directions.data_ptr<float>(),
         element_mins.data_ptr<float>(),
         element_maxs.data_ptr<float>(),
+        plane_points.data_ptr<float>(),
+        plane_normals.data_ptr<float>(),
         carrier_ids.data_ptr<int>(),
         colors.data_ptr<float>(),
         opacities.data_ptr<float>(),

@@ -246,6 +246,38 @@ def test_cuda_renderer_kernel_simulation_uses_payload_specific_carrier_responses
     assert simulation.out_color[0] > 0.0
 
 
+def test_cuda_renderer_kernel_simulation_uses_surface_plane_geometry():
+    scene = AuraScene(
+        name="cuda_surface_plane_simulation_test",
+        elements=(
+            AuraElement(
+                id="panel",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.4)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                normal=(0.0, 0.0, 1.0),
+                payload={"type": "surface_cell", "plane_point": [0.0, 0.0, 0.25]},
+            ),
+        ),
+    )
+    inputs = cuda_renderer_kernel_inputs(
+        scene,
+        ((0.0, 0.0, -1.0),),
+        ((0.0, 0.0, 1.0),),
+        max_hits=1,
+    )
+
+    simulation = simulate_cuda_renderer_kernel(inputs)
+
+    assert inputs.scene.plane_points == pytest.approx((0.0, 0.0, 0.25))
+    assert inputs.scene.plane_normals == pytest.approx((0.0, 0.0, 1.0))
+    assert simulation.first_hit_indices == (0,)
+    assert simulation.out_depth == pytest.approx((1.25,))
+    assert simulation.out_normal == pytest.approx((0.0, 0.0, 1.0))
+
+
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_cuda_render_rays_compiled_extension_matches_kernel_simulation_on_cuda():
     import torch
@@ -307,6 +339,48 @@ def test_cuda_render_rays_compiled_extension_matches_kernel_simulation_on_cuda()
     assert batch.confidence == pytest.approx(simulation.out_confidence)
     assert tuple(int(value) for value in batch.residual) == simulation.out_residual
     assert tuple(hit[0]["kernelElementIndex"] if hit else -1 for hit in batch.ordered_hits) == simulation.first_hit_indices
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_cuda_render_rays_compiled_extension_uses_surface_plane_geometry_on_cuda():
+    import torch
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is unavailable")
+
+    scene = AuraScene(
+        name="cuda_compiled_surface_plane_scene",
+        elements=(
+            AuraElement(
+                id="panel",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.4)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                confidence=1.0,
+                normal=(0.0, 0.0, 1.0),
+                payload={"type": "surface_cell", "plane_point": [0.0, 0.0, 0.25]},
+            ),
+        ),
+    )
+    ray_origins = ((0.0, 0.0, -1.0),)
+    ray_directions = ((0.0, 0.0, 1.0),)
+    simulation = simulate_cuda_renderer_kernel(cuda_renderer_kernel_inputs(scene, ray_origins, ray_directions, max_hits=1))
+
+    batch = cuda_render_rays(
+        scene,
+        ray_origins=ray_origins,
+        ray_directions=ray_directions,
+        device="cuda",
+        require_cuda=True,
+        fallback_backend="none",
+        max_hits=1,
+    )
+
+    assert batch.backend == "cuda"
+    assert batch.depth == pytest.approx((1.25,))
+    assert batch.depth == pytest.approx(simulation.out_depth)
+    assert _flatten_nested(batch.normal) == pytest.approx(simulation.out_normal)
 
 
 def test_cuda_renderer_dispatch_contract_tracks_compiled_launcher_boundary():
@@ -472,6 +546,8 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
             ray_directions,
             element_mins,
             element_maxs,
+            plane_points,
+            plane_normals,
             carrier_ids,
             colors,
             opacities,
@@ -482,7 +558,7 @@ def test_cuda_render_rays_uses_verified_python_binding_module():
             max_hits,
             threads_per_block,
         ):
-            del ray_directions, element_mins, element_maxs, carrier_ids, payload_params, threads_per_block
+            del ray_directions, element_mins, element_maxs, plane_points, plane_normals, carrier_ids, payload_params, threads_per_block
             ray_count = int(ray_origins.shape[0])
             ordered_hits = torch.full((ray_count, max_hits), -1, dtype=torch.int32)
             ordered_hits[0, 0] = 0

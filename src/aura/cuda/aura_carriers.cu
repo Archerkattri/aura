@@ -245,6 +245,51 @@ __device__ bool aura_ray_aabb_intersect(
     return true;
 }
 
+__device__ bool aura_ray_plane_intersect(
+    const float* origin,
+    const float* direction,
+    const float* box_min,
+    const float* box_max,
+    const float* plane_point,
+    const float* normal,
+    float* out_depth,
+    float* out_normal
+) {
+    if (
+        !isfinite(plane_point[0]) || !isfinite(plane_point[1]) || !isfinite(plane_point[2]) ||
+        !isfinite(normal[0]) || !isfinite(normal[1]) || !isfinite(normal[2])
+    ) {
+        return false;
+    }
+    const float denom = direction[0] * normal[0] + direction[1] * normal[1] + direction[2] * normal[2];
+    if (fabsf(denom) < 1.0e-8f) {
+        return false;
+    }
+    const float depth = (
+        (plane_point[0] - origin[0]) * normal[0] +
+        (plane_point[1] - origin[1]) * normal[1] +
+        (plane_point[2] - origin[2]) * normal[2]
+    ) / denom;
+    if (depth < 0.0f) {
+        return false;
+    }
+    const float point[3] = {
+        origin[0] + direction[0] * depth,
+        origin[1] + direction[1] * depth,
+        origin[2] + direction[2] * depth,
+    };
+    for (int axis = 0; axis < 3; ++axis) {
+        if (point[axis] < box_min[axis] - 1.0e-5f || point[axis] > box_max[axis] + 1.0e-5f) {
+            return false;
+        }
+    }
+    *out_depth = depth;
+    out_normal[0] = normal[0];
+    out_normal[1] = normal[1];
+    out_normal[2] = normal[2];
+    return true;
+}
+
 __device__ float aura_clamp_unit(float value) {
     return fminf(fmaxf(value, 0.0f), 1.0f);
 }
@@ -280,6 +325,8 @@ extern "C" __global__ void aura_render_rays_kernel(
     const float* ray_directions,
     const float* element_mins,
     const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -341,7 +388,23 @@ extern "C" __global__ void aura_render_rays_kernel(
             &exit_depth,
             normal
         );
-        if (!hit) {
+        if (carrier_ids[element_i] == 0 || carrier_ids[element_i] == 3) {
+            const bool plane_hit = aura_ray_plane_intersect(
+                origin,
+                direction,
+                element_mins + element_i * 3,
+                element_maxs + element_i * 3,
+                plane_points + element_i * 3,
+                plane_normals + element_i * 3,
+                &enter_depth,
+                normal
+            );
+            if (plane_hit) {
+                exit_depth = enter_depth;
+            } else if (!hit) {
+                continue;
+            }
+        } else if (!hit) {
             continue;
         }
         if (stored_hit_limit <= 0) {
@@ -478,6 +541,8 @@ extern "C" void aura_render_rays_launcher(
     const float* ray_directions,
     const float* element_mins,
     const float* element_maxs,
+    const float* plane_points,
+    const float* plane_normals,
     const int* carrier_ids,
     const float* colors,
     const float* opacities,
@@ -516,6 +581,8 @@ extern "C" void aura_render_rays_launcher(
         ray_directions,
         element_mins,
         element_maxs,
+        plane_points,
+        plane_normals,
         carrier_ids,
         colors,
         opacities,
