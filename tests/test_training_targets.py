@@ -405,6 +405,49 @@ def test_packed_render_batch_converts_to_torch_capture_training_batch():
     assert batch.target_mask.tolist() == [1.0]
 
 
+def test_packed_render_batches_max_targets_per_frame_does_not_spill_into_next_tile():
+    """Regression: tile-sample spill when max_targets_per_frame truncates a tile.
+
+    When max_targets_per_frame < tile pixel count, the sampling plan marks the
+    tile as having only N sampled pixels, but _append_tile_samples_to_packed_batch
+    used to keep counting into the next frame's target slots, producing too many
+    samples for the batch and triggering CapturePackedRenderBatch validation.
+    """
+    frames = []
+    tensors_list = []
+    for i in range(3):
+        frame = TrainingFrame(
+            id=f"frame{i}",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.1, 0.1, 0.1),
+            target_depth=2.0,
+        )
+        # 4×4 image so tile has 16 pixels, but max_targets_per_frame=2
+        data = tuple([1.0, 0.0, 0.0] * 16)
+        tensors = CaptureFrameTensors(
+            frame_id=f"frame{i}",
+            image=CaptureTensor("img.ppm", "Netpbm", "stdlib", 4, 4, 3, data),
+        )
+        frames.append(frame)
+        tensors_list.append(tensors)
+
+    # 3 frames × 2 targets = 6 total; batch_size=4 → 1 full batch + 1 partial
+    batches = capture_tensors_to_packed_render_batches(
+        frames,
+        tensors_list,
+        tile_size=4,
+        max_targets_per_frame=2,
+        max_targets_per_batch=4,
+    )
+    total = sum(b.target_count for b in batches)
+    assert total == 6, f"expected 6 targets total, got {total}"
+    for b in batches:
+        assert len(b.frame_indices) == b.target_count, (
+            f"batch target_count={b.target_count} but frame_indices has {len(b.frame_indices)} entries"
+        )
+
+
 def test_capture_sampling_rejects_non_positive_limits():
     frame = _training_frame()
     tensors = CaptureFrameTensors(
