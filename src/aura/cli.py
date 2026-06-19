@@ -166,6 +166,18 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--max-targets-per-batch", type=int, default=1024)
     train.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
     train.add_argument("--color-learning-rate", type=float, default=0.25)
+    train.add_argument("--position-lr", type=float, default=1.6e-4, dest="position_lr",
+                       help="Initial position learning rate (Adam per-group)")
+    train.add_argument("--scale-lr", type=float, default=5e-3, dest="scale_lr",
+                       help="Scale attribute learning rate")
+    train.add_argument("--opacity-lr", type=float, default=5e-2, dest="opacity_lr",
+                       help="Opacity attribute learning rate")
+    train.add_argument("--feature-lr", type=float, default=2.5e-3, dest="feature_lr",
+                       help="Neural feature learning rate")
+    train.add_argument("--position-lr-final", type=float, default=1.6e-6, dest="position_lr_final",
+                       help="Final position LR after exponential decay (3DGS convention: 1e-2 of initial)")
+    train.add_argument("--lr-decay-steps", type=int, default=0, dest="lr_decay_steps",
+                       help="Steps over which to decay position LR (0 = use --iterations)")
     _add_loss_weight_args(train)
     train.add_argument("--checkpoint-dir", type=Path, default=None)
     train.add_argument("--checkpoint-interval", type=int, default=None)
@@ -1037,6 +1049,8 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
             scale_learning_rate=getattr(args, "scale_lr", 5e-3),
             opacity_learning_rate=getattr(args, "opacity_lr", 5e-2),
             feature_learning_rate=getattr(args, "feature_lr", 2.5e-3),
+            position_lr_final=getattr(args, "position_lr_final", 1.6e-6),
+            lr_decay_steps=getattr(args, "lr_decay_steps", 0) or args.iterations,
             grad_accum_window=getattr(args, "grad_accum_window", 100),
             opacity_reset_interval=getattr(args, "opacity_reset_interval", 0),
             max_carriers=args.max_carriers or 0,
