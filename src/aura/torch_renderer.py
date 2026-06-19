@@ -1792,7 +1792,9 @@ def _torch_aabb_hits(torch: Any, origins: Any, directions: Any, mins: Any, maxs:
 # Max carriers to process in one chunk for AABB/Gaussian hit testing.
 # Keeps intermediate 3-vector tensors at O(rays * _CARRIER_CHUNK_SIZE * 3)
 # instead of O(rays * total_carriers * 3), enabling 100k+ carriers without OOM.
-_CARRIER_CHUNK_SIZE = 32768
+# 4096 keeps the [rays, chunk, 3] float32 intermediates under 12 MiB for ≤256 rays,
+# preventing CUDA fragmentation OOM on long training runs (was 96 MiB @ 32768).
+_CARRIER_CHUNK_SIZE = 4096
 # Maximum hits per ray kept for compositing. Transmittance ≈ (1-α)^K → ~0 well before K=64.
 # This caps all compositing tensors at O(rays * _MAX_HITS_PER_RAY) instead of O(rays * N).
 _MAX_HITS_PER_RAY = 64
