@@ -1565,7 +1565,7 @@ def _torch_composite_carrier_hits(
         effective_gaussian_support_radius_sq = torch.clamp(gaussian_support_radius_sq, min=0.0, max=nyquist_sigma**2)
     else:
         effective_gaussian_support_radius_sq = gaussian_support_radius_sq
-    entry, exit_depth, hits = _torch_carrier_hits(
+    entry, exit_depth, hits, global_indices = _torch_carrier_hits(
         torch,
         tuple(elements),
         origins,
@@ -1581,32 +1581,39 @@ def _torch_composite_carrier_hits(
         effective_gaussian_support_radius_sq,
         beta_support_radii,
     )
+    # entry, exit_depth, hits, global_indices: all [rays, K] with K = min(_MAX_HITS_PER_RAY, N)
+    # entry is already sorted by depth per ray; misses have entry = inf.
     chunk_culling_active = chunk_mins is not None and chunk_maxs is not None and element_chunk_indices is not None
     if chunk_culling_active:
         _chunk_entry, _chunk_exit, chunk_hits = _torch_aabb_hits(torch, origins, directions, chunk_mins, chunk_maxs)
-        hits = hits & chunk_hits[:, element_chunk_indices]
-    hit_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
-    first_depth, first_index = torch.min(hit_depths, dim=1)
-    has_hit = torch.isfinite(first_depth)
-    sorted_depths, sorted_indices = torch.sort(hit_depths, dim=1)
+        # global_indices [rays, K] → chunk index per slot [rays, K] → gather from [rays, num_chunks]
+        chunk_idx_per_slot = element_chunk_indices[global_indices]          # [rays, K]
+        chunk_hit_per_slot = torch.gather(chunk_hits, 1, chunk_idx_per_slot)  # [rays, K]
+        hits = hits & chunk_hit_per_slot
 
     ray_count = int(origins.shape[0])
-    order_count = len(elements)
+    order_count = int(global_indices.shape[1])  # K ≤ _MAX_HITS_PER_RAY (was len(elements))
+    # Re-mask entry/exit to reflect any post-hoc chunk culling
+    sorted_depths = torch.where(hits, entry, torch.full_like(entry, float("inf")))
     active_by_order = torch.isfinite(sorted_depths)
-    flat_indices = sorted_indices.reshape(-1)
-    flat_active = active_by_order.reshape(-1)
+    if order_count > 0:
+        first_depth = sorted_depths[:, 0]
+        first_index = global_indices[:, 0]
+    else:
+        first_depth = torch.full((ray_count,), float("inf"), dtype=entry.dtype, device=device)
+        first_index = torch.zeros((ray_count,), dtype=torch.long, device=device)
+    has_hit = torch.isfinite(first_depth)
+
+    # flat_indices carries global carrier indices (0..N-1) — no gather needed.
+    flat_indices = global_indices.reshape(-1)          # [rays*K]
+    flat_active = active_by_order.reshape(-1)          # [rays*K]
     flat_depths = torch.where(flat_active, sorted_depths.reshape(-1), torch.zeros_like(sorted_depths.reshape(-1)))
-    # Per-(ray, order) exit depth gathered for the element at each order position.
-    # Pre-gathering here keeps this O(rays * elements); the previous
-    # exit_depth[:, None, :].expand(...) materialised rays * elements^2 floats and
-    # OOM'd at a few thousand carriers.
-    flat_exit_depth = torch.gather(exit_depth, 1, sorted_indices).reshape(-1)
-    # Compact-hit optimization: instead of expanding origins/directions to [rays*N, 3],
-    # gather only the n_active << rays*N hit positions. This keeps the 3-vector
-    # tensors O(n_hits) instead of O(rays * all_carriers), enabling 100k+ carriers.
+    flat_exit_depth = exit_depth.reshape(-1)           # [rays*K] — already in depth-sorted order
+
+    # Compact-hit optimization: gather only n_active << rays*K hit positions.
     active_flat_pos = flat_active.nonzero(as_tuple=False).squeeze(1)
     n_active = active_flat_pos.shape[0]
-    total_flat = ray_count * order_count
+    total_flat = ray_count * order_count               # rays * K — tiny (e.g. 256*64 = 16k)
     if n_active > 0:
         compact_ray_idx = active_flat_pos // order_count
         compact_origins = origins[compact_ray_idx]      # [n_active, 3]
@@ -1668,7 +1675,7 @@ def _torch_composite_carrier_hits(
             pixel_cone_angle = 2.0 * math.atan(0.5 / focal_length_pixels)
         footprint_radius = sorted_depths * pixel_cone_angle
         max_aabb_extent = torch.max(maxs - mins, dim=1).values
-        aabb_extent_by_order = max_aabb_extent[sorted_indices]
+        aabb_extent_by_order = max_aabb_extent[global_indices]
         effective_alpha = alpha_by_order * torch.clamp(aabb_extent_by_order / (footprint_radius + 1e-8), min=0.0, max=1.0)
         effective_transmittance_by_order = torch.where(active_by_order, 1.0 - effective_alpha, torch.ones_like(effective_alpha))
         inclusive_remaining = torch.cumprod(effective_transmittance_by_order, dim=1)
@@ -1699,12 +1706,12 @@ def _torch_composite_carrier_hits(
     confidence_den = torch.sum(weight_by_order, dim=1)
     remaining = inclusive_remaining[:, -1] if order_count else torch.ones((ray_count,), dtype=torch.float32, device=device)
     residual = torch.any(active_by_order & residual_by_order, dim=1)
-    element_weights = torch.zeros((ray_count, len(elements)), dtype=torch.float32, device=device).scatter_add(1, sorted_indices, weight_by_order)
+    element_weights = torch.zeros((ray_count, len(elements)), dtype=torch.float32, device=device).scatter_add(1, global_indices, weight_by_order)
 
     if collect_traces:
         hit_indices = []
         hit_depths = []
-        for indices, depths in zip(sorted_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
+        for indices, depths in zip(global_indices.detach().cpu().tolist(), sorted_depths.detach().cpu().tolist()):
             hit_indices.append(tuple(int(index) for index, depth in zip(indices, depths) if depth != float("inf")))
             hit_depths.append(tuple(float(depth) for depth in depths if depth != float("inf")))
         hit_transmittance = _torch_hit_transmittance_traces_from_matrix(torch, sorted_depths, transmittance_by_order)
@@ -1753,6 +1760,15 @@ def _torch_aabb_hits(torch: Any, origins: Any, directions: Any, mins: Any, maxs:
     return entry, exit_depth, hits
 
 
+# Max carriers to process in one chunk for AABB/Gaussian hit testing.
+# Keeps intermediate 3-vector tensors at O(rays * _CARRIER_CHUNK_SIZE * 3)
+# instead of O(rays * total_carriers * 3), enabling 100k+ carriers without OOM.
+_CARRIER_CHUNK_SIZE = 8192
+# Maximum hits per ray kept for compositing. Transmittance ≈ (1-α)^K → ~0 well before K=64.
+# This caps all compositing tensors at O(rays * _MAX_HITS_PER_RAY) instead of O(rays * N).
+_MAX_HITS_PER_RAY = 64
+
+
 def _torch_carrier_hits(
     torch: Any,
     elements: Sequence[Any],
@@ -1768,86 +1784,108 @@ def _torch_carrier_hits(
     gaussian_inverse_covariances: Any,
     gaussian_support_radius_sq: Any,
     beta_support_radii: Any,
-) -> tuple[Any, Any, Any]:
-    entry, exit_depth, hits = _torch_aabb_hits(torch, origins, directions, mins, maxs)
-    element_count = len(elements)
-    if element_count == 0:
-        return entry, exit_depth, hits
+) -> tuple[Any, Any, Any, Any]:
+    """Streaming top-K hit test. Returns (entry, exit, hits, global_indices) all [rays, K].
 
+    Never materializes O(rays*N) tensors. Processes carriers in chunks of _CARRIER_CHUNK_SIZE
+    and maintains a running top-K buffer of _MAX_HITS_PER_RAY nearest hits per ray.
+    K = min(_MAX_HITS_PER_RAY, element_count).
+    """
+    element_count = len(elements)
+    ray_count = int(origins.shape[0])
+    device = origins.device
+
+    if element_count == 0:
+        z = torch.zeros((ray_count, 0), dtype=origins.dtype, device=device)
+        return z, z, z.bool(), z.long()
+
+    K = min(_MAX_HITS_PER_RAY, element_count)
     payload_types = tuple(str(element.payload.get("type", "")) for element in elements)
     carrier_ids = tuple(str(element.carrier_id) for element in elements)
-    surface_mask_values = tuple(payload_type == "surface_cell" or carrier_id == "surface" for payload_type, carrier_id in zip(payload_types, carrier_ids))
-    gaussian_mask_values = tuple(payload_type == "gaussian_fallback" for payload_type in payload_types)
-    beta_mask_values = tuple(payload_type == "beta_kernel" for payload_type in payload_types)
-    gabor_mask_values = tuple(payload_type == "gabor_frequency" for payload_type in payload_types)
-    surface_mask = torch.tensor(surface_mask_values, dtype=torch.bool, device=origins.device)
-    gaussian_mask = torch.tensor(gaussian_mask_values, dtype=torch.bool, device=origins.device)
-    beta_mask = torch.tensor(beta_mask_values, dtype=torch.bool, device=origins.device)
-    gabor_mask = torch.tensor(gabor_mask_values, dtype=torch.bool, device=origins.device)
+    surface_mask_values = tuple(
+        pt == "surface_cell" or cid == "surface"
+        for pt, cid in zip(payload_types, carrier_ids)
+    )
+    gaussian_mask_values = tuple(pt == "gaussian_fallback" for pt in payload_types)
+    beta_mask_values = tuple(pt == "beta_kernel" for pt in payload_types)
+    gabor_mask_values = tuple(pt == "gabor_frequency" for pt in payload_types)
 
-    current_entry = entry
-    current_exit = exit_depth
-    current_hits = hits
-    if any(surface_mask_values):
-        surface_entry, surface_exit, surface_hits, surface_valid = _torch_surface_plane_hits_batched(
-            torch,
-            origins,
-            directions,
-            mins,
-            maxs,
-            surface_plane_points,
-            surface_normals,
-        )
-        active = surface_mask.unsqueeze(0) & surface_valid.unsqueeze(0) & torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
-        current_hits = torch.where(active, surface_hits, current_hits)
-        current_entry = torch.where(active, surface_entry, current_entry)
-        current_exit = torch.where(active, surface_exit, current_exit)
-    if any(gaussian_mask_values):
-        gaussian_entry, gaussian_exit, gaussian_hits, gaussian_valid = _torch_gaussian_ellipsoid_hits_batched(
-            torch,
-            origins,
-            directions,
-            gaussian_means,
-            gaussian_inverse_covariances,
-            gaussian_support_radius_sq,
-        )
-        bounded_entry = torch.maximum(entry, gaussian_entry)
-        bounded_exit = torch.minimum(exit_depth, gaussian_exit)
-        bounded_hits = hits & gaussian_hits & (bounded_exit >= bounded_entry)
-        active = gaussian_mask.unsqueeze(0) & gaussian_valid.unsqueeze(0)
-        current_hits = torch.where(active, bounded_hits, current_hits)
-        current_entry = torch.where(active, bounded_entry, current_entry)
-        current_exit = torch.where(active, bounded_exit, current_exit)
-    if any(beta_mask_values):
-        beta_entry, beta_exit, beta_hits, beta_valid = _torch_beta_ellipsoid_hits_batched(
-            torch,
-            origins,
-            directions,
-            (mins + maxs) * 0.5,
-            beta_support_radii,
-        )
-        bounded_entry = torch.maximum(entry, beta_entry)
-        bounded_exit = torch.minimum(exit_depth, beta_exit)
-        bounded_hits = hits & beta_hits & (bounded_exit >= bounded_entry)
-        active = beta_mask.unsqueeze(0) & beta_valid.unsqueeze(0)
-        current_hits = torch.where(active, bounded_hits, current_hits)
-        current_entry = torch.where(active, bounded_entry, current_entry)
-        current_exit = torch.where(active, bounded_exit, current_exit)
-    if any(gabor_mask_values):
-        gabor_entry, gabor_exit, gabor_hits, gabor_valid = _torch_surface_plane_hits_batched(
-            torch,
-            origins,
-            directions,
-            mins,
-            maxs,
-            gabor_plane_points,
-            gabor_normals,
-        )
-        active = gabor_mask.unsqueeze(0) & gabor_valid.unsqueeze(0) & torch.isfinite(gabor_entry) & torch.isfinite(gabor_exit)
-        current_hits = torch.where(active, gabor_hits, current_hits)
-        current_entry = torch.where(active, gabor_entry, current_entry)
-        current_exit = torch.where(active, gabor_exit, current_exit)
-    return current_entry, current_exit, current_hits
+    # Running top-K buffers [rays, K] — all O(rays * K), never O(rays * N)
+    topk_entry = torch.full((ray_count, K), float("inf"), dtype=origins.dtype, device=device)
+    topk_exit = torch.full((ray_count, K), float("inf"), dtype=origins.dtype, device=device)
+    topk_indices = torch.zeros((ray_count, K), dtype=torch.long, device=device)
+
+    for chunk_start in range(0, element_count, _CARRIER_CHUNK_SIZE):
+        chunk_end = min(chunk_start + _CARRIER_CHUNK_SIZE, element_count)
+        sl = slice(chunk_start, chunk_end)
+
+        # All intermediate tensors: O(rays * chunk_size * 3) — manageable
+        c_entry, c_exit, c_hits = _torch_aabb_hits(torch, origins, directions, mins[sl], maxs[sl])
+        c_current_entry = c_entry
+        c_current_exit = c_exit
+        c_current_hits = c_hits
+
+        if any(surface_mask_values[chunk_start:chunk_end]):
+            surface_entry, surface_exit, surface_hits, surface_valid = _torch_surface_plane_hits_batched(
+                torch, origins, directions, mins[sl], maxs[sl],
+                surface_plane_points[sl], surface_normals[sl],
+            )
+            c_surface_mask = torch.tensor(surface_mask_values[sl], dtype=torch.bool, device=device)
+            active = c_surface_mask.unsqueeze(0) & surface_valid.unsqueeze(0) & torch.isfinite(surface_entry) & torch.isfinite(surface_exit)
+            c_current_hits = torch.where(active, surface_hits, c_current_hits)
+            c_current_entry = torch.where(active, surface_entry, c_current_entry)
+            c_current_exit = torch.where(active, surface_exit, c_current_exit)
+        if any(gaussian_mask_values[chunk_start:chunk_end]):
+            gaussian_entry, gaussian_exit, gaussian_hits, gaussian_valid = _torch_gaussian_ellipsoid_hits_batched(
+                torch, origins, directions,
+                gaussian_means[sl], gaussian_inverse_covariances[sl], gaussian_support_radius_sq[sl],
+            )
+            bounded_entry = torch.maximum(c_entry, gaussian_entry)
+            bounded_exit = torch.minimum(c_exit, gaussian_exit)
+            bounded_hits = c_hits & gaussian_hits & (bounded_exit >= bounded_entry)
+            c_gaussian_mask = torch.tensor(gaussian_mask_values[sl], dtype=torch.bool, device=device)
+            active = c_gaussian_mask.unsqueeze(0) & gaussian_valid.unsqueeze(0)
+            c_current_hits = torch.where(active, bounded_hits, c_current_hits)
+            c_current_entry = torch.where(active, bounded_entry, c_current_entry)
+            c_current_exit = torch.where(active, bounded_exit, c_current_exit)
+        if any(beta_mask_values[chunk_start:chunk_end]):
+            beta_entry, beta_exit, beta_hits, beta_valid = _torch_beta_ellipsoid_hits_batched(
+                torch, origins, directions, ((mins + maxs) * 0.5)[sl], beta_support_radii[sl],
+            )
+            bounded_entry = torch.maximum(c_entry, beta_entry)
+            bounded_exit = torch.minimum(c_exit, beta_exit)
+            bounded_hits = c_hits & beta_hits & (bounded_exit >= bounded_entry)
+            c_beta_mask = torch.tensor(beta_mask_values[sl], dtype=torch.bool, device=device)
+            active = c_beta_mask.unsqueeze(0) & beta_valid.unsqueeze(0)
+            c_current_hits = torch.where(active, bounded_hits, c_current_hits)
+            c_current_entry = torch.where(active, bounded_entry, c_current_entry)
+            c_current_exit = torch.where(active, bounded_exit, c_current_exit)
+        if any(gabor_mask_values[chunk_start:chunk_end]):
+            gabor_entry, gabor_exit, gabor_hits, gabor_valid = _torch_surface_plane_hits_batched(
+                torch, origins, directions, mins[sl], maxs[sl],
+                gabor_plane_points[sl], gabor_normals[sl],
+            )
+            c_gabor_mask = torch.tensor(gabor_mask_values[sl], dtype=torch.bool, device=device)
+            active = c_gabor_mask.unsqueeze(0) & gabor_valid.unsqueeze(0) & torch.isfinite(gabor_entry) & torch.isfinite(gabor_exit)
+            c_current_hits = torch.where(active, gabor_hits, c_current_hits)
+            c_current_entry = torch.where(active, gabor_entry, c_current_entry)
+            c_current_exit = torch.where(active, gabor_exit, c_current_exit)
+
+        # Misses become inf; merge with running top-K and re-sort/truncate
+        c_hit_depths = torch.where(c_current_hits, c_current_entry, torch.full_like(c_current_entry, float("inf")))
+        c_global_idx = torch.arange(chunk_start, chunk_end, device=device, dtype=torch.long).unsqueeze(0).expand(ray_count, -1)
+
+        merged_entry = torch.cat([topk_entry, c_hit_depths], dim=1)   # [rays, K + chunk]
+        merged_exit = torch.cat([topk_exit, c_current_exit], dim=1)
+        merged_idx = torch.cat([topk_indices, c_global_idx], dim=1)
+
+        _, sort_perm = torch.sort(merged_entry, dim=1)
+        topk_entry = torch.gather(merged_entry, 1, sort_perm)[:, :K]
+        topk_exit = torch.gather(merged_exit, 1, sort_perm)[:, :K]
+        topk_indices = torch.gather(merged_idx, 1, sort_perm)[:, :K]
+
+    topk_hits = torch.isfinite(topk_entry)
+    return topk_entry, topk_exit, topk_hits, topk_indices
 
 
 def _torch_surface_plane_hits_batched(

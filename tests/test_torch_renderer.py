@@ -1822,7 +1822,7 @@ def test_torch_carrier_hits_batches_mixed_native_geometry_like_scalar_helpers():
     )
     directions = torch.tensor([(0.0, 0.0, 1.0)] * 4, dtype=torch.float32, device=device)
 
-    entry, exit_depth, hits = torch_renderer_module._torch_carrier_hits(
+    entry_topk, exit_depth_topk, hits_topk, global_indices = torch_renderer_module._torch_carrier_hits(
         torch,
         scene.elements,
         origins,
@@ -1838,6 +1838,22 @@ def test_torch_carrier_hits_batches_mixed_native_geometry_like_scalar_helpers():
         scene_tensors.gaussian_support_radius_sq,
         scene_tensors.beta_support_radii,
     )
+    # Results are depth-sorted [rays, K]; scatter back to element order [rays, N] for comparison.
+    # Only scatter positions where hits_topk=True — non-hit positions carry garbage indices
+    # (from the merge sort) and scattering inf there would overwrite correct finite values.
+    n_elements = len(scene.elements)
+    ray_count = int(origins.shape[0])
+    entry = torch.full((ray_count, n_elements), float("inf"), dtype=entry_topk.dtype, device=device)
+    exit_depth = torch.full((ray_count, n_elements), float("inf"), dtype=exit_depth_topk.dtype, device=device)
+    hits = torch.zeros((ray_count, n_elements), dtype=torch.bool, device=device)
+    hit_pos = hits_topk.nonzero(as_tuple=False)  # [n_hits, 2]
+    if hit_pos.shape[0] > 0:
+        ray_idx = hit_pos[:, 0]
+        k_idx = hit_pos[:, 1]
+        carrier_idx = global_indices[ray_idx, k_idx]
+        entry[ray_idx, carrier_idx] = entry_topk[ray_idx, k_idx]
+        exit_depth[ray_idx, carrier_idx] = exit_depth_topk[ray_idx, k_idx]
+        hits[ray_idx, carrier_idx] = True
     base_entry, base_exit, base_hits = torch_renderer_module._torch_aabb_hits(
         torch,
         origins,
@@ -1914,8 +1930,19 @@ def test_torch_carrier_hits_batches_mixed_native_geometry_like_scalar_helpers():
     expected_hit = torch.stack(tuple(expected_hits), dim=1)
 
     assert hits.tolist() == expected_hit.tolist()
-    assert torch.allclose(torch.nan_to_num(entry, posinf=1.0e9), torch.nan_to_num(expected_entry, posinf=1.0e9))
-    assert torch.allclose(torch.nan_to_num(exit_depth, posinf=1.0e9), torch.nan_to_num(expected_exit, posinf=1.0e9))
+    # Entry/exit are only meaningful where hits=True; the new streaming top-K returns inf for misses
+    # while the old scalar baseline returned AABB depth for misses. Only compare where hits=True.
+    hit_positions = expected_hit.nonzero(as_tuple=False)
+    if hit_positions.shape[0] > 0:
+        ray_h = hit_positions[:, 0]; col_h = hit_positions[:, 1]
+        assert torch.allclose(
+            torch.nan_to_num(entry[ray_h, col_h], posinf=1.0e9),
+            torch.nan_to_num(expected_entry[ray_h, col_h], posinf=1.0e9),
+        )
+        assert torch.allclose(
+            torch.nan_to_num(exit_depth[ray_h, col_h], posinf=1.0e9),
+            torch.nan_to_num(expected_exit[ray_h, col_h], posinf=1.0e9),
+        )
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
