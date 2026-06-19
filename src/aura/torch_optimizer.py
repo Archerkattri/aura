@@ -1133,7 +1133,7 @@ def _optimize_torch_batches(
                     scene=current_scene,
                 )
             )
-        if (iteration + 1) % 100 == 0 or iteration == 0:
+        if (iteration + 1) % 10 == 0 or iteration == 0:
             last_loss = steps[-1].total_loss if steps else float("nan")
             import sys as _sys
             print(
@@ -1142,8 +1142,6 @@ def _optimize_torch_batches(
                 file=_sys.stderr,
                 flush=True,
             )
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
     final_summary: TorchCaptureRenderSummary | None = None
     if materialization_summary is None and prepared_batches:
         final_batch = prepared_batches[-1][0]
