@@ -25,17 +25,40 @@ python -m aura.cli train outputs/<scene>-manifest.json \
     --max-targets-per-batch 256 \
     --max-targets-per-frame 16 \
     --skip-validation \
-    --disable-evolution
+    --disable-evolution \
+    --position-lr 1.6e-4 \
+    --position-lr-final 1.6e-6 \
+    --lr-decay-steps 3000 \
+    --opacity-reset-interval 600 \
+    --depth-distortion-weight 0.001
 ```
+
+### Current Training Run (truck, 129k carriers)
+
+| Parameter | Value |
+|---|---|
+| Run | truck-3k-run5 |
+| Carriers | 129,531 |
+| Iterations | 3000 |
+| Loss at convergence | ~0.02 |
+| Checkpoint | `outputs/truck-3k-run5.aura` |
 
 ## Evaluation
 
 ```bash
 python scripts/eval_psnr.py outputs/<scene>-run.aura outputs/<scene>-manifest.json \
-    --frames 10 --device cuda
+    --frames 20 --device cuda
 ```
 
-Reports PSNR and SSIM. Reference numbers for 3DGS (Kerbl et al. 2023): Truck ~25.19 dB PSNR, ~0.857 SSIM.
+Reports PSNR, SSIM (11×11 Gaussian window), and LPIPS (if `pip install lpips` is available).
+
+### Reference numbers (T&T Truck scene)
+
+| Method | PSNR | SSIM | LPIPS |
+|---|---|---|---|
+| 3DGS (Kerbl et al. 2023) | ~25.19 dB | ~0.857 | ~0.177 |
+| MP-GS (multi-primitive) | ~25–27 dB | — | — |
+| AURA truck-3k-run5 | TBD | TBD | TBD |
 
 ## Seeds
 
