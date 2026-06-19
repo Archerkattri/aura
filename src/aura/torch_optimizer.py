@@ -1545,7 +1545,7 @@ def _carrier_counts(elements: Sequence[AuraElement]) -> dict[str, int]:
 
 
 def _weighted_torch_loss(objective: Any, loss_weights: TrainingLossWeights) -> Any:
-    return (
+    loss = (
         loss_weights.image * objective.image_loss
         + loss_weights.depth * objective.depth_loss
         + loss_weights.query * objective.query_loss
@@ -1553,6 +1553,9 @@ def _weighted_torch_loss(objective: Any, loss_weights: TrainingLossWeights) -> A
         + loss_weights.mask * objective.mask_loss
         + loss_weights.confidence * objective.confidence_loss
     )
+    if loss_weights.depth_distortion > 0.0 and getattr(objective, "depth_distortion_loss", None) is not None:
+        loss = loss + loss_weights.depth_distortion * objective.depth_distortion_loss
+    return loss
 
 
 def _loss_curve(steps: Sequence[TorchOptimizationStep]) -> list[dict[str, float | int | None]]:

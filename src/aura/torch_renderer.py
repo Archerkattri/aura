@@ -144,6 +144,7 @@ class TorchRenderObjective:
     normal_loss: Any
     mask_loss: Any
     confidence_loss: Any
+    depth_distortion_loss: Any = None
 
     def to_dict(self) -> dict:
         return {
@@ -156,6 +157,7 @@ class TorchRenderObjective:
             "normalLoss": float(self.normal_loss.detach().cpu().item()),
             "maskLoss": float(self.mask_loss.detach().cpu().item()),
             "confidenceLoss": float(self.confidence_loss.detach().cpu().item()),
+            "depthDistortionLoss": float(self.depth_distortion_loss.detach().cpu().item()) if self.depth_distortion_loss is not None else 0.0,
             "carrierParameterIds": sorted(self.carrier_parameters),
         }
 
@@ -1395,6 +1397,7 @@ def _torch_render_objective_tensor_targets(
         target_material_ids=target_material_ids or (None,) * len(frame_ids),
         device=device,
     )
+    depth_distortion_loss = torch.mean(composited["depth_distortion"])
     return TorchRenderObjective(
         device=device,
         frame_ids=tuple(frame_ids),
@@ -1406,6 +1409,7 @@ def _torch_render_objective_tensor_targets(
         normal_loss=normal_loss,
         mask_loss=mask_loss,
         confidence_loss=confidence_loss,
+        depth_distortion_loss=depth_distortion_loss,
     )
 
 
@@ -1757,6 +1761,13 @@ def _torch_composite_carrier_hits(
     depth_num = torch.sum(weight_by_order * masked_depths, dim=1)
     depth_den = torch.sum(weight_by_order, dim=1)
     expected_depth = torch.where(depth_den > 1e-8, depth_num / torch.clamp(depth_den, min=1e-8), first_depth)
+    # Depth distortion (2DGS): weighted variance of hit depths per ray.
+    # depth_distortion = E_w[d^2] - E_w[d]^2, used as a regularizer.
+    depth_sq_num = torch.sum(weight_by_order * masked_depths * masked_depths, dim=1)
+    safe_den = torch.clamp(depth_den, min=1e-8)
+    e_d2 = torch.where(depth_den > 1e-8, depth_sq_num / safe_den, torch.zeros_like(depth_sq_num))
+    e_d = torch.where(depth_den > 1e-8, depth_num / safe_den, torch.zeros_like(depth_num))
+    depth_distortion = torch.clamp(e_d2 - e_d * e_d, min=0.0)
     return {
         "color": color,
         "transmittance": torch.where(has_hit, remaining, torch.ones_like(remaining)),
@@ -1764,6 +1775,7 @@ def _torch_composite_carrier_hits(
         "residual": torch.where(has_hit, residual, torch.zeros_like(residual)),
         "first_depth": first_depth,
         "expected_depth": expected_depth,
+        "depth_distortion": depth_distortion,
         "first_index": first_index,
         "has_hit": has_hit,
         "element_weights": element_weights,

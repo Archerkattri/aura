@@ -884,6 +884,11 @@ def _add_loss_weight_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--normal-loss-weight", type=float, default=defaults.normal)
     parser.add_argument("--mask-loss-weight", type=float, default=defaults.mask)
     parser.add_argument("--confidence-loss-weight", type=float, default=defaults.confidence)
+    parser.add_argument("--depth-distortion-weight", type=float, default=defaults.depth_distortion,
+                        help="Weight for 2DGS-style depth-distortion regularizer (default 0 = off). "
+                             "Penalizes weighted depth variance per ray; encourages thin surfaces.")
+    parser.add_argument("--normal-consistency-weight", type=float, default=defaults.normal_consistency,
+                        help="Weight for normal-consistency regularizer (default 0 = off).")
 
 
 def _loss_weights_from_args(args: argparse.Namespace) -> TrainingLossWeights:
@@ -897,6 +902,8 @@ def _loss_weights_from_args(args: argparse.Namespace) -> TrainingLossWeights:
         normal=args.normal_loss_weight,
         mask=args.mask_loss_weight,
         confidence=args.confidence_loss_weight,
+        depth_distortion=getattr(args, "depth_distortion_weight", 0.0),
+        normal_consistency=getattr(args, "normal_consistency_weight", 0.0),
     )
 
 
