@@ -1423,8 +1423,19 @@ def _scene_from_carrier_parameters(
     elements = []
     loss_by_element = _loss_by_element_summary(summary)
     device = summary.device if summary is not None else None
-    for element in scene.elements:
-        fields = carrier_parameters.get(element.id, {})
+    # Batched path: carrier_parameters["__batched__"] holds [N,*] tensors indexed by
+    # element position. Element IDs are not keys — extract per-element slices by index.
+    _batched = carrier_parameters.get("__batched__")
+    _batched_meta = carrier_parameters.get("__batched_meta__", {})
+    for _element_index, element in enumerate(scene.elements):
+        if _batched is not None:
+            fields = {
+                name: param[_element_index]
+                for name, param in _batched.items()
+                if hasattr(param, "__getitem__")
+            }
+        else:
+            fields = carrier_parameters.get(element.id, {})
         color = element.color
         opacity = element.opacity
         confidence = element.confidence
@@ -1449,9 +1460,15 @@ def _scene_from_carrier_parameters(
                 normal = _normalized_vec3(candidate_normal)
                 payload["normal"] = list(normal)
         if "gaussian_mean" in fields:
-            mean = _tensor_vec3(fields["gaussian_mean"])
-            if _all_finite(mean):
-                payload["mean"] = list(mean)
+            _mean_present = _batched_meta.get("gaussian_mean_present")
+            _apply_mean = (
+                _mean_present is None  # per-element path: always apply
+                or bool(_mean_present[_element_index].item())  # batched path: check flag
+            )
+            if _apply_mean:
+                mean = _tensor_vec3(fields["gaussian_mean"])
+                if _all_finite(mean):
+                    payload["mean"] = list(mean)
         if "color" in fields:
             candidate_color = _tensor_vec3(fields["color"])
             if _all_finite(candidate_color):

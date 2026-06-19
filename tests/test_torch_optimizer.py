@@ -4386,3 +4386,57 @@ def test_scene_from_carrier_parameters_with_zero_normal_uses_normalized_vec3_fal
     new_scene = _scene_from_carrier_parameters(scene, carrier_parameters)
     # Zero normal passed through as-is (no crash)
     assert new_scene.elements[0].normal == pytest.approx((0.0, 0.0, 0.0))
+
+
+# ---- Batched gaussian writeback fix ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch required")
+def test_scene_from_carrier_parameters_reads_batched_gaussian_params():
+    """Fix: _scene_from_carrier_parameters must extract trained values from __batched__ tensors.
+
+    Before the fix, training updated carrier_parameters["__batched__"] but
+    _scene_from_carrier_parameters looked up by element ID (always got {}) so no
+    trained parameters were ever written back to the saved .aura file.
+    """
+    import torch
+    from aura.torch_optimizer import _scene_from_carrier_parameters
+    from aura.torch_kernels import _torch_batched_gaussian_parameter_tensors
+
+    N = 5
+    elements = tuple(
+        AuraElement(
+            id=f"g{i}",
+            carrier_id="gaussian",
+            bounds=Bounds((float(i), 0.0, 0.0), (float(i) + 1.0, 1.0, 1.0)),
+            color=(0.1, 0.2, 0.3),
+            opacity=0.5,
+            confidence=0.8,
+            payload={"type": "gaussian_fallback", "mean": [float(i) + 0.5, 0.5, 0.5]},
+        )
+        for i in range(N)
+    )
+    scene = AuraScene(name="test", elements=elements)
+
+    # Build batched carrier parameters directly (same dict shape the optimizer uses
+    # for >1000 gaussian elements via _torch_batched_gaussian_parameter_tensors).
+    carrier_parameters = _torch_batched_gaussian_parameter_tensors(torch, elements, device="cpu", requires_grad=True)
+
+    # Mutate the batched color and opacity tensors to simulate what training would do.
+    new_color = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+                               [1.0, 1.0, 0.0], [0.0, 1.0, 1.0]])
+    carrier_parameters["__batched__"]["color"].data[:] = new_color
+
+    new_opacity = torch.tensor([0.1, 0.2, 0.3, 0.4, 0.9])
+    carrier_parameters["__batched__"]["opacity"].data[:] = new_opacity
+
+    new_scene = _scene_from_carrier_parameters(scene, carrier_parameters)
+
+    # Each element should now carry the updated color and opacity from the batched tensors.
+    assert len(new_scene.elements) == N
+    for i, elem in enumerate(new_scene.elements):
+        assert elem.color == pytest.approx(new_color[i].tolist(), abs=1e-5), (
+            f"element {i}: color not written back from __batched__"
+        )
+        assert elem.opacity == pytest.approx(new_opacity[i].item(), abs=1e-5), (
+            f"element {i}: opacity not written back from __batched__"
+        )
