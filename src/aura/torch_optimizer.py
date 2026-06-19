@@ -674,7 +674,7 @@ def _build_adam_optimizer(
 
     for fields in carrier_parameters.values():
         for name, parameter in fields.items():
-            if not hasattr(parameter, 'requires_grad'):
+            if not getattr(parameter, 'requires_grad', False):
                 continue
             if name in _POSITION_PARAMS:
                 position_params.append(parameter)
