@@ -34,6 +34,62 @@ def psnr_from_mse(mse_val: float) -> float:
     return 10.0 * math.log10(1.0 / mse_val)
 
 
+def ssim(pred: list[float], gt: list[float], width: int, height: int) -> float:
+    """Compute SSIM between two flat RGB images using an 11x11 Gaussian window.
+
+    pred, gt: flat list of floats in [0,1], length = width * height * 3
+    Returns SSIM in [-1, 1] (1.0 = identical).
+    """
+    import math
+
+    K1, K2, L = 0.01, 0.03, 1.0
+    C1, C2 = (K1 * L) ** 2, (K2 * L) ** 2
+
+    # Convert to luminance (grayscale)
+    n_pixels = width * height
+    lum_pred = [0.2126 * pred[i*3] + 0.7152 * pred[i*3+1] + 0.0722 * pred[i*3+2] for i in range(n_pixels)]
+    lum_gt   = [0.2126 * gt[i*3]   + 0.7152 * gt[i*3+1]   + 0.0722 * gt[i*3+2]   for i in range(n_pixels)]
+
+    # Build 11x11 Gaussian kernel weights
+    sigma = 1.5
+    half = 5
+    kernel = []
+    for dy in range(-half, half+1):
+        for dx in range(-half, half+1):
+            kernel.append(math.exp(-(dx*dx + dy*dy) / (2 * sigma * sigma)))
+    s = sum(kernel)
+    kernel = [k / s for k in kernel]
+
+    # Compute windowed statistics over valid pixels
+    ssim_vals = []
+    for cy in range(half, height - half):
+        for cx in range(half, width - half):
+            mu_x = mu_y = 0.0
+            for ki, (dy, dx) in enumerate((
+                (dy, dx) for dy in range(-half, half+1) for dx in range(-half, half+1)
+            )):
+                idx = (cy + dy) * width + (cx + dx)
+                w = kernel[ki]
+                mu_x += w * lum_pred[idx]
+                mu_y += w * lum_gt[idx]
+
+            sig_x = sig_y = sig_xy = 0.0
+            for ki, (dy, dx) in enumerate((
+                (dy, dx) for dy in range(-half, half+1) for dx in range(-half, half+1)
+            )):
+                idx = (cy + dy) * width + (cx + dx)
+                w = kernel[ki]
+                sig_x  += w * (lum_pred[idx] - mu_x) ** 2
+                sig_y  += w * (lum_gt[idx]   - mu_y) ** 2
+                sig_xy += w * (lum_pred[idx] - mu_x) * (lum_gt[idx] - mu_y)
+
+            num = (2 * mu_x * mu_y + C1) * (2 * sig_xy + C2)
+            den = (mu_x**2 + mu_y**2 + C1) * (sig_x + sig_y + C2)
+            ssim_vals.append(num / den if den != 0 else 1.0)
+
+    return sum(ssim_vals) / len(ssim_vals) if ssim_vals else 1.0
+
+
 def render_frame_torch(scene, frame_data: dict, device: str = "cuda") -> tuple[int, int, list[float]]:
     from aura.torch_renderer import torch_scene_tensors, torch_render_rays
 
@@ -113,6 +169,7 @@ def main():
     print(f"Evaluating {len(eval_frames)} frames")
 
     psnr_values = []
+    ssim_values = []
     for i, frame in enumerate(eval_frames):
         img_path = Path(root) / frame["image_path"]
         if not img_path.exists():
@@ -127,14 +184,21 @@ def main():
             print(f"    Size mismatch: {render_W}x{render_H} vs {gt_W}x{gt_H}")
             continue
 
+        if render_W * render_H > 256 * 256:
+            import warnings
+            warnings.warn(f"Pure-python SSIM is slow at {render_W}x{render_H}. Consider downscaling first.")
+
         mse_val = mse(render_pixels, gt_pixels)
         psnr_val = psnr_from_mse(mse_val)
+        ssim_val = ssim(render_pixels, gt_pixels, render_W, render_H)
         psnr_values.append(psnr_val)
-        print(f"    PSNR={psnr_val:.2f} dB  MSE={mse_val:.4f}")
+        ssim_values.append(ssim_val)
+        print(f"    PSNR={psnr_val:.2f} dB  SSIM={ssim_val:.4f}  MSE={mse_val:.4f}")
 
     if psnr_values:
         avg_psnr = sum(psnr_values) / len(psnr_values)
-        print(f"\nAverage PSNR: {avg_psnr:.2f} dB  (3DGS reference: ~25.19 dB)")
+        avg_ssim = sum(ssim_values) / len(ssim_values) if ssim_values else 0.0
+        print(f"\nAverage PSNR: {avg_psnr:.2f} dB  Average SSIM: {avg_ssim:.4f}  (3DGS reference: PSNR ~25.19 dB, SSIM ~0.857)")
     else:
         print("No frames evaluated.")
 
