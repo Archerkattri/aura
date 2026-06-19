@@ -1608,6 +1608,7 @@ def _torch_composite_carrier_hits(
         gaussian_inverse_covariances,
         effective_gaussian_support_radius_sq,
         beta_support_radii,
+        carrier_parameters=carrier_parameters,
     )
     # entry, exit_depth, hits, global_indices: all [rays, K] with K = min(_MAX_HITS_PER_RAY, N)
     # entry is already sorted by depth per ray; misses have entry = inf.
@@ -1812,6 +1813,8 @@ def _torch_carrier_hits(
     gaussian_inverse_covariances: Any,
     gaussian_support_radius_sq: Any,
     beta_support_radii: Any,
+    *,
+    carrier_parameters: dict[str, Any] | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Streaming top-K hit test. Returns (entry, exit, hits, global_indices) all [rays, K].
 
@@ -1828,15 +1831,27 @@ def _torch_carrier_hits(
         return z, z, z.bool(), z.long()
 
     K = min(_MAX_HITS_PER_RAY, element_count)
-    payload_types = tuple(str(element.payload.get("type", "")) for element in elements)
-    carrier_ids = tuple(str(element.carrier_id) for element in elements)
-    surface_mask_values = tuple(
-        pt == "surface_cell" or cid == "surface"
-        for pt, cid in zip(payload_types, carrier_ids)
+    # Batched-gaussian fast-path: all elements are gaussian_fallback, so skip
+    # O(N) Python comprehensions and use constant bool masks.
+    _is_batched_carriers = (
+        carrier_parameters is not None and "__batched__" in carrier_parameters  # type: ignore[operator]
     )
-    gaussian_mask_values = tuple(pt == "gaussian_fallback" for pt in payload_types)
-    beta_mask_values = tuple(pt == "beta_kernel" for pt in payload_types)
-    gabor_mask_values = tuple(pt == "gabor_frequency" for pt in payload_types)
+    if _is_batched_carriers:
+        payload_types: tuple[str, ...] = ()
+        surface_mask_values: tuple[bool, ...] = (False,) * element_count
+        gaussian_mask_values: tuple[bool, ...] = (True,) * element_count
+        beta_mask_values: tuple[bool, ...] = (False,) * element_count
+        gabor_mask_values: tuple[bool, ...] = (False,) * element_count
+    else:
+        payload_types = tuple(str(element.payload.get("type", "")) for element in elements)
+        carrier_ids = tuple(str(element.carrier_id) for element in elements)
+        surface_mask_values = tuple(
+            pt == "surface_cell" or cid == "surface"
+            for pt, cid in zip(payload_types, carrier_ids)
+        )
+        gaussian_mask_values = tuple(pt == "gaussian_fallback" for pt in payload_types)
+        beta_mask_values = tuple(pt == "beta_kernel" for pt in payload_types)
+        gabor_mask_values = tuple(pt == "gabor_frequency" for pt in payload_types)
 
     # Running top-K buffers [rays, K] — all O(rays * K), never O(rays * N)
     topk_entry = torch.full((ray_count, K), float("inf"), dtype=origins.dtype, device=device)
@@ -1852,7 +1867,7 @@ def _torch_carrier_hits(
         c_current_exit = c_exit
         c_current_hits = c_hits
 
-        if any(surface_mask_values[chunk_start:chunk_end]):
+        if not _is_batched_carriers and any(surface_mask_values[chunk_start:chunk_end]):
             surface_entry, surface_exit, surface_hits, surface_valid = _torch_surface_plane_hits_batched(
                 torch, origins, directions, mins[sl], maxs[sl],
                 surface_plane_points[sl], surface_normals[sl],
@@ -1862,7 +1877,7 @@ def _torch_carrier_hits(
             c_current_hits = torch.where(active, surface_hits, c_current_hits)
             c_current_entry = torch.where(active, surface_entry, c_current_entry)
             c_current_exit = torch.where(active, surface_exit, c_current_exit)
-        if any(gaussian_mask_values[chunk_start:chunk_end]):
+        if _is_batched_carriers or any(gaussian_mask_values[chunk_start:chunk_end]):
             # Gaussian ray-ellipsoid hit selection is non-differentiable (same as 3DGS tile
             # assignment). no_grad lets PyTorch free the [rays, chunk, 3] intermediates
             # (delta, inv_directions, inv_delta) immediately after the call, instead of
@@ -1876,12 +1891,16 @@ def _torch_carrier_hits(
             bounded_entry = torch.maximum(c_entry, gaussian_entry)
             bounded_exit = torch.minimum(c_exit, gaussian_exit)
             bounded_hits = c_hits & gaussian_hits & (bounded_exit >= bounded_entry)
-            c_gaussian_mask = torch.tensor(gaussian_mask_values[sl], dtype=torch.bool, device=device)
-            active = c_gaussian_mask.unsqueeze(0) & gaussian_valid.unsqueeze(0)
+            if _is_batched_carriers:
+                # All elements are gaussian; gaussian_valid already excludes non-gaussians.
+                active = gaussian_valid.unsqueeze(0)
+            else:
+                c_gaussian_mask = torch.tensor(gaussian_mask_values[sl], dtype=torch.bool, device=device)
+                active = c_gaussian_mask.unsqueeze(0) & gaussian_valid.unsqueeze(0)
             c_current_hits = torch.where(active, bounded_hits, c_current_hits)
             c_current_entry = torch.where(active, bounded_entry, c_current_entry)
             c_current_exit = torch.where(active, bounded_exit, c_current_exit)
-        if any(beta_mask_values[chunk_start:chunk_end]):
+        if not _is_batched_carriers and any(beta_mask_values[chunk_start:chunk_end]):
             beta_entry, beta_exit, beta_hits, beta_valid = _torch_beta_ellipsoid_hits_batched(
                 torch, origins, directions, ((mins + maxs) * 0.5)[sl], beta_support_radii[sl],
             )
@@ -1893,7 +1912,7 @@ def _torch_carrier_hits(
             c_current_hits = torch.where(active, bounded_hits, c_current_hits)
             c_current_entry = torch.where(active, bounded_entry, c_current_entry)
             c_current_exit = torch.where(active, bounded_exit, c_current_exit)
-        if any(gabor_mask_values[chunk_start:chunk_end]):
+        if not _is_batched_carriers and any(gabor_mask_values[chunk_start:chunk_end]):
             gabor_entry, gabor_exit, gabor_hits, gabor_valid = _torch_surface_plane_hits_batched(
                 torch, origins, directions, mins[sl], maxs[sl],
                 gabor_plane_points[sl], gabor_normals[sl],
