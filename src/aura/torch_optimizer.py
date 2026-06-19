@@ -5,6 +5,15 @@ from dataclasses import asdict, dataclass, field, replace
 from math import exp, isfinite, log, sqrt
 from typing import Any, Optional, Sequence
 
+# Scenes with more carriers than this threshold skip per-carrier grad_stats and
+# importance_scores snapshots in the steps list to prevent unbounded RAM growth.
+_LARGE_SCENE_CARRIER_THRESHOLD = 20_000
+
+# Maximum number of TorchOptimizationStep objects kept in the steps list at any
+# time.  Older steps are dropped once this limit is exceeded, bounding the total
+# memory consumed by the history regardless of carrier count or iteration count.
+_MAX_STEPS_IN_MEMORY = 20
+
 from aura.decomposition import carrier_lod_elements_and_chunks
 from aura.elements import AuraElement, Bounds
 from aura.evolution import (
@@ -832,6 +841,10 @@ def _optimize_torch_batches(
     scene_tensors = torch_scene_tensors(current_scene, device=device)
     carrier_parameters = scene_tensors.carrier_parameters
     prepared_batches = tuple(_prepared_optimization_batch(batch_item, device=device) for batch_item in batches)
+
+    # Fix A: detect large-carrier scenes up-front so we can skip per-carrier
+    # snapshots in the steps list (Fix B) and cap the steps list (Fix D).
+    _is_large_scene = len(current_scene.elements) > _LARGE_SCENE_CARRIER_THRESHOLD
     for batch, _batch_index, _target_offset, _source_windows in prepared_batches:
         sample_count = _batch_sample_count(batch)
         if config.max_samples_per_batch is not None and sample_count > config.max_samples_per_batch:
@@ -1017,9 +1030,12 @@ def _optimize_torch_batches(
                     gradient_clip_norm=config.gradient_clip_norm,
                 )
 
-            # Deliverable 3: Build grad_stats snapshot and reset if window elapsed
+            # Deliverable 3: Build grad_stats snapshot and reset if window elapsed.
+            # Fix B: skip per-carrier snapshot for large scenes (>20k carriers) to
+            # prevent unbounded memory growth; the grad_accumulator itself is still
+            # maintained for densification.
             current_grad_stats: tuple = ()
-            if config.grad_accum_window > 0 and grad_accumulator:
+            if not _is_large_scene and config.grad_accum_window > 0 and grad_accumulator:
                 window = config.grad_accum_window
                 if grad_accum_step_count >= window:
                     # Summarize mean over window
@@ -1034,6 +1050,12 @@ def _optimize_torch_batches(
                     current_grad_stats = tuple(
                         (k, v / grad_accum_step_count) for k, v in sorted(grad_accumulator.items())
                     )
+            elif config.grad_accum_window > 0 and grad_accumulator:
+                # Large scene: still reset the accumulator on schedule to bound its size,
+                # but don't materialise a snapshot tuple into the steps list.
+                if grad_accum_step_count >= config.grad_accum_window:
+                    grad_accumulator.clear()
+                    grad_accum_step_count = 0
 
             _zero_carrier_parameter_grads(carrier_parameters)
 
@@ -1055,9 +1077,14 @@ def _optimize_torch_batches(
                         iteration_summaries.append(summary)
                     if checkpoint_due:
                         iteration_materialization_summary = summary
-            step_importance = tuple(
-                sorted(_carrier_importance_scores(carrier_parameters, current_scene.elements).items())
-            )
+            # Fix B: skip per-carrier importance scores for large scenes to prevent
+            # unbounded memory growth in the steps list.
+            if _is_large_scene:
+                step_importance: tuple = ()
+            else:
+                step_importance = tuple(
+                    sorted(_carrier_importance_scores(carrier_parameters, current_scene.elements).items())
+                )
             steps.append(
                 _optimization_step_from_objective(
                     absolute_iteration,
@@ -1078,6 +1105,13 @@ def _optimize_torch_batches(
                     max_carriers=config.max_carriers,
                 )
             )
+
+            # Fix D: cap the steps list to bound total memory regardless of
+            # carrier count or iteration count.  We keep the most recent
+            # _MAX_STEPS_IN_MEMORY entries so callers still have a useful
+            # tail-of-training window.
+            if len(steps) > _MAX_STEPS_IN_MEMORY:
+                steps = steps[-_MAX_STEPS_IN_MEMORY:]
 
         # ---- DENSIFICATION + PRUNING ----
         if densify_cfg.enabled and DensificationEngine.should_run(absolute_iteration, densify_cfg):

@@ -180,6 +180,17 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--demote-after-iteration", type=int, default=3)
     train.add_argument("--demote-image-loss-threshold", type=float, default=0.045)
     train.add_argument("--demote-depth-loss-threshold", type=float, default=0.02)
+    train.add_argument(
+        "--grad-accum-window",
+        type=int,
+        default=100,
+        dest="grad_accum_window",
+        help=(
+            "Window (in steps) for per-carrier gradient accumulation stats used by "
+            "AbsGS densification (0 = disabled).  Per-carrier snapshots are "
+            "automatically suppressed for scenes with >20000 carriers to prevent OOM."
+        ),
+    )
     # 3DGS-style adaptive densification + pruning (off by default)
     _add_densification_args(train)
 
