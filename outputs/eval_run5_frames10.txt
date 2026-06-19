@@ -1,0 +1,15 @@
+Loading outputs/truck-pts129k-batched-smoke.aura...
+Scene elements: 129531
+Evaluating 10 frames (stride=25)
+  [1/10] 000001.jpg: PSNR=8.31dB  MSE=0.1477
+  [2/10] 000026.jpg: PSNR=10.57dB  MSE=0.0878
+  [3/10] 000051.jpg: PSNR=9.36dB  MSE=0.1158
+  [4/10] 000076.jpg: PSNR=7.43dB  MSE=0.1807
+  [5/10] 000101.jpg: PSNR=6.53dB  MSE=0.2222
+  [6/10] 000126.jpg: PSNR=7.99dB  MSE=0.1587
+  [7/10] 000151.jpg: PSNR=8.27dB  MSE=0.1488
+  [8/10] 000176.jpg: PSNR=8.21dB  MSE=0.1509
+  [9/10] 000201.jpg: PSNR=8.03dB  MSE=0.1573
+  [10/10] 000226.jpg: PSNR=8.29dB  MSE=0.1483
+Average PSNR: 8.30 dB  (10 frames, 64x36 thumbnail)
+3DGS reference: ~25.19 dB (full-res, Tanks & Temples truck)
