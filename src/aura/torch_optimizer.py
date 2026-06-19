@@ -265,15 +265,32 @@ def _carrier_importance_scores(
 ) -> dict[str, float]:
     """RadSplat-style per-carrier importance from the live trained opacity values.
 
-    Uses the current optimized opacity parameter for each element (falling back to
-    the element's stored opacity when no trainable opacity tensor exists). Transmittance
-    defaults to 1.0 since per-view transmittance is not materialized on the training
-    path, so this is an opacity-weighted importance proxy (RadSplat arXiv:2403.13806).
+    Batches all opacity tensor reads into a single CPU transfer instead of one
+    .item() call per carrier (which caused N CUDA syncs for N carriers).
     """
-    opacities: dict[str, float] = {}
+    tensor_ids: list[str] = []
+    tensor_list: list = []
+    scalar_opacities: dict[str, float] = {}
+
     for element in elements:
         fields = carrier_parameters.get(element.id, {})
-        opacities[element.id] = _live_opacity(fields.get("opacity"), element.opacity)
+        param = fields.get("opacity")
+        if param is not None and hasattr(param, "detach"):
+            flat = param.detach().reshape(-1)
+            if flat.numel():
+                tensor_ids.append(element.id)
+                tensor_list.append(flat[0])
+                continue
+        # Fallback: scalar or missing
+        scalar_opacities[element.id] = _live_opacity(param, element.opacity)
+
+    opacities: dict[str, float] = dict(scalar_opacities)
+    if tensor_list:
+        _torch = require_torch()
+        values = _torch.stack(tensor_list).cpu().tolist()
+        for eid, val in zip(tensor_ids, values):
+            opacities[eid] = float(val)
+
     return compute_importance_scores(opacities, {})
 
 
@@ -940,12 +957,17 @@ def _optimize_torch_batches(
                 # Deliverable 3: Accumulate absolute gradients (also used by densification)
                 if config.grad_accum_window > 0 or _track_grads_for_densify:
                     grad_accum_step_count += 1
+                    _ga_keys: list = []
+                    _ga_tensors: list = []
                     for element_id, fields in carrier_parameters.items():
                         for param_name, parameter in fields.items():
                             if getattr(parameter, 'grad', None) is not None:
-                                key = f"{element_id}.{param_name}"
-                                abs_grad = float(parameter.grad.abs().mean().item())
-                                grad_accumulator[key] = grad_accumulator.get(key, 0.0) + abs_grad
+                                _ga_keys.append(f"{element_id}.{param_name}")
+                                _ga_tensors.append(parameter.grad.abs().mean())
+                    if _ga_keys:
+                        _ga_values = torch.stack(_ga_tensors).detach().cpu().tolist()
+                        for _k, _v in zip(_ga_keys, _ga_values):
+                            grad_accumulator[_k] = grad_accumulator.get(_k, 0.0) + _v
 
                 adam_optimizer.step()
                 update = _TorchGradientStepState(
@@ -976,12 +998,17 @@ def _optimize_torch_batches(
                 # SGD path: Deliverable 3 grad accumulation (also used by densification)
                 if config.grad_accum_window > 0 or _track_grads_for_densify:
                     grad_accum_step_count += 1
+                    _ga_keys2: list = []
+                    _ga_tensors2: list = []
                     for element_id, fields in carrier_parameters.items():
                         for param_name, parameter in fields.items():
                             if getattr(parameter, 'grad', None) is not None:
-                                key = f"{element_id}.{param_name}"
-                                abs_grad = float(parameter.grad.abs().mean().item())
-                                grad_accumulator[key] = grad_accumulator.get(key, 0.0) + abs_grad
+                                _ga_keys2.append(f"{element_id}.{param_name}")
+                                _ga_tensors2.append(parameter.grad.abs().mean())
+                    if _ga_keys2:
+                        _ga_values2 = torch.stack(_ga_tensors2).detach().cpu().tolist()
+                        for _k2, _v2 in zip(_ga_keys2, _ga_values2):
+                            grad_accumulator[_k2] = grad_accumulator.get(_k2, 0.0) + _v2
 
                 update = _gradient_step_carrier_parameters(
                     torch,
