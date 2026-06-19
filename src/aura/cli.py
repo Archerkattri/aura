@@ -213,8 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     colmap_to_manifest.add_argument(
         "--max-seed-regions",
         type=int,
-        default=2048,
-        help="Maximum carrier-seed regions (occupied voxels) from the sparse point cloud",
+        default=200000,
+        help="Maximum carrier-seed regions (occupied voxels or SfM points) from the sparse point cloud",
     )
     colmap_to_manifest.add_argument(
         "--point-seeded",

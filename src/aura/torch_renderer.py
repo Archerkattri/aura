@@ -1763,7 +1763,7 @@ def _torch_aabb_hits(torch: Any, origins: Any, directions: Any, mins: Any, maxs:
 # Max carriers to process in one chunk for AABB/Gaussian hit testing.
 # Keeps intermediate 3-vector tensors at O(rays * _CARRIER_CHUNK_SIZE * 3)
 # instead of O(rays * total_carriers * 3), enabling 100k+ carriers without OOM.
-_CARRIER_CHUNK_SIZE = 8192
+_CARRIER_CHUNK_SIZE = 32768
 # Maximum hits per ray kept for compositing. Transmittance ≈ (1-α)^K → ~0 well before K=64.
 # This caps all compositing tensors at O(rays * _MAX_HITS_PER_RAY) instead of O(rays * N).
 _MAX_HITS_PER_RAY = 64
@@ -1819,7 +1819,6 @@ def _torch_carrier_hits(
         chunk_end = min(chunk_start + _CARRIER_CHUNK_SIZE, element_count)
         sl = slice(chunk_start, chunk_end)
 
-        # All intermediate tensors: O(rays * chunk_size * 3) — manageable
         c_entry, c_exit, c_hits = _torch_aabb_hits(torch, origins, directions, mins[sl], maxs[sl])
         c_current_entry = c_entry
         c_current_exit = c_exit
@@ -1836,10 +1835,16 @@ def _torch_carrier_hits(
             c_current_entry = torch.where(active, surface_entry, c_current_entry)
             c_current_exit = torch.where(active, surface_exit, c_current_exit)
         if any(gaussian_mask_values[chunk_start:chunk_end]):
-            gaussian_entry, gaussian_exit, gaussian_hits, gaussian_valid = _torch_gaussian_ellipsoid_hits_batched(
-                torch, origins, directions,
-                gaussian_means[sl], gaussian_inverse_covariances[sl], gaussian_support_radius_sq[sl],
-            )
+            # Gaussian ray-ellipsoid hit selection is non-differentiable (same as 3DGS tile
+            # assignment). no_grad lets PyTorch free the [rays, chunk, 3] intermediates
+            # (delta, inv_directions, inv_delta) immediately after the call, instead of
+            # retaining all chunks' graphs until loss.backward(). Colors and opacities
+            # still receive full gradients through the compositing code.
+            with torch.no_grad():
+                gaussian_entry, gaussian_exit, gaussian_hits, gaussian_valid = _torch_gaussian_ellipsoid_hits_batched(
+                    torch, origins, directions,
+                    gaussian_means[sl], gaussian_inverse_covariances[sl], gaussian_support_radius_sq[sl],
+                )
             bounded_entry = torch.maximum(c_entry, gaussian_entry)
             bounded_exit = torch.minimum(c_exit, gaussian_exit)
             bounded_hits = c_hits & gaussian_hits & (bounded_exit >= bounded_entry)
