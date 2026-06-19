@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from aura.usd_writer import write_usda
+from aura.usd_writer import write_usda, _get_position, _get_color, _get_scale
 
 
 # ---------------------------------------------------------------------------
@@ -129,3 +129,139 @@ def test_suffix_corrected_to_usda(tmp_path: Path) -> None:
     assert result.suffix == ".usda", f"Expected .usda suffix, got {result.suffix!r}"
     assert result.exists(), "Corrected .usda file must exist on disk"
     assert not out.exists(), "Original .txt path must NOT be created"
+
+
+def test_write_usda_skips_element_with_no_valid_position(tmp_path: Path) -> None:
+    """gaussian elements whose _get_position returns None must be silently skipped."""
+    scene = MagicMock()
+    scene.asset.name = "test"
+
+    bad = MagicMock()
+    bad.carrier_id = "gaussian"
+    bad.id = "bad"
+    bad.mean = None
+    bad.position = None
+    bad.payload = {}  # no position keys → _get_position returns None
+
+    good = MagicMock()
+    good.carrier_id = "gaussian"
+    good.id = "good"
+    good.mean = (1.0, 2.0, 3.0)
+    good.color = (0.5, 0.5, 0.5)
+    good.payload = {}
+
+    scene.elements = [bad, good]
+
+    out = tmp_path / "skip.usda"
+    write_usda(scene, out)
+    content = out.read_text(encoding="utf-8")
+    assert "carrierCount = 1" in content, "Only 1 element (no-position skipped)"
+
+
+def test_get_position_uses_payload_dict() -> None:
+    """_get_position falls back to payload dict when mean/position attrs are None."""
+    element = MagicMock()
+    element.mean = None
+    element.position = None
+    element.payload = {"pos": [4.0, 5.0, 6.0]}
+
+    result = _get_position(element)
+    assert result == (4.0, 5.0, 6.0)
+
+
+def test_get_position_uses_payload_mean_key() -> None:
+    """_get_position resolves payload['mean'] when direct attrs are None."""
+    element = MagicMock()
+    element.mean = None
+    element.position = None
+    element.payload = {"mean": [0.1, 0.2, 0.3]}
+
+    result = _get_position(element)
+    assert result == (0.1, 0.2, 0.3)
+
+
+def test_get_position_returns_none_when_no_valid_source() -> None:
+    """_get_position returns None when no position can be found anywhere."""
+    element = MagicMock()
+    element.mean = None
+    element.position = None
+    element.payload = {}
+
+    result = _get_position(element)
+    assert result is None
+
+
+def test_get_position_skips_non_subscriptable_attr() -> None:
+    """_get_position skips mean/position attrs that can't be subscripted."""
+    element = MagicMock()
+    element.mean = 42    # int → 42[0] raises TypeError → try position next
+    element.position = None
+    element.payload = {"pos": [7.0, 8.0, 9.0]}
+
+    result = _get_position(element)
+    assert result == (7.0, 8.0, 9.0)
+
+
+def test_get_position_skips_non_subscriptable_payload_value() -> None:
+    """_get_position skips payload keys whose value can't be subscripted.
+    Loop order is ("mean", "position", "pos") so "mean" is tried first —
+    use "mean"=bad so the except fires, then "pos"=good falls back to it.
+    """
+    element = MagicMock()
+    element.mean = None
+    element.position = None
+    element.payload = {"mean": 99, "pos": [7.0, 8.0, 9.0]}  # mean is bad int, pos is good
+
+    result = _get_position(element)
+    assert result == (7.0, 8.0, 9.0)
+
+
+def test_get_color_fallback_on_non_subscriptable() -> None:
+    """_get_color falls back to (0.8, 0.8, 0.8) when color is not subscriptable."""
+    element = MagicMock()
+    element.color = 42  # int → col[0] raises TypeError
+
+    result = _get_color(element)
+    assert result == (0.8, 0.8, 0.8)
+
+
+def test_get_color_fallback_when_color_is_none() -> None:
+    """_get_color falls back to (0.8, 0.8, 0.8) when element.color is None."""
+    element = MagicMock()
+    element.color = None
+
+    result = _get_color(element)
+    assert result == (0.8, 0.8, 0.8)
+
+
+def test_get_scale_returns_default_when_all_none() -> None:
+    """_get_scale returns 0.01 when scale/radius/opacity are all None."""
+    element = MagicMock()
+    element.scale = None
+    element.radius = None
+    element.opacity = None
+
+    result = _get_scale(element)
+    assert result == 0.01
+
+
+def test_get_scale_returns_default_on_invalid_string() -> None:
+    """_get_scale returns 0.01 when scale is a non-numeric string (ValueError caught)."""
+    element = MagicMock()
+    element.scale = "bad"
+    element.radius = None
+    element.opacity = None
+
+    result = _get_scale(element)
+    assert result == 0.01
+
+
+def test_get_scale_skips_non_positive_returns_next() -> None:
+    """_get_scale skips non-positive values and returns first positive one."""
+    element = MagicMock()
+    element.scale = -1.0   # valid float but not > 0 → skipped
+    element.radius = 0.0   # also not > 0 → skipped
+    element.opacity = 0.5  # valid and > 0 → returned
+
+    result = _get_scale(element)
+    assert result == 0.5

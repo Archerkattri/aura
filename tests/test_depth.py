@@ -73,3 +73,55 @@ def test_geometric_fallback_ordering() -> None:
     assert result[0] < result[1], (
         f"Near point depth {result[0]} should be less than far point depth {result[1]}"
     )
+
+
+def test_midas_depth_returns_list_on_successful_inference() -> None:
+    """midas_depth returns a normalized float list when hub.load and inference succeed."""
+    import numpy as _np
+
+    mock_model = MagicMock()
+    mock_transforms = MagicMock()
+    mock_torch = MagicMock()
+    # First hub.load → model, second → transforms object
+    mock_torch.hub.load.side_effect = [mock_model, mock_transforms]
+    # prediction.squeeze().cpu().numpy() must return a real numpy array so that
+    # .min()/.max()/.flatten()/.tolist() work — numpy itself is NOT mocked here
+    # because mocking sys.modules['numpy'] breaks ndarray's internal _NoValue sentinel
+    depth_arr = _np.array([[0.2, 0.8], [0.4, 1.0]])
+    mock_model.return_value.squeeze.return_value.cpu.return_value.numpy.return_value = depth_arr
+
+    mock_pil = MagicMock()
+
+    with patch.dict(sys.modules, {
+        "torch": mock_torch,
+        "torch.hub": mock_torch.hub,
+        "PIL": mock_pil,
+        "PIL.Image": mock_pil.Image,
+    }):
+        result = midas_depth("dummy.png", device="cpu")
+
+    assert isinstance(result, list), f"Expected list, got {type(result)}"
+    assert len(result) == 4, f"Expected 4 values from 2×2 array, got {len(result)}"
+    for v in result:
+        assert 0.0 <= v <= 1.0, f"Depth {v} outside [0, 1]"
+
+
+def test_midas_depth_returns_none_on_inference_error() -> None:
+    """midas_depth returns None when hub loads but model.eval() raises."""
+    mock_model = MagicMock()
+    mock_model.eval.side_effect = RuntimeError("GPU unavailable")
+    mock_transforms = MagicMock()
+    mock_torch = MagicMock()
+    mock_torch.hub.load.side_effect = [mock_model, mock_transforms]
+
+    mock_pil = MagicMock()
+
+    with patch.dict(sys.modules, {
+        "torch": mock_torch,
+        "torch.hub": mock_torch.hub,
+        "PIL": mock_pil,
+        "PIL.Image": mock_pil.Image,
+    }):
+        result = midas_depth("dummy.png")
+
+    assert result is None, "Expected None when model.eval() raises"
