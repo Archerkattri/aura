@@ -170,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--checkpoint-dir", type=Path, default=None)
     train.add_argument("--checkpoint-interval", type=int, default=None)
     train.add_argument("--resume-from", type=Path, default=None, help="Resume training from a checkpoint or trained .aura package")
+    train.add_argument("--skip-validation", action="store_true",
+                       help="Skip JSON-schema manifest validation (saves 5-7 min for large N>100k manifests)")
     train.add_argument("--disable-evolution", action="store_true")
     train.add_argument("--split-image-loss-threshold", type=float, default=0.03)
     train.add_argument("--depth-anchor-loss-threshold", type=float, default=0.10)
@@ -973,7 +975,7 @@ def _reconstruction_config_from_args(args: argparse.Namespace) -> Reconstruction
 
 
 def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
-    manifest = load_capture_manifest(args.manifest)
+    manifest = load_capture_manifest(args.manifest, validate=not getattr(args, "skip_validation", False))
     # Without per-pixel depth maps, the per-frame depth scalar is not ground
     # truth, so depth supervision would penalise rays against a meaningless
     # constant. Default depth loss to 0 in that case (overridable explicitly).

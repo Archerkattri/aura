@@ -1468,6 +1468,34 @@ def _torch_geometry_from_carrier_parameters(
             base_gabor_normals,
             base_element_normals,
         )
+    # Fast-path for pure-gaussian batched parameters: skip O(N) Python loop and use
+    # [N,*] batched tensors directly. Normals, surface/gabor geometry, and beta radii
+    # are all NaN for gaussian_fallback carriers so the base tensors are correct.
+    _batched = carrier_parameters.get("__batched__")
+    if _batched is not None:
+        cov_diag = torch.clamp(_batched["gaussian_covariance_diag"], min=1e-6)
+        inv_covs = torch.diag_embed(1.0 / cov_diag)
+        # Mask absent means to NaN so _torch_gaussian_ellipsoid_hits_batched treats
+        # them as invalid (matches base_gaussian_means behaviour for absent means).
+        _meta = carrier_parameters.get("__batched_meta__", {})
+        _present = _meta.get("gaussian_mean_present")
+        if _present is not None:
+            _nan3 = torch.full_like(_batched["gaussian_mean"], float("nan"))
+            means = torch.where(_present[:, None], _batched["gaussian_mean"], _nan3)
+        else:
+            means = _batched["gaussian_mean"]
+        return (
+            _batched["min_corner"],
+            _batched["max_corner"],
+            base_surface_plane_points,
+            base_gabor_plane_points,
+            means,
+            inv_covs,
+            base_beta_support_radii,
+            base_surface_normals,
+            base_gabor_normals,
+            base_element_normals,
+        )
     mins = []
     maxs = []
     surface_plane_points = []
