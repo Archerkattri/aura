@@ -261,6 +261,7 @@ class TestCrossCarrierMLP:
         best_index = torch.zeros(n_rays, dtype=torch.long, device=device)
         best_depth = torch.zeros(n_rays, device=device)
         exit_depth = torch.ones(n_rays, device=device)
+        torch.manual_seed(42)
         hit_points = torch.rand(n_rays, 3, device=device)
         colors = torch.rand(1, 3, device=device)
         opacities = torch.rand(1, device=device)
