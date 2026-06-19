@@ -652,6 +652,12 @@ def _append_tile_samples_to_packed_batch(
     target_stop: int,
 ) -> None:
     sampled_offset = tile.target_offset
+    # Stop at whichever is smaller: the batch end or the tile's own allocation
+    # (tile.sampled_pixel_count may be less than tile capacity when max_targets_per_frame
+    # truncates the scan early; without this bound the function would spill into
+    # the next tile's target slots and produce too many samples for the batch).
+    tile_sample_stop = tile.target_offset + tile.sampled_pixel_count
+    effective_stop = min(target_stop, tile_sample_stop)
     tile_x, tile_y = tile.origin
     width, height = tile.size
     for y in range(tile_y, tile_y + height, pixel_stride):
@@ -659,7 +665,7 @@ def _append_tile_samples_to_packed_batch(
             mask_value = _scalar_at(frame_tensors.mask, x, y)
             if mask_value is not None and mask_value <= 0.0:
                 continue
-            if target_start <= sampled_offset < target_stop:
+            if target_start <= sampled_offset < effective_stop:
                 color = _rgb_at(frame_tensors.image, x, y)
                 depth = _scalar_at(frame_tensors.depth, x, y)
                 normal = _normal_at(frame_tensors.normal, x, y)
@@ -679,7 +685,7 @@ def _append_tile_samples_to_packed_batch(
                         builders.target_normal.extend(normal)
                         builders.target_normal_present.append(1)
             sampled_offset += 1
-            if sampled_offset >= target_stop:
+            if sampled_offset >= effective_stop:
                 return
 
 
