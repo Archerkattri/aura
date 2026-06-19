@@ -82,8 +82,8 @@ def render_frame_torch(scene, frame_data: dict, device: str = "cuda") -> tuple[i
             device=device,
             scene_tensors=st,
         )
-        for sample in result.samples:
-            all_colors.extend(list(sample.color))
+        for rgb in result.predicted_color:
+            all_colors.extend(list(rgb))
 
     return W, H, all_colors
 
