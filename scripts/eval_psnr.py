@@ -24,6 +24,32 @@ def load_jpg_as_rgb(path: str) -> tuple[int, int, list[float]]:
     return w, h, flat
 
 
+def lpips(pred: list[float], gt: list[float], width: int, height: int) -> float | None:
+    """Compute LPIPS using the lpips package if available; return None otherwise.
+
+    pred, gt: flat list of floats in [0,1], length = width * height * 3
+    Returns LPIPS distance (lower = more similar), or None if lpips is not installed.
+    """
+    try:
+        import torch
+        import lpips as lpips_lib
+    except ImportError:
+        return None
+
+    fn = lpips_lib.LPIPS(net="alex", verbose=False)
+    fn.eval()
+
+    # Build CHW tensors in [-1, 1] (lpips convention)
+    pred_t = torch.tensor(pred, dtype=torch.float32).reshape(height, width, 3).permute(2, 0, 1)
+    gt_t   = torch.tensor(gt,   dtype=torch.float32).reshape(height, width, 3).permute(2, 0, 1)
+    pred_t = pred_t * 2.0 - 1.0
+    gt_t   = gt_t   * 2.0 - 1.0
+
+    with torch.no_grad():
+        dist = fn(pred_t.unsqueeze(0), gt_t.unsqueeze(0))
+    return float(dist.squeeze())
+
+
 def mse(a: list[float], b: list[float]) -> float:
     return sum((x - y) ** 2 for x, y in zip(a, b)) / len(a)
 
@@ -170,6 +196,7 @@ def main():
 
     psnr_values = []
     ssim_values = []
+    lpips_values = []
     for i, frame in enumerate(eval_frames):
         img_path = Path(root) / frame["image_path"]
         if not img_path.exists():
@@ -191,14 +218,23 @@ def main():
         mse_val = mse(render_pixels, gt_pixels)
         psnr_val = psnr_from_mse(mse_val)
         ssim_val = ssim(render_pixels, gt_pixels, render_W, render_H)
+        lpips_val = lpips(render_pixels, gt_pixels, render_W, render_H)
         psnr_values.append(psnr_val)
         ssim_values.append(ssim_val)
-        print(f"    PSNR={psnr_val:.2f} dB  SSIM={ssim_val:.4f}  MSE={mse_val:.4f}")
+        if lpips_val is not None:
+            lpips_values.append(lpips_val)
+        lpips_str = f"  LPIPS={lpips_val:.4f}" if lpips_val is not None else ""
+        print(f"    PSNR={psnr_val:.2f} dB  SSIM={ssim_val:.4f}{lpips_str}  MSE={mse_val:.4f}")
 
     if psnr_values:
         avg_psnr = sum(psnr_values) / len(psnr_values)
         avg_ssim = sum(ssim_values) / len(ssim_values) if ssim_values else 0.0
-        print(f"\nAverage PSNR: {avg_psnr:.2f} dB  Average SSIM: {avg_ssim:.4f}  (3DGS reference: PSNR ~25.19 dB, SSIM ~0.857)")
+        lpips_str = ""
+        if lpips_values:
+            avg_lpips = sum(lpips_values) / len(lpips_values)
+            lpips_str = f"  LPIPS={avg_lpips:.4f}"
+        print(f"\nAverage PSNR: {avg_psnr:.2f} dB  SSIM: {avg_ssim:.4f}{lpips_str}")
+        print("(3DGS reference: PSNR ~25.19 dB, SSIM ~0.857, LPIPS ~0.177)")
     else:
         print("No frames evaluated.")
 
