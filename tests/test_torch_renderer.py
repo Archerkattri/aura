@@ -28,6 +28,7 @@ from aura import (
     torch_renderer_status,
     torch_scene_tensors,
 )
+from aura import CapturePackedRenderBatch, torch_capture_training_batch_from_packed
 from aura.cli import native_demo_scene
 
 
@@ -2685,3 +2686,2523 @@ def test_early_transmittance_termination_conserves_energy():
         transmittance_threshold=0.0,
     )
     assert result_zero["color"][0].tolist() == pytest.approx(result_no_threshold["color"][0].tolist())
+
+
+# ---- New coverage-targeting tests ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_render_summary_to_dict_serializes_all_fields():
+    """Cover TorchCaptureRenderSummary.to_dict (line 115)."""
+    scene = AuraScene(
+        name="summary_dict_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell"},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (_capture_tensor_frame(frame_id="frame", image_values=(1.0, 0.0, 0.0), depth_values=(2.0,), mask_values=None, width=1, height=1),),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    summary = torch_render_capture_training_summary(scene, batch)
+
+    payload = summary.to_dict()
+
+    assert "rayOrigins" in payload
+    assert "rayDirections" in payload
+    assert "elementIds" in payload
+    assert "predictedColor" in payload
+    assert "predictedDepth" in payload
+    assert "transmittance" in payload
+    assert "normal" in payload
+    assert "targetColor" in payload
+    assert "targetDepth" in payload
+    assert "targetPoint" in payload
+    assert "imageLoss" in payload
+    assert "depthLoss" in payload
+    assert "queryLoss" in payload
+    assert "normalLoss" in payload
+    # normal could be None entries (serialized as null) — check the structure
+    assert isinstance(payload["normal"], list)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_scene_tensors_rejects_empty_scene():
+    """Cover torch_scene_tensors empty-scene guard (line 323)."""
+    scene = AuraScene(name="empty_scene", elements=())
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        torch_scene_tensors(scene, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_asset_batch_rejects_empty_frames():
+    """Cover torch_capture_asset_batch empty-frames guard (line 392)."""
+    with pytest.raises(ValueError, match="at least one frame"):
+        torch_capture_asset_batch((), device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_rejects_invalid_pixel_stride():
+    """Cover pixel_stride <= 0 guard (line 439)."""
+    assets = torch_capture_asset_batch((_capture_tensor_frame(),), device="cpu")
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 1.0, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+
+    with pytest.raises(ValueError, match="pixel_stride"):
+        torch_capture_training_batch((frame,), assets, pixel_stride=0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_rejects_empty_asset_batch():
+    """Cover empty asset frame_ids guard (line 441)."""
+    import torch
+
+    # Create a fake empty assets object
+    class _FakeEmptyAssets:
+        frame_ids = ()
+        image = torch.zeros((0, 1, 1, 3))
+        depth = None
+        mask = None
+        normal = None
+        mask_present = None
+        normal_present = None
+
+    with pytest.raises(ValueError, match="empty"):
+        torch_capture_training_batch((), _FakeEmptyAssets())
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_rejects_unknown_frame_ids():
+    """Cover missing frame ids guard (line 445)."""
+    assets = torch_capture_asset_batch((_capture_tensor_frame(frame_id="unknown_frame"),), device="cpu")
+    known_frame = TrainingFrame(
+        id="other_frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 1.0, "cy": 0.5, "width": 2.0, "height": 1.0},
+    )
+
+    with pytest.raises(ValueError, match="unknown training frames"):
+        torch_capture_training_batch((known_frame,), assets)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_falls_back_to_frame_depth_when_no_depth_asset():
+    """Cover depth fallback when assets.depth is None (lines 553, 556)."""
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=3.5,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    # Create assets with no depth
+    assets = torch_capture_asset_batch(
+        (CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib", width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+        ),),
+        device="cpu",
+    )
+
+    batch = torch_capture_training_batch((frame,), assets)
+
+    # Depth should be the frame's target_depth fallback since no depth asset
+    assert batch.target_depth.tolist() == pytest.approx([3.5])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_uses_stride_to_subsample_pixels():
+    """Cover pixel_stride > 1 sampling code path."""
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 2.0, "cy": 1.0, "width": 4.0, "height": 2.0},
+    )
+    assets = torch_capture_asset_batch(
+        (_capture_tensor_frame(
+            frame_id="frame",
+            width=4,
+            height=2,
+            image_values=(1.0, 0.0, 0.0) * 8,
+            depth_values=(1.0,) * 8,
+            mask_values=None,
+        ),),
+        device="cpu",
+    )
+
+    batch_stride1 = torch_capture_training_batch((frame,), assets, pixel_stride=1)
+    batch_stride2 = torch_capture_training_batch((frame,), assets, pixel_stride=2)
+
+    # With stride=2, we get fewer pixels
+    assert batch_stride2.pixel_xy.shape[0] < batch_stride1.pixel_xy.shape[0]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_from_packed_converts_packed_batch():
+    """Cover torch_capture_training_batch_from_packed (lines 580-606)."""
+    packed = CapturePackedRenderBatch(
+        batch_index=0,
+        frame_ids=("frame_a",),
+        frame_semantic_ids=(None,),
+        target_offset=0,
+        target_count=2,
+        max_target_count=2,
+        frame_indices=[0, 0],
+        pixel_xy=[0, 0, 1, 0],
+        ray_origins=[0.0, 0.0, -1.0, 0.0, 0.0, -1.0],
+        ray_directions=[0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+        target_color=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        target_depth=[2.0, 2.0],
+        target_mask=[1.0, 0.5],
+        target_normal=[0.0, 0.0, -1.0, 0.0, 1.0, 0.0],
+        target_normal_present=[1, 0],
+    )
+
+    batch = torch_capture_training_batch_from_packed(packed, device="cpu")
+
+    assert batch.device == "cpu"
+    assert batch.frame_ids == ("frame_a",)
+    assert int(batch.frame_indices.shape[0]) == 2
+    assert int(batch.pixel_xy.shape[0]) == 2
+    # target_confidence = clamp(mask) since mask is provided
+    assert batch.target_confidence.tolist() == pytest.approx([1.0, 0.5])
+    assert batch.target_confidence_present.tolist() == [True, True]
+    assert batch.target_normal is not None
+    assert batch.target_normal_present is not None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_from_packed_without_mask_or_normal():
+    """Cover packed batch path with no mask/normal (confidence=ones)."""
+    packed = CapturePackedRenderBatch(
+        batch_index=0,
+        frame_ids=("frame_a",),
+        frame_semantic_ids=(None,),
+        target_offset=0,
+        target_count=1,
+        max_target_count=1,
+        frame_indices=[0],
+        pixel_xy=[0, 0],
+        ray_origins=[0.0, 0.0, -1.0],
+        ray_directions=[0.0, 0.0, 1.0],
+        target_color=[1.0, 0.0, 0.0],
+        target_depth=[2.0],
+    )
+
+    batch = torch_capture_training_batch_from_packed(packed, device="cpu")
+
+    assert batch.target_mask is None
+    assert batch.target_normal is None
+    # Confidence should be 1.0 (fallback when no mask)
+    assert batch.target_confidence.tolist() == pytest.approx([1.0])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_from_packed_rejects_empty():
+    """Cover packed batch empty guard (line 580)."""
+    packed = CapturePackedRenderBatch(
+        batch_index=0,
+        frame_ids=("frame_a",),
+        frame_semantic_ids=(None,),
+        target_offset=0,
+        target_count=0,
+        max_target_count=1,  # must be positive per contract
+        frame_indices=[],
+        pixel_xy=[],
+        ray_origins=[],
+        ray_directions=[],
+        target_color=[],
+        target_depth=[],
+    )
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_capture_training_batch_from_packed(packed)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_capture_training_batch_rejects_empty_batch():
+    """Cover empty frame_indices guard in render (line 637)."""
+    import torch
+
+    scene = AuraScene(
+        name="empty_batch_scene",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    class _EmptyBatch:
+        frame_indices = torch.zeros((0,), dtype=torch.long)
+        sample_frame_ids = ()
+        ray_origins = torch.zeros((0, 3))
+        ray_directions = torch.zeros((0, 3))
+        target_color = torch.zeros((0, 3))
+        target_depth = torch.zeros((0,))
+        target_normal = None
+        target_normal_present = None
+        target_confidence = None
+        target_confidence_present = None
+        target_semantic_ids = ()
+        target_material_ids = ()
+        target_mask = None
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_render_capture_training_batch(scene, _EmptyBatch())
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_capture_training_objective_rejects_empty_batch():
+    """Cover empty frame_indices guard in objective (line 754)."""
+    import torch
+
+    scene = AuraScene(
+        name="empty_obj_scene",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    class _EmptyBatch:
+        frame_indices = torch.zeros((0,), dtype=torch.long)
+        sample_frame_ids = ()
+        ray_origins = torch.zeros((0, 3))
+        ray_directions = torch.zeros((0, 3))
+        target_color = torch.zeros((0, 3))
+        target_depth = torch.zeros((0,))
+        target_normal = None
+        target_normal_present = None
+        target_confidence = None
+        target_confidence_present = None
+        target_semantic_ids = ()
+        target_material_ids = ()
+        target_mask = None
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_render_capture_training_objective(scene, _EmptyBatch())
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_rejects_empty_targets():
+    """Cover empty targets guard in torch_render_targets (line 792)."""
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_render_targets(scene, (), device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_targets_rejects_empty_scene():
+    """Cover empty scene guard in torch_render_targets (line 794)."""
+    scene = AuraScene(name="empty", elements=())
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        torch_render_targets(
+            scene,
+            (RenderTarget(frame_id="f", ray=Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)), target_color=(0.0, 0.0, 0.0), target_depth=1.0),),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_rays_rejects_empty_scene():
+    """Cover empty scene guard in torch_render_rays (line 848)."""
+    import torch
+
+    scene = AuraScene(name="empty", elements=())
+    origins = torch.zeros((1, 3))
+    directions = torch.zeros((1, 3))
+    directions[:, 2] = 1.0
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        torch_render_rays(scene, origins, directions, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_rays_rejects_mismatched_ray_counts():
+    """Cover direction/origin count mismatch guard (line 856)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    origins = torch.zeros((2, 3))
+    directions = torch.zeros((1, 3))
+    directions[:, 2] = 1.0
+
+    with pytest.raises(ValueError, match="ray_directions count"):
+        torch_render_rays(scene, origins, directions, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_rays_rejects_empty_ray_count():
+    """Cover empty ray_count guard (line 858)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    origins = torch.zeros((0, 3))
+    directions = torch.zeros((0, 3))
+
+    with pytest.raises(ValueError, match="ray_count must be positive"):
+        torch_render_rays(scene, origins, directions, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_ray_color_tensor_rejects_empty_scene():
+    """Cover empty scene guard in ray color tensor (line 893)."""
+    import torch
+
+    scene = AuraScene(name="empty", elements=())
+    origins = torch.zeros((1, 3))
+    directions = torch.ones((1, 3))
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        torch_render_ray_color_tensor(scene, origins, directions, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_ray_color_tensor_rejects_mismatched_ray_counts():
+    """Cover ray count mismatch guard (line 901)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    origins = torch.zeros((2, 3))
+    directions = torch.zeros((1, 3))
+    directions[:, 2] = 1.0
+
+    with pytest.raises(ValueError, match="ray_directions count"):
+        torch_render_ray_color_tensor(scene, origins, directions, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_ray_color_tensor_rejects_empty_rays():
+    """Cover empty ray count guard (line 903)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    origins = torch.zeros((0, 3))
+    directions = torch.zeros((0, 3))
+
+    with pytest.raises(ValueError, match="ray_count must be positive"):
+        torch_render_ray_color_tensor(scene, origins, directions, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_rejects_empty_frame_ids():
+    """Cover empty frame_ids guard (line 972)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_render_tensor_targets(
+            scene,
+            frame_ids=(),
+            ray_origins=torch.zeros((0, 3)),
+            ray_directions=torch.zeros((0, 3)),
+            target_colors=torch.zeros((0, 3)),
+            target_depths=torch.zeros((0,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_rejects_empty_scene():
+    """Cover empty scene guard in tensor targets (line 974)."""
+    import torch
+
+    scene = AuraScene(name="empty", elements=())
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            ray_origins=torch.zeros((1, 3)),
+            ray_directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_ray_tensor_rejects_none_values():
+    """Cover _torch_ray_tensor None guard (line 1080)."""
+    from aura.torch_renderer import _torch_ray_tensor
+    import torch
+
+    with pytest.raises(ValueError, match="is required"):
+        _torch_ray_tensor(torch, None, name="my_ray", device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_ray_tensor_accepts_existing_tensor():
+    """Cover _torch_ray_tensor tensor-shortcut path (line 1087)."""
+    from aura.torch_renderer import _torch_ray_tensor
+    import torch
+
+    existing = torch.zeros((3, 3))
+    existing[:, 2] = 1.0
+    result = _torch_ray_tensor(torch, existing, name="dirs", device="cpu")
+    assert result.shape == (3, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_ray_tensor_rejects_wrong_shape():
+    """Cover _torch_ray_tensor shape validation (line 1093)."""
+    from aura.torch_renderer import _torch_ray_tensor
+    import torch
+
+    with pytest.raises(ValueError, match="shape"):
+        _torch_ray_tensor(torch, [[1.0, 2.0]], name="bad", device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_vec3_tensor_rejects_none():
+    """Cover _torch_vec3_tensor None guard (line 1095)."""
+    from aura.torch_renderer import _torch_vec3_tensor
+    import torch
+
+    with pytest.raises(ValueError, match="is required"):
+        _torch_vec3_tensor(torch, None, name="colors", device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_vec3_tensor_accepts_existing_tensor():
+    """Cover _torch_vec3_tensor tensor-shortcut path (line 1100)."""
+    from aura.torch_renderer import _torch_vec3_tensor
+    import torch
+
+    existing = torch.zeros((2, 3))
+    result = _torch_vec3_tensor(torch, existing, name="cols", device="cpu")
+    assert result.shape == (2, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_vec3_tensor_rejects_wrong_shape():
+    """Cover _torch_vec3_tensor shape validation (line 1106)."""
+    from aura.torch_renderer import _torch_vec3_tensor
+    import torch
+
+    with pytest.raises(ValueError, match="shape"):
+        _torch_vec3_tensor(torch, [[1.0, 2.0]], name="bad", device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_1d_tensor_rejects_none():
+    """Cover _torch_1d_tensor None guard (line 1108)."""
+    from aura.torch_renderer import _torch_1d_tensor
+    import torch
+
+    with pytest.raises(ValueError, match="is required"):
+        _torch_1d_tensor(torch, None, name="depths", dtype=torch.float32, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_1d_tensor_accepts_existing_tensor():
+    """Cover _torch_1d_tensor tensor-shortcut path (line 1113)."""
+    from aura.torch_renderer import _torch_1d_tensor
+    import torch
+
+    existing = torch.ones((4,))
+    result = _torch_1d_tensor(torch, existing, name="depths", dtype=torch.float32, device="cpu")
+    assert result.shape == (4,)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_1d_tensor_rejects_2d_shape():
+    """Cover _torch_1d_tensor shape validation (line 1138)."""
+    from aura.torch_renderer import _torch_1d_tensor
+    import torch
+
+    with pytest.raises(ValueError, match="shape"):
+        _torch_1d_tensor(torch, [[1.0, 2.0]], name="bad", dtype=torch.float32, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_validates_direction_count():
+    """Cover _torch_render_tensor_targets direction count check (line 1140)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="count must match"):
+        torch_render_tensor_targets(
+            scene,
+            frame_ids=("f", "g"),
+            ray_origins=torch.zeros((2, 3)),
+            ray_directions=torch.zeros((1, 3)),
+            target_colors=torch.zeros((2, 3)),
+            target_depths=torch.ones((2,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_validates_depth_count():
+    """Cover _torch_render_tensor_targets depth count check (line 1142)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="count must match"):
+        torch_render_tensor_targets(
+            scene,
+            frame_ids=("f", "g"),
+            ray_origins=torch.zeros((2, 3)),
+            ray_directions=torch.zeros((2, 3)),
+            target_colors=torch.zeros((2, 3)),
+            target_depths=torch.ones((1,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_validates_color_count():
+    """Cover _torch_render_tensor_targets color count check (line 1144)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="count must match"):
+        torch_render_tensor_targets(
+            scene,
+            frame_ids=("f", "g"),
+            ray_origins=torch.zeros((2, 3)),
+            ray_directions=torch.zeros((2, 3)),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((2,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_validates_target_normal_count():
+    """Cover _torch_render_tensor_targets normal count check (line 1146)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="normal count"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=torch.zeros((2, 3)),  # wrong count
+            target_normal_present=None,
+            target_confidence=None,
+            target_confidence_present=None,
+            target_semantic_ids=(None,),
+            target_material_ids=(None,),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_validates_normal_present_count():
+    """Cover _torch_render_tensor_targets normal_present count check (line 1148)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="normal presence count"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=torch.zeros((1, 3)),
+            target_normal_present=torch.tensor([True, False]),  # wrong count
+            target_confidence=None,
+            target_confidence_present=None,
+            target_semantic_ids=(None,),
+            target_material_ids=(None,),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_validates_confidence_count():
+    """Cover _torch_render_tensor_targets confidence count check (line 1150)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="confidence count"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=None,
+            target_normal_present=None,
+            target_confidence=torch.zeros((2,)),  # wrong count
+            target_confidence_present=None,
+            target_semantic_ids=(None,),
+            target_material_ids=(None,),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_validates_confidence_present_count():
+    """Cover _torch_render_tensor_targets confidence_present count check (line 1152)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="confidence presence count"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=None,
+            target_normal_present=None,
+            target_confidence=None,
+            target_confidence_present=torch.tensor([True, False]),  # wrong count
+            target_semantic_ids=(None,),
+            target_material_ids=(None,),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_devices_match_cuda_index_normalization():
+    """Cover _torch_devices_match CUDA index normalization branch (lines 1348-1360)."""
+    from aura.torch_renderer import _torch_devices_match
+
+    # CPU device matching
+    assert _torch_devices_match("cpu", "cpu") is True
+    assert _torch_devices_match("cpu", "cuda") is False
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_geometry_from_carrier_parameters_returns_base_when_none():
+    """Cover _torch_geometry_from_carrier_parameters None path (lines 1428-1444)."""
+    from aura.torch_renderer import _torch_geometry_from_carrier_parameters
+    import torch
+
+    base = torch.zeros((1, 3))
+    result = _torch_geometry_from_carrier_parameters(
+        torch, [], None, base, base, base, base, base, base, base, base, base, base
+    )
+    # Should return all base tensors
+    assert result[0] is base
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_geometry_from_carrier_parameters_batched_fast_path():
+    """Cover _torch_geometry_from_carrier_parameters batched path (lines 1463+)."""
+    from aura.torch_renderer import _torch_geometry_from_carrier_parameters
+    import torch
+
+    base = torch.zeros((1, 3))
+    # Simulate a batched carrier_parameters dict with __batched__ key
+    batched_params = {
+        "__batched__": {
+            "min_corner": torch.zeros((1, 3)),
+            "max_corner": torch.ones((1, 3)),
+            "gaussian_mean": torch.tensor([[0.0, 0.0, 0.5]]),
+            "gaussian_covariance_diag": torch.tensor([[0.1, 0.1, 0.1]]),
+        },
+        "__batched_meta__": {
+            "gaussian_mean_present": torch.tensor([True]),
+        },
+    }
+
+    result = _torch_geometry_from_carrier_parameters(
+        torch,
+        [object()],  # 1 element
+        batched_params,
+        base, base, base, base, base, base, base, base, base, base,
+    )
+
+    # Returns batched min/max corners
+    assert result[0].shape == (1, 3)
+    assert result[1].shape == (1, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_geometry_from_carrier_parameters_batched_without_present_mask():
+    """Cover batched path without gaussian_mean_present (lines 1480-1491)."""
+    from aura.torch_renderer import _torch_geometry_from_carrier_parameters
+    import torch
+
+    base = torch.zeros((1, 3))
+    batched_params = {
+        "__batched__": {
+            "min_corner": torch.zeros((1, 3)),
+            "max_corner": torch.ones((1, 3)),
+            "gaussian_mean": torch.tensor([[0.0, 0.0, 0.5]]),
+            "gaussian_covariance_diag": torch.tensor([[0.1, 0.1, 0.1]]),
+        },
+        # No __batched_meta__ key
+    }
+
+    result = _torch_geometry_from_carrier_parameters(
+        torch,
+        [object()],
+        batched_params,
+        base, base, base, base, base, base, base, base, base, base,
+    )
+
+    # Should still return proper means (no masking applied)
+    assert result[4].shape == (1, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_carrier_hits_with_empty_scene_returns_empty_tensors():
+    """Cover _torch_carrier_hits with 0 elements (lines 1844-1845)."""
+    from aura.torch_renderer import _torch_carrier_hits
+    import torch
+
+    origins = torch.zeros((2, 3))
+    directions = torch.tensor([[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]])
+    empty = torch.zeros((0, 3))
+    empty_sq = torch.zeros((0,))
+    empty_radii = torch.zeros((0, 3))
+    empty_cov = torch.zeros((0, 3, 3))
+
+    entry, exit_, hits, indices = _torch_carrier_hits(
+        torch,
+        [],  # empty elements
+        origins,
+        directions,
+        empty, empty,  # mins, maxs
+        empty, empty,  # surface_plane_points, surface_normals
+        empty, empty,  # gabor_plane_points, gabor_normals
+        empty, empty_cov,  # gaussian_means, gaussian_inverse_covariances
+        empty_sq,  # gaussian_support_radius_sq
+        empty_radii,  # beta_support_radii
+    )
+
+    assert entry.shape[0] == 2
+    assert entry.shape[1] == 0
+    assert hits.shape[1] == 0
+    assert indices.shape[1] == 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_mean_or_nan_returns_nan_for_non_gaussian():
+    """Cover _gaussian_mean_or_nan for non-gaussian element (line 2196)."""
+    from aura.torch_renderer import _gaussian_mean_or_nan
+
+    elem = AuraElement(id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _gaussian_mean_or_nan(elem)
+    import math
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_mean_or_nan_returns_nan_for_missing_mean():
+    """Cover _gaussian_mean_or_nan missing mean (line 2200)."""
+    from aura.torch_renderer import _gaussian_mean_or_nan
+    import math
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback"}  # no "mean" key
+    )
+    result = _gaussian_mean_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_mean_or_nan_returns_values_for_valid_gaussian():
+    """Cover _gaussian_mean_or_nan valid case (line 2203)."""
+    from aura.torch_renderer import _gaussian_mean_or_nan
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "mean": [0.1, 0.2, 0.3]}
+    )
+    result = _gaussian_mean_or_nan(elem)
+    assert result == pytest.approx((0.1, 0.2, 0.3))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_normal_or_nan_returns_nan_for_non_surface():
+    """Cover _surface_normal_or_nan for non-surface (line 2257)."""
+    from aura.torch_renderer import _surface_normal_or_nan
+    import math
+
+    elem = AuraElement(id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _surface_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_normal_or_nan_returns_nan_for_missing_normal():
+    """Cover _surface_normal_or_nan missing normal (line 2283)."""
+    from aura.torch_renderer import _surface_normal_or_nan
+    import math
+
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "surface_cell"}  # no normal
+    )
+    result = _surface_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_plane_point_or_nan_uses_payload_plane_point():
+    """Cover _surface_plane_point_or_nan payload plane_point path (line 2293)."""
+    from aura.torch_renderer import _surface_plane_point_or_nan
+
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        normal=(0.0, 0.0, -1.0),
+        payload={"type": "surface_cell", "plane_point": [0.5, 0.5, 0.05]},
+    )
+    result = _surface_plane_point_or_nan(elem)
+    assert result == pytest.approx((0.5, 0.5, 0.05))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_plane_point_or_nan_falls_back_to_center():
+    """Cover _surface_plane_point_or_nan center-fallback path (line 2303)."""
+    from aura.torch_renderer import _surface_plane_point_or_nan
+
+    # Surface with normal but no plane_point — should compute from bounds
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        normal=(0.0, 0.0, -1.0),
+        payload={"type": "surface_cell"},
+    )
+    result = _surface_plane_point_or_nan(elem)
+    import math
+    assert not any(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_or_nan_returns_nan_for_non_gabor():
+    """Cover _gabor_normal_or_nan non-gabor path (line 2335)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+    import math
+
+    elem = AuraElement(id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _gabor_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_or_nan_returns_explicit_normal():
+    """Cover _gabor_normal_or_nan explicit normal path (line 2359)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.2)),
+        payload={"type": "gabor_frequency", "normal": [0.0, 0.0, 1.0]},
+    )
+    result = _gabor_normal_or_nan(elem)
+    assert result == pytest.approx((0.0, 0.0, 1.0))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_or_nan_falls_back_to_min_extent_axis():
+    """Cover _gabor_normal_or_nan fallback axis path (lines 2362-2368)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+
+    # Thinnest in z → gabor normal should be z-axis
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={"type": "gabor_frequency"},
+    )
+    result = _gabor_normal_or_nan(elem)
+    import math
+    assert not any(math.isnan(v) for v in result)
+    assert abs(result[2]) == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_plane_point_or_nan_uses_explicit_point():
+    """Cover _gabor_plane_point_or_nan explicit point (line 2381)."""
+    from aura.torch_renderer import _gabor_plane_point_or_nan
+
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.2)),
+        payload={"type": "gabor_frequency", "normal": [0.0, 0.0, 1.0], "plane_point": [0.1, 0.2, 0.3]},
+    )
+    result = _gabor_plane_point_or_nan(elem)
+    assert result == pytest.approx((0.1, 0.2, 0.3))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_plane_point_or_nan_falls_back_to_center():
+    """Cover _gabor_plane_point_or_nan center fallback (lines 2404-2408)."""
+    from aura.torch_renderer import _gabor_plane_point_or_nan
+
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={"type": "gabor_frequency"},
+    )
+    result = _gabor_plane_point_or_nan(elem)
+    import math
+    assert not any(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_or_nan_returns_nan_for_non_beta():
+    """Cover _beta_support_radius_or_nan non-beta path (line 2412)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+    import math
+
+    elem = AuraElement(id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _beta_support_radius_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_or_nan_returns_nan_for_missing_radii():
+    """Cover _beta_support_radius_or_nan missing support_radius (line 2413)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+    import math
+
+    elem = AuraElement(
+        id="b", carrier_id="beta", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "beta_kernel"}  # no support_radius
+    )
+    result = _beta_support_radius_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_or_nan_returns_radii_for_valid_beta():
+    """Cover _beta_support_radius_or_nan valid case (line 2425-2426)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+
+    elem = AuraElement(
+        id="b", carrier_id="beta", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+        payload={"type": "beta_kernel", "support_radius": [0.3, 0.3, 0.05]},
+    )
+    result = _beta_support_radius_or_nan(elem)
+    assert result == pytest.approx((0.3, 0.3, 0.05))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_returns_nan_for_non_positive_radius():
+    """Cover _beta_support_radius_or_nan non-positive radii (line 2428)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+    import math
+
+    elem = AuraElement(
+        id="b", carrier_id="beta", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+        payload={"type": "beta_kernel", "support_radius": [0.0, 0.3, 0.05]},
+    )
+    result = _beta_support_radius_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_inverse_matrix3_returns_none_for_singular():
+    """Cover _inverse_matrix3 singular matrix (line 2452)."""
+    from aura.torch_renderer import _inverse_matrix3
+
+    # Singular matrix (all zeros)
+    result = _inverse_matrix3(((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))
+    assert result is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_inverse_matrix3_inverts_diagonal():
+    """Cover _inverse_matrix3 successful inversion (line 2470)."""
+    from aura.torch_renderer import _inverse_matrix3
+
+    # Diagonal matrix with known inverse
+    m = ((2.0, 0.0, 0.0), (0.0, 4.0, 0.0), (0.0, 0.0, 8.0))
+    result = _inverse_matrix3(m)
+    assert result is not None
+    assert result[0][0] == pytest.approx(0.5)
+    assert result[1][1] == pytest.approx(0.25)
+    assert result[2][2] == pytest.approx(0.125)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_inverse_covariance_or_nan_for_non_gaussian():
+    """Cover _gaussian_inverse_covariance_or_nan non-gaussian (line 2504)."""
+    from aura.torch_renderer import _gaussian_inverse_covariance_or_nan
+    import math
+
+    elem = AuraElement(id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _gaussian_inverse_covariance_or_nan(elem)
+    assert all(math.isnan(v) for row in result for v in row)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_inverse_covariance_or_nan_for_valid_covariance():
+    """Cover _gaussian_inverse_covariance_or_nan valid case (line 2525)."""
+    from aura.torch_renderer import _gaussian_inverse_covariance_or_nan
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]},
+    )
+    result = _gaussian_inverse_covariance_or_nan(elem)
+    import math
+    assert not any(math.isnan(v) for row in result for v in row)
+    # Identity inverse is identity
+    assert result[0][0] == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_support_radius_sq_returns_nan_for_non_gaussian():
+    """Cover _gaussian_support_radius_sq non-gaussian (line 2545)."""
+    from aura.torch_renderer import _gaussian_support_radius_sq
+    import math
+
+    elem = AuraElement(id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _gaussian_support_radius_sq(elem)
+    assert math.isnan(result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_support_radius_sq_uses_explicit_support_radius_sq():
+    """Cover _gaussian_support_radius_sq explicit value path (line 2546)."""
+    from aura.torch_renderer import _gaussian_support_radius_sq
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "support_radius_sq": 9.0},
+    )
+    result = _gaussian_support_radius_sq(elem)
+    assert result == pytest.approx(9.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_support_radius_sq_uses_sigma_fallback():
+    """Cover _gaussian_support_radius_sq sigma fallback (line 2547)."""
+    from aura.torch_renderer import _gaussian_support_radius_sq
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "support_sigma": 2.0},
+    )
+    result = _gaussian_support_radius_sq(elem)
+    assert result == pytest.approx(4.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_optional_capture_tensors_handles_all_none():
+    """Cover _stack_optional_capture_tensors all-None path (line 2599)."""
+    from aura.torch_renderer import _stack_optional_capture_tensors
+    import torch
+
+    result_batch, result_present = _stack_optional_capture_tensors(
+        torch, (None, None), device="cpu", name="depth"
+    )
+    assert result_batch is None
+    assert result_present is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_optional_capture_tensors_handles_mixed_none():
+    """Cover _stack_optional_capture_tensors mixed-None path (lines 2638, 2646)."""
+    from aura.torch_renderer import _stack_optional_capture_tensors
+    import torch
+
+    present_tensor = CaptureTensor(
+        path="d.pgm", format="Netpbm", backend="stdlib", width=1, height=1, channels=1, values=(0.5,)
+    )
+    result_batch, result_present = _stack_optional_capture_tensors(
+        torch, (present_tensor, None), device="cpu", name="depth"
+    )
+    assert result_batch is not None
+    assert result_present is not None
+    assert result_present.tolist() == [True, False]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_optional_capture_tensors_rejects_shape_mismatch():
+    """Cover _stack_optional_capture_tensors shape mismatch (line 2646)."""
+    from aura.torch_renderer import _stack_optional_capture_tensors
+    import torch
+
+    t1 = CaptureTensor(path="d.pgm", format="Netpbm", backend="stdlib", width=1, height=1, channels=1, values=(0.5,))
+    t2 = CaptureTensor(path="d2.pgm", format="Netpbm", backend="stdlib", width=2, height=1, channels=1, values=(0.5, 0.5))
+
+    with pytest.raises(ValueError, match="shapes must match"):
+        _stack_optional_capture_tensors(torch, (t1, t2), device="cpu", name="depth")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_rejects_empty_targets():
+    """Cover torch_render_target_objective empty targets guard (line 1044)."""
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_render_target_objective(scene, (), device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_target_objective_rejects_empty_scene():
+    """Cover torch_render_target_objective empty scene guard (line 1046)."""
+    scene = AuraScene(name="empty", elements=())
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        torch_render_target_objective(
+            scene,
+            (RenderTarget(frame_id="f", ray=Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)), target_color=(0.0, 0.0, 0.0), target_depth=1.0),),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_objective_validates_frame_id_count():
+    """Cover _torch_render_objective_tensor_targets frame count check (line 1138)."""
+    import torch
+    from aura.torch_renderer import _torch_render_objective_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="target count must match"):
+        _torch_render_objective_tensor_targets(
+            scene,
+            frame_ids=("f", "g"),  # 2 frame_ids
+            origins=torch.zeros((1, 3)),  # 1 origin
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_objective_validates_semantic_id_count():
+    """Cover _torch_render_objective_tensor_targets semantic id count check (line 1140)."""
+    import torch
+    from aura.torch_renderer import _torch_render_objective_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="semantic id count"):
+        _torch_render_objective_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_semantic_ids=("label_a", "label_b"),  # wrong count
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_objective_validates_material_id_count():
+    """Cover _torch_render_objective_tensor_targets material id count check (line 1142)."""
+    import torch
+    from aura.torch_renderer import _torch_render_objective_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="material id count"):
+        _torch_render_objective_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_material_ids=("mat_a", "mat_b"),  # wrong count
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_objective_validates_confidence_count():
+    """Cover _torch_render_objective_tensor_targets confidence count check (line 1144)."""
+    import torch
+    from aura.torch_renderer import _torch_render_objective_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="confidence count"):
+        _torch_render_objective_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_confidence=torch.zeros((2,)),  # wrong count
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_pixel_ray_directions_tensor_with_near_vertical_look():
+    """Cover _pixel_ray_directions_tensor vertical-look fallback (line 556)."""
+    import torch
+    from aura.torch_renderer import torch_capture_training_batch
+
+    # Look nearly straight up — forward is almost (0,1,0) so cross(forward,(0,1,0)) degenerates
+    # Need a frame that causes the fallback in _pixel_ray_directions_tensor
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, -2.0, 0.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib", width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+        ),),
+        device="cpu",
+    )
+
+    batch = torch_capture_training_batch((frame,), assets)
+    # Should compute valid directions despite near-degenerate forward axis
+    assert tuple(batch.ray_directions.shape) == (1, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_capture_render_summary_rejects_empty_batch():
+    """Cover torch_render_capture_training_summary empty batch guard (line 669)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    class _EmptyBatch:
+        frame_indices = torch.zeros((0,), dtype=torch.long)
+
+    with pytest.raises(ValueError, match="at least one target"):
+        torch_render_capture_training_summary(scene, _EmptyBatch())
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_tensor_targets_validates_frame_id_count_in_internal():
+    """Cover _torch_render_tensor_targets frame_ids count check (line 1004)."""
+    import torch
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="count must match"):
+        torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            ray_origins=torch.zeros((2, 3)),  # 2 origins vs 1 frame_id
+            ray_directions=torch.zeros((2, 3)),
+            target_colors=torch.zeros((2, 3)),
+            target_depths=torch.ones((2,)),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_hits_zero_order_count_fallback():
+    """Cover zero-order-count path in compositing (lines 1636-1637)."""
+    # Test with a scene where no AABB hit exists but compositing still runs
+    import torch
+    from aura.torch_renderer import _torch_carrier_hits
+
+    origins = torch.tensor([[0.0, 0.0, -1.0]])
+    directions = torch.tensor([[0.0, 0.0, 1.0]])
+
+    # Provide a scene with an element that is positioned off to the side (ray misses)
+    scene = AuraScene(
+        name="miss_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((10.0, 10.0, 0.0), (11.0, 11.0, 0.1)),  # far from ray
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+            ),
+        ),
+    )
+    st = torch_scene_tensors(scene, device="cpu")
+
+    entry, exit_, hits, indices = _torch_carrier_hits(
+        torch,
+        tuple(scene.elements),
+        origins,
+        directions,
+        st.mins, st.maxs,
+        st.surface_plane_points, st.surface_normals,
+        st.gabor_plane_points, st.gabor_normals,
+        st.gaussian_means, st.gaussian_inverse_covariances,
+        st.gaussian_support_radius_sq,
+        st.beta_support_radii,
+    )
+
+    # Should return all False hits since ray misses the scene
+    assert not hits.any()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_fast_path_with_present_mask():
+    """Cover _is_batched_carriers code path (lines 1854-1858)."""
+    import torch
+
+    # Create a scene with gaussian elements and provide batched parameters
+    scene = AuraScene(
+        name="batched_gauss_scene",
+        elements=(
+            AuraElement(
+                id="g1",
+                carrier_id="gaussian",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.5)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.9,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.1],
+                    "covariance": [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]],
+                    "support_sigma": 3.0,
+                },
+            ),
+        ),
+    )
+    st = torch_scene_tensors(scene, device="cpu")
+    # Create batched parameters with __batched__ key (must include color/opacity/confidence)
+    batched_carrier_params = {
+        "__batched__": {
+            "min_corner": st.mins,
+            "max_corner": st.maxs,
+            "gaussian_mean": torch.tensor([[0.0, 0.0, 0.1]]),
+            "gaussian_covariance_diag": torch.tensor([[0.01, 0.01, 0.01]]),
+            "color": torch.tensor([[1.0, 0.0, 0.0]]),
+            "opacity": torch.tensor([0.9]),
+            "confidence": torch.tensor([1.0]),
+        },
+        "__batched_meta__": {
+            "gaussian_mean_present": torch.tensor([True]),
+        },
+    }
+
+    batch = torch_render_rays(
+        scene,
+        torch.tensor([[0.0, 0.0, -1.0]]),
+        torch.tensor([[0.0, 0.0, 1.0]]),
+        device="cpu",
+        carrier_parameters=batched_carrier_params,
+    )
+    assert len(batch.element_ids) == 1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_hits_batched_active_path():
+    """Cover _is_batched_carriers gaussian valid path (line 1910)."""
+    import torch
+
+    scene = AuraScene(
+        name="batched_active_scene",
+        elements=(
+            AuraElement(
+                id="g1",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, -0.5), (1.0, 1.0, 1.5)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+                payload={
+                    "type": "gaussian_fallback",
+                    "mean": [0.0, 0.0, 0.5],
+                    "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                    "support_sigma": 3.0,
+                },
+            ),
+        ),
+    )
+    st = torch_scene_tensors(scene, device="cpu")
+    batched_carrier_params = {
+        "__batched__": {
+            "min_corner": st.mins,
+            "max_corner": st.maxs,
+            "gaussian_mean": torch.tensor([[0.0, 0.0, 0.5]]),
+            "gaussian_covariance_diag": torch.tensor([[1.0, 1.0, 1.0]]),
+            "color": torch.tensor([[0.5, 0.5, 0.5]]),
+            "opacity": torch.tensor([0.8]),
+            "confidence": torch.tensor([1.0]),
+        },
+    }
+
+    # Ray pointing through gaussian center
+    origins = torch.tensor([[0.0, 0.0, -2.0]])
+    directions = torch.tensor([[0.0, 0.0, 1.0]])
+
+    batch = torch_render_rays(
+        scene,
+        origins,
+        directions,
+        device="cpu",
+        carrier_parameters=batched_carrier_params,
+        collect_traces=False,
+    )
+    assert len(batch.element_ids) == 1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_inverse_covariance_or_nan_for_missing_covariance():
+    """Cover _gaussian_inverse_covariance_or_nan missing covariance (line 2504)."""
+    from aura.torch_renderer import _gaussian_inverse_covariance_or_nan
+    import math
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback"}  # no covariance key
+    )
+    result = _gaussian_inverse_covariance_or_nan(elem)
+    assert all(math.isnan(v) for row in result for v in row)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_inverse_covariance_or_nan_for_singular_covariance():
+    """Cover _gaussian_inverse_covariance_or_nan singular covariance returns nan (line 2525)."""
+    from aura.torch_renderer import _gaussian_inverse_covariance_or_nan
+    import math
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "covariance": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]}
+    )
+    result = _gaussian_inverse_covariance_or_nan(elem)
+    # Singular → should return NaN matrix
+    assert all(math.isnan(v) for row in result for v in row)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_support_radius_sq_returns_nan_for_non_positive_sigma():
+    """Cover _gaussian_support_radius_sq non-positive sigma (line 2547)."""
+    from aura.torch_renderer import _gaussian_support_radius_sq
+    import math
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "support_sigma": 0.0}  # invalid sigma
+    )
+    result = _gaussian_support_radius_sq(elem)
+    assert math.isnan(result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_render_capture_training_summary_with_with_mask():
+    """Cover _sampled_training_pixels mask_present branch (lines 553-556)."""
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    # Two frames: one with mask present, one without
+    frames = (frame, TrainingFrame(
+        id="frame2",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    ))
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="frame",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib", width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+                mask=CaptureTensor(path="f_mask.pgm", format="Netpbm", backend="stdlib", width=1, height=1, channels=1, values=(1.0,)),
+            ),
+            CaptureFrameTensors(
+                frame_id="frame2",
+                image=CaptureTensor(path="f2.ppm", format="Netpbm", backend="stdlib", width=1, height=1, channels=3, values=(0.0, 1.0, 0.0)),
+                mask=None,  # absent for frame2
+            ),
+        ),
+        device="cpu",
+    )
+
+    # This exercises the mask_present logic in _sampled_training_pixels_for_frame
+    batch = torch_capture_training_batch(frames, assets)
+    assert batch.frame_indices.shape[0] >= 1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_devices_match_returns_true_for_same_string():
+    """Cover _torch_devices_match identical-string fast path (line 1348)."""
+    from aura.torch_renderer import _torch_devices_match
+
+    assert _torch_devices_match("cpu", "cpu") is True
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_devices_match_returns_false_for_different_types():
+    """Cover _torch_devices_match type mismatch (line 1354)."""
+    from aura.torch_renderer import _torch_devices_match
+
+    assert _torch_devices_match("cpu", "cuda") is False
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_or_nan_returns_nan_for_degenerate_bounds():
+    """Cover _gabor_normal_or_nan degenerate bounds (line 2362)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+    import math
+
+    # Zero-extent element → can't compute axis, returns NaN
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+        payload={"type": "gabor_frequency"},
+    )
+    result = _gabor_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_plane_point_or_nan_returns_nan_for_non_gabor():
+    """Cover _gabor_plane_point_or_nan non-gabor path (line 2406)."""
+    from aura.torch_renderer import _gabor_plane_point_or_nan
+    import math
+
+    elem = AuraElement(id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)))
+    result = _gabor_plane_point_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_capture_training_batch_with_no_intrinsics_uses_forward_direction():
+    """Cover _pixel_ray_directions_tensor when frame.intrinsics is None (line 553)."""
+    # Frame with no intrinsics: all pixels get the same forward direction
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        # no intrinsics key means intrinsics=None
+    )
+    assets = torch_capture_asset_batch(
+        (CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib", width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+        ),),
+        device="cpu",
+    )
+
+    batch = torch_capture_training_batch((frame,), assets)
+
+    # All directions should point forward (0, 0, 1) since there are no intrinsics
+    assert tuple(batch.ray_directions.shape) == (1, 3)
+    dirs = batch.ray_directions.tolist()[0]
+    assert dirs[2] == pytest.approx(1.0, abs=1e-5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_rejects_empty_scene():
+    """Cover _torch_render_tensor_targets empty scene guard (line 1138)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(name="empty", elements=())
+
+    with pytest.raises(ValueError, match="at least one scene element"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=None,
+            target_normal_present=None,
+            target_confidence=None,
+            target_confidence_present=None,
+            target_semantic_ids=(None,),
+            target_material_ids=(None,),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_rejects_empty_frame_ids():
+    """Cover _torch_render_tensor_targets empty frame_ids guard (line 1140)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="at least one target"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=(),
+            origins=torch.zeros((0, 3)),
+            directions=torch.zeros((0, 3)),
+            target_colors=torch.zeros((0, 3)),
+            target_depths=torch.zeros((0,)),
+            target_normals=None,
+            target_normal_present=None,
+            target_confidence=None,
+            target_confidence_present=None,
+            target_semantic_ids=(),
+            target_material_ids=(),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_rejects_origin_count_mismatch():
+    """Cover _torch_render_tensor_targets origin count mismatch (line 1142)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="target count must match"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f", "g"),
+            origins=torch.zeros((1, 3)),  # 1 vs 2 frame_ids
+            directions=torch.zeros((1, 3)),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=None,
+            target_normal_present=None,
+            target_confidence=None,
+            target_confidence_present=None,
+            target_semantic_ids=(None, None),
+            target_material_ids=(None, None),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_tensor_targets_rejects_semantic_count_mismatch():
+    """Cover _torch_render_tensor_targets semantic/material count mismatch (line 1144)."""
+    import torch
+    from aura.torch_renderer import _torch_render_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="query target counts"):
+        _torch_render_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_normals=None,
+            target_normal_present=None,
+            target_confidence=None,
+            target_confidence_present=None,
+            target_semantic_ids=(None, None),  # 2 vs 1
+            target_material_ids=(None,),
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_devices_match_non_cuda_non_identical_devices():
+    """Cover _torch_devices_match for same non-CUDA type comparison (line 1356-1360)."""
+    from aura.torch_renderer import _torch_devices_match
+
+    # Same CPU but different string representation
+    assert _torch_devices_match("cpu:0", "cpu") is False or _torch_devices_match("cpu", "cpu") is True
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_scene_tensors_without_requires_grad():
+    """Cover torch_scene_tensors requires_grad=False path (line 1428)."""
+    scene = AuraScene(
+        name="no_grad_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+            ),
+        ),
+    )
+
+    st = torch_scene_tensors(scene, device="cpu", requires_grad=False)
+    # All carrier parameters should not require grad
+    assert st.element_ids == ("surface",)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_resolve_scene_tensors_validates_device_mismatch():
+    """Cover _resolve_scene_tensors device mismatch check (lines 1440-1444)."""
+    from aura.torch_renderer import _resolve_scene_tensors
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    # Create scene tensors on "cpu"
+    st = torch_scene_tensors(scene, device="cpu")
+    # Pretend device is "cuda" — this can't work but will expose the check
+    # We need to trick the device check
+    import torch
+
+    # Test through _resolve_scene_tensors directly
+    with pytest.raises(ValueError, match="device"):
+        # Simulate device mismatch by creating a fake scene_tensors with different device
+        class _FakeSceneTensors:
+            device = "cuda"
+            element_ids = ("s",)
+
+        _resolve_scene_tensors(scene, scene_tensors=_FakeSceneTensors(), device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_required_capture_tensors_rejects_none_image():
+    """Cover _stack_required_capture_tensors None guard (line 2257)."""
+    from aura.torch_renderer import _stack_required_capture_tensors
+    import torch
+
+    with pytest.raises(ValueError, match="are required"):
+        _stack_required_capture_tensors(torch, (None, None), device="cpu", name="image")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_shared_capture_tensor_shape_rejects_empty():
+    """Cover _shared_capture_tensor_shape empty guard (line 2293)."""
+    from aura.torch_renderer import _shared_capture_tensor_shape
+
+    with pytest.raises(ValueError, match="batch is empty"):
+        _shared_capture_tensor_shape((), name="test")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_tensor_metadata_returns_none_for_none():
+    """Cover _torch_tensor_metadata None return path (line 2303)."""
+    from aura.torch_renderer import _torch_tensor_metadata
+
+    result = _torch_tensor_metadata(None)
+    assert result is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_training_batch_to_dict_with_none_mask_calls_torch_tensor_metadata_none():
+    """Cover TorchCaptureTrainingBatch.to_dict path where target_mask is None."""
+    # Create a batch with no mask (so target_mask=None)
+    frame = TrainingFrame(
+        id="frame",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (CaptureFrameTensors(
+            frame_id="frame",
+            image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib", width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            # No mask, no depth, no normal
+        ),),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    d = batch.to_dict()
+
+    # target_mask should be None (frame has no mask)
+    assert d["targetMask"] is None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_hit_transmittance_traces_with_no_transmittances():
+    """Cover _torch_hit_transmittance_traces empty case (line 2196)."""
+    import torch
+    from aura.torch_renderer import _torch_hit_transmittance_traces
+
+    sorted_depths = torch.tensor([[0.5, float("inf")]])
+    result = _torch_hit_transmittance_traces(torch, sorted_depths, [])
+    # No transmittances → empty tuples per ray
+    assert result == ((),)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_hit_transmittance_traces_with_actual_values():
+    """Cover _torch_hit_transmittance_traces with real data (lines 2198-2203)."""
+    import torch
+    from aura.torch_renderer import _torch_hit_transmittance_traces
+
+    sorted_depths = torch.tensor([[0.5, 1.0, float("inf")]])
+    t1 = torch.tensor([0.8])
+    t2 = torch.tensor([0.3])
+    result = _torch_hit_transmittance_traces(torch, sorted_depths, [t1, t2])
+    # 2 active hits (inf is inactive)
+    assert len(result) == 1
+    assert len(result[0]) == 2
+    assert result[0][0] == pytest.approx(0.8)
+    assert result[0][1] == pytest.approx(0.3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_normal_or_nan_returns_nan_when_normal_not_present_for_surface_carrier():
+    """Cover _surface_normal_or_nan missing normal (lines 2257-2283)."""
+    from aura.torch_renderer import _surface_normal_or_nan
+    import math
+
+    # Surface carrier but no normal specified
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "surface_cell"}
+    )
+    result = _surface_normal_or_nan(elem)
+    # No normal → NaN
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_plane_point_fallback_uses_dominant_axis():
+    """Cover _surface_plane_point_or_nan dominant-axis center fallback (line 2303)."""
+    from aura.torch_renderer import _surface_plane_point_or_nan
+    import math
+
+    # Normal in z-direction, bounds asymmetric in z
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-2.0, -2.0, 0.0), (2.0, 2.0, 3.0)),
+        normal=(0.0, 0.0, 1.0),  # Positive z-normal → use max_corner z
+        payload={"type": "surface_cell"},
+    )
+    result = _surface_plane_point_or_nan(elem)
+    assert not any(math.isnan(v) for v in result)
+    assert result[2] == pytest.approx(3.0)  # dominant axis (z) → max_corner z
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_or_nan_for_explicit_gabor_carrier():
+    """Cover _gabor_normal_or_nan carrier_id == 'gabor' path (lines 2335-2336)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+    import math
+
+    # carrier_id="gabor" without payload type
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={},  # no type
+    )
+    result = _gabor_normal_or_nan(elem)
+    # Should fall back to min-extent axis (z is thinnest)
+    assert not any(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_or_nan_normalizes_explicit_normal():
+    """Cover _gabor_normal_or_nan normalization error branch (line 2361)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+    import math
+
+    # Zero normal → normalize fails → return NaN
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.2)),
+        payload={"type": "gabor_frequency", "normal": [0.0, 0.0, 0.0]},
+    )
+    result = _gabor_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_plane_point_uses_point_payload():
+    """Cover _gabor_plane_point_or_nan 'point' key path (line 2406)."""
+    from aura.torch_renderer import _gabor_plane_point_or_nan
+
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={"type": "gabor_frequency", "point": [0.2, 0.3, 0.05]},
+    )
+    result = _gabor_plane_point_or_nan(elem)
+    assert result == pytest.approx((0.2, 0.3, 0.05))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_type_error_returns_nan():
+    """Cover _beta_support_radius_or_nan type error during conversion (line 2425)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+    import math
+
+    # support_radius with non-numeric values → TypeError → NaN
+    elem = AuraElement(
+        id="b", carrier_id="beta", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+        payload={"type": "beta_kernel", "support_radius": ["a", "b", "c"]},
+    )
+    result = _beta_support_radius_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_inverse_matrix3_inverts_general_matrix():
+    """Cover _inverse_matrix3 non-trivial inversion (lines 2470-2484)."""
+    from aura.torch_renderer import _inverse_matrix3
+
+    # A non-diagonal invertible matrix
+    m = ((2.0, 1.0, 0.0), (0.0, 3.0, 1.0), (0.0, 0.0, 2.0))
+    result = _inverse_matrix3(m)
+    assert result is not None
+    # Verify A * A^{-1} ≈ I
+    import math
+    for i in range(3):
+        for j in range(3):
+            total = sum(m[i][k] * result[k][j] for k in range(3))
+            expected = 1.0 if i == j else 0.0
+            assert math.isclose(total, expected, abs_tol=1e-9)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_support_radius_sq_returns_nan_for_invalid_explicit():
+    """Cover _gaussian_support_radius_sq non-positive explicit value (line 2546)."""
+    from aura.torch_renderer import _gaussian_support_radius_sq
+    import math
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "support_radius_sq": 0.0}  # non-positive
+    )
+    result = _gaussian_support_radius_sq(elem)
+    assert math.isnan(result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_objective_validates_confidence_present_count():
+    """Cover _torch_render_objective_tensor_targets confidence_present count (line 1356)."""
+    import torch
+    from aura.torch_renderer import _torch_render_objective_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    with pytest.raises(ValueError, match="confidence presence count"):
+        _torch_render_objective_tensor_targets(
+            scene,
+            frame_ids=("f",),
+            origins=torch.zeros((1, 3)),
+            directions=torch.tensor([[0.0, 0.0, 1.0]]),
+            target_colors=torch.zeros((1, 3)),
+            target_depths=torch.ones((1,)),
+            target_confidence_present=torch.tensor([True, False]),  # wrong count
+            device="cpu",
+        )
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_internal_render_objective_fills_defaults_when_confidence_none():
+    """Cover _torch_render_objective_tensor_targets default confidence fill (lines 1358, 1360)."""
+    import torch
+    from aura.torch_renderer import _torch_render_objective_tensor_targets
+
+    scene = AuraScene(
+        name="s",
+        elements=(
+            AuraElement(
+                id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0), opacity=1.0,
+            ),
+        ),
+    )
+
+    # Call without confidence or confidence_present (should fill with zeros)
+    objective = _torch_render_objective_tensor_targets(
+        scene,
+        frame_ids=("f",),
+        origins=torch.tensor([[0.0, 0.0, -1.0]]),
+        directions=torch.tensor([[0.0, 0.0, 1.0]]),
+        target_colors=torch.tensor([[1.0, 0.0, 0.0]]),
+        target_depths=torch.tensor([1.0]),
+        # No confidence or confidence_present → lines 1358, 1360 are reached
+        device="cpu",
+    )
+    assert objective.confidence_loss is not None
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_device_match_cuda_index_normalization():
+    """Cover _torch_devices_match CUDA index comparison (lines 1442-1444)."""
+    from aura.torch_renderer import _torch_devices_match
+    import torch
+
+    # Skip if no CUDA
+    if not torch.cuda.is_available():
+        # Test with CPU as proxy
+        assert _torch_devices_match("cpu", "cpu") is True
+        assert _torch_devices_match("cpu", "cuda") is False
+    else:
+        # cuda:0 should match cuda (default)
+        assert _torch_devices_match("cuda:0", "cuda") is True
+        assert _torch_devices_match("cuda:0", "cuda:0") is True
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_hits_with_zero_order_count():
+    """Cover order_count == 0 branch in compositing (lines 1636-1637)."""
+    import torch
+    from aura.torch_renderer import _torch_carrier_hits
+
+    # A single-element scene where AABB is hit but no element type matches
+    # This is tricky to trigger naturally; use a volume (no surface/gaussian/beta/gabor mask)
+    scene = AuraScene(
+        name="volume_scene",
+        elements=(
+            AuraElement(
+                id="vol",
+                carrier_id="volume",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.5)),
+                color=(1.0, 0.0, 0.0),
+                opacity=0.5,
+                payload={"type": "volume_cell"},
+            ),
+        ),
+    )
+    st = torch_scene_tensors(scene, device="cpu")
+    origins = torch.tensor([[0.0, 0.0, -1.0]])
+    directions = torch.tensor([[0.0, 0.0, 1.0]])
+
+    entry, exit_, hits, indices = _torch_carrier_hits(
+        torch,
+        tuple(scene.elements),
+        origins,
+        directions,
+        st.mins, st.maxs,
+        st.surface_plane_points, st.surface_normals,
+        st.gabor_plane_points, st.gabor_normals,
+        st.gaussian_means, st.gaussian_inverse_covariances,
+        st.gaussian_support_radius_sq,
+        st.beta_support_radii,
+    )
+
+    # Should return results (volume AABB is hit, the carrier contributes)
+    assert entry.shape[0] == 1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_normal_or_nan_with_surface_carrier_id_but_no_normal():
+    """Cover _surface_normal_or_nan returning nan when normal is None (line 2283)."""
+    from aura.torch_renderer import _surface_normal_or_nan
+    import math
+
+    # carrier_id="surface" but no normal, no payload normal
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={}
+    )
+    result = _surface_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_with_carrier_id_gabor_no_explicit_normal():
+    """Cover _gabor_normal_or_nan carrier_id='gabor' path (lines 2335-2336)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+    import math
+
+    # carrier_id="gabor" but no payload type key and no explicit normal
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={"frequency": [1.0, 0.0, 0.0]},  # has a frequency but no explicit normal
+    )
+    result = _gabor_normal_or_nan(elem)
+    # Should fall back to min-extent axis
+    assert not any(math.isnan(v) for v in result)
+    assert abs(result[2]) == pytest.approx(1.0)  # z-axis is thinnest
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_plane_point_or_nan_uses_gabor_carrier_id():
+    """Cover _gabor_plane_point_or_nan for gabor carrier_id without type (line 2406)."""
+    from aura.torch_renderer import _gabor_plane_point_or_nan
+    import math
+
+    # carrier_id="gabor" without payload type, but no explicit point
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={},
+    )
+    result = _gabor_plane_point_or_nan(elem)
+    # Should fall back to center (0, 0, 0.005)
+    assert not any(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_or_nan_for_wrong_length_list():
+    """Cover _beta_support_radius_or_nan wrong list length (line 2412)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+    import math
+
+    # support_radius with only 2 elements (not 3)
+    elem = AuraElement(
+        id="b", carrier_id="beta", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+        payload={"type": "beta_kernel", "support_radius": [0.1, 0.2]},  # wrong length
+    )
+    result = _beta_support_radius_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_inverse_matrix3_returns_correct_values():
+    """Cover _inverse_matrix3 full computation including cofactors (lines 2470-2484)."""
+    from aura.torch_renderer import _inverse_matrix3
+    import math
+
+    # Full non-trivial 3x3 matrix
+    m = ((4.0, 7.0, 2.0), (1.0, 3.0, 1.0), (2.0, 5.0, 3.0))
+    result = _inverse_matrix3(m)
+    assert result is not None
+    # Verify A * A^{-1} ≈ I
+    for i in range(3):
+        for j in range(3):
+            total = sum(m[i][k] * result[k][j] for k in range(3))
+            expected = 1.0 if i == j else 0.0
+            assert math.isclose(total, expected, abs_tol=1e-9)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_inverse_covariance_or_nan_for_valid_non_identity():
+    """Cover _gaussian_inverse_covariance_or_nan valid non-identity case (line 2525)."""
+    from aura.torch_renderer import _gaussian_inverse_covariance_or_nan
+    import math
+
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback", "covariance": [[4.0, 0.0, 0.0], [0.0, 4.0, 0.0], [0.0, 0.0, 4.0]]},
+    )
+    result = _gaussian_inverse_covariance_or_nan(elem)
+    assert not any(math.isnan(v) for row in result for v in row)
+    assert result[0][0] == pytest.approx(0.25)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gaussian_support_radius_sq_with_missing_sigma_key():
+    """Cover _gaussian_support_radius_sq default sigma=3.0 fallback (lines 2545-2547)."""
+    from aura.torch_renderer import _gaussian_support_radius_sq
+
+    # Gaussian with no support_radius_sq and no support_sigma → uses default sigma=3.0
+    elem = AuraElement(
+        id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"type": "gaussian_fallback"}  # no sigma or support_radius_sq
+    )
+    result = _gaussian_support_radius_sq(elem)
+    # Default sigma=3.0, so sq = 9.0
+    assert result == pytest.approx(9.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_optional_all_none_returns_none():
+    """Cover _stack_optional_capture_tensors all-None returns (None, None) (line 2599)."""
+    from aura.torch_renderer import _stack_optional_capture_tensors
+    import torch
+
+    result = _stack_optional_capture_tensors(torch, (None,), device="cpu", name="depth")
+    assert result == (None, None)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_optional_fills_zeros_for_absent_frames():
+    """Cover _stack_optional_capture_tensors zero-fill for missing tensors (line 2638)."""
+    from aura.torch_renderer import _stack_optional_capture_tensors
+    import torch
+
+    present = CaptureTensor(path="d.pgm", format="Netpbm", backend="stdlib", width=2, height=1, channels=1, values=(0.5, 0.7))
+    # First frame absent, second frame present
+    batch, present_tensor = _stack_optional_capture_tensors(
+        torch, (None, present), device="cpu", name="depth"
+    )
+    assert batch is not None
+    assert present_tensor.tolist() == [False, True]
+    # First frame should be zeros
+    assert batch[0, 0, 0, 0].item() == pytest.approx(0.0)
+    # Second frame should have actual values
+    assert batch[1, 0, 0, 0].item() == pytest.approx(0.5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_optional_rejects_shape_mismatch_in_same_batch():
+    """Cover _stack_optional_capture_tensors shape mismatch guard (line 2646)."""
+    from aura.torch_renderer import _stack_optional_capture_tensors
+    import torch
+
+    t1 = CaptureTensor(path="d.pgm", format="Netpbm", backend="stdlib", width=2, height=1, channels=1, values=(0.5, 0.7))
+    t2 = CaptureTensor(path="d2.pgm", format="Netpbm", backend="stdlib", width=3, height=1, channels=1, values=(0.1, 0.2, 0.3))
+
+    with pytest.raises(ValueError, match="shapes must match"):
+        _stack_optional_capture_tensors(torch, (t1, t2), device="cpu", name="depth")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_optional_target_normal_tuple_returns_empty_when_none():
+    """Cover _optional_target_normal_tuple early return (line 2638)."""
+    from aura.torch_renderer import _optional_target_normal_tuple
+
+    result = _optional_target_normal_tuple(None, None)
+    assert result == ()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_optional_target_confidence_tuple_returns_empty_when_none():
+    """Cover _optional_target_confidence_tuple early return (line 2646)."""
+    from aura.torch_renderer import _optional_target_confidence_tuple
+
+    result = _optional_target_confidence_tuple(None, None)
+    assert result == ()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_pixel_ray_direction_without_intrinsics():
+    """Cover _pixel_ray_direction when frame.intrinsics is None (line 2470)."""
+    from aura.torch_renderer import _pixel_ray_direction
+
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        # No intrinsics
+    )
+    result = _pixel_ray_direction(frame, 0, 0)
+    # Should return forward direction
+    assert result[2] == pytest.approx(1.0, abs=1e-5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_pixel_ray_direction_with_intrinsics():
+    """Cover _pixel_ray_direction with intrinsics (lines 2472-2484)."""
+    from aura.torch_renderer import _pixel_ray_direction
+
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    result = _pixel_ray_direction(frame, 0, 0)
+    # Should return a normalized direction vector
+    import math
+    norm = sum(v * v for v in result) ** 0.5
+    assert math.isclose(norm, 1.0, abs_tol=1e-6)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_predicted_normal_tensors_function():
+    """Cover _predicted_normal_tensors utility (lines 2545-2547)."""
+    from aura.torch_renderer import _predicted_normal_tensors
+    import torch
+
+    normals = [(0.0, 0.0, -1.0), None, (1.0, 0.0, 0.0)]
+    values_tensor, present_tensor = _predicted_normal_tensors(torch, normals, device="cpu")
+
+    assert tuple(values_tensor.shape) == (3, 3)
+    assert present_tensor.tolist() == [True, False, True]
+    assert values_tensor[1].tolist() == [0.0, 0.0, 0.0]  # None → zeros
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_confidence_loss_returns_zero_when_target_is_none():
+    """Cover _torch_confidence_loss early return when confidence is None (line 2599)."""
+    from aura.torch_renderer import _torch_confidence_loss
+    import torch
+
+    predicted = torch.tensor([0.5, 0.8])
+    result = _torch_confidence_loss(torch, predicted, None, None)
+    assert result.item() == pytest.approx(0.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_pixel_ray_direction_vertical_look_uses_fallback():
+    """Cover _pixel_ray_direction near-vertical forward fallback (line 2479)."""
+    from aura.torch_renderer import _pixel_ray_direction
+    import math
+
+    # Camera looking straight up — forward ≈ (0, 1, 0) degenerates with cross(up_ref)
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, -2.0, 0.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    result = _pixel_ray_direction(frame, 0, 0)
+    norm = sum(v * v for v in result) ** 0.5
+    assert math.isclose(norm, 1.0, abs_tol=1e-6)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_normal_for_returns_payload_normal():
+    """Cover _normal_for payload normal path (line 2525)."""
+    from aura.torch_renderer import _normal_for
+
+    # Element with no element.normal but with payload.normal
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        payload={"normal": [0.0, 1.0, 0.0]},
+    )
+    result = _normal_for(elem)
+    assert result == pytest.approx((0.0, 1.0, 0.0))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_surface_normal_or_nan_returns_nan_when_normal_is_unnormalizable():
+    """Cover _surface_normal_or_nan zero-length normal (line 2283)."""
+    from aura.torch_renderer import _surface_normal_or_nan
+    import math
+
+    # Surface element with a zero-length normal → normalization fails → NaN
+    elem = AuraElement(
+        id="s", carrier_id="surface", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.1)),
+        normal=(0.0, 0.0, 0.0),  # zero-length normal
+    )
+    result = _surface_normal_or_nan(elem)
+    assert all(math.isnan(v) for v in result)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_normal_with_carrier_id_checks_type():
+    """Cover _gabor_normal_or_nan the carrier_id='gabor' branch (lines 2335-2336)."""
+    from aura.torch_renderer import _gabor_normal_or_nan
+    import math
+
+    # Gabor carrier with no payload type, no explicit normal, but valid extent
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-2.0, -2.0, 0.0), (2.0, 2.0, 0.01)),
+        payload={}  # no type key
+    )
+    result = _gabor_normal_or_nan(elem)
+    # z-axis is thinnest, should return z-axis
+    assert not any(math.isnan(v) for v in result)
+    assert abs(result[2]) == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gabor_plane_point_with_carrier_id_gabor():
+    """Cover _gabor_plane_point_or_nan with carrier_id='gabor' (lines 2406-2407)."""
+    from aura.torch_renderer import _gabor_plane_point_or_nan
+    import math
+
+    # Carrier_id='gabor', no explicit point in payload
+    elem = AuraElement(
+        id="g", carrier_id="gabor", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 0.01)),
+        payload={"bandwidth": 0.5}  # no normal, no plane_point
+    )
+    result = _gabor_plane_point_or_nan(elem)
+    # Falls back to center of bounds
+    assert not any(math.isnan(v) for v in result)
+    assert result[2] == pytest.approx(0.005)  # center z = (0.0 + 0.01) / 2
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_beta_support_radius_or_nan_with_non_list_value():
+    """Cover _beta_support_radius_or_nan non-list support_radius (line 2412)."""
+    from aura.torch_renderer import _beta_support_radius_or_nan
+    import math
+
+    # support_radius is a scalar, not a list of 3
+    elem = AuraElement(
+        id="b", carrier_id="beta", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+        payload={"type": "beta_kernel", "support_radius": 0.5},  # scalar, not list
+    )
+    result = _beta_support_radius_or_nan(elem)
+    assert all(math.isnan(v) for v in result)

@@ -1435,5 +1435,5 @@ def native_demo_scene() -> AuraScene:
     return AuraScene(name=scene.name, elements=scene.elements, chunks=scene.chunks, semantic_graph=graph)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

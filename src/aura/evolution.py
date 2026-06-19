@@ -320,7 +320,7 @@ def _classify_prediction(
             else:
                 action = "promote_neural_residual"
                 reason = "semantic object retains view-dependent residual evidence"
-        else:
+        else:  # pragma: no cover — outer elif guards carrier_id ∈ {surface,volume,gabor,semantic}; all covered above
             action = "refine_radiance"
             reason = "radiance evidence above native carrier threshold"
     elif evidence.depth_error > policy.depth_anchor_loss_threshold and prediction.carrier_id in {"surface", "volume", "semantic"}:

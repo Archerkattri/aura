@@ -276,3 +276,71 @@ def test_semantic_sparse_codebook_decode():
     result = decode_semantic_feature(payload_sparse, codebook=codebook)
     # Expected: 1.0 * atom[0] + 0.5 * atom[2] = [1.0, 0.0, 0.0] + [0.0, 0.0, 1.0] = [1.0, 0.0, 1.0]
     assert result == pytest.approx([1.0, 0.0, 1.0])
+
+
+# ---------------------------------------------------------------------------
+# Cover lines 55, 275, 321, 398, 435 — error branches in payloads
+# ---------------------------------------------------------------------------
+
+def test_volume_cell_phase_anisotropy_out_of_range():
+    """Line 55: phase_anisotropy outside [-1, 1] raises ValueError."""
+    from aura.carrier_payloads import VolumeCellPayload
+    with pytest.raises(ValueError, match="phase_anisotropy"):
+        VolumeCellPayload(density=0.5, phase_anisotropy=1.5).to_dict()
+
+
+def test_gaussian_fallback_covariance_not_3x3():
+    """Line 275: covariance not 3x3 raises ValueError."""
+    from aura.carrier_payloads import GaussianFallbackPayload
+    bad_cov = ((1.0, 0.0), (0.0, 1.0), (0.0, 0.0))
+    with pytest.raises(ValueError, match="covariance must be a 3x3 matrix"):
+        GaussianFallbackPayload(
+            mean=(0.0, 0.0, 0.0),
+            covariance=bad_cov,
+        ).to_dict()
+
+
+def test_semantic_feature_empty_label_raises():
+    """Line 321: empty label raises ValueError."""
+    from aura.carrier_payloads import SemanticFeaturePayload
+    with pytest.raises(ValueError, match="label is required"):
+        SemanticFeaturePayload(label="", confidence=0.9, feature_refs=()).to_dict()
+
+
+def test_relighting_albedo_wrong_length_raises():
+    """Line 398: albedo not a 3-element sequence raises ValueError."""
+    from aura.carrier_payloads import RelightingPayload
+    with pytest.raises(ValueError, match="albedo must be an RGB triple"):
+        RelightingPayload(albedo=(0.5, 0.5)).to_dict()
+
+
+def test_vec3_wrong_length_raises():
+    """Line 435: _vec3 with wrong-length sequence raises ValueError."""
+    from aura.carrier_payloads import RelightingPayload
+    with pytest.raises(ValueError, match="vec3 payload fields"):
+        RelightingPayload.from_dict({"type": "relighting", "albedo": [0.1, 0.2]})
+
+
+def test_gaussian_fallback_non_positive_diagonal_raises():
+    """Line 277: covariance with non-positive diagonal raises."""
+    from aura.carrier_payloads import GaussianFallbackPayload
+    bad_cov = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    with pytest.raises(ValueError, match="diagonal entries must be positive"):
+        GaussianFallbackPayload(mean=(0.0, 0.0, 0.0), covariance=bad_cov).to_dict()
+
+
+def test_relighting_albedo_valid_emits_fields():
+    """Lines 399-404: valid albedo + non-default roughness/metallic emitted."""
+    from aura.carrier_payloads import RelightingPayload
+    p = RelightingPayload(albedo=(0.8, 0.6, 0.4), shading_roughness=0.3, shading_metallic=0.2)
+    d = p.to_dict()
+    assert d["albedo"] == pytest.approx([0.8, 0.6, 0.4])
+    assert d["shading_roughness"] == pytest.approx(0.3)
+    assert d["shading_metallic"] == pytest.approx(0.2)
+
+
+def test_relighting_from_dict_returns_instance():
+    """Line 410: from_dict creates a RelightingPayload."""
+    from aura.carrier_payloads import RelightingPayload
+    p = RelightingPayload.from_dict({"type": "relighting", "albedo": [0.5, 0.5, 0.5]})
+    assert p.albedo == pytest.approx((0.5, 0.5, 0.5))

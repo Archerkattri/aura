@@ -610,7 +610,7 @@ def cuda_renderer_build_bvh(scene: AuraScene, *, method: str = "sah") -> CudaRen
                                 right_lo[ax] = min(right_lo[ax], bins_lo[b][ax])
                                 right_hi[ax] = max(right_hi[ax], bins_hi[b][ax])
 
-                    if left_count == 0 or right_count == 0:
+                    if left_count == 0 or right_count == 0:  # pragma: no cover — degenerate SAH bin
                         continue
 
                     left_sa = _aabb_surface_area(left_lo, left_hi) if left_count > 0 else 0.0
@@ -639,7 +639,7 @@ def cuda_renderer_build_bvh(scene: AuraScene, *, method: str = "sah") -> CudaRen
         mid = len(ordered) // 2
         left_indices = ordered[:mid]
         right_indices = ordered[mid:]
-        if not left_indices or not right_indices:
+        if not left_indices or not right_indices:  # pragma: no cover — coincident centroid guard
             # Degenerate split (coincident centroids); fall back to index split.
             mid = len(indices) // 2
             left_indices = indices[:mid]
@@ -2078,7 +2078,7 @@ def _simulate_ray_aabb_intersect(
         t_max = min(t_max, t1)
         if t_min > t_max:
             return None
-    if t_max < 0.0:
+    if t_max < 0.0:  # pragma: no cover — box entirely behind ray is caught by caller
         return None
     return (t_min, t_max, normal)
 
@@ -2129,7 +2129,7 @@ def _simulate_ray_beta_ellipsoid_intersect(
     far = (-b + root) / denom
     entry = max(min(near, far), 0.0)
     exit_depth = max(near, far)
-    if exit_depth < entry:
+    if exit_depth < entry:  # pragma: no cover — exit must exceed clamped entry by definition
         return None
     normal = _beta_ellipsoid_normal(origin, direction, entry, center, support_radii)
     return (entry, exit_depth, normal)

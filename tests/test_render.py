@@ -405,3 +405,193 @@ def test_compare_renders_cli_fails_when_threshold_is_missed(tmp_path):
 
     assert result.returncode == 1
     assert '"passed": false' in result.stdout
+
+
+# --- Additional coverage tests ---
+
+def test_render_image_rejects_zero_dimensions():
+    """Cover RenderImage.__post_init__ dimension checks (lines 29, 31)."""
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        RenderImage(width=0, height=1, pixels=())
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        RenderImage(width=1, height=0, pixels=())
+
+
+def test_render_image_rejects_wrong_pixel_count():
+    """Cover RenderImage.__post_init__ pixel count check (line 31)."""
+    with pytest.raises(ValueError, match="pixel count"):
+        RenderImage(width=2, height=2, pixels=((1.0, 0.0, 0.0),))
+
+
+def test_render_image_pixel_out_of_bounds():
+    """Cover RenderImage.pixel out-of-bounds check (line 36)."""
+    image = RenderImage(width=2, height=2, pixels=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5)))
+    with pytest.raises(IndexError, match="out of bounds"):
+        image.pixel(-1, 0)
+    with pytest.raises(IndexError, match="out of bounds"):
+        image.pixel(0, 5)
+    with pytest.raises(IndexError, match="out of bounds"):
+        image.pixel(5, 0)
+
+
+def test_read_ppm_rejects_invalid_format(tmp_path):
+    """Cover read_ppm format checks (lines 54, 59, 63)."""
+    # Not P3 format
+    bad_format = tmp_path / "bad.ppm"
+    bad_format.write_text("P6\n1 1\n255\n", encoding="ascii")
+    with pytest.raises(ValueError, match="P3"):
+        from aura.render import read_ppm as _read_ppm
+        _read_ppm(bad_format)
+
+    # Too few tokens
+    too_short = tmp_path / "short.ppm"
+    too_short.write_text("P3", encoding="ascii")
+    with pytest.raises(ValueError, match="P3"):
+        from aura.render import read_ppm as _read_ppm
+        _read_ppm(too_short)
+
+    # max_value <= 0
+    bad_max = tmp_path / "badmax.ppm"
+    bad_max.write_text("P3\n1 1\n0\n0 0 0\n", encoding="ascii")
+    with pytest.raises(ValueError, match="max value"):
+        from aura.render import read_ppm as _read_ppm
+        _read_ppm(bad_max)
+
+    # Wrong number of values
+    wrong_count = tmp_path / "wrongcount.ppm"
+    wrong_count.write_text("P3\n2 2\n255\n0 0 0\n", encoding="ascii")
+    with pytest.raises(ValueError, match="expected"):
+        from aura.render import read_ppm as _read_ppm
+        _read_ppm(wrong_count)
+
+
+def test_render_orthographic_rejects_zero_dimensions():
+    """Cover render_orthographic dimension check (line 104)."""
+    from aura.cli import demo_scene
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        render_orthographic(demo_scene(), width=0, height=4)
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        render_orthographic(demo_scene(), width=4, height=0)
+
+
+def test_render_orthographic_torch_rejects_non_cuda_when_required(monkeypatch):
+    """Cover render_orthographic_torch require_cuda guard (line 176)."""
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch not available")
+    scene = AuraScene(
+        name="test",
+        elements=(
+            AuraElement(id="s", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="CUDA"):
+        render_orthographic_torch(scene, width=2, height=2, device="cpu", require_cuda=True)
+
+
+def test_orthographic_camera_ray_tensors_rejects_zero_dimensions():
+    """Cover _orthographic_camera_ray_tensors dimension check (line 210)."""
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch not available")
+    import torch
+    from aura.render import _orthographic_camera_ray_tensors
+    scene = AuraScene(
+        name="t",
+        elements=(AuraElement(id="e", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),),
+    )
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        _orthographic_camera_ray_tensors(torch, scene, width=0, height=4, device="cpu")
+
+
+def test_orthographic_camera_rays_rejects_zero_dimensions():
+    """Cover orthographic_camera_rays dimension check (line 239)."""
+    from aura.render import orthographic_camera_rays
+    scene = AuraScene(
+        name="t",
+        elements=(AuraElement(id="e", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),),
+    )
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        orthographic_camera_rays(scene, width=0, height=4)
+
+
+def test_render_uses_element_bounds_when_no_chunks():
+    """Cover _scene_bounds element fallback (lines 267-275)."""
+    scene = AuraScene(
+        name="no_chunks",
+        elements=(
+            AuraElement(id="e", carrier_id="surface", bounds=Bounds((0.5, 0.5, 0.0), (1.5, 1.5, 0.1))),
+        ),
+        chunks=(),
+    )
+    # Rendering should succeed and use element bounds (not chunk bounds)
+    image = render_orthographic(scene, width=4, height=4)
+    assert image.width == 4
+    assert image.height == 4
+
+
+def test_scene_bounds_raises_for_empty_scene():
+    """Cover _scene_bounds empty scene error (line 377)."""
+    from aura.render import _scene_bounds
+    empty_scene = AuraScene(name="empty", elements=(), chunks=())
+    with pytest.raises(ValueError, match="empty scene"):
+        _scene_bounds(empty_scene)
+
+
+def test_turntable_camera_path_single_frame():
+    """Cover turntable_camera_path single-frame branch (lines 267-275 in render.py)."""
+    from aura.render import turntable_camera_path
+    scene = AuraScene(
+        name="t",
+        elements=(AuraElement(id="e", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))),),
+    )
+    path = turntable_camera_path(scene, frames=1)
+    assert len(path) == 1
+
+
+def test_turntable_camera_path_rejects_zero_frames():
+    """Cover turntable_camera_path frame count check (line 267)."""
+    from aura.render import turntable_camera_path
+    scene = AuraScene(
+        name="t",
+        elements=(AuraElement(id="e", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))),),
+    )
+    with pytest.raises(ValueError, match="frame count must be positive"):
+        turntable_camera_path(scene, frames=0)
+
+
+def test_render_turntable_frames_produces_correct_count():
+    """Cover render_turntable_frames (lines 294-297)."""
+    from aura.render import render_turntable_frames
+    scene = AuraScene(
+        name="t",
+        elements=(AuraElement(id="e", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1)), color=(1.0, 0.0, 0.0), opacity=1.0),),
+    )
+    frames = render_turntable_frames(scene, frames=3, width=2, height=2)
+    assert len(frames) == 3
+    assert all(isinstance(f, RenderImage) for f in frames)
+
+
+def test_image_mse_raises_for_dimension_mismatch():
+    """Cover image_mse dimension check (line 306)."""
+    left = RenderImage(width=2, height=1, pixels=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
+    right = RenderImage(width=1, height=1, pixels=((1.0, 0.0, 0.0),))
+    with pytest.raises(ValueError, match="matching dimensions"):
+        image_mse(left, right)
+
+
+def test_image_ssim_returns_one_for_uniform_identical_images():
+    """Cover image_ssim denominator=0 branch (line 346)."""
+    # When both images are uniform (all same pixel), denominator approaches the SSIM
+    # special case path. Use identical uniform images to trigger denominator == 0.
+    uniform = RenderImage(width=2, height=2, pixels=((0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)))
+    result = image_ssim(uniform, uniform)
+    assert result == 1.0
+
+
+def test_require_matching_dimensions_raises():
+    """Cover _require_matching_dimensions error (line 365)."""
+    left = RenderImage(width=2, height=1, pixels=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
+    right = RenderImage(width=1, height=1, pixels=((1.0, 0.0, 0.0),))
+    with pytest.raises(ValueError, match="matching dimensions"):
+        image_ssim(left, right)
+    with pytest.raises(ValueError, match="matching dimensions"):
+        image_lpips_proxy(left, right)

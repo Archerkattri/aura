@@ -731,3 +731,118 @@ class TestCrossCarrierWiredIntoTraining:
             assert not torch.allclose(initial, current.data), (
                 "MLP weights did not change after training — optimizer is not updating them"
             )
+
+
+class TestMlpParameterTensorsRequiresGrad:
+    """Cover lines 86, 90: requires_grad_(True) is called when requires_grad=True."""
+
+    def test_mlp_parameter_tensors_sets_requires_grad_when_missing(self):
+        """Lines 86, 90: requires_grad_(True) called on weight/bias tensors."""
+        import torch
+        from aura.cross_carrier import build_cross_carrier_mlp, mlp_parameter_tensors_from_module
+
+        mlp = build_cross_carrier_mlp(torch, device="cpu")
+        # Disable grad on all params first
+        for p in mlp.parameters():
+            p.requires_grad_(False)
+
+        # Now call with requires_grad=True — it must re-enable grad
+        params = mlp_parameter_tensors_from_module(torch, mlp, requires_grad=True)
+        for key in ("mlp_w0", "mlp_b0", "mlp_w1", "mlp_b1", "mlp_w2", "mlp_b2"):
+            assert params[key].requires_grad, f"{key} must require grad after requires_grad=True"
+
+
+class TestNeighborFeaturesFromCarrierParameters:
+    """Cover lines 156, 170, 172, 179, 184 in neighbor_features_from_carrier_parameters."""
+
+    def test_empty_neighbors_returns_none(self):
+        """Line 156: returns None for empty neighbor_elements."""
+        import torch
+        from aura.cross_carrier import neighbor_features_from_carrier_parameters
+
+        result = neighbor_features_from_carrier_parameters(torch, [], None, "cpu")
+        assert result is None
+
+    def test_no_color_in_params_uses_elem_color(self):
+        """Line 170: uses elem.color when no 'color' in eparams."""
+        import torch
+        from aura.cross_carrier import neighbor_features_from_carrier_parameters
+        from aura import AuraElement, Bounds
+
+        elem = AuraElement(
+            id="e1",
+            carrier_id="gaussian",
+            bounds=Bounds((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)),
+            color=(0.3, 0.5, 0.7),
+            opacity=0.6,
+        )
+        # carrier_parameters has no "color" key for this element
+        result = neighbor_features_from_carrier_parameters(torch, [elem], {}, "cpu")
+        assert result is not None
+        colors, opacities, residuals, centroids = result
+        assert abs(colors[0, 0].item() - 0.3) < 1e-5
+        assert abs(colors[0, 1].item() - 0.5) < 1e-5
+        assert abs(colors[0, 2].item() - 0.7) < 1e-5
+
+    def test_short_color_tensor_padded_to_3(self):
+        """Line 172: color tensor shorter than 3 is padded with zeros."""
+        import torch
+        from aura.cross_carrier import neighbor_features_from_carrier_parameters
+        from aura import AuraElement, Bounds
+
+        elem = AuraElement(
+            id="e2",
+            carrier_id="gaussian",
+            bounds=Bounds((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)),
+            color=(0.3, 0.5, 0.7),
+            opacity=0.4,
+        )
+        # Provide a 2-D color tensor in eparams to trigger line 172
+        short_color = torch.tensor([0.9, 0.1], dtype=torch.float32)
+        result = neighbor_features_from_carrier_parameters(
+            torch, [elem], {"e2": {"color": short_color}}, "cpu"
+        )
+        assert result is not None
+        colors, _, _, _ = result
+        assert colors.shape == (1, 3)
+        # Third element should be padded to 0
+        assert abs(colors[0, 2].item()) < 1e-5
+
+    def test_no_opacity_in_params_uses_elem_opacity(self):
+        """Line 179: uses elem.opacity when no 'opacity' in eparams."""
+        import torch
+        from aura.cross_carrier import neighbor_features_from_carrier_parameters
+        from aura import AuraElement, Bounds
+
+        elem = AuraElement(
+            id="e3",
+            carrier_id="gaussian",
+            bounds=Bounds((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)),
+            color=(0.5, 0.5, 0.5),
+            opacity=0.77,
+        )
+        result = neighbor_features_from_carrier_parameters(torch, [elem], {}, "cpu")
+        assert result is not None
+        _, opacities, _, _ = result
+        assert abs(opacities[0].item() - 0.77) < 1e-5
+
+    def test_residual_scale_in_params_used_directly(self):
+        """Line 184: uses eparams['residual_scale'] when present."""
+        import torch
+        from aura.cross_carrier import neighbor_features_from_carrier_parameters
+        from aura import AuraElement, Bounds
+
+        elem = AuraElement(
+            id="e4",
+            carrier_id="neural",
+            bounds=Bounds((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)),
+            color=(0.5, 0.5, 0.5),
+            opacity=0.5,
+        )
+        rs_tensor = torch.tensor(0.42, dtype=torch.float32, requires_grad=True)
+        result = neighbor_features_from_carrier_parameters(
+            torch, [elem], {"e4": {"residual_scale": rs_tensor}}, "cpu"
+        )
+        assert result is not None
+        _, _, residuals, _ = result
+        assert abs(residuals[0].item() - 0.42) < 1e-5

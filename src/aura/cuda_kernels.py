@@ -337,7 +337,7 @@ def cuda_kernel_extension_status(*, build: bool = False, verbose: bool = False) 
         return _cuda_extension_failure(module_name, source_paths, symbols, "cuda_home_unavailable", build_attempted=True)
     if not bool(torch.cuda.is_available()):
         return _cuda_extension_failure(module_name, source_paths, symbols, "torch_cuda_unavailable", build_attempted=True)
-    try:
+    try:  # pragma: no cover — requires CUDA_HOME + GPU compiler; not exercised in CI
         with ExitStack() as stack:
             resolved_sources = [
                 str(stack.enter_context(_resource_as_file(files("aura").joinpath(path))))
@@ -350,9 +350,9 @@ def cuda_kernel_extension_status(*, build: bool = False, verbose: bool = False) 
                 is_python_module=True,
                 verbose=verbose,
             )
-    except Exception as exc:  # pragma: no cover - requires a CUDA compiler/runtime matrix.
+    except Exception as exc:  # pragma: no cover
         return _cuda_extension_failure(module_name, source_paths, symbols, f"build_or_load_failed: {exc}", build_attempted=True)
-    return CudaExtensionStatus(
+    return CudaExtensionStatus(  # pragma: no cover
         available=True,
         build_attempted=True,
         compiled=True,

@@ -145,3 +145,116 @@ def test_write_gltf_returns_path(tmp_path: Path) -> None:
     result = write_gltf(scene, gltf_path)
     assert isinstance(result, Path), "Return value must be a Path"
     assert result == gltf_path, "Returned path must match the requested output path"
+
+
+def test_element_with_mean_attribute_uses_mean(tmp_path: Path) -> None:
+    """Line 55: element.mean attribute is used for position when present."""
+    scene = MagicMock()
+    element = MagicMock()
+    element.carrier_id = "gaussian"
+    element.mean = (1.5, 2.5, 3.5)
+    element.color = (0.1, 0.2, 0.3)
+    element.payload = {}
+    scene.elements = [element]
+
+    gltf_path = tmp_path / "mean_test.gltf"
+    result = write_gltf(scene, gltf_path)
+    assert gltf_path.exists()
+    # Verify the position in the bin corresponds to (1.5, 2.5, 3.5)
+    bin_data = gltf_path.with_suffix(".bin").read_bytes()
+    x, y, z = struct.unpack_from("<fff", bin_data, 0)
+    assert abs(x - 1.5) < 1e-5
+    assert abs(y - 2.5) < 1e-5
+    assert abs(z - 3.5) < 1e-5
+
+
+def test_element_with_position_attribute_uses_position(tmp_path: Path) -> None:
+    """Line 57: element.position attribute used when element.mean is None."""
+    scene = MagicMock()
+    element = MagicMock()
+    element.carrier_id = "gaussian"
+    element.mean = None  # mean exists but is None
+    element.position = (4.0, 5.0, 6.0)
+    element.color = (0.5, 0.5, 0.5)
+    element.payload = {}
+    scene.elements = [element]
+
+    gltf_path = tmp_path / "position_test.gltf"
+    write_gltf(scene, gltf_path)
+    assert gltf_path.exists()
+    bin_data = gltf_path.with_suffix(".bin").read_bytes()
+    x, y, z = struct.unpack_from("<fff", bin_data, 0)
+    assert abs(x - 4.0) < 1e-5
+    assert abs(y - 5.0) < 1e-5
+    assert abs(z - 6.0) < 1e-5
+
+
+def test_element_with_payload_mean_uses_payload(tmp_path: Path) -> None:
+    """Lines 63-64: payload['mean'] path when element has no .mean/.position attrs."""
+    scene = MagicMock()
+    element = MagicMock()
+    element.carrier_id = "gaussian"
+    # Remove mean and position so hasattr returns False for both
+    del element.mean
+    del element.position
+    element.payload = {"mean": [7.0, 8.0, 9.0]}
+    element.color = (0.9, 0.1, 0.5)
+    # Remove bounds so only payload path is used
+    del element.bounds
+    scene.elements = [element]
+
+    gltf_path = tmp_path / "payload_mean_test.gltf"
+    write_gltf(scene, gltf_path)
+    assert gltf_path.exists()
+    bin_data = gltf_path.with_suffix(".bin").read_bytes()
+    x, y, z = struct.unpack_from("<fff", bin_data, 0)
+    assert abs(x - 7.0) < 1e-5
+    assert abs(y - 8.0) < 1e-5
+    assert abs(z - 9.0) < 1e-5
+
+
+def test_element_with_no_color_attribute_uses_default_gray(tmp_path: Path) -> None:
+    """Line 81: elements with no color attribute fall back to (0.8, 0.8, 0.8)."""
+    scene = MagicMock()
+    element = MagicMock()
+    element.carrier_id = "gaussian"
+    element.mean = (0.0, 0.0, 0.0)
+    element.color = None  # color is None
+    element.payload = {}
+    scene.elements = [element]
+
+    gltf_path = tmp_path / "no_color_test.gltf"
+    write_gltf(scene, gltf_path)
+    assert gltf_path.exists()
+    bin_data = gltf_path.with_suffix(".bin").read_bytes()
+    # Color is stored after position (offset 12 bytes = 1 * 12)
+    r, g, b = struct.unpack_from("<fff", bin_data, 12)
+    assert abs(r - 0.8) < 1e-5
+    assert abs(g - 0.8) < 1e-5
+    assert abs(b - 0.8) < 1e-5
+
+
+def test_element_with_no_position_info_is_skipped(tmp_path: Path) -> None:
+    """Line 72: element with no mean/position/bounds/payload-mean is skipped via continue."""
+    scene = MagicMock()
+    valid_element = MagicMock()
+    valid_element.carrier_id = "gaussian"
+    valid_element.mean = (1.0, 2.0, 3.0)
+    valid_element.color = (0.5, 0.5, 0.5)
+    valid_element.payload = {}
+
+    # Element with no positioning info
+    skip_element = MagicMock()
+    skip_element.carrier_id = "gaussian"
+    del skip_element.mean
+    del skip_element.position
+    del skip_element.bounds
+    skip_element.payload = {}  # no "mean" key
+
+    scene.elements = [valid_element, skip_element]
+    gltf_path = tmp_path / "skip_test.gltf"
+    write_gltf(scene, gltf_path)
+
+    # Only 1 element with valid position, so accessor count should be 1
+    data = json.loads(gltf_path.read_text(encoding="utf-8"))
+    assert data["accessors"][0]["count"] == 1

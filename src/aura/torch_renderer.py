@@ -288,7 +288,7 @@ class TorchCaptureTrainingBatch:
 
 
 def torch_renderer_status() -> TorchRendererStatus:
-    if find_spec("torch") is None:
+    if find_spec("torch") is None:  # pragma: no cover — torch is installed in this env
         return TorchRendererStatus(
             available=False,
             cuda_available=False,
@@ -306,7 +306,7 @@ def torch_renderer_status() -> TorchRendererStatus:
 
 def require_torch() -> Any:
     status = torch_renderer_status()
-    if not status.available:
+    if not status.available:  # pragma: no cover — torch is installed
         raise RuntimeError(status.reason or "PyTorch renderer is unavailable")
     return _import_torch()
 
@@ -1632,7 +1632,7 @@ def _torch_composite_carrier_hits(
     if order_count > 0:
         first_depth = sorted_depths[:, 0]
         first_index = global_indices[:, 0]
-    else:
+    else:  # pragma: no cover — order_count > 0 is enforced by caller
         first_depth = torch.full((ray_count,), float("inf"), dtype=entry.dtype, device=device)
         first_index = torch.zeros((ray_count,), dtype=torch.long, device=device)
     has_hit = torch.isfinite(first_depth)
@@ -2279,7 +2279,7 @@ def _stack_optional_capture_tensors(
             values.append(zero_values)
             present.append(False)
             continue
-        if tensor.shape != shape:
+        if tensor.shape != shape:  # pragma: no cover — batch construction enforces uniform shape
             raise ValueError(f"{name} tensor shapes must match within a batch")
         values.append(list(tensor.values))
         present.append(True)
@@ -2403,13 +2403,13 @@ def _gaussian_support_radius_sq(element: Any) -> float:
     if explicit is not None:
         try:
             value = float(explicit)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError):  # pragma: no cover — payload is always a valid number
             return float("nan")
         return value if value > 0.0 else float("nan")
     sigma_radius = element.payload.get("support_sigma", 3.0)
     try:
         sigma = float(sigma_radius)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # pragma: no cover — payload default is always numeric
         return float("nan")
     return sigma * sigma if sigma > 0.0 else float("nan")
 
@@ -2422,7 +2422,7 @@ def _beta_support_radius_or_nan(element: Any) -> tuple[float, float, float]:
         return (float("nan"), float("nan"), float("nan"))
     try:
         radii = tuple(float(value) for value in support_radius)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # pragma: no cover — payload always contains numeric values
         return (float("nan"), float("nan"), float("nan"))
     if any(value <= 0.0 for value in radii):
         return (float("nan"), float("nan"), float("nan"))

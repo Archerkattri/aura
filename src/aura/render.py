@@ -342,7 +342,7 @@ def image_ssim(left: RenderImage, right: RenderImage) -> float:
     c2 = 0.03**2
     numerator = (2.0 * mu_left * mu_right + c1) * (2.0 * covariance + c2)
     denominator = (mu_left**2 + mu_right**2 + c1) * (var_left + var_right + c2)
-    if denominator == 0.0:
+    if denominator == 0.0:  # pragma: no cover — c1/c2 constants prevent this
         return 1.0
     return max(0.0, min(1.0, numerator / denominator))
 

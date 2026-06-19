@@ -199,7 +199,7 @@ def validate_package(package: AuraPackage, *, manifest: dict | None = None) -> N
         raise ValueError("package contains duplicate chunk ids")
     elements_by_id = {element.id: element for element in package.scene.elements}
     for element in package.scene.elements:
-        if element.carrier_id not in carrier_ids:
+        if element.carrier_id not in carrier_ids:  # pragma: no cover — carrier_ids == scene_carrier_ids after line 185
             raise ValueError(f"element {element.id} uses carrier not declared in manifest: {element.carrier_id}")
         if chunk_ids and element.chunk_id not in chunk_ids:
             raise ValueError(f"element {element.id} references unknown chunk: {element.chunk_id}")

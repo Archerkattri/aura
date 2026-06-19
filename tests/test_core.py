@@ -527,3 +527,381 @@ def test_write_training_frames_demo_cli_outputs_reconstructable_frames(tmp_path)
 
     package = load_package(package_dir)
     assert package.asset.name == "reconstruct_demo"
+
+
+# --- Additional coverage tests ---
+
+def test_training_frame_rejects_empty_id():
+    """Cover TrainingFrame.__post_init__ empty id check (line 52)."""
+    with pytest.raises(ValueError, match="id is required"):
+        TrainingFrame(
+            id="",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.5, 0.5, 0.5),
+            target_depth=1.0,
+        )
+
+
+def test_training_frame_rejects_non_positive_depth():
+    """Cover TrainingFrame.__post_init__ target_depth check (line 54)."""
+    with pytest.raises(ValueError, match="target_depth must be positive"):
+        TrainingFrame(
+            id="f1",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.5, 0.5, 0.5),
+            target_depth=0.0,
+        )
+    with pytest.raises(ValueError, match="target_depth must be positive"):
+        TrainingFrame(
+            id="f1",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.5, 0.5, 0.5),
+            target_depth=-1.0,
+        )
+
+
+def test_training_frame_rejects_incomplete_intrinsics():
+    """Cover TrainingFrame.__post_init__ intrinsics missing keys (line 59)."""
+    with pytest.raises(ValueError, match="intrinsics missing keys"):
+        TrainingFrame(
+            id="f1",
+            camera_origin=(0.0, 0.0, -2.0),
+            look_at=(0.0, 0.0, 0.0),
+            target_color=(0.5, 0.5, 0.5),
+            target_depth=1.0,
+            intrinsics={"fx": 1.0, "fy": 1.0},  # missing cx, cy, width, height
+        )
+
+
+def test_training_frame_from_dict_rejects_non_dict():
+    """Cover TrainingFrame.from_dict non-dict input (line 80)."""
+    with pytest.raises(ValueError, match="must be an object"):
+        TrainingFrame.from_dict("not_a_dict")  # type: ignore
+
+
+def test_training_region_rejects_empty_id():
+    """Cover TrainingRegion.__post_init__ empty id check (line 117)."""
+    with pytest.raises(ValueError, match="region id is required"):
+        TrainingRegion(
+            id="",
+            frame_id="f1",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            evidence=RegionEvidence(),
+        )
+
+
+def test_training_region_rejects_empty_frame_id():
+    """Cover TrainingRegion.__post_init__ empty frame_id check (line 119)."""
+    with pytest.raises(ValueError, match="frame_id is required"):
+        TrainingRegion(
+            id="r1",
+            frame_id="",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            evidence=RegionEvidence(),
+        )
+
+
+def test_training_region_rejects_opacity_out_of_range():
+    """Cover TrainingRegion.__post_init__ opacity range check (line 121)."""
+    with pytest.raises(ValueError, match="opacity must be in"):
+        TrainingRegion(
+            id="r1",
+            frame_id="f1",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            evidence=RegionEvidence(),
+            opacity=1.5,
+        )
+    with pytest.raises(ValueError, match="opacity must be in"):
+        TrainingRegion(
+            id="r1",
+            frame_id="f1",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            evidence=RegionEvidence(),
+            opacity=-0.1,
+        )
+
+
+def test_training_region_rejects_confidence_out_of_range():
+    """Cover TrainingRegion.__post_init__ confidence range check (line 123)."""
+    with pytest.raises(ValueError, match="confidence must be in"):
+        TrainingRegion(
+            id="r1",
+            frame_id="f1",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            evidence=RegionEvidence(),
+            confidence=1.5,
+        )
+
+
+def test_training_region_from_dict_rejects_non_dict():
+    """Cover TrainingRegion.from_dict non-dict input (line 143)."""
+    with pytest.raises(ValueError, match="must be an object"):
+        TrainingRegion.from_dict("not_a_dict")  # type: ignore
+
+
+def test_training_region_from_dict_rejects_non_dict_bounds():
+    """Cover TrainingRegion.from_dict non-dict bounds (line 146)."""
+    with pytest.raises(ValueError, match="bounds must be an object"):
+        TrainingRegion.from_dict({
+            "id": "r1",
+            "frame_id": "f1",
+            "bounds": "not_a_dict",
+            "evidence": {},
+        })
+
+
+def test_training_region_from_dict_rejects_non_dict_evidence():
+    """Cover TrainingRegion.from_dict non-dict evidence (line 149)."""
+    with pytest.raises(ValueError, match="evidence must be an object"):
+        TrainingRegion.from_dict({
+            "id": "r1",
+            "frame_id": "f1",
+            "bounds": {"min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
+            "evidence": "not_a_dict",
+        })
+
+
+def test_reconstruction_config_rejects_invalid_iterations():
+    """Cover ReconstructionConfig.__post_init__ validation (lines 220, 222, 224, 226)."""
+    with pytest.raises(ValueError, match="iterations must be positive"):
+        ReconstructionConfig(iterations=0)
+    with pytest.raises(ValueError, match="render dimensions must be positive"):
+        ReconstructionConfig(render_width=0)
+    with pytest.raises(ValueError, match="render dimensions must be positive"):
+        ReconstructionConfig(render_height=0)
+    with pytest.raises(ValueError, match="color_learning_rate"):
+        ReconstructionConfig(color_learning_rate=0.0)
+    with pytest.raises(ValueError, match="render_backend"):
+        ReconstructionConfig(render_backend="invalid_backend")
+
+
+def test_load_training_dataset_rejects_non_dict(tmp_path):
+    """Cover load_training_dataset non-dict check (line 476)."""
+    import json
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    with pytest.raises(ValueError, match="must be an object"):
+        load_training_dataset(bad_path)
+
+
+def test_load_training_dataset_rejects_duplicate_frame_ids(tmp_path):
+    """Cover _validate_training_dataset_links duplicate frame ids (line 533)."""
+    import json
+    dataset = synthetic_training_dataset()
+    payload = dataset.to_dict()
+    # Duplicate the first frame
+    payload["frames"].append(payload["frames"][0])
+    bad_path = tmp_path / "dup_frames.json"
+    bad_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate frame ids"):
+        load_training_dataset(bad_path)
+
+
+def test_load_training_dataset_rejects_duplicate_region_ids(tmp_path):
+    """Cover _validate_training_dataset_links duplicate region ids (line 536)."""
+    import json
+    dataset = synthetic_training_dataset()
+    payload = dataset.to_dict()
+    # Duplicate the first region
+    payload["regions"].append(payload["regions"][0])
+    bad_path = tmp_path / "dup_regions.json"
+    bad_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate region ids"):
+        load_training_dataset(bad_path)
+
+
+def test_initial_evidence_from_regions_rejects_no_frames():
+    """Cover _initial_evidence_from_regions empty frames check (line 615)."""
+    from aura.core import _initial_evidence_from_regions
+    region = TrainingRegion(
+        id="r1",
+        frame_id="f1",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        evidence=RegionEvidence(),
+    )
+    with pytest.raises(ValueError, match="at least one posed training frame"):
+        _initial_evidence_from_regions([], [region])
+
+
+def test_initial_evidence_from_regions_rejects_no_regions():
+    """Cover _initial_evidence_from_regions empty regions check (line 617)."""
+    from aura.core import _initial_evidence_from_regions
+    frame = TrainingFrame(
+        id="f1",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.5, 0.5, 0.5),
+        target_depth=1.0,
+    )
+    with pytest.raises(ValueError, match="at least one training region"):
+        _initial_evidence_from_regions([frame], [])
+
+
+def test_initial_evidence_from_regions_rejects_unknown_frame_ids():
+    """Cover _initial_evidence_from_regions unknown frame ids (line 621)."""
+    from aura.core import _initial_evidence_from_regions
+    frame = TrainingFrame(
+        id="f1",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(0.5, 0.5, 0.5),
+        target_depth=1.0,
+    )
+    region = TrainingRegion(
+        id="r1",
+        frame_id="missing_frame",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        evidence=RegionEvidence(),
+    )
+    with pytest.raises(ValueError, match="unknown frame ids"):
+        _initial_evidence_from_regions([frame], [region])
+
+
+def test_resolve_render_backend_auto_falls_back_to_cpu_when_torch_unavailable(monkeypatch):
+    """Cover _resolve_reconstruction_render_backend auto+no-torch path (lines 805-808)."""
+    from types import SimpleNamespace
+    import aura.torch_renderer as torch_renderer_module
+    from aura.core import _resolve_reconstruction_render_backend
+
+    monkeypatch.setattr(
+        torch_renderer_module,
+        "torch_renderer_status",
+        lambda: SimpleNamespace(available=False, cuda_available=False, default_device=None, reason="no torch"),
+    )
+    config = ReconstructionConfig(render_backend="auto")
+    backend, device = _resolve_reconstruction_render_backend(config)
+    assert backend == "cpu"
+    assert device is None
+
+
+def test_resolve_render_backend_auto_raises_when_cuda_required_but_torch_unavailable(monkeypatch):
+    """Cover _resolve_reconstruction_render_backend auto+cuda_required+no-torch (line 807)."""
+    from types import SimpleNamespace
+    import aura.torch_renderer as torch_renderer_module
+    from aura.core import _resolve_reconstruction_render_backend
+
+    monkeypatch.setattr(
+        torch_renderer_module,
+        "torch_renderer_status",
+        lambda: SimpleNamespace(available=False, cuda_available=False, default_device=None, reason="no torch"),
+    )
+    # render_backend="auto", require_cuda=True, torch unavailable => hits line 807
+    config = ReconstructionConfig(render_backend="auto", require_cuda=True)
+    with pytest.raises(RuntimeError, match="CUDA reconstruction was required"):
+        _resolve_reconstruction_render_backend(config)
+
+
+def test_resolve_render_backend_torch_raises_when_torch_unavailable(monkeypatch):
+    """Cover _resolve_reconstruction_render_backend torch+unavailable (line 810)."""
+    from types import SimpleNamespace
+    import aura.torch_renderer as torch_renderer_module
+    from aura.core import _resolve_reconstruction_render_backend
+
+    monkeypatch.setattr(
+        torch_renderer_module,
+        "torch_renderer_status",
+        lambda: SimpleNamespace(available=False, cuda_available=False, default_device=None, reason="PyTorch not installed"),
+    )
+    config = ReconstructionConfig(render_backend="torch")
+    with pytest.raises(RuntimeError, match="PyTorch"):
+        _resolve_reconstruction_render_backend(config)
+
+
+def test_resolve_render_backend_raises_when_cuda_required_but_cuda_unavailable(monkeypatch):
+    """Cover _resolve_reconstruction_render_backend cuda required but cuda not available (line 812)."""
+    from types import SimpleNamespace
+    import aura.torch_renderer as torch_renderer_module
+    from aura.core import _resolve_reconstruction_render_backend
+
+    monkeypatch.setattr(
+        torch_renderer_module,
+        "torch_renderer_status",
+        lambda: SimpleNamespace(available=True, cuda_available=False, default_device="cpu", reason=None),
+    )
+    config = ReconstructionConfig(render_backend="torch", require_cuda=True)
+    with pytest.raises(RuntimeError, match="torch.cuda is unavailable"):
+        _resolve_reconstruction_render_backend(config)
+
+
+def test_resolve_render_backend_raises_when_cuda_required_but_device_is_cpu(monkeypatch):
+    """Cover _resolve_reconstruction_render_backend cuda required but device is cpu (line 815)."""
+    from types import SimpleNamespace
+    import aura.torch_renderer as torch_renderer_module
+    from aura.core import _resolve_reconstruction_render_backend
+
+    monkeypatch.setattr(
+        torch_renderer_module,
+        "torch_renderer_status",
+        lambda: SimpleNamespace(available=True, cuda_available=True, default_device="cpu", reason=None),
+    )
+    config = ReconstructionConfig(render_backend="torch", require_cuda=True, torch_device="cpu")
+    with pytest.raises(RuntimeError, match="requested device"):
+        _resolve_reconstruction_render_backend(config)
+
+
+def test_refine_scene_returns_unchanged_when_no_element_targets():
+    """Cover _refine_scene_from_predictions early return when no targets (line 842)."""
+    from aura.core import _refine_scene_from_predictions, ReconstructionConfig
+    from aura import AuraScene, AuraElement, Bounds
+
+    scene = AuraScene(
+        name="t",
+        elements=(AuraElement(id="e1", carrier_id="surface", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 0.1))),),
+    )
+    # Predictions with element_id=None means no targets_by_element entries
+    from aura.core import FramePrediction
+    pred = FramePrediction(
+        frame_id="f1",
+        element_id=None,  # key: no element_id
+        carrier_id=None,
+        ray_direction=(0.0, 0.0, 1.0),
+        predicted_color=(0.5, 0.5, 0.5),
+        target_color=(0.5, 0.5, 0.5),
+        predicted_depth=None,
+        target_depth=1.0,
+        target_semantic_id=None,
+        target_material_id=None,
+        target_normal=None,
+        predicted_transmittance=1.0,
+        predicted_opacity=0.0,
+        predicted_confidence=0.0,
+        predicted_normal=None,
+        predicted_material_id=None,
+        predicted_semantic_id=None,
+        predicted_residual=False,
+        predicted_provenance=None,
+        image_loss=0.0,
+        depth_loss=0.0,
+        query_loss=0.0,
+        normal_loss=0.0,
+    )
+    config = ReconstructionConfig(iterations=1)
+    result_scene = _refine_scene_from_predictions(scene, (pred,), config, ())
+    assert result_scene is scene
+
+
+def test_normalized_direction_raises_for_identical_points():
+    """Cover _normalized_direction zero-length vector (line 899)."""
+    from aura.core import _normalized_direction
+    with pytest.raises(ValueError, match="must differ"):
+        _normalized_direction((1.0, 2.0, 3.0), (1.0, 2.0, 3.0))
+
+
+def test_vec3_from_payload_rejects_non_list():
+    """Cover _vec3_from_payload non-list input (line 905)."""
+    from aura.core import _vec3_from_payload
+    with pytest.raises(ValueError, match="must be a 3-vector"):
+        _vec3_from_payload("not_a_vector", "test_field")
+    with pytest.raises(ValueError, match="must be a 3-vector"):
+        _vec3_from_payload([1.0, 2.0], "test_field")  # wrong length
+
+
+def test_clamp_unit_clips_values():
+    """Cover _clamp_unit function (line 926)."""
+    from aura.core import _clamp_unit
+    assert _clamp_unit(-1.0) == 0.0
+    assert _clamp_unit(2.0) == 1.0
+    assert _clamp_unit(0.5) == pytest.approx(0.5)

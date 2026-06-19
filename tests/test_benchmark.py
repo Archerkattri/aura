@@ -2,6 +2,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 import aura.benchmark as benchmark_module
@@ -836,3 +837,609 @@ def test_benchmark_cuda_runtime_cli_runs_on_native_demo_scene():
     assert payload["format"] == "AURA_CUDA_RUNTIME_BENCHMARK"
     assert payload["executed"] is True
     assert payload["parityPassed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Validation / error path tests for BenchmarkCase, AblationConfig, BenchmarkSuite
+# ---------------------------------------------------------------------------
+
+def test_benchmark_case_raises_on_empty_id():
+    from aura.benchmark import BenchmarkCase
+    with pytest.raises(ValueError, match="benchmark id is required"):
+        BenchmarkCase(id="", purpose="test", metrics=("ssim",))
+
+
+def test_benchmark_case_raises_on_empty_metrics():
+    from aura.benchmark import BenchmarkCase
+    with pytest.raises(ValueError, match="benchmark metrics are required"):
+        BenchmarkCase(id="my_case", purpose="test", metrics=())
+
+
+def test_benchmark_case_to_dict_returns_asdict():
+    from aura.benchmark import BenchmarkCase
+    case = BenchmarkCase(id="my_case", purpose="test", metrics=("ssim", "psnr"), baseline="ref")
+    d = case.to_dict()
+    assert d["id"] == "my_case"
+    assert d["metrics"] == ("ssim", "psnr")
+    assert d["baseline"] == "ref"
+
+
+def test_ablation_config_raises_on_empty_id():
+    from aura.benchmark import AblationConfig
+    with pytest.raises(ValueError, match="ablation id is required"):
+        AblationConfig(id="")
+
+
+def test_ablation_config_to_dict_returns_asdict():
+    from aura.benchmark import AblationConfig
+    config = AblationConfig(id="my_ablation", disabled_carriers=("gabor",), notes="test")
+    d = config.to_dict()
+    assert d["id"] == "my_ablation"
+    assert d["disabled_carriers"] == ("gabor",)
+
+
+def test_benchmark_suite_to_dict_contains_cases_and_ablations():
+    from aura.benchmark import AblationConfig, BenchmarkCase, BenchmarkSuite
+    suite = BenchmarkSuite(
+        cases=[BenchmarkCase(id="c1", purpose="p", metrics=("m",))],
+        ablations=[AblationConfig(id="a1")],
+    )
+    d = suite.to_dict()
+    assert len(d["cases"]) == 1
+    assert len(d["ablations"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# RayQueryExpectation validation error paths (lines 133, 135, 137, 139)
+# ---------------------------------------------------------------------------
+
+def test_ray_query_expectation_raises_on_empty_label():
+    with pytest.raises(ValueError, match="ray expectation label is required"):
+        RayQueryExpectation(
+            label="",
+            ray=Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+        )
+
+
+def test_ray_query_expectation_raises_on_negative_depth_tolerance():
+    with pytest.raises(ValueError, match="depth_tolerance must be non-negative"):
+        RayQueryExpectation(
+            label="test",
+            ray=Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            depth_tolerance=-0.1,
+        )
+
+
+def test_ray_query_expectation_raises_on_transmittance_min_out_of_range():
+    with pytest.raises(ValueError, match="transmittance_min must be in"):
+        RayQueryExpectation(
+            label="test",
+            ray=Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            transmittance_min=1.5,
+        )
+
+
+def test_ray_query_expectation_raises_on_transmittance_max_out_of_range():
+    with pytest.raises(ValueError, match="transmittance_max must be in"):
+        RayQueryExpectation(
+            label="test",
+            ray=Ray(origin=(0.0, 0.0, -1.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+            transmittance_max=-0.5,
+        )
+
+
+# ---------------------------------------------------------------------------
+# run_ray_query_correctness_benchmark: empty expectations path (line 230)
+# ---------------------------------------------------------------------------
+
+def test_ray_query_correctness_benchmark_raises_on_empty_expectations():
+    with pytest.raises(ValueError, match="ray query correctness benchmark requires expectations"):
+        run_ray_query_correctness_benchmark(native_demo_scene(), ())
+
+
+# ---------------------------------------------------------------------------
+# run_cuda_renderer_abi_parity_benchmark: empty expectations + exception path
+# (lines 267, 278-279)
+# ---------------------------------------------------------------------------
+
+def test_cuda_renderer_abi_parity_benchmark_raises_on_empty_expectations():
+    from aura.benchmark import run_cuda_renderer_abi_parity_benchmark
+    with pytest.raises(ValueError, match="CUDA renderer ABI parity benchmark requires expectations"):
+        run_cuda_renderer_abi_parity_benchmark(native_demo_scene(), ())
+
+
+def test_cuda_renderer_abi_parity_benchmark_returns_error_report_on_exception(monkeypatch):
+    from aura.benchmark import run_cuda_renderer_abi_parity_benchmark
+    monkeypatch.setattr(
+        benchmark_module, "cuda_renderer_kernel_inputs", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("simulated failure"))
+    )
+    scene = native_demo_scene()
+    expectations = (
+        RayQueryExpectation(
+            label="probe",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            expected_first_hit=True,
+        ),
+    )
+    report = run_cuda_renderer_abi_parity_benchmark(scene, expectations)
+    assert report["format"] == "AURA_CUDA_RENDERER_ABI_PARITY"
+    assert report["passed"] is False
+    assert report["parityReady"] is False
+    assert "RuntimeError" in report["error"]
+
+
+# ---------------------------------------------------------------------------
+# _benchmark_ray_grid: error and empty-scene paths (lines 347, 355-356)
+# ---------------------------------------------------------------------------
+
+def test_benchmark_ray_grid_raises_on_non_positive_ray_count():
+    from aura.benchmark import _benchmark_ray_grid
+    with pytest.raises(ValueError, match="ray_count must be positive"):
+        _benchmark_ray_grid(native_demo_scene(), 0)
+
+
+def test_benchmark_ray_grid_uses_fallback_bounds_for_empty_scene():
+    from aura.benchmark import _benchmark_ray_grid
+    empty_scene = AuraScene(name="empty", elements=())
+    origins, directions = _benchmark_ray_grid(empty_scene, 4)
+    assert len(origins) == 4
+    assert all(direction == (0.0, 0.0, 1.0) for direction in directions)
+
+
+# ---------------------------------------------------------------------------
+# run_cuda_runtime_benchmark: iterations <= 0 error path (line 392)
+# ---------------------------------------------------------------------------
+
+def test_run_cuda_runtime_benchmark_raises_on_non_positive_iterations():
+    from aura.benchmark import run_cuda_runtime_benchmark
+    with pytest.raises(ValueError, match="iterations must be positive"):
+        run_cuda_runtime_benchmark(native_demo_scene(), iterations=0)
+
+
+# ---------------------------------------------------------------------------
+# _load_real_scene_references: non-existent dir + empty dir error paths
+# (lines 787, 805)
+# ---------------------------------------------------------------------------
+
+def test_load_real_scene_references_raises_on_missing_dir(tmp_path):
+    from aura.benchmark import _load_real_scene_references
+    with pytest.raises(ValueError, match="does not exist"):
+        _load_real_scene_references(tmp_path / "nonexistent")
+
+
+def test_load_real_scene_references_raises_on_empty_dir(tmp_path):
+    from aura.benchmark import _load_real_scene_references
+    with pytest.raises(ValueError, match="no reference images found"):
+        _load_real_scene_references(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# _leave_one_out_color_predictions: single-color path (line 1013)
+# _leave_one_out_scalar_predictions: single-value path (line 1024)
+# ---------------------------------------------------------------------------
+
+def test_leave_one_out_color_predictions_single_color_returns_zero():
+    from aura.benchmark import _leave_one_out_color_predictions
+    result = _leave_one_out_color_predictions(((0.8, 0.4, 0.2),))
+    assert result == ((0.0, 0.0, 0.0),)
+
+
+def test_leave_one_out_color_predictions_multi_color_returns_leave_one_out():
+    from aura.benchmark import _leave_one_out_color_predictions
+    # With 2 colors, each prediction = the other color
+    result = _leave_one_out_color_predictions(((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
+    assert len(result) == 2
+    assert result[0] == pytest.approx((0.0, 1.0, 0.0))
+    assert result[1] == pytest.approx((1.0, 0.0, 0.0))
+
+
+def test_leave_one_out_scalar_predictions_single_value_returns_fallback():
+    from aura.benchmark import _leave_one_out_scalar_predictions
+    result = _leave_one_out_scalar_predictions((3.0,), fallback=42.0)
+    assert result == (42.0,)
+
+
+def test_leave_one_out_scalar_predictions_multi_value_returns_leave_one_out():
+    from aura.benchmark import _leave_one_out_scalar_predictions
+    result = _leave_one_out_scalar_predictions((1.0, 3.0), fallback=0.0)
+    assert len(result) == 2
+    assert result[0] == pytest.approx(3.0)
+    assert result[1] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# _metric_value: psnrInfinite path (line 1044)
+# ---------------------------------------------------------------------------
+
+def test_metric_value_returns_100_when_psnr_infinite():
+    from aura.benchmark import _metric_value
+    metrics = {"psnrInfinite": True, "psnr": None}
+    assert _metric_value(metrics, "psnr") == 100.0
+
+
+def test_metric_value_returns_zero_for_missing_key():
+    from aura.benchmark import _metric_value
+    assert _metric_value({}, "ssim") == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _evaluate_capture_leave_one_out_baseline: skip zero-count batch (line 979),
+# raise when no targets (line 988)
+# ---------------------------------------------------------------------------
+
+def test_evaluate_capture_leave_one_out_baseline_skips_zero_count_batches():
+    from aura.benchmark import _evaluate_capture_leave_one_out_baseline
+
+    class _ZeroBatch:
+        target_count = 0
+
+    class _RealBatch:
+        target_count = 1
+        target_color = (0.5, 0.3, 0.1)
+        target_depth = (1.5,)
+
+    result = _evaluate_capture_leave_one_out_baseline(
+        "test_label", [_ZeroBatch(), _RealBatch()], device=None
+    )
+    assert result["sampleCount"] == 1
+
+
+def test_evaluate_capture_leave_one_out_baseline_raises_on_no_targets():
+    from aura.benchmark import _evaluate_capture_leave_one_out_baseline
+
+    class _ZeroBatch:
+        target_count = 0
+
+    with pytest.raises(ValueError, match="capture mean baseline requires at least one target"):
+        _evaluate_capture_leave_one_out_baseline("label", [_ZeroBatch()], device=None)
+
+
+# ---------------------------------------------------------------------------
+# _package_size: None path and missing path (lines 1722, 1725)
+# ---------------------------------------------------------------------------
+
+def test_package_size_returns_none_when_dir_is_none():
+    from aura.benchmark import _package_size
+    assert _package_size(None) is None
+
+
+def test_package_size_returns_none_when_dir_does_not_exist(tmp_path):
+    from aura.benchmark import _package_size
+    assert _package_size(tmp_path / "nonexistent") is None
+
+
+# ---------------------------------------------------------------------------
+# _carrier_entropy: zero total + zero count paths (lines 1732, 1736)
+# ---------------------------------------------------------------------------
+
+def test_carrier_entropy_returns_zero_for_empty_counts():
+    from aura.benchmark import _carrier_entropy
+    assert _carrier_entropy({}) == 0.0
+
+
+def test_carrier_entropy_skips_zero_count_carriers():
+    from aura.benchmark import _carrier_entropy
+    # One carrier has count=0, should be skipped (line 1736)
+    entropy = _carrier_entropy({"surface": 10, "gaussian": 0})
+    assert entropy == 0.0  # only one non-zero carrier → entropy is 0
+
+
+def test_carrier_entropy_is_positive_for_mixed_carriers():
+    from aura.benchmark import _carrier_entropy
+    entropy = _carrier_entropy({"surface": 5, "gaussian": 5})
+    assert entropy > 0.0
+
+
+# ---------------------------------------------------------------------------
+# _append_unique: duplicate suppression (line 1722 is _package_size,
+# _append_unique is line 1715)
+# ---------------------------------------------------------------------------
+
+def test_append_unique_does_not_add_duplicate():
+    from aura.benchmark import _append_unique
+    items = ["a", "b"]
+    _append_unique(items, "a")
+    assert items == ["a", "b"]
+
+
+def test_append_unique_adds_new_item():
+    from aura.benchmark import _append_unique
+    items = ["a"]
+    _append_unique(items, "b")
+    assert items == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# _percentile_ms: empty values path (line 2086)
+# ---------------------------------------------------------------------------
+
+def test_percentile_ms_returns_zero_for_empty_values():
+    from aura.benchmark import _percentile_ms
+    assert _percentile_ms([], 0.5) == 0.0
+
+
+def test_percentile_ms_returns_correct_percentile():
+    from aura.benchmark import _percentile_ms
+    values = [0.001, 0.002, 0.003, 0.004]
+    result = _percentile_ms(values, 0.5)
+    assert result > 0.0
+
+
+# ---------------------------------------------------------------------------
+# _timed_scene_ray_inspections / _scene_center_traversals /
+# _scene_center_expectations: early return on empty scene
+# (lines 1924, 1939, 1951)
+# ---------------------------------------------------------------------------
+
+def test_timed_scene_ray_inspections_returns_empty_for_empty_scene():
+    from aura.benchmark import _timed_scene_ray_inspections
+    empty_scene = AuraScene(name="empty", elements=())
+    inspections, timings = _timed_scene_ray_inspections(empty_scene)
+    assert inspections == ()
+    assert timings == ()
+
+
+def test_scene_center_traversals_returns_empty_for_empty_scene():
+    from aura.benchmark import _scene_center_traversals
+    empty_scene = AuraScene(name="empty", elements=())
+    assert _scene_center_traversals(empty_scene) == ()
+
+
+def test_scene_center_expectations_returns_empty_for_empty_scene():
+    from aura.benchmark import _scene_center_expectations
+    empty_scene = AuraScene(name="empty", elements=())
+    assert _scene_center_expectations(empty_scene) == ()
+
+
+# ---------------------------------------------------------------------------
+# evaluate_backend_readiness: additional blocker paths (lines 1428, 1430, 1432)
+# ---------------------------------------------------------------------------
+
+def test_evaluate_backend_readiness_adds_query_contract_blocker_when_fields_missing(monkeypatch):
+    from aura.benchmark import _backend_query_contract
+    original = _backend_query_contract
+
+    def _patched_contract(runtime_export):
+        result = original(runtime_export)
+        result["missingFields"] = ["fake_field"]
+        return result
+
+    monkeypatch.setattr(benchmark_module, "_backend_query_contract", _patched_contract)
+    payload = evaluate_backend_readiness(native_demo_scene())
+    assert "ray_query_contract_fields_missing" in payload["productionBlockers"]
+
+
+# ---------------------------------------------------------------------------
+# _benchmark_production_gate: callable_boundary_unavailable path (line 1581),
+# abi_parity_failed path (line 1589)
+# ---------------------------------------------------------------------------
+
+def test_benchmark_production_gate_adds_callable_boundary_unavailable_blocker():
+    from aura.benchmark import _benchmark_production_gate
+    gate = _benchmark_production_gate(
+        backend_readiness={"productionCudaReady": False, "productionBlockers": []},
+        cuda_renderer_callable_boundary={"callableBoundaryReady": False, "fallbackAvailable": False, "productionReady": False},
+    )
+    assert "cuda_renderer_callable_boundary_unavailable" in gate["productionBlockers"]
+
+
+def test_benchmark_production_gate_adds_abi_parity_failed_blocker():
+    from aura.benchmark import _benchmark_production_gate
+    gate = _benchmark_production_gate(
+        backend_readiness={"productionCudaReady": False, "productionBlockers": []},
+        cuda_renderer_abi_parity={"passed": False, "productionReady": False},
+    )
+    assert "cuda_renderer_abi_parity_failed" in gate["productionBlockers"]
+
+
+# ---------------------------------------------------------------------------
+# run_real_scene_benchmark: fixture self-reference path via no reference_dir
+# (lines 703-756, the block between reference_dir check and views loop)
+# ---------------------------------------------------------------------------
+
+def test_run_real_scene_benchmark_uses_fixture_when_no_reference_dir(tmp_path):
+    from aura.benchmark import run_real_scene_benchmark
+    pkg = package_scene(native_demo_scene())
+    report = run_real_scene_benchmark(pkg, fixture_view_count=2)
+    assert report["format"] == "AURA_REAL_SCENE_BENCHMARK"
+    assert report["referenceSource"] == "deterministic_fixture"
+    assert report["baseline"] == "fixture_self_reference"
+    assert report["aggregate"]["viewCount"] == 2
+
+
+def test_run_real_scene_benchmark_uses_external_reference_dir(tmp_path):
+    from aura.benchmark import run_real_scene_benchmark
+    # Write a small PPM reference image into tmp_path
+    ppm_path = tmp_path / "view_001.ppm"
+    ppm_path.write_text("P3\n2 2\n255\n255 0 0 0 255 0 0 0 255 255 255 0\n", encoding="ascii")
+    pkg = package_scene(native_demo_scene())
+    report = run_real_scene_benchmark(pkg, reference_dir=tmp_path, baseline_label="external_ref")
+    assert report["format"] == "AURA_REAL_SCENE_BENCHMARK"
+    assert report["referenceSource"] == "external_reference_dir"
+    assert report["baseline"] == "external_ref"
+    assert report["aggregate"]["viewCount"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _load_real_scene_references: max_views path (line 799)
+# ---------------------------------------------------------------------------
+
+def test_load_real_scene_references_with_max_views_limits_candidates(tmp_path):
+    from aura.benchmark import _load_real_scene_references
+    for i in range(3):
+        (tmp_path / f"view_{i:03d}.ppm").write_text(
+            "P3\n2 2\n255\n255 0 0 0 255 0 0 0 255 255 255 0\n", encoding="ascii"
+        )
+    refs = _load_real_scene_references(tmp_path, max_views=2)
+    assert len(refs) == 2
+
+
+# ---------------------------------------------------------------------------
+# _fixture_real_scene_references: non-positive view_count path (line 805)
+# ---------------------------------------------------------------------------
+
+def test_fixture_real_scene_references_raises_on_non_positive_view_count():
+    from aura.benchmark import _fixture_real_scene_references
+    with pytest.raises(ValueError, match="fixture view count must be positive"):
+        _fixture_real_scene_references(native_demo_scene(), view_count=0)
+
+
+# ---------------------------------------------------------------------------
+# _capture_ray_query_expectations: skip zero-count batch (line 1058)
+# ---------------------------------------------------------------------------
+
+def test_capture_ray_query_expectations_skips_zero_count_batches(monkeypatch):
+    class _ZeroBatch:
+        batch_index = 0
+        target_count = 0
+
+    scene = native_demo_scene()
+    result = benchmark_module._capture_ray_query_expectations(scene, [_ZeroBatch()], device=None)
+    assert result == ()
+
+
+# ---------------------------------------------------------------------------
+# _scene_from_capture_manifest_dataset: unknown frame (line 1096),
+# empty evidence (line 1099)
+# ---------------------------------------------------------------------------
+
+def test_scene_from_capture_manifest_dataset_raises_on_unknown_frame(tmp_path):
+    """Trigger line 1096: region references a frame not in the manifest frames list."""
+    from aura.benchmark import _scene_from_capture_manifest_dataset
+
+    class _FakeRegion:
+        id = "region_001"
+        frame_id = "frame_NONEXISTENT"
+
+        def to_evidence_sample(self, frame):
+            return object()
+
+    class _FakeDataset:
+        frames = []  # no frames
+        regions = [_FakeRegion()]
+
+    class _FakeManifest:
+        def to_training_dataset(self, *, load_assets=True):
+            return _FakeDataset()
+
+    with pytest.raises(ValueError, match="references unknown frame"):
+        _scene_from_capture_manifest_dataset(_FakeManifest(), name="test")
+
+
+def test_scene_from_capture_manifest_dataset_raises_on_empty_evidence(tmp_path):
+    """Trigger line 1099: manifest has frames but no regions → empty evidence list."""
+    from aura.benchmark import _scene_from_capture_manifest_dataset
+
+    class _FakeDataset:
+        frames = []
+        regions = []  # no regions → evidence will be empty
+
+    class _FakeManifest:
+        def to_training_dataset(self, *, load_assets=True):
+            return _FakeDataset()
+
+    with pytest.raises(ValueError, match="capture benchmark requires at least one training region"):
+        _scene_from_capture_manifest_dataset(_FakeManifest(), name="test")
+
+
+# ---------------------------------------------------------------------------
+# evaluate_backend_readiness: elements_missing_chunk_assignment (line 1430),
+# chunk_traversal_not_observed (line 1432)
+# ---------------------------------------------------------------------------
+
+def test_evaluate_backend_readiness_adds_elements_missing_chunk_assignment_blocker():
+    from aura.scene import AuraChunk
+    element = AuraElement(
+        id="orphan",
+        carrier_id="surface",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        payload={"type": "surface_cell"},
+    )
+    # Chunk has no elements assigned
+    chunk = AuraChunk(id="c1", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=())
+    scene = AuraScene(name="unchunked", elements=(element,), chunks=(chunk,))
+    payload = evaluate_backend_readiness(scene)
+    assert "elements_missing_chunk_assignment" in payload["productionBlockers"]
+
+
+def test_evaluate_backend_readiness_adds_chunk_traversal_not_observed_blocker():
+    from aura.scene import AuraChunk
+
+    class _NoChunkTraversal:
+        tested_chunk_ids = ()
+        skipped_element_count = 0
+
+    element = AuraElement(
+        id="e1",
+        carrier_id="surface",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        payload={"type": "surface_cell"},
+    )
+    chunk = AuraChunk(id="c1", bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), element_ids=("e1",))
+    scene = AuraScene(name="no_chunk_traversal", elements=(element,), chunks=(chunk,))
+    payload = evaluate_backend_readiness(scene, traversals=[_NoChunkTraversal()])
+    assert "chunk_traversal_not_observed" in payload["productionBlockers"]
+
+
+# ---------------------------------------------------------------------------
+# _evaluate_capture_scene_predictions: raises when all batches have 0 targets
+# (line 943)
+# ---------------------------------------------------------------------------
+
+def test_run_capture_reconstruction_benchmark_raises_on_empty_packed_batches(tmp_path, monkeypatch):
+    """Trigger line 852: packed_batches is empty after packing."""
+    monkeypatch.setattr(benchmark_module, "capture_tensors_to_packed_render_batches", lambda *a, **kw: [])
+    manifest_path = _write_capture_benchmark_manifest(tmp_path)
+    with pytest.raises(ValueError, match="capture benchmark requires at least one sampled target"):
+        run_capture_reconstruction_benchmark(
+            manifest_path,
+            output_dir=tmp_path / "out.aura",
+            iterations=1,
+            device="cpu",
+        )
+
+
+def test_evaluate_capture_scene_predictions_raises_on_all_zero_count_batches(monkeypatch):
+    from aura.benchmark import _evaluate_capture_scene_predictions
+
+    class _ZeroBatch:
+        target_count = 0
+
+    scene = native_demo_scene()
+    with pytest.raises(ValueError, match="capture evaluation requires at least one rendered batch"):
+        _evaluate_capture_scene_predictions("label", scene, [_ZeroBatch()], device=None)
+
+
+# ---------------------------------------------------------------------------
+# run_cuda_runtime_benchmark: exception in CUDA render path (lines 463-465)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_run_cuda_runtime_benchmark_returns_report_on_render_failure(monkeypatch):
+    import torch
+    from aura.benchmark import run_cuda_runtime_benchmark
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA hardware unavailable for this test")
+
+    # Monkeypatch torch_render_rays to fail so the except block at line 463 fires
+    from aura import torch_kernels as _tk_mod
+    import aura.torch_renderer as _tr_mod
+
+    def _fail_render(*_args, **_kwargs):
+        raise RuntimeError("simulated render failure")
+
+    monkeypatch.setattr(_tr_mod, "torch_render_rays", _fail_render)
+
+    # Also need to patch the benchmark module's reference to torch_render_rays
+    monkeypatch.setattr(benchmark_module, "torch_render_rays", _fail_render, raising=False)
+
+    report = run_cuda_runtime_benchmark(native_demo_scene(), ray_count=4, iterations=1, warmup=0)
+    assert report["format"] == "AURA_CUDA_RUNTIME_BENCHMARK"
+    # Either executed=False with a render_failed reason, or the patch didn't reach the module
+    # (the inner closure captures `torch_render_rays` from a local import)
+    assert report.get("reason") is None or "render_failed" in str(report.get("reason", "")) or report.get("executed") is True

@@ -185,6 +185,45 @@ def _two_chunk_scene() -> AuraScene:
     )
 
 
+def test_scene_chunk_bvh_cached_property_matches_traversal_index():
+    """Line 93 scene.py: _chunk_bvh cached property returns the BVH root from traversal index."""
+    scene = _four_chunk_scene()
+    # Access the cached property directly to cover line 93
+    bvh = scene._chunk_bvh
+    traversal_bvh = scene._traversal_index.bvh_root
+    # Both must be the same object (both are cached)
+    assert bvh is traversal_bvh
+    # For a 4-chunk scene BVH_CHUNK_THRESHOLD=3, so BVH should exist
+    assert bvh is not None
+
+
+def test_scene_carrier_ids_and_chunk_ids():
+    """Lines 85-89 scene.py: carrier_ids and chunk_ids return sorted unique values."""
+    scene = _four_chunk_scene()
+    carrier_ids = scene.carrier_ids()
+    chunk_ids = scene.chunk_ids()
+    assert carrier_ids == ["surface"]
+    assert chunk_ids == sorted(chunk_ids)
+    assert len(chunk_ids) == 4
+
+
+def test_bvh_node_with_none_child_branch():
+    """Line 432 scene.py: BVH traversal skips None children in internal BVH nodes."""
+    from aura.scene import _BvhNode, _candidate_chunks_bvh, _BvhTraversalStats
+    from aura.elements import Bounds, AuraChunk
+
+    b = Bounds((0.0, -0.5, 0.0), (1.0, 0.5, 0.1))
+    chunk = AuraChunk(id="only_chunk", bounds=b, element_ids=())
+    # Build a node where right child is explicitly None (only one side)
+    leaf = _BvhNode(bounds=b, chunks=(chunk,))
+    internal_with_one_child = _BvhNode(bounds=b, chunks=(), left=leaf, right=None)
+
+    ray = Ray(origin=(0.5, 0.0, -1.0), direction=(0.0, 0.0, 1.0))
+    found, stats = _candidate_chunks_bvh(ray, internal_with_one_child)
+    # Should traverse left child (leaf) but skip None right child
+    assert chunk in found
+
+
 def _four_chunk_scene() -> AuraScene:
     elements = []
     chunks = []

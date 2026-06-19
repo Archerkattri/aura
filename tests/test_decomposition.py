@@ -369,3 +369,31 @@ def test_beta_and_gabor_payloads_affect_query_contract():
     assert gabor_peak is not None
     assert gabor_trough is not None
     assert gabor_peak.color[0] > gabor_trough.color[0]
+
+
+def test_decompose_evidence_empty_samples_returns_empty_scene():
+    """Line 49: empty samples list returns AuraScene with no elements."""
+    from aura import decompose_evidence
+    scene = decompose_evidence([], name="empty_test")
+    assert scene.name == "empty_test"
+    assert len(scene.elements) == 0
+    assert len(scene.chunks) == 0
+
+
+def test_semantic_carrier_element_with_no_label_uses_sample_id():
+    """Line 256: when carrier is 'semantic' and semantic_label is None, label = sample.id."""
+    from aura import EvidenceSample, Bounds, RegionEvidence, decompose_evidence
+    # semantic_confidence=0.95 triggers semantic carrier; semantic_label=None triggers line 256
+    sample = EvidenceSample(
+        id="tooth_mystery",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        evidence=RegionEvidence(semantic_confidence=0.95),
+        semantic_label=None,  # <- this is what we test
+    )
+    scene = decompose_evidence([sample], name="semantic_no_label")
+    # The element should have carrier_id="semantic"
+    el = scene.elements[0]
+    assert el.carrier_id == "semantic"
+    # The semantic graph should use sample.id as the label
+    labels = [n.label for n in scene.semantic_graph.nodes]
+    assert "tooth_mystery" in labels

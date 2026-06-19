@@ -144,7 +144,7 @@ def run_memory_stability_probe(
         cuda.synchronize()
         cuda_end = int(cuda.memory_allocated())
 
-    if not samples:
+    if not samples:  # pragma: no cover — loop always appends at least once (index == iterations)
         samples = [int(peak_current)]
     half = max(1, len(samples) // 2)
     early = samples[:half]

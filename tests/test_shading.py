@@ -640,3 +640,66 @@ class TestRenderWithShadingIntegration:
         # Should not crash; may or may not differ depending on LUT values
         assert result_no_lut.shape == result_with_lut.shape
         assert not torch.isnan(result_with_lut).any()
+
+
+class TestApplyShadingUnknownStage:
+    """Line 417: apply_shading returns color unchanged for unknown stage."""
+
+    def test_unknown_stage_returns_color_unchanged(self):
+        """Line 417: else branch returns color tensor unchanged."""
+        torch = _import_torch()
+        from aura.shading import ShadingConfig, apply_shading
+
+        N = 4
+        color = torch.rand(N, 3)
+        albedo = torch.rand(N, 3)
+        normals = torch.randn(N, 3)
+        normals = normals / torch.linalg.norm(normals, dim=-1, keepdim=True)
+        normal_present = torch.ones(N, dtype=torch.bool)
+        view_dir = torch.randn(N, 3)
+        view_dir = view_dir / torch.linalg.norm(view_dir, dim=-1, keepdim=True)
+        roughness = torch.rand(N)
+        metallic = torch.rand(N)
+
+        # "unknown_stage" is not lambertian/pbr/pbr_shadow — hits the else branch
+        # is_active() returns True because stage != "off"
+        config = ShadingConfig(stage="unknown_stage")
+        result = apply_shading(
+            torch, color, albedo, normals, normal_present,
+            view_dir, roughness, metallic, None, config
+        )
+        # Should return color unchanged
+        assert torch.allclose(result, color)
+
+
+class TestToTensorOrNone:
+    """Line 590: _to_tensor_or_none converts list/non-tensor to tensor."""
+
+    def test_list_value_converted_to_tensor(self):
+        """Line 590: list input goes through torch.as_tensor path."""
+        torch = _import_torch()
+        from aura.shading import _to_tensor_or_none
+
+        value = [1.0, 2.0, 3.0]
+        result = _to_tensor_or_none(torch, value, "cpu", dtype=torch.float32)
+        assert result is not None
+        assert result.shape == (3,)
+        assert abs(result[0].item() - 1.0) < 1e-5
+
+    def test_none_value_returns_none(self):
+        """Line 586-587: None input returns None."""
+        torch = _import_torch()
+        from aura.shading import _to_tensor_or_none
+
+        result = _to_tensor_or_none(torch, None, "cpu", dtype=torch.float32)
+        assert result is None
+
+    def test_tensor_value_moved_to_device(self):
+        """Line 588-589: existing tensor is moved via .to()."""
+        torch = _import_torch()
+        from aura.shading import _to_tensor_or_none
+
+        t = torch.tensor([4.0, 5.0], dtype=torch.float64)
+        result = _to_tensor_or_none(torch, t, "cpu", dtype=torch.float32)
+        assert result is not None
+        assert result.dtype == torch.float32

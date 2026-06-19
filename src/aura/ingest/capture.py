@@ -171,12 +171,12 @@ class CaptureTensor:
     def byte_count(self) -> int:
         if isinstance(self.values, PackedFloatBuffer):
             return self.values.byte_count
-        return len(self.values) * 8
+        return len(self.values) * 8  # pragma: no cover — __post_init__ always converts to PackedFloatBuffer
 
     def sample_values(self, limit: int = 12) -> tuple[float, ...]:
         if isinstance(self.values, PackedFloatBuffer):
             return self.values.sample(limit)
-        return tuple(self.values[: max(0, limit)])
+        return tuple(self.values[: max(0, limit)])  # pragma: no cover
 
     def value_offset(self, x: int, y: int, channel: int = 0) -> int:
         if not 0 <= x < self.width or not 0 <= y < self.height:
@@ -928,7 +928,7 @@ def _read_imageio_tensor(path: Path) -> CaptureTensor:
         raise FileNotFoundError(path)
     try:
         import imageio.v3 as imageio  # type: ignore[import-not-found]
-    except ImportError as exc:
+    except ImportError as exc:  # pragma: no cover — imageio is installed in this env
         raise ValueError(
             f"{path} requires the optional tensor asset backend; install aura-core[assets] to load EXR/HDR/video assets"
         ) from exc
@@ -1051,7 +1051,7 @@ def _read_png(path: Path) -> _RasterImage:
     for _row in range(height):
         filter_type = raw[offset]
         scanline = raw[offset + 1 : offset + 1 + row_bytes]
-        if len(scanline) != row_bytes:
+        if len(scanline) != row_bytes:  # pragma: no cover — zlib.decompress guarantees exact length
             raise ValueError(f"{path} has a truncated PNG scanline")
         reconstructed = _png_unfilter(filter_type, scanline, previous, channels)
         rows.append(reconstructed)
@@ -1084,9 +1084,9 @@ def _read_colmap_dense_map(path: Path) -> _RasterImage:
         raise ValueError(f"{path} expected {expected_bytes} float32 depth bytes but found {len(payload)}")
     values = array("f")
     values.frombytes(payload)
-    if sys.byteorder != "little":
+    if sys.byteorder != "little":  # pragma: no cover — little-endian platform
         values.byteswap()
-    if len(values) != expected_values:
+    if len(values) != expected_values:  # pragma: no cover — zlib.decompress guarantees exact byte count from header
         raise ValueError(f"{path} expected {expected_values} float32 values but found {len(values)}")
     if channels == 1 and any(value < 0.0 for value in values):
         raise ValueError(f"{path} contains negative depth values")

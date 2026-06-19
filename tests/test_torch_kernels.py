@@ -396,6 +396,16 @@ def test_cuda_render_rays_reports_invalid_batched_ray_inputs_without_cuda():
     assert report["extension"]["buildAttempted"] is False
 
 
+def test_cuda_render_rays_accepts_tensor_shaped_inputs():
+    """cuda_kernels.py line 581: _batched_vec3_count returns shape[0] for array-shaped inputs."""
+    import numpy as np
+    origins = np.zeros((3, 3), dtype=float)
+    directions = np.zeros((3, 3), dtype=float)
+    report = cuda_render_rays(ray_origins=origins, ray_directions=directions).to_dict()
+    assert report["rayCount"] == 3
+    assert report["validatedInputs"] is True
+
+
 def test_cuda_renderer_report_cli_prints_cpu_safe_json():
     result = subprocess.run(
         [sys.executable, "-m", "aura.cli", "cuda-renderer-report"],
@@ -1598,3 +1608,724 @@ def test_semantic_sparse_codebook_sparse():
     result = decode_semantic_feature(payload, codebook=codebook)
     # 0.8 * [1,2,3,4] + 0.2 * [5,0,0,0] = [0.8+1.0, 1.6, 2.4, 3.2] = [1.8, 1.6, 2.4, 3.2]
     assert result == pytest.approx([1.8, 1.6, 2.4, 3.2])
+
+
+# ---------------------------------------------------------------------------
+# Line 41: TorchCarrierKernelSpec.blockers when autograd_kernel is False
+# ---------------------------------------------------------------------------
+
+def test_torch_carrier_kernel_spec_blockers_lists_missing_autograd():
+    from aura.torch_kernels import TorchCarrierKernelSpec
+    spec = TorchCarrierKernelSpec(
+        carrier_id="custom",
+        payload_type="custom_cell",
+        description="test spec with no autograd kernel",
+        implementation_stage="placeholder",
+        autograd_kernel=False,
+        cuda_kernel=False,
+        differentiable_fields=(),
+    )
+    assert "missing_autograd_kernel" in spec.blockers
+    assert "missing_cuda_kernel" in spec.blockers
+
+
+# ---------------------------------------------------------------------------
+# Line 153: torch_carrier_response_tensors_batched raises on empty elements
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_response_raises_on_empty_elements():
+    import torch
+    with pytest.raises(ValueError, match="batched carrier response requires at least one element"):
+        torch_carrier_response_tensors_batched(
+            torch, (), torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0]), torch.tensor([[2.0]]),
+            torch.tensor([[0.5, 0.5, 0.5]]),
+            torch.tensor([[0.0, 0.0, 0.0]]),
+            torch.tensor([0.5]),
+            torch.tensor([1.0]),
+            torch.tensor([[0.0, 0.0, 0.0]]),
+            torch.tensor([[1.0, 1.0, 1.0]]),
+            "cpu",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Lines 160-163, 180-183, 206-210, 362-364: is_batched_gaussian=True path
+# in torch_carrier_response_tensors_batched via carrier_parameters with __batched__
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_response_uses_batched_gaussian_path():
+    """Exercise the is_batched_gaussian=True branches (lines 160-163, 180-183, 206-210, 362-364)."""
+    import torch
+
+    N = 2
+    elements = tuple(
+        AuraElement(
+            id=f"g{i}",
+            carrier_id="gaussian",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.5, 0.5, 0.5),
+            opacity=0.3,
+            confidence=0.8,
+            payload={"type": "gaussian_fallback"},
+        )
+        for i in range(N)
+    )
+    # Build carrier_parameters with __batched__ key to trigger the batched path
+    carrier_parameters = {
+        "__batched__": {
+            "color": torch.tensor([[0.5, 0.5, 0.5], [0.3, 0.3, 0.3]], dtype=torch.float32),
+            "opacity": torch.tensor([0.3, 0.4], dtype=torch.float32),
+            "confidence": torch.tensor([0.8, 0.7], dtype=torch.float32),
+            "gaussian_covariance_diag": torch.tensor([[0.25, 0.25, 0.25], [0.25, 0.25, 0.25]], dtype=torch.float32),
+            "gaussian_mean": torch.tensor([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]], dtype=torch.float32),
+            "min_corner": torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=torch.float32),
+            "max_corner": torch.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], dtype=torch.float32),
+        },
+        "__batched_meta__": {
+            "gaussian_mean_present": torch.tensor([True, True], dtype=torch.bool),
+            "residual": torch.tensor([False, False], dtype=torch.bool),
+        },
+    }
+    best_index = torch.tensor([0, 1], dtype=torch.long)
+    best_depth = torch.tensor([1.0, 1.0])
+    exit_depth = torch.tensor([[2.0, 2.0], [2.0, 2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.5, 0.5, 0.5], [0.3, 0.3, 0.3]])
+    opacities = torch.tensor([0.3, 0.4])
+    confidences = torch.tensor([0.8, 0.7])
+    mins = torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    maxs = torch.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]])
+
+    c, t, conf, r = torch_carrier_response_tensors_batched(
+        torch, elements, best_index, best_depth, exit_depth,
+        hit_points, colors, opacities, confidences, mins, maxs,
+        "cpu", carrier_parameters=carrier_parameters,
+    )
+    assert c.shape == (N, 3)
+    assert t.shape == (N,)
+    assert conf.shape == (N,)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_response_batched_gaussian_without_batched_meta():
+    """Exercise the is_batched_gaussian=True path without __batched_meta__ (lines 208-209)."""
+    import torch
+
+    N = 2
+    elements = tuple(
+        AuraElement(
+            id=f"g{i}",
+            carrier_id="gaussian",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.5, 0.5, 0.5),
+            opacity=0.3,
+            confidence=0.8,
+            payload={"type": "gaussian_fallback"},
+        )
+        for i in range(N)
+    )
+    carrier_parameters = {
+        "__batched__": {
+            "color": torch.tensor([[0.5, 0.5, 0.5], [0.3, 0.3, 0.3]], dtype=torch.float32),
+            "opacity": torch.tensor([0.3, 0.4], dtype=torch.float32),
+            "confidence": torch.tensor([0.8, 0.7], dtype=torch.float32),
+            "gaussian_covariance_diag": torch.tensor([[0.25, 0.25, 0.25], [0.25, 0.25, 0.25]], dtype=torch.float32),
+            "gaussian_mean": torch.tensor([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]], dtype=torch.float32),
+            "min_corner": torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=torch.float32),
+            "max_corner": torch.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], dtype=torch.float32),
+        },
+        # No __batched_meta__ → triggers the "residual is None → zeros" branch
+    }
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0, 2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.5, 0.5, 0.5]])
+    opacities = torch.tensor([0.3])
+    confidences = torch.tensor([0.8])
+    mins = torch.tensor([[0.0, 0.0, 0.0]])
+    maxs = torch.tensor([[1.0, 1.0, 1.0]])
+
+    c, t, conf, r = torch_carrier_response_tensors_batched(
+        torch, elements, best_index, best_depth, exit_depth,
+        hit_points, colors, opacities, confidences, mins, maxs,
+        "cpu", carrier_parameters=carrier_parameters,
+    )
+    assert r.tolist() == [False]
+
+
+# ---------------------------------------------------------------------------
+# Line 570: gabor with vector (tuple) frequency (not int/float)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_response_gabor_scalar_frequency_in_multifilter_bank():
+    """Line 570: num_filters>1 with scalar _f_freq triggers the scalar branch."""
+    import torch
+
+    elements = (
+        AuraElement(
+            id="gabor_scalar_freq",
+            carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.5, 0.3, 0.1),
+            opacity=0.5,
+            confidence=0.9,
+            payload={
+                "type": "gabor_frequency",
+                "frequency": (1.0, 0.0, 0.0),
+                "phase": 0.0,
+                "bandwidth": 0.5,
+                "num_filters": 2,
+                # scalar frequencies in the bank → triggers line 570
+                "frequencies": [1.0, 0.5],  # scalars, not vectors
+            },
+        ),
+    )
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.5, 0.3, 0.1]])
+    opacities = torch.tensor([0.5])
+    confidences = torch.tensor([0.9])
+    mins = torch.tensor([[0.0, 0.0, 0.0]])
+    maxs = torch.tensor([[1.0, 1.0, 1.0]])
+
+    c, t, conf, r = torch_carrier_response_tensors(
+        torch, elements, best_index, best_depth, exit_depth,
+        hit_points, colors, opacities, confidences, mins, maxs, "cpu",
+    )
+    assert c.shape == (1, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_response_gabor_with_vector_frequency():
+    """Line 575: frequency is a vector tuple, so else branch fires."""
+    import torch
+
+    elements = (
+        AuraElement(
+            id="gabor_vec",
+            carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.5, 0.3, 0.1),
+            opacity=0.5,
+            confidence=0.9,
+            payload={
+                "type": "gabor_frequency",
+                "frequency": (1.0, 0.5, 0.0),
+                "phase": 0.0,
+                "bandwidth": 0.5,
+                "num_filters": 2,
+                "frequencies": [(1.0, 0.5, 0.0), (0.5, 1.0, 0.0)],  # list of vector freqs
+            },
+        ),
+    )
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.5, 0.3, 0.1]])
+    opacities = torch.tensor([0.5])
+    confidences = torch.tensor([0.9])
+    mins = torch.tensor([[0.0, 0.0, 0.0]])
+    maxs = torch.tensor([[1.0, 1.0, 1.0]])
+
+    c, t, conf, r = torch_carrier_response_tensors(
+        torch, elements, best_index, best_depth, exit_depth,
+        hit_points, colors, opacities, confidences, mins, maxs, "cpu",
+    )
+    assert c.shape == (1, 3)
+
+
+# ---------------------------------------------------------------------------
+# Lines 625-640: neural anchor conditioning path
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_response_neural_anchor_when_neighbor_feats_is_none(monkeypatch):
+    """Line 640: neighbor_elements set + mlp set, but neighbor_features returns None."""
+    import torch
+    import aura.cross_carrier as _cc
+
+    monkeypatch.setattr(_cc, "neighbor_features_from_carrier_parameters", lambda *a, **kw: None)
+
+    neighbor = AuraElement(
+        id="surface_neighbor",
+        carrier_id="surface",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        color=(1.0, 0.0, 0.0),
+        opacity=0.5,
+        payload={"type": "surface_cell"},
+    )
+    elements = (
+        AuraElement(
+            id="neural_no_feats",
+            carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.2, 0.4, 0.8),
+            opacity=0.7,
+            confidence=0.85,
+            payload={
+                "type": "neural_residual",
+                "residual_scale": 0.35,
+                "use_anchor_conditioning": True,
+                "neighbor_elements": [neighbor],
+            },
+        ),
+    )
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.2, 0.4, 0.8]])
+    opacities = torch.tensor([0.7])
+    confidences = torch.tensor([0.85])
+    mins = torch.tensor([[0.0, 0.0, 0.0]])
+    maxs = torch.tensor([[1.0, 1.0, 1.0]])
+
+    carrier_params = torch_carrier_parameter_tensors(torch, elements, device="cpu", requires_grad=False)
+    from aura.cross_carrier import build_cross_carrier_mlp
+    carrier_params["neural_no_feats"]["cross_carrier_mlp"] = build_cross_carrier_mlp(torch, "cpu")
+
+    c, t, conf, r = torch_carrier_response_tensors(
+        torch, elements, best_index, best_depth, exit_depth,
+        hit_points, colors, opacities, confidences, mins, maxs, "cpu",
+        carrier_parameters=carrier_params,
+    )
+    assert c.shape == (1, 3)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_batched_carrier_response_neural_with_cross_carrier_mlp():
+    """Lines 625-639: neural_residual with cross_carrier_mlp and neighbor_elements → runs MLP."""
+    import torch
+    from aura.cross_carrier import build_cross_carrier_mlp
+
+    neighbor = AuraElement(
+        id="surface_neighbor",
+        carrier_id="surface",
+        bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        color=(1.0, 0.0, 0.0),
+        opacity=0.5,
+        payload={"type": "surface_cell"},
+    )
+    elements = (
+        AuraElement(
+            id="neural_anchor",
+            carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.2, 0.4, 0.8),
+            opacity=0.7,
+            confidence=0.85,
+            payload={
+                "type": "neural_residual",
+                "residual_scale": 0.35,
+                "use_anchor_conditioning": True,
+                "neighbor_elements": [neighbor],
+            },
+        ),
+    )
+    best_index = torch.tensor([0], dtype=torch.long)
+    best_depth = torch.tensor([1.0])
+    exit_depth = torch.tensor([[2.0]])
+    hit_points = torch.tensor([[0.5, 0.5, 0.5]])
+    colors = torch.tensor([[0.2, 0.4, 0.8]])
+    opacities = torch.tensor([0.7])
+    confidences = torch.tensor([0.85])
+    mins = torch.tensor([[0.0, 0.0, 0.0]])
+    maxs = torch.tensor([[1.0, 1.0, 1.0]])
+
+    # Build carrier_parameters with a cross_carrier_mlp for the neural element
+    carrier_params = torch_carrier_parameter_tensors(torch, elements, device="cpu", requires_grad=False)
+    # Also build an MLP explicitly and store it in carrier_parameters
+    _mlp = build_cross_carrier_mlp(torch, "cpu")
+    carrier_params["neural_anchor"]["cross_carrier_mlp"] = _mlp
+
+    c, t, conf, r = torch_carrier_response_tensors(
+        torch, elements, best_index, best_depth, exit_depth,
+        hit_points, colors, opacities, confidences, mins, maxs, "cpu",
+        carrier_parameters=carrier_params,
+    )
+    assert c.shape == (1, 3)
+
+
+# ---------------------------------------------------------------------------
+# Lines 709-744, 774: _torch_batched_gaussian_parameter_tensors called via
+# torch_carrier_parameter_tensors with 1001+ pure gaussian_fallback elements
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_carrier_parameter_tensors_uses_batched_path_for_large_gaussian_set():
+    """Lines 709-744, 774: >1000 gaussian_fallback triggers batched parameter tensors."""
+    import torch
+
+    N = 1001
+    elements = tuple(
+        AuraElement(
+            id=f"gaussian_{i}",
+            carrier_id="gaussian",
+            bounds=Bounds((float(i) * 0.001, 0.0, 0.0), (float(i) * 0.001 + 0.001, 1.0, 1.0)),
+            color=(0.5, 0.5, 0.5),
+            opacity=0.3,
+            confidence=0.8,
+            payload={"type": "gaussian_fallback"},
+        )
+        for i in range(N)
+    )
+
+    params = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+    assert "__batched__" in params
+    assert "color" in params["__batched__"]
+    assert params["__batched__"]["color"].shape == (N, 3)
+    assert "__batched_meta__" in params
+    assert "gaussian_mean_present" in params["__batched_meta__"]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_batched_gaussian_parameter_tensors_includes_mean_when_present():
+    """Lines 727-737: elements with explicit mean in payload."""
+    import torch
+    from aura.torch_kernels import _torch_batched_gaussian_parameter_tensors
+
+    elements = (
+        AuraElement(
+            id="g_with_mean",
+            carrier_id="gaussian",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "gaussian_fallback", "mean": [0.5, 0.5, 0.5]},
+        ),
+        AuraElement(
+            id="g_no_mean",
+            carrier_id="gaussian",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "gaussian_fallback"},  # no mean → centers
+        ),
+    )
+
+    params = _torch_batched_gaussian_parameter_tensors(torch, elements, device="cpu", requires_grad=False)
+    assert "__batched__" in params
+    meta = params["__batched_meta__"]
+    assert meta["gaussian_mean_present"].tolist() == [True, False]
+
+
+# ---------------------------------------------------------------------------
+# Line 944-948: neural with use_anchor_conditioning=True in parameter tensors
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_parameter_tensors_neural_with_anchor_conditioning():
+    """Lines 944-948: neural_residual with use_anchor_conditioning=True builds cross_carrier_mlp."""
+    import torch
+
+    elements = (
+        AuraElement(
+            id="neural_anchored",
+            carrier_id="neural",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            color=(0.2, 0.4, 0.8),
+            opacity=0.7,
+            confidence=0.85,
+            payload={"type": "neural_residual", "use_anchor_conditioning": True},
+        ),
+    )
+
+    params = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+    assert "cross_carrier_mlp" in params["neural_anchored"]
+
+
+# ---------------------------------------------------------------------------
+# Line 1015: surface_cell with explicit plane_point in payload
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_parameter_tensors_surface_with_explicit_plane_point():
+    """Line 1015: plane_point present in payload → use it directly."""
+    import torch
+
+    elements = (
+        AuraElement(
+            id="surface_explicit",
+            carrier_id="surface",
+            bounds=Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            payload={"type": "surface_cell", "plane_point": [0.1, 0.2, 0.3]},
+        ),
+    )
+
+    params = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+    pp = params["surface_explicit"]["plane_point"].tolist()
+    assert pp == pytest.approx([0.1, 0.2, 0.3])
+
+
+# ---------------------------------------------------------------------------
+# Line 1033: gabor without explicit plane_point → uses _center_point fallback
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_parameter_tensors_gabor_with_explicit_plane_point():
+    """Line 1033: gabor_frequency with explicit plane_point → uses it directly."""
+    import torch
+
+    elements = (
+        AuraElement(
+            id="gabor_explicit_point",
+            carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (2.0, 2.0, 2.0)),
+            payload={"type": "gabor_frequency", "frequency": (1.0, 0.0, 0.0), "phase": 0.0,
+                     "plane_point": [0.3, 0.4, 0.5]},
+        ),
+    )
+
+    params = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+    pp = params["gabor_explicit_point"]["plane_point"].tolist()
+    assert pp == pytest.approx([0.3, 0.4, 0.5])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_parameter_tensors_gabor_without_plane_point_uses_center():
+    """Line 1035: gabor_frequency without plane_point/point → _center_point fallback."""
+    import torch
+
+    elements = (
+        AuraElement(
+            id="gabor_no_point",
+            carrier_id="gabor",
+            bounds=Bounds((0.0, 0.0, 0.0), (2.0, 2.0, 2.0)),
+            payload={"type": "gabor_frequency", "frequency": (1.0, 0.0, 0.0), "phase": 0.0},
+            # no plane_point or point
+        ),
+    )
+
+    params = torch_carrier_parameter_tensors(torch, elements, device="cpu")
+    # Center of (0,0,0)-(2,2,2) is (1,1,1)
+    pp = params["gabor_no_point"]["plane_point"].tolist()
+    assert pp == pytest.approx([1.0, 1.0, 1.0])
+
+
+# ---------------------------------------------------------------------------
+# Lines 1070-1072, 1076-1079: _stack_scalar_parameter with batched/per-element params
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_scalar_parameter_returns_from_batched_cache():
+    """Lines 1070-1072: carrier_parameters has __batched__ with the name."""
+    import torch
+    from aura.torch_kernels import _stack_scalar_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0)), opacity=0.5),
+        AuraElement(id="e2", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0)), opacity=0.3),
+    )
+    batched_opacities = torch.tensor([0.9, 0.8])
+    carrier_parameters = {"__batched__": {"opacity": batched_opacities}}
+
+    result = _stack_scalar_parameter(torch, elements, "opacity", carrier_parameters, "cpu", defaults=[0.5, 0.3])
+    assert result is batched_opacities
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_scalar_parameter_uses_per_element_parameter():
+    """Lines 1076-1079: carrier_parameters has per-element override."""
+    import torch
+    from aura.torch_kernels import _stack_scalar_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0)), opacity=0.5),
+    )
+    per_element_tensor = torch.tensor(0.77)
+    carrier_parameters = {"e1": {"opacity": per_element_tensor}}
+
+    result = _stack_scalar_parameter(torch, elements, "opacity", carrier_parameters, "cpu", defaults=[0.5])
+    assert result[0].item() == pytest.approx(0.77)
+
+
+# ---------------------------------------------------------------------------
+# Lines 1094-1096, 1100-1103: _stack_vector_parameter with batched/per-element params
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_vector_parameter_returns_from_batched_cache():
+    """Lines 1094-1096: carrier_parameters has __batched__ with the name."""
+    import torch
+    from aura.torch_kernels import _stack_vector_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0))),
+    )
+    batched_colors = torch.tensor([[0.9, 0.8, 0.7]])
+    carrier_parameters = {"__batched__": {"color": batched_colors}}
+
+    result = _stack_vector_parameter(torch, elements, "color", carrier_parameters, "cpu", defaults=[(0.5, 0.5, 0.5)])
+    assert result is batched_colors
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_vector_parameter_uses_per_element_parameter():
+    """Lines 1100-1103: carrier_parameters has per-element override."""
+    import torch
+    from aura.torch_kernels import _stack_vector_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0))),
+    )
+    per_element_tensor = torch.tensor([0.1, 0.2, 0.3])
+    carrier_parameters = {"e1": {"color": per_element_tensor}}
+
+    result = _stack_vector_parameter(torch, elements, "color", carrier_parameters, "cpu", defaults=[(0.5, 0.5, 0.5)])
+    assert result[0].tolist() == pytest.approx([0.1, 0.2, 0.3])
+
+
+# ---------------------------------------------------------------------------
+# Lines 1115-1121: _stack_gaussian_mean_parameter with batched cache
+# Lines 1127-1128: _stack_gaussian_mean_parameter with per-element parameter
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_gaussian_mean_parameter_returns_from_batched_cache():
+    """Lines 1115-1121: carrier_parameters has __batched__ with gaussian_mean."""
+    import torch
+    from aura.torch_kernels import _stack_gaussian_mean_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0))),
+    )
+    batched_mean = torch.tensor([[0.5, 0.5, 0.5]])
+    carrier_parameters = {
+        "__batched__": {"gaussian_mean": batched_mean},
+        "__batched_meta__": {"gaussian_mean_present": torch.tensor([True])},
+    }
+
+    mean_result, present_result = _stack_gaussian_mean_parameter(torch, elements, carrier_parameters, "cpu")
+    assert mean_result is batched_mean
+    assert present_result.tolist() == [True]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_gaussian_mean_parameter_without_batched_meta_present():
+    """Lines 1119-1120: __batched__ has gaussian_mean but no __batched_meta__ gaussian_mean_present."""
+    import torch
+    from aura.torch_kernels import _stack_gaussian_mean_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0))),
+    )
+    batched_mean = torch.tensor([[0.5, 0.5, 0.5]])
+    carrier_parameters = {
+        "__batched__": {"gaussian_mean": batched_mean},
+        # No __batched_meta__ → present defaults to ones
+    }
+
+    mean_result, present_result = _stack_gaussian_mean_parameter(torch, elements, carrier_parameters, "cpu")
+    assert mean_result is batched_mean
+    assert present_result.tolist() == [True]  # ones
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_stack_gaussian_mean_parameter_uses_per_element_parameter():
+    """Lines 1127-1128: carrier_parameters has per-element gaussian_mean."""
+    import torch
+    from aura.torch_kernels import _stack_gaussian_mean_parameter
+
+    elements = (
+        AuraElement(id="e1", carrier_id="gaussian", bounds=Bounds((0.0,0.0,0.0),(1.0,1.0,1.0)),
+                    payload={"type": "gaussian_fallback"}),
+    )
+    per_element_mean = torch.tensor([0.3, 0.6, 0.9])
+    carrier_parameters = {"e1": {"gaussian_mean": per_element_mean}}
+
+    mean_result, present_result = _stack_gaussian_mean_parameter(torch, elements, carrier_parameters, "cpu")
+    assert mean_result[0].tolist() == pytest.approx([0.3, 0.6, 0.9])
+    assert present_result.tolist() == [True]
+
+
+# ---------------------------------------------------------------------------
+# Line 1141: _normal_parameter returns actual value when available
+# ---------------------------------------------------------------------------
+
+def test_normal_parameter_returns_value_from_payload():
+    """Line 1141: element has normal in payload → return it directly."""
+    from aura.torch_kernels import _normal_parameter
+
+    class _FakeElement:
+        normal = None
+        payload = {"normal": [0.0, 1.0, 0.0]}
+
+    result = _normal_parameter(_FakeElement(), fallback=(0.0, 0.0, -1.0))
+    assert result == pytest.approx((0.0, 1.0, 0.0))
+
+
+def test_normal_parameter_returns_value_from_element_normal():
+    """Line 1141: element.normal is set → return it directly."""
+    from aura.torch_kernels import _normal_parameter
+
+    class _FakeElement:
+        normal = (1.0, 0.0, 0.0)
+        payload = {}
+
+    result = _normal_parameter(_FakeElement(), fallback=(0.0, 0.0, -1.0))
+    assert result == pytest.approx((1.0, 0.0, 0.0))
+
+
+def test_normal_parameter_uses_fallback_when_not_set():
+    from aura.torch_kernels import _normal_parameter
+
+    class _FakeElement:
+        normal = None
+        payload = {}
+
+    result = _normal_parameter(_FakeElement(), fallback=(0.0, 0.0, -1.0))
+    assert result == (0.0, 0.0, -1.0)
+
+
+# ---------------------------------------------------------------------------
+# Line 1264: _torch_gaussian_weight returns ones when mean is None
+# Line 1283: _gaussian_mean returns _center_point when no mean in payload
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_gaussian_weight_returns_ones_when_mean_is_none():
+    """Line 1262: mean=None → return all ones."""
+    import torch
+    from aura.torch_kernels import _torch_gaussian_weight
+
+    class _FakeElement:
+        payload = {}
+        bounds = Bounds((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+
+    points = torch.tensor([[0.3, 0.3, 0.3], [0.7, 0.7, 0.7]])
+    result = _torch_gaussian_weight(torch, points, _FakeElement(), "cpu", mean=None)
+    assert result.tolist() == pytest.approx([1.0, 1.0])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_gaussian_weight_computes_mahalanobis_with_default_covariance():
+    """Line 1264: mean is set but covariance_diag is None → compute from element."""
+    import torch
+    from aura.torch_kernels import _torch_gaussian_weight
+
+    class _FakeElement:
+        payload = {}
+        bounds = Bounds((0.0, 0.0, 0.0), (2.0, 2.0, 2.0))
+
+    points = torch.tensor([[1.0, 1.0, 1.0]])  # center of bounds
+    mean = torch.tensor([1.0, 1.0, 1.0])  # at center
+    # covariance_diag=None → line 1264 fires and uses element bounds
+    result = _torch_gaussian_weight(torch, points, _FakeElement(), "cpu", mean=mean, covariance_diag=None)
+    # At center, mahalanobis distance = 0, weight should be 1.0
+    assert result.tolist() == pytest.approx([1.0])
+
+
+def test_gaussian_mean_returns_center_when_no_mean_in_payload():
+    """Line 1283: element has no mean → use center point of bounds."""
+    from aura.torch_kernels import _gaussian_mean
+
+    class _FakeElement:
+        payload = {}
+        bounds = Bounds((0.0, 0.0, 0.0), (2.0, 4.0, 6.0))
+
+    result = _gaussian_mean(_FakeElement())
+    assert result == pytest.approx((1.0, 2.0, 3.0))

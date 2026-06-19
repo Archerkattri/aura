@@ -236,3 +236,119 @@ def test_training_loss_weights_depth_distortion_alone_is_valid():
     # With all others at 0, depth_distortion=1.0 should be valid (sum > 0)
     weights = TrainingLossWeights(image=0.0, depth=0.0, query=0.0, normal=0.0, mask=0.0, depth_distortion=1.0)
     assert weights.depth_distortion == 1.0
+
+
+def test_render_target_rejects_empty_frame_id():
+    """Line 30: empty frame_id raises ValueError."""
+    with pytest.raises(ValueError, match="frame_id"):
+        RenderTarget(
+            frame_id="",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 0.0, 0.0),
+            target_depth=1.0,
+        )
+
+
+def test_render_target_rejects_non_positive_depth():
+    """Line 33: non-positive target_depth raises ValueError."""
+    with pytest.raises(ValueError, match="depth"):
+        RenderTarget(
+            frame_id="frame",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 0.0, 0.0),
+            target_depth=0.0,
+        )
+
+
+def test_render_target_rejects_confidence_out_of_range():
+    """Line 37: target_confidence out of [0,1] raises ValueError."""
+    with pytest.raises(ValueError, match="confidence"):
+        RenderTarget(
+            frame_id="frame",
+            ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+            target_color=(1.0, 0.0, 0.0),
+            target_depth=1.0,
+            target_confidence=1.5,
+        )
+
+
+def test_differentiable_ray_sample_to_dict():
+    """Line 132: DifferentiableRaySample.to_dict() returns dict."""
+    scene = AuraScene(
+        name="todict_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=1.0,
+            ),
+        ),
+    )
+    target = RenderTarget(
+        frame_id="frame",
+        ray=Ray(origin=(0.0, 0.0, -2.0), direction=(0.0, 0.0, 1.0)),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+    )
+    sample = differentiate_scene_rays(scene, (target,))[0]
+    d = sample.to_dict()
+    assert isinstance(d, dict)
+    assert "element_id" in d  # dataclass asdict uses underscore keys
+
+
+def test_gradient_descent_color_step_rejects_invalid_learning_rate():
+    """Line 234: learning_rate <= 0 or > 1 raises ValueError."""
+    with pytest.raises(ValueError, match="learning_rate"):
+        gradient_descent_color_step((0.5, 0.5, 0.5), (0.1, 0.1, 0.1), learning_rate=0.0)
+
+
+def test_differentiable_rays_miss_case_element_is_none():
+    """Line 253: when ray misses, _color_jacobian gets element=None -> returns 0.0."""
+    # Use an empty scene so the ray always misses (element=None)
+    scene = AuraScene(name="miss_scene", elements=())
+    target = RenderTarget(
+        frame_id="frame",
+        ray=Ray(origin=(10.0, 10.0, -2.0), direction=(0.0, 0.0, 1.0)),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=5.0,
+    )
+    sample = differentiate_scene_rays(scene, (target,))[0]
+    # When ray misses element_id is None, _color_jacobian returns 0.0
+    assert sample.color_jacobian == 0.0
+
+
+def test_normal_loss_predicted_is_none():
+    """Line 287: _normal_loss returns 1.0 when predicted is None."""
+    from aura.optimize import _normal_loss
+    loss = _normal_loss(None, (0.0, 0.0, 1.0))
+    assert loss == 1.0
+
+
+def test_normal_loss_zero_vector_predicted_returns_one():
+    """Line 291: _normal_loss returns 1.0 when predicted_norm is None (zero vector)."""
+    from aura.optimize import _normal_loss
+    loss = _normal_loss((0.0, 0.0, 0.0), (0.0, 0.0, 1.0))
+    assert loss == 1.0
+
+
+def test_confidence_loss_non_none_target():
+    """Lines 299-300: _confidence_loss computes delta^2 when target is not None."""
+    from aura.optimize import _confidence_loss
+    loss = _confidence_loss(0.8, 0.5)
+    assert loss == pytest.approx((0.8 - 0.5) ** 2)
+
+
+def test_normalize_zero_vector_returns_none():
+    """Line 306: _normalize returns None when norm <= 1e-12."""
+    from aura.optimize import _normalize
+    result = _normalize((0.0, 0.0, 0.0))
+    assert result is None
+
+
+def test_validate_vec3_wrong_length_raises():
+    """Line 312: _validate_vec3 raises ValueError for non-3-length tuple."""
+    from aura.optimize import _validate_vec3
+    with pytest.raises(ValueError, match="exactly three"):
+        _validate_vec3((1.0, 2.0), "test")

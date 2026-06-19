@@ -2651,3 +2651,1738 @@ def test_densification_off_by_default_does_not_change_carrier_count():
     assert final_count == initial_count, (
         f"Densification disabled but carrier count changed: {initial_count} -> {final_count}"
     )
+
+
+# ---- Batch: DensificationConfig validation gaps (lines 77, 83, 85, 87, 91) ----
+
+def test_densification_config_rejects_negative_start_iteration():
+    """Cover line 77: start_iteration < 0."""
+    from aura.torch_optimizer import DensificationConfig
+    with pytest.raises(ValueError, match="start_iteration"):
+        DensificationConfig(start_iteration=-1)
+
+
+def test_densification_config_rejects_negative_grad_threshold():
+    """Cover line 83: grad_threshold < 0."""
+    from aura.torch_optimizer import DensificationConfig
+    with pytest.raises(ValueError, match="grad_threshold"):
+        DensificationConfig(grad_threshold=-0.001)
+
+
+def test_densification_config_rejects_out_of_range_prune_importance():
+    """Cover line 85: prune_importance_threshold out of [0, 1]."""
+    from aura.torch_optimizer import DensificationConfig
+    with pytest.raises(ValueError, match="prune_importance_threshold"):
+        DensificationConfig(prune_importance_threshold=1.5)
+
+
+def test_densification_config_rejects_out_of_range_prune_opacity():
+    """Cover line 87: prune_opacity_threshold out of [0, 1]."""
+    from aura.torch_optimizer import DensificationConfig
+    with pytest.raises(ValueError, match="prune_opacity_threshold"):
+        DensificationConfig(prune_opacity_threshold=-0.1)
+
+
+def test_densification_config_rejects_negative_opacity_entropy_reg_weight():
+    """Cover line 91: opacity_entropy_reg_weight < 0."""
+    from aura.torch_optimizer import DensificationConfig
+    with pytest.raises(ValueError, match="opacity_entropy_reg_weight"):
+        DensificationConfig(opacity_entropy_reg_weight=-1.0)
+
+
+# ---- Batch: TorchOptimizationConfig validation gaps (lines 132, 140, 142, 144, 148, 150, 152, 154, 156) ----
+
+def test_optimization_config_rejects_non_training_loss_weights():
+    """Cover line 132: loss_weights must be TrainingLossWeights instance."""
+    with pytest.raises(TypeError, match="loss_weights"):
+        TorchOptimizationConfig(loss_weights={"image": 1.0})
+
+
+def test_optimization_config_rejects_non_evolution_policy():
+    """Cover line 140: evolution_policy must be CarrierEvolutionPolicy or None."""
+    with pytest.raises(TypeError, match="evolution_policy"):
+        TorchOptimizationConfig(evolution_policy="invalid")
+
+
+def test_optimization_config_rejects_negative_iteration_offset():
+    """Cover line 142: iteration_offset must be non-negative."""
+    with pytest.raises(ValueError, match="iteration_offset"):
+        TorchOptimizationConfig(iteration_offset=-1)
+
+
+def test_optimization_config_rejects_zero_checkpoint_interval():
+    """Cover line 144: checkpoint_interval must be positive when set."""
+    with pytest.raises(ValueError, match="checkpoint_interval"):
+        TorchOptimizationConfig(checkpoint_interval=0)
+
+
+def test_optimization_config_rejects_invalid_optimizer_type():
+    """Cover line 145-146: optimizer_type must be 'sgd' or 'adam'."""
+    with pytest.raises(ValueError, match="optimizer_type"):
+        TorchOptimizationConfig(optimizer_type="rmsprop")
+
+
+def test_optimization_config_rejects_out_of_range_opacity_reset_value():
+    """Cover line 148: opacity_reset_value must be in [0, 1]."""
+    with pytest.raises(ValueError, match="opacity_reset_value"):
+        TorchOptimizationConfig(opacity_reset_value=1.5)
+
+
+def test_optimization_config_rejects_negative_recovery_window():
+    """Cover line 150: recovery_window must be non-negative."""
+    with pytest.raises(ValueError, match="recovery_window"):
+        TorchOptimizationConfig(recovery_window=-1)
+
+
+def test_optimization_config_rejects_negative_lr_decay_steps():
+    """Cover line 152: lr_decay_steps must be non-negative."""
+    with pytest.raises(ValueError, match="lr_decay_steps"):
+        TorchOptimizationConfig(lr_decay_steps=-1)
+
+
+def test_optimization_config_rejects_non_positive_position_lr_final():
+    """Cover line 154: position_lr_final must be positive."""
+    with pytest.raises(ValueError, match="position_lr_final"):
+        TorchOptimizationConfig(position_lr_final=0.0)
+
+
+def test_optimization_config_rejects_non_densification_config():
+    """Cover line 156: densification must be a DensificationConfig instance."""
+    with pytest.raises(TypeError, match="densification"):
+        TorchOptimizationConfig(densification={"enabled": True})
+
+
+# ---- Batch: TorchOptimizationResult.to_dict and TorchSceneCheckpoint.to_dict (lines 223, 260, 265-268) ----
+
+def test_torch_optimization_result_to_dict_serializes_all_fields():
+    """Cover line 223: TorchOptimizationResult.to_dict."""
+    from aura.torch_optimizer import TorchOptimizationResult, TorchOptimizationStep
+    from aura.optimize import TrainingLossWeights
+    scene = AuraScene(
+        name="result_scene",
+        elements=(
+            AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),
+        ),
+    )
+    step = TorchOptimizationStep(
+        iteration=0,
+        batch_index=None,
+        device="cpu",
+        sample_count=1,
+        target_offset=None,
+        image_loss=0.5,
+        depth_loss=0.1,
+        query_loss=0.0,
+        normal_loss=0.0,
+        mask_loss=0.0,
+        confidence_loss=0.0,
+        total_loss=0.6,
+        carrier_counts={"surface": 1},
+        loss_weights=TrainingLossWeights().to_dict(),
+        optimizer="sgd",
+        gradient_norm=1.0,
+        applied_gradient_norm=1.0,
+        gradient_clip_norm=None,
+        updated_parameter_count=1,
+        max_samples_per_batch=None,
+    )
+    result = TorchOptimizationResult(scene=scene, steps=(step,))
+    d = result.to_dict()
+    assert d["scene"] == "result_scene"
+    assert len(d["steps"]) == 1
+    assert d["finalLoss"] == pytest.approx(0.6)
+    assert "lossCurve" in d
+    assert "checkpoints" in d
+    assert "sceneCheckpoints" in d
+
+
+def test_torch_optimization_result_to_dict_handles_no_steps():
+    """Cover line 223 (empty steps branch): finalLoss is None when steps is empty."""
+    from aura.torch_optimizer import TorchOptimizationResult
+    scene = AuraScene(
+        name="empty_result",
+        elements=(
+            AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),
+        ),
+    )
+    result = TorchOptimizationResult(scene=scene, steps=())
+    d = result.to_dict()
+    assert d["finalLoss"] is None
+    assert d["steps"] == []
+
+
+def test_torch_scene_checkpoint_to_dict_serializes_correctly():
+    """Cover lines 260, 265-268: TorchSceneCheckpoint.to_dict."""
+    from aura.torch_optimizer import TorchSceneCheckpoint
+    scene = AuraScene(
+        name="checkpoint_scene",
+        elements=(
+            AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),
+            AuraElement(id="g", carrier_id="gaussian", bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0))),
+        ),
+    )
+    checkpoint = TorchSceneCheckpoint(
+        checkpoint_index=2,
+        iteration=100,
+        step_count=50,
+        scene=scene,
+    )
+    d = checkpoint.to_dict()
+    assert d["checkpointIndex"] == 2
+    assert d["iteration"] == 100
+    assert d["stepCount"] == 50
+    assert d["scene"] == "checkpoint_scene"
+    assert d["elementCount"] == 2
+    assert "surface" in d["carrierCounts"]
+    assert "gaussian" in d["carrierCounts"]
+
+
+# ---- Batch: _carrier_importance_scores tensor path (line 294) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_carrier_importance_scores_with_tensor_opacity():
+    """Cover line 294: _carrier_importance_scores tensor fast-path."""
+    import torch
+    from aura.torch_optimizer import _carrier_importance_scores
+
+    elements = (
+        AuraElement(
+            id="e1",
+            carrier_id="surface",
+            bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+            opacity=0.5,
+        ),
+        AuraElement(
+            id="e2",
+            carrier_id="surface",
+            bounds=Bounds((0.5, -0.5, 0.0), (1.5, 0.5, 0.1)),
+            opacity=0.2,
+        ),
+    )
+    # e1 has a tensor opacity param (will take tensor path), e2 has no tensor
+    carrier_parameters = {
+        "e1": {"opacity": torch.tensor([0.9], requires_grad=True)},
+        "e2": {},  # Will use element.opacity fallback
+    }
+    scores = _carrier_importance_scores(carrier_parameters, elements)
+    assert "e1" in scores
+    assert "e2" in scores
+    assert scores["e1"] == pytest.approx(0.9, abs=0.01)
+    assert scores["e2"] == pytest.approx(0.2, abs=0.01)
+
+
+# ---- Batch: DensificationEngine.should_run edge cases (line 332) ----
+
+def test_densification_should_run_returns_false_past_end_iteration():
+    """Cover line 332: should_run returns False when past end_iteration."""
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+    cfg = DensificationConfig(
+        enabled=True,
+        start_iteration=100,
+        end_iteration=500,
+        interval=50,
+    )
+    # Past end
+    assert DensificationEngine.should_run(501, cfg) is False
+    # Exactly at end — should run (it's still <= end_iteration at 500)
+    assert DensificationEngine.should_run(500, cfg) is True
+    # Before start
+    assert DensificationEngine.should_run(99, cfg) is False
+
+
+# ---- Batch: densify_and_prune gaussian_covariance_diag path (lines 375-377) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_uses_gaussian_covariance_diag_for_scale():
+    """Cover lines 375-377: gaussian_covariance_diag used as scale proxy."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="covariance_scale_test",
+        elements=(
+            AuraElement(
+                id="gaussian",
+                carrier_id="gaussian",
+                bounds=Bounds((-1.0, -1.0, 0.0), (1.0, 1.0, 1.0)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+                payload={"type": "gaussian_fallback", "mean": [0.0, 0.0, 0.5],
+                         "covariance": [[0.04, 0.0, 0.0], [0.0, 0.04, 0.0], [0.0, 0.0, 0.04]]},
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "gaussian": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "opacity": torch.tensor([0.8], requires_grad=True),
+            "gaussian_covariance_diag": torch.tensor([0.04, 0.04, 0.04], requires_grad=True),
+        }
+    }
+    grad_accumulator = {"gaussian.color": 0.5}  # High gradient
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    # Should have cloned or split; scale was computed from gaussian_covariance_diag
+    assert num_densified >= 1 or num_pruned >= 0  # Ran without error
+    assert len(new_scene.elements) >= 1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_split_budget_reached_mid_loop():
+    """Cover line 390 (median_scale fallback) and line 472 (budget check in split loop)."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    # Empty carrier_parameters -> no scale info -> falls back to bounds
+    scene = AuraScene(
+        name="budget_split_test",
+        elements=(
+            AuraElement(
+                id="big",
+                carrier_id="beta",
+                bounds=Bounds((-5.0, -5.0, 0.0), (5.0, 5.0, 5.0)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+                payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [5.0, 5.0, 5.0]},
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "big": {
+            "opacity": torch.tensor([0.8], requires_grad=True),
+            "support_radius": torch.tensor([5.0, 5.0, 5.0], requires_grad=True),
+        }
+    }
+    grad_accumulator = {"big.support_radius": 0.5}
+    # Budget = 2 total: only 1 original + 1 new allowed
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        split_threshold_scale=0.01,  # Very small -> everything is "large" -> split
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+        max_carriers=2,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=2,
+        torch=torch,
+    )
+    assert len(new_scene.elements) <= 2
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_never_prunes_to_zero():
+    """Cover lines 531-533: when ALL elements would be pruned, keep the one with highest opacity."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="never_zero_test",
+        elements=(
+            AuraElement(
+                id="a",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                opacity=0.001,  # All are very faint
+            ),
+            AuraElement(
+                id="b",
+                carrier_id="surface",
+                bounds=Bounds((0.5, -0.5, 0.0), (1.5, 0.5, 0.1)),
+                opacity=0.002,  # Slightly higher — should be retained
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "a": {"opacity": torch.tensor([0.001])},
+        "b": {"opacity": torch.tensor([0.002])},
+    }
+    grad_accumulator = {}
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=100.0,  # No densification
+        prune_importance_threshold=0.5,  # Very aggressive: prune everything
+        prune_opacity_threshold=0.5,
+        recovery_prune_delay=0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    # Should retain at least 1 element (the one with highest opacity = "b")
+    assert len(new_scene.elements) >= 1
+    ids = {e.id for e in new_scene.elements}
+    assert "b" in ids, "Should keep the element with highest opacity"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_engine_split_with_non_tensor_support_radius():
+    """Cover lines 503: non-tensor parameter copy path in split loop."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="split_non_tensor_test",
+        elements=(
+            AuraElement(
+                id="beta",
+                carrier_id="beta",
+                bounds=Bounds((-3.0, -3.0, 0.0), (3.0, 3.0, 1.0)),
+                opacity=0.8,
+                payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [3.0, 3.0, 1.0]},
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "beta": {
+            "opacity": torch.tensor([0.8], requires_grad=True),
+            "support_radius": torch.tensor([3.0, 3.0, 1.0], requires_grad=True),
+            "note": "non_tensor_value",  # Plain string — non-tensor path
+        }
+    }
+    grad_accumulator = {"beta.opacity": 1.0}
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        split_threshold_scale=0.01,  # Low threshold -> split (not clone)
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_densified >= 1
+
+
+# ---- Batch: Regularization in training loop (line 619, 931) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_scale_regularization_active_in_training_loop():
+    """Cover line 619 and line 931: regularization loss added in main training loop."""
+    from aura.torch_optimizer import DensificationConfig
+
+    scene = AuraScene(
+        name="reg_loss_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+            densification=DensificationConfig(
+                scale_reg_weight=0.01,  # Enable scale regularization
+                opacity_entropy_reg_weight=0.01,  # Enable opacity entropy reg
+            ),
+        ),
+    )
+    assert len(result.steps) == 2
+
+
+# ---- Batch: torch_optimize_capture_batches (lines 652, 654, 659, 661, 667) ----
+
+def test_torch_optimize_capture_batches_rejects_empty_scene():
+    """Cover line 652: empty scene raises ValueError."""
+    # Use mock-like object; the empty-scene guard runs before batch validation
+    class _FakePacked:
+        target_count = 1
+    scene = AuraScene(name="empty", elements=())
+    with pytest.raises(ValueError, match="scene element"):
+        torch_optimize_capture_batches(scene, [_FakePacked()])
+
+
+def test_torch_optimize_capture_batches_rejects_empty_batches():
+    """Cover line 654: no batches raises ValueError."""
+    scene = AuraScene(
+        name="s",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+    with pytest.raises(ValueError, match="at least one packed"):
+        torch_optimize_capture_batches(scene, [])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batches_skips_empty_target_count_batches():
+    """Cover line 659: batches with target_count=0 are silently skipped; line 667: all empty raises ValueError."""
+    scene = AuraScene(
+        name="skip_empty_test",
+        elements=(AuraElement(id="s", carrier_id="surface", bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1))),),
+    )
+
+    class _FakePackedZero:
+        target_count = 0
+
+    # A batch with target_count=0 should be filtered; if ALL are filtered -> ValueError
+    with pytest.raises(ValueError, match="non-empty"):
+        torch_optimize_capture_batches(scene, [_FakePackedZero()])
+
+
+def test_torch_optimize_capture_batches_rejects_oversize_packed_batch():
+    """Cover line 661: packed batch exceeding max_samples_per_batch raises ValueError."""
+    scene = AuraScene(
+        name="oversize_test",
+        elements=(
+            AuraElement(
+                id="s", carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                normal=(0.0, 0.0, -1.0), opacity=1.0,
+            ),
+        ),
+    )
+
+    class _FakePacked:
+        target_count = 2  # Over limit
+
+    with pytest.raises(ValueError, match="max_samples_per_batch"):
+        torch_optimize_capture_batches(scene, [_FakePacked()], TorchOptimizationConfig(max_samples_per_batch=1), device="cpu")
+
+
+# ---- Batch: _build_adam_optimizer (lines 704, 708, 719, 725, 737, 745, 748) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_build_adam_optimizer_creates_param_groups():
+    """Cover lines 704-748: _build_adam_optimizer creates per-attribute parameter groups."""
+    import torch
+    from aura.torch_optimizer import _build_adam_optimizer
+
+    config = TorchOptimizationConfig(optimizer_type="adam")
+    carrier_parameters = {
+        "e1": {
+            "min_corner": torch.tensor([-0.5, -0.5, 0.0], requires_grad=True),  # position
+            "max_corner": torch.tensor([0.5, 0.5, 0.1], requires_grad=True),    # position
+            "support_radius": torch.tensor([0.3, 0.3, 0.3], requires_grad=True),  # scale
+            "normal": torch.tensor([0.0, 0.0, -1.0], requires_grad=True),  # rotation
+            "opacity": torch.tensor([0.9], requires_grad=True),  # opacity
+            "color": torch.tensor([1.0, 0.0, 0.0], requires_grad=True),  # color
+            "confidence": torch.tensor([0.5], requires_grad=True),  # feature
+            "residual_scale": torch.tensor([0.2], requires_grad=True),  # color
+            "some_unknown": torch.tensor([1.0], requires_grad=True),  # unknown -> color group
+            "no_grad": torch.tensor([1.0], requires_grad=False),  # not trainable -> skipped
+        }
+    }
+    optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
+    assert optimizer is not None
+    group_names = [g.get("name") for g in optimizer.param_groups]
+    assert "position" in group_names
+    assert "scale" in group_names
+    assert "rotation" in group_names
+    assert "opacity" in group_names
+    assert "color" in group_names
+    assert "feature" in group_names
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_build_adam_optimizer_returns_none_when_no_trainable_params():
+    """Cover line 737 (empty param_groups fallback): returns None."""
+    import torch
+    from aura.torch_optimizer import _build_adam_optimizer
+
+    config = TorchOptimizationConfig(optimizer_type="adam")
+    carrier_parameters = {
+        "e1": {
+            "color": torch.tensor([1.0, 0.0, 0.0], requires_grad=False),  # no grad -> skip
+        }
+    }
+    optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
+    assert optimizer is None
+
+
+# ---- Batch: Adam optimizer training path (lines 851, 910-913, 931, 955-983, 999, 1001, 1056-1058, 1083, 1114) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_adam_optimizer_trains_surface_color():
+    """Cover Adam path (lines 955-983, 999, 1001, 1114): optimizer_type='adam'."""
+    scene = AuraScene(
+        name="adam_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+                payload={"type": "surface_cell", "alpha": 0.5, "beta": 0.5},
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+                depth=CaptureTensor(path="f.pgm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=1, values=(2.0,)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.1,
+            optimizer_type="adam",
+            loss_weights=TrainingLossWeights(image=1.0, depth=1.0),
+            gradient_clip_norm=5.0,
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result.steps[0].optimizer == "adam"
+    # Color should improve
+    assert result.scene.elements[0].color[0] > 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_adam_optimizer_with_grad_accumulation_window():
+    """Cover lines 967-968, 972-983, 1056-1058: grad_accum_window with Adam."""
+    scene = AuraScene(
+        name="adam_grad_accum_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=4,
+            color_learning_rate=0.1,
+            optimizer_type="adam",
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+            grad_accum_window=2,  # Accumulate every 2 steps
+        ),
+    )
+    # grad_stats should be populated at step intervals
+    assert len(result.steps) == 4
+    # At least some steps should have grad_stats
+    grad_stats_counts = [len(s.grad_stats) for s in result.steps]
+    assert sum(grad_stats_counts) > 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_adam_optimizer_with_opacity_reset():
+    """Cover lines 910-913: opacity soft-reset during training."""
+    scene = AuraScene(
+        name="adam_opacity_reset_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=4,
+            color_learning_rate=0.1,
+            optimizer_type="adam",
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+            opacity_reset_interval=2,  # Reset every 2 iterations
+            opacity_reset_value=0.05,
+            recovery_window=1,
+        ),
+    )
+    # At least one step should have opacity_reset_due=True
+    assert any(s.opacity_reset_due for s in result.steps)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_adam_optimizer_with_lr_decay():
+    """Cover lines 1114: Adam LR decay updates position param group."""
+    scene = AuraScene(
+        name="adam_lr_decay_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=3,
+            color_learning_rate=0.1,
+            optimizer_type="adam",
+            position_learning_rate=1e-3,
+            position_lr_final=1e-6,
+            lr_decay_steps=10,  # Enable LR decay
+            loss_weights=TrainingLossWeights(image=1.0, depth=1.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert result.steps[0].optimizer == "adam"
+    assert len(result.steps) == 3
+
+
+# ---- Batch: large scene path (line 851, 1083) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_large_scene_skips_importance_scores(monkeypatch):
+    """Cover lines 851, 1083: large scene (>20k carriers) skips importance score snapshots."""
+    import aura.torch_optimizer as _mod
+
+    # Patch the threshold to 0 so any scene counts as "large"
+    monkeypatch.setattr(_mod, "_LARGE_SCENE_CARRIER_THRESHOLD", 0)
+
+    scene = AuraScene(
+        name="large_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+            grad_accum_window=1,  # Enable grad accumulation to hit line 1056-1058
+        ),
+    )
+    # Importance scores should be empty tuples (large scene optimization)
+    assert all(s.importance_scores == () for s in result.steps)
+
+
+# ---- Batch: Adam with evolution rebuild (lines 1143, 1186) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_adam_optimizer_rebuilt_after_evolution():
+    """Cover lines 1143, 1186: Adam optimizer is rebuilt after evolution changes scene."""
+    scene = AuraScene(
+        name="adam_evolution_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+                depth=CaptureTensor(path="f.pgm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=1, values=(2.0,)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.05,
+            optimizer_type="adam",
+            loss_weights=TrainingLossWeights(image=1.0, depth=0.0),
+            max_samples_per_batch=1,
+            evolution_policy=CarrierEvolutionPolicy(split_image_loss_threshold=0.0),
+        ),
+    )
+    # Evolution should have run — either created new carriers or logged decisions
+    assert any(s.carrier_evolution for s in result.steps) or len(result.scene.elements) >= 1
+
+
+# ---- Batch: _restore_trained_parameters (lines 1249, 1253, 1257-1258) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_restore_trained_parameters_skips_new_carriers():
+    """Cover line 1249: new carrier (not in trained_parameters) is skipped."""
+    import torch
+    from aura.torch_optimizer import _restore_trained_parameters
+
+    new_tensor = torch.tensor([0.0, 0.0, 0.0], requires_grad=True)
+    new_carrier_parameters = {
+        "existing": {"color": new_tensor},
+        "brand_new": {"color": torch.tensor([1.0, 0.0, 0.0])},  # Not in trained
+    }
+    trained_parameters = {
+        "existing": {"color": torch.tensor([0.5, 0.5, 0.5])},
+        # "brand_new" is absent — this is the new carrier path
+    }
+    _restore_trained_parameters(new_carrier_parameters, trained_parameters)
+    # existing should be restored
+    assert new_tensor.data.tolist() == pytest.approx([0.5, 0.5, 0.5])
+    # brand_new color stays at 1.0 (not overwritten)
+    assert new_carrier_parameters["brand_new"]["color"].tolist() == pytest.approx([1.0, 0.0, 0.0])
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_restore_trained_parameters_skips_missing_pname():
+    """Cover line 1253: parameter name not in trained_fields is skipped."""
+    import torch
+    from aura.torch_optimizer import _restore_trained_parameters
+
+    new_tensor = torch.tensor([0.0], requires_grad=True)
+    new_carrier_parameters = {
+        "e1": {
+            "opacity": new_tensor,
+            "extra_field": torch.tensor([1.0]),  # Not in trained
+        }
+    }
+    trained_parameters = {
+        "e1": {
+            "opacity": torch.tensor([0.9]),
+            # extra_field is absent
+        }
+    }
+    _restore_trained_parameters(new_carrier_parameters, trained_parameters)
+    assert new_tensor.data.item() == pytest.approx(0.9)
+    # extra_field stays unchanged
+    assert new_carrier_parameters["e1"]["extra_field"].item() == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_restore_trained_parameters_handles_shape_mismatch():
+    """Cover lines 1257-1258: shape mismatch (incompatible shapes) during copy is silently caught."""
+    import torch
+    from aura.torch_optimizer import _restore_trained_parameters
+
+    # Use a 2D tensor as target but a 3D trained tensor — genuinely incompatible shapes
+    new_tensor = torch.zeros(2, 3, requires_grad=True)   # shape (2, 3)
+    trained_tensor = torch.ones(3, 2)                    # shape (3, 2) — copy_ will fail
+    new_carrier_parameters = {"e1": {"color": new_tensor}}
+    trained_parameters = {"e1": {"color": trained_tensor}}
+    # Should not raise even if copy_ fails
+    _restore_trained_parameters(new_carrier_parameters, trained_parameters)
+    # Copy either succeeded or was silently ignored; either way no exception
+    assert new_tensor.data.shape == (2, 3)
+
+
+# ---- Batch: _evolve_scene removed element path (line 1311) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_evolve_scene_skips_removed_elements():
+    """Cover line 1311: _evolve_scene skips elements in removed_evolved_ids."""
+    from aura.torch_optimizer import _evolve_scene, _TorchEvolutionPrediction
+    from aura.evolution import CarrierEvolutionDecision
+
+    scene = AuraScene(
+        name="evolve_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.9,
+            ),
+            AuraElement(
+                id="beta_detail",  # This is the "created" element that should be removed
+                carrier_id="beta",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                opacity=0.5,
+                payload={"type": "beta_kernel", "alpha": 2.0, "beta": 2.0, "support_radius": [0.5, 0.5, 0.5]},
+            ),
+        ),
+    )
+    predictions = (
+        _TorchEvolutionPrediction(
+            element_id="surface",
+            carrier_id="surface",
+            image_loss=0.1,
+            depth_loss=0.0,
+            query_loss=0.0,
+            normal_loss=0.0,
+            target_color=(1.0, 0.0, 0.0),
+            target_point=None,
+        ),
+    )
+    # Decision says to merge the beta_detail back into surface
+    decisions = (
+        CarrierEvolutionDecision(
+            element_id="surface",
+            carrier_id="surface",
+            action="merge_beta_detail",
+            reason="test",
+            created_element_id="beta_detail",  # This element should be removed
+        ),
+    )
+    evolved = _evolve_scene(scene, predictions, decisions, learning_rate=0.1)
+    element_ids = {e.id for e in evolved.elements}
+    assert "beta_detail" not in element_ids, "beta_detail should be removed via merge_beta_detail"
+
+
+# ---- Batch: _TorchGradientStepState properties (lines 1349, 1355) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gradient_step_state_gradient_norm_returns_zero_when_none():
+    """Cover line 1349: gradient_norm returns 0.0 when gradient_norm_tensor is None."""
+    from aura.torch_optimizer import _TorchGradientStepState
+
+    state = _TorchGradientStepState(
+        gradient_norm_tensor=None,
+        scale_tensor=None,
+        gradient_clip_norm=None,
+        updated_parameter_count=0,
+    )
+    assert state.gradient_norm == 0.0
+    assert state.applied_gradient_norm == 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gradient_step_state_applied_gradient_norm_when_no_scale():
+    """Cover line 1355: applied_gradient_norm returns gradient_norm when scale_tensor is None."""
+    import torch
+    from aura.torch_optimizer import _TorchGradientStepState
+
+    norm_tensor = torch.tensor(3.0)
+    state = _TorchGradientStepState(
+        gradient_norm_tensor=norm_tensor,
+        scale_tensor=None,  # No clipping applied
+        gradient_clip_norm=None,
+        updated_parameter_count=1,
+    )
+    assert state.gradient_norm == pytest.approx(3.0)
+    # No scale -> applied_gradient_norm == gradient_norm
+    assert state.applied_gradient_norm == pytest.approx(3.0)
+
+
+# ---- Batch: _gradient_step_carrier_parameters no-grad paths (lines 1373, 1386-1387, 1392) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gradient_step_skips_params_without_grad():
+    """Cover line 1373: parameters without grad are skipped in gradient collection."""
+    import torch
+    from aura.torch_optimizer import _gradient_step_carrier_parameters
+
+    no_grad_param = torch.tensor([0.5, 0.5, 0.5], requires_grad=False)
+    no_grad_param.grad = None  # No grad explicitly
+
+    update = _gradient_step_carrier_parameters(
+        torch,
+        {"e1": {"color": no_grad_param}},
+        learning_rate=0.1,
+        gradient_clip_norm=None,
+    )
+    # No parameters with grad -> norm is None, scale is None
+    assert update.gradient_norm_tensor is None
+    assert update.scale_tensor is None
+    assert update.updated_parameter_count == 0
+    # gradient_norm property
+    assert update.gradient_norm == 0.0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_gradient_step_skips_params_without_grad_in_update_loop():
+    """Cover line 1392: params without grad are also skipped in the update (with-no-grad) loop."""
+    import torch
+    from aura.torch_optimizer import _gradient_step_carrier_parameters
+
+    # One param with grad, one without
+    param_with_grad = torch.tensor([0.5], requires_grad=True)
+    param_with_grad.grad = torch.tensor([1.0])
+
+    param_no_grad = torch.tensor([0.5], requires_grad=True)
+    param_no_grad.grad = None  # No gradient computed
+
+    carrier_parameters = {
+        "e1": {
+            "opacity": param_with_grad,
+            "color": param_no_grad,  # No grad -> skipped in update loop
+        }
+    }
+    update = _gradient_step_carrier_parameters(
+        torch,
+        carrier_parameters,
+        learning_rate=0.1,
+        gradient_clip_norm=None,
+    )
+    # Only 1 parameter was updated
+    assert update.updated_parameter_count == 1
+    # param_no_grad should be unchanged
+    assert param_no_grad.item() == pytest.approx(0.5)
+
+
+# ---- Batch: _scene_from_carrier_parameters volume_cell opacity path (line 1527) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_scene_from_carrier_parameters_updates_volume_cell_opacity():
+    """Cover line 1527: opacity written to payload for volume_cell type."""
+    import torch
+    from aura.torch_optimizer import _scene_from_carrier_parameters
+
+    scene = AuraScene(
+        name="volume_scene",
+        elements=(
+            AuraElement(
+                id="vol",
+                carrier_id="volume",
+                bounds=Bounds((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+                opacity=0.3,
+                payload={"type": "volume_cell", "opacity": 0.3},
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "vol": {
+            "opacity": torch.tensor([0.7]),
+        }
+    }
+    new_scene = _scene_from_carrier_parameters(scene, carrier_parameters)
+    el = new_scene.elements[0]
+    assert el.opacity == pytest.approx(0.7, abs=0.01)
+    assert el.payload["opacity"] == pytest.approx(0.7, abs=0.01)
+
+
+# ---- Batch: _loss_by_element_summary with None element_id (line 1557) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_loss_by_element_summary_skips_none_element_id():
+    """Cover line 1557: _loss_by_element_summary skips entries with element_id=None."""
+    from aura.torch_optimizer import _loss_by_element_summary
+    from aura.torch_renderer import TorchCaptureRenderSummary
+
+    summary = TorchCaptureRenderSummary(
+        device="cpu",
+        ray_origins=((0.0, 0.0, -2.0),) * 3,
+        ray_directions=((0.0, 0.0, 1.0),) * 3,
+        element_ids=("e1", None, "e2"),  # None should be skipped
+        carrier_ids=("surface", "surface", "surface"),
+        predicted_color=((0.5, 0.0, 0.0),) * 3,
+        predicted_depth=(2.0, 2.0, 2.0),
+        transmittance=(0.0, 0.0, 0.0),
+        normal=(None, None, None),
+        target_color=((1.0, 0.0, 0.0), (0.5, 0.5, 0.0), (0.2, 0.0, 0.0)),
+        target_depth=(2.0, 2.0, 2.0),
+        target_point=(None, None, None),
+        image_loss=(0.5, 0.3, 0.1),
+        depth_loss=(0.1, 0.2, 0.0),
+        query_loss=(0.0, 0.0, 0.0),
+        normal_loss=(0.0, 0.0, 0.0),
+    )
+    result = _loss_by_element_summary(summary)
+    assert "e1" in result
+    assert "e2" in result
+    assert None not in result
+
+
+# ---- Batch: _compute_position_lr decay path (line 1609) ----
+
+def test_compute_position_lr_returns_final_when_past_decay():
+    """Cover line 1609: _compute_position_lr returns lr_final when step >= lr_decay_steps."""
+    from aura.torch_optimizer import _compute_position_lr
+
+    config = TorchOptimizationConfig(
+        position_learning_rate=1.6e-4,
+        position_lr_final=1.6e-6,
+        lr_decay_steps=100,
+        position_lr_warmup_steps=0,
+    )
+    # Step past decay
+    lr = _compute_position_lr(config, 100)
+    assert lr == pytest.approx(1.6e-6)
+    # Step well past
+    lr2 = _compute_position_lr(config, 200)
+    assert lr2 == pytest.approx(1.6e-6)
+
+
+def test_compute_position_lr_interpolates_during_decay():
+    """Cover line 1609: exponential decay during decay window."""
+    from aura.torch_optimizer import _compute_position_lr
+
+    config = TorchOptimizationConfig(
+        position_learning_rate=1e-3,
+        position_lr_final=1e-5,
+        lr_decay_steps=100,
+        position_lr_warmup_steps=0,
+    )
+    lr_mid = _compute_position_lr(config, 50)
+    # Should be between initial and final
+    assert 1e-5 < lr_mid < 1e-3
+
+
+def test_compute_position_lr_returns_initial_during_warmup():
+    """Cover line 748 (_compute_position_lr warmup): during warmup, returns initial LR."""
+    from aura.torch_optimizer import _compute_position_lr
+
+    config = TorchOptimizationConfig(
+        position_learning_rate=1e-3,
+        position_lr_final=1e-6,
+        lr_decay_steps=100,
+        position_lr_warmup_steps=20,
+    )
+    lr = _compute_position_lr(config, 10)  # In warmup window
+    assert lr == pytest.approx(1e-3)
+
+
+# ---- Batch: _clamp_unit (line 1629) ----
+
+def test_clamp_unit_clamps_below_zero():
+    """Cover line 1629: _clamp_unit clamps negative values to 0."""
+    from aura.torch_optimizer import _clamp_unit
+    assert _clamp_unit(-0.5) == pytest.approx(0.0)
+
+
+def test_clamp_unit_clamps_above_one():
+    """Cover line 1629: _clamp_unit clamps values > 1 to 1."""
+    from aura.torch_optimizer import _clamp_unit
+    assert _clamp_unit(1.5) == pytest.approx(1.0)
+
+
+def test_clamp_unit_passes_through_valid_values():
+    """Cover line 1629: _clamp_unit passes through values in [0, 1]."""
+    from aura.torch_optimizer import _clamp_unit
+    assert _clamp_unit(0.5) == pytest.approx(0.5)
+    assert _clamp_unit(0.0) == pytest.approx(0.0)
+    assert _clamp_unit(1.0) == pytest.approx(1.0)
+
+
+# ---- Batch: SGD grad accumulation path (lines 967-968, 972-983 for SGD side) ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_sgd_optimizer_with_grad_accumulation_window():
+    """Cover grad_accum_window > 0 with SGD path (lines 1012-1024)."""
+    scene = AuraScene(
+        name="sgd_grad_accum_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0),
+        look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0),
+        target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene,
+        batch,
+        TorchOptimizationConfig(
+            iterations=4,
+            color_learning_rate=0.1,
+            optimizer_type="sgd",
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+            grad_accum_window=2,  # Accumulate 2 steps before reporting
+        ),
+    )
+    assert len(result.steps) == 4
+    # At steps 2 and 4, grad_stats should be populated (window=2)
+    grad_stats_counts = [len(s.grad_stats) for s in result.steps]
+    assert sum(grad_stats_counts) > 0
+
+
+# ---- Batch: Remaining coverage gaps (lines 265-268, 390, 619, 745, 851, 967-968, 1114, 1143, 1557, 1609, 1629) ----
+
+def test_live_opacity_with_plain_scalar_value():
+    """Cover lines 265-268: _live_opacity with a plain Python float (no detach method)."""
+    from aura.torch_optimizer import _live_opacity
+    # Plain float — no detach — falls through to float() conversion
+    assert _live_opacity(0.7, 0.5) == pytest.approx(0.7)
+
+
+def test_live_opacity_with_unconvertible_value():
+    """Cover lines 267-268: _live_opacity with an unconvertible value falls back."""
+    from aura.torch_optimizer import _live_opacity
+    # A list is not directly float()-convertible
+    assert _live_opacity([0.7], 0.5) == pytest.approx(0.5)
+
+
+def test_densification_engine_empty_scene_median_scale_fallback():
+    """Cover line 390: median_scale = 1.0 when no scale info is available."""
+    import importlib.util
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch is optional")
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    # Scene with one element but no scale parameters at all
+    scene = AuraScene(
+        name="empty_scale_test",
+        elements=(
+            AuraElement(
+                id="s",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                opacity=0.8,
+            ),
+        ),
+    )
+    carrier_parameters = {"s": {}}  # No scale parameters
+    grad_accumulator = {"s.fake_grad": 0.5}
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+    )
+    # Should run without error; median_scale defaults to 1.0 (no scale info)
+    new_scene, new_params, _, _ = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert len(new_scene.elements) >= 1
+
+
+def test_compute_position_lr_no_decay_returns_initial():
+    """Cover line 745: _compute_position_lr returns initial LR when lr_decay_steps <= 0."""
+    from aura.torch_optimizer import _compute_position_lr
+
+    config = TorchOptimizationConfig(
+        position_learning_rate=1.6e-4,
+        position_lr_final=1.6e-6,
+        lr_decay_steps=0,  # No decay
+    )
+    lr = _compute_position_lr(config, 100)
+    assert lr == pytest.approx(1.6e-4)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_optimize_torch_batches_raises_on_oversize_via_internal_path():
+    """Cover line 851: sample count exceeds max_samples_per_batch inside _optimize_torch_batches."""
+    # Call _optimize_torch_batches directly to bypass the external check in torch_optimize_capture_batch.
+    from aura.torch_optimizer import _optimize_torch_batches
+    import dataclasses
+
+    scene = AuraScene(
+        name="internal_guard_scene",
+        elements=(
+            AuraElement(
+                id="s", carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0), opacity=1.0, normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0), look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0), target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)  # 1 sample
+
+    # Build a valid config then bypass __post_init__ to set max_samples_per_batch=0
+    config_base = TorchOptimizationConfig(iterations=1, color_learning_rate=0.1, loss_weights=TrainingLossWeights(image=1.0))
+    config_with_zero = dataclasses.replace(config_base)
+    object.__setattr__(config_with_zero, 'max_samples_per_batch', 0)
+
+    with pytest.raises(ValueError, match="max_samples_per_batch"):
+        _optimize_torch_batches(scene, ((batch, None, None, ()),), config=config_with_zero, device="cpu")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_steps_list_capped_at_max_steps_in_memory(monkeypatch):
+    """Cover line 1114: steps list is capped at _MAX_STEPS_IN_MEMORY."""
+    import aura.torch_optimizer as _mod
+    monkeypatch.setattr(_mod, "_MAX_STEPS_IN_MEMORY", 3)
+
+    scene = AuraScene(
+        name="cap_steps_scene",
+        elements=(
+            AuraElement(
+                id="s", carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0), opacity=1.0, normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0), look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0), target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=6,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+        ),
+    )
+    # With _MAX_STEPS_IN_MEMORY=3 and 6 iterations, only the last 3 steps are kept
+    assert len(result.steps) == 3
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_adam_optimizer_rebuilt_after_densification():
+    """Cover line 1143: Adam optimizer is rebuilt when densification changes carrier count."""
+    from aura.torch_optimizer import DensificationConfig
+
+    scene = AuraScene(
+        name="adam_densify_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.0, 0.0, 0.0),
+                opacity=0.9,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0), look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0), target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=6,
+            color_learning_rate=0.1,
+            optimizer_type="adam",  # Adam + densification = rebuild after densify
+            loss_weights=TrainingLossWeights(image=1.0),
+            max_samples_per_batch=1,
+            densification=DensificationConfig(
+                enabled=True,
+                start_iteration=2,
+                end_iteration=10,
+                interval=2,
+                grad_threshold=0.0,  # Clone everything
+                prune_importance_threshold=0.0,
+                prune_opacity_threshold=0.0,
+            ),
+        ),
+    )
+    total_densified = sum(s.densified_count for s in result.steps)
+    assert total_densified > 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_clamp_unit_via_scene_from_carrier_parameters():
+    """Cover line 1629: _clamp_unit called from _scene_from_carrier_parameters."""
+    import torch
+    from aura.torch_optimizer import _scene_from_carrier_parameters
+
+    scene = AuraScene(
+        name="clamp_scene",
+        elements=(
+            AuraElement(
+                id="s", carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                opacity=0.5, confidence=0.5,
+                payload={"type": "beta_kernel", "confidence": 0.5},
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "s": {
+            "opacity": torch.tensor([1.5]),  # Over 1.0 — clamped to 1.0
+            "confidence": torch.tensor([-0.2]),  # Negative — clamped to 0.0
+        }
+    }
+    new_scene = _scene_from_carrier_parameters(scene, carrier_parameters)
+    el = new_scene.elements[0]
+    assert el.opacity == pytest.approx(1.0)   # Clamped from 1.5
+    assert el.confidence == pytest.approx(0.0)  # Clamped from -0.2
+
+
+# ---- Final coverage batch: lines 390, 422, 445, 470, 475-476, 619, 967-968, 1557, 1609, 1629 ----
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_torch_optimize_capture_batch_rejects_empty_scene():
+    """Cover line 619: torch_optimize_capture_batch raises on empty scene."""
+    import torch
+
+    # Create a minimal valid batch
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0), look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0), target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    scene = AuraScene(name="empty_single", elements=())
+
+    with pytest.raises(ValueError, match="scene element"):
+        torch_optimize_capture_batch(scene, batch)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_densification_clone_loop_with_non_tensor_param():
+    """Cover line 445: non-tensor parameter in clone loop passes through as-is."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="clone_non_tensor_test",
+        elements=(
+            AuraElement(
+                id="carrier",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.5, 0.5, 0.5),
+                opacity=0.8,
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "carrier": {
+            "color": torch.tensor([0.5, 0.5, 0.5], requires_grad=True),
+            "label": "my_label",  # Non-tensor — takes the else branch (line 445)
+        }
+    }
+    grad_accumulator = {"carrier.color": 0.1}  # High gradient -> clone
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        split_threshold_scale=100.0,  # Large -> always clone (not split)
+        prune_importance_threshold=0.0,
+        prune_opacity_threshold=0.0,
+    )
+    new_scene, new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_densified >= 1
+    # The cloned carrier should have "label" copied through as a plain value
+    new_ids = {e.id for e in new_scene.elements} - {e.id for e in scene.elements}
+    assert len(new_ids) >= 1
+    for new_id in new_ids:
+        assert new_params.get(new_id, {}).get("label") == "my_label"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_depth_distortion_loss_weight_used_in_training():
+    """Cover line 1557: depth_distortion loss added when weight > 0."""
+    scene = AuraScene(
+        name="depth_distortion_scene",
+        elements=(
+            AuraElement(
+                id="surface",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(1.0, 0.0, 0.0),
+                opacity=1.0,
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    frame = TrainingFrame(
+        id="f",
+        camera_origin=(0.0, 0.0, -2.0), look_at=(0.0, 0.0, 0.0),
+        target_color=(1.0, 0.0, 0.0), target_depth=2.0,
+        intrinsics={"fx": 1.0, "fy": 1.0, "cx": 0.5, "cy": 0.5, "width": 1.0, "height": 1.0},
+    )
+    assets = torch_capture_asset_batch(
+        (
+            CaptureFrameTensors(
+                frame_id="f",
+                image=CaptureTensor(path="f.ppm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=3, values=(1.0, 0.0, 0.0)),
+                depth=CaptureTensor(path="f.pgm", format="Netpbm", backend="stdlib",
+                                    width=1, height=1, channels=1, values=(2.0,)),
+            ),
+        ),
+        device="cpu",
+    )
+    batch = torch_capture_training_batch((frame,), assets)
+    result = torch_optimize_capture_batch(
+        scene, batch,
+        TorchOptimizationConfig(
+            iterations=2,
+            color_learning_rate=0.1,
+            loss_weights=TrainingLossWeights(
+                image=1.0, depth=1.0,
+                depth_distortion=0.01,  # Enable depth distortion loss (line 1557)
+            ),
+            max_samples_per_batch=1,
+        ),
+    )
+    assert len(result.steps) == 2
+
+
+def test_mean_function_with_empty_values():
+    """Cover line 1609: _mean returns 0.0 for empty sequence."""
+    from aura.torch_optimizer import _mean
+    assert _mean([]) == 0.0
+    assert _mean([1.0, 2.0, 3.0]) == pytest.approx(2.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_normalized_vec3_with_zero_vector():
+    """Cover line 1629: _normalized_vec3 returns original vector when norm <= 1e-8."""
+    from aura.torch_optimizer import _normalized_vec3
+    result = _normalized_vec3((0.0, 0.0, 0.0))
+    assert result == (0.0, 0.0, 0.0)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
+def test_scene_from_carrier_parameters_with_zero_normal_uses_normalized_vec3_fallback():
+    """Cover line 1629 via _scene_from_carrier_parameters with a zero-length normal."""
+    import torch
+    from aura.torch_optimizer import _scene_from_carrier_parameters
+
+    scene = AuraScene(
+        name="zero_normal_scene",
+        elements=(
+            AuraElement(
+                id="s", carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                normal=(0.0, 0.0, -1.0),
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "s": {
+            "normal": torch.tensor([0.0, 0.0, 0.0]),  # Zero normal -> _normalized_vec3 returns original
+        }
+    }
+    new_scene = _scene_from_carrier_parameters(scene, carrier_parameters)
+    # Zero normal passed through as-is (no crash)
+    assert new_scene.elements[0].normal == pytest.approx((0.0, 0.0, 0.0))

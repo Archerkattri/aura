@@ -779,6 +779,149 @@ class TestAllocationConfigValidation:
 
 
 # ---------------------------------------------------------------------------
+# Coverage tests: missing lines
+# ---------------------------------------------------------------------------
+
+class TestNodeAttributesToCarrierBiasEdgePaths:
+    """Cover edge paths in _node_attributes_to_carrier_bias."""
+
+    def test_geometry_confidence_and_edit_need_without_flat_adds_surface_score(self):
+        """Line 201: elif geometry_confidence > 0.5 and edit_need > 0.3 branch."""
+        from aura.allocation import _node_attributes_to_carrier_bias
+        node = SemanticNode(
+            id="n1",
+            label="geo_node",
+            confidence=0.9,
+            attributes={"geometry_confidence": 0.8, "edit_need": 0.5, "surface_flatness": 0.0},
+        )
+        bias = _node_attributes_to_carrier_bias(node)
+        # surface carrier should have a higher score than baseline (0.1)
+        surface_idx = list(CARRIER_KIND_ORDER).index("surface")
+        assert bias.scores[surface_idx] > 0.1 * 0.9  # modulated by confidence
+
+    def test_view_dependent_signal_boosts_neural_score(self):
+        """Line 235: view_dep > 0.4 adds to neural score."""
+        from aura.allocation import _node_attributes_to_carrier_bias
+        node = SemanticNode(
+            id="n1",
+            label="specular_node",
+            confidence=0.9,
+            attributes={"view_dependent": 0.8},
+        )
+        bias = _node_attributes_to_carrier_bias(node)
+        neural_idx = list(CARRIER_KIND_ORDER).index("neural")
+        # Neural score should be boosted above baseline
+        assert bias.scores[neural_idx] > 0.1 * 0.9
+
+    def test_high_scores_are_normalized_to_one(self):
+        """Line 259: when max_score > 1.0 scores are normalized."""
+        from aura.allocation import _node_attributes_to_carrier_bias
+        # Create a node that drives many carriers high so max_score > 1.0
+        node = SemanticNode(
+            id="n1",
+            label="complex_node",
+            confidence=1.0,
+            attributes={
+                "surface_flatness": 0.9,
+                "texture_frequency": 0.9,
+                "translucency": 0.9,
+                "view_dependent": 0.9,
+                "semantic_confidence": 0.9,
+            },
+        )
+        bias = _node_attributes_to_carrier_bias(node)
+        # All scores must be <= 1.0 after normalization
+        for score in bias.scores:
+            assert score <= 1.0 + 1e-9
+
+    def test_graph_cluster_to_dict(self):
+        """Line 289: GraphCluster.to_dict() produces expected keys."""
+        node = SemanticNode(id="n1", label="wall", confidence=0.9)
+        bias = SemanticCarrierBias(
+            scores=tuple(0.1 for _ in CARRIER_KIND_ORDER),
+            node_id="n1",
+            node_label="wall",
+            confidence=0.9,
+        )
+        cluster = GraphCluster(
+            node_id="n1",
+            node_label="wall",
+            element_ids=("e1", "e2"),
+            carrier_bias=bias,
+            node_confidence=0.9,
+        )
+        d = cluster.to_dict()
+        assert d["nodeId"] == "n1"
+        assert d["nodeLabel"] == "wall"
+        assert d["elementIds"] == ["e1", "e2"]
+        assert d["nodeConfidence"] == 0.9
+        assert "carrierBias" in d
+
+
+class TestSoftEvolutionScoresDemotePath:
+    """Cover lines 978-979: demote path in soft_evolution_scores."""
+
+    def test_demote_path_when_residual_low_and_target_lower_complexity(self):
+        """When residual is low a lower-complexity target gets demote score."""
+        ev = _evidence(image_error=0.05, geometry_confidence=0.3)
+        scores = soft_evolution_scores(
+            element_id="e1",
+            current_carrier="neural",  # complexity 1.8 -- targets gaussian (0.7) should demote
+            evidence=ev,
+            image_loss=0.01,  # very low residual -> demote path active
+            depth_loss=0.0,
+            config=AllocationConfig(use_soft_scores=True),
+        )
+        # At least one demote action should exist in transition logits
+        demote_keys = [k for k in scores.transition_logits if k.startswith("demote_to_")]
+        assert len(demote_keys) > 0
+
+
+class TestTrainableAllocationLogitsEdgePaths:
+    """Cover edge path in TrainableAllocationLogits init (line 1046)."""
+
+    def test_initial_logits_shorter_than_n_carriers_padded_with_zeros(self):
+        """Line 1046: when initial_logits entry is shorter than n_carriers, zeros are appended."""
+        import importlib.util
+        if importlib.util.find_spec("torch") is None:
+            import pytest; pytest.skip("torch not available")
+        from aura.allocation import TrainableAllocationLogits, CARRIER_KIND_ORDER
+        n = len(CARRIER_KIND_ORDER)
+        # Provide only 2 logits for an element that needs n
+        init = {"e1": [1.0, 2.0]}  # shorter than n
+        store = TrainableAllocationLogits(["e1"], device="cpu", initial_logits=init)
+        param = store.logit_params["e1"]
+        assert param.shape[0] == n
+        # First two values should be as provided, rest should be 0.0
+        assert abs(param[0].item() - 1.0) < 1e-6
+        assert abs(param[1].item() - 2.0) < 1e-6
+        for i in range(2, n):
+            assert abs(param[i].item() - 0.0) < 1e-6
+
+
+class TestTrainAllocationLogitsNoTargetPath:
+    """Cover lines 1206, 1216-1217 in train_allocation_logits when no targets match."""
+
+    def test_train_allocation_logits_with_no_matching_targets_returns_store(self):
+        """Lines 1215-1217: when no element ids match targets, loss is 0 tensor."""
+        import importlib.util
+        if importlib.util.find_spec("torch") is None:
+            import pytest; pytest.skip("torch not available")
+        from aura.allocation import train_allocation_logits, CARRIER_KIND_ORDER
+        # element "e1" exists but targets dict is empty -> total stays None -> line 1216-1217
+        store = train_allocation_logits(
+            ["e1"],
+            {},  # empty targets: no matching element id
+            device="cpu",
+            n_steps=3,
+            learning_rate=0.1,
+        )
+        # Should return a store without error
+        assignments = store.hard_assignments()
+        assert "e1" in assignments
+
+
+# ---------------------------------------------------------------------------
 # SemanticCarrierBias
 # ---------------------------------------------------------------------------
 
@@ -887,3 +1030,29 @@ class TestIntegrationRoundTrip:
                 f"Element {eid}: expected {expected}, got {d.carrier_id} "
                 f"(evidence={ev})"
             )
+
+
+class TestCarrierBiasNormalization:
+    """Cover line 259: normalize scores when max_score > 1.0."""
+
+    def test_carrier_bias_normalizes_when_accumulated_score_exceeds_one(self):
+        """Line 259: scores are divided by max when max_score > 1.0.
+
+        Neural carrier accumulates 0.5+0.4*1.0 (view-dep) + 0.3 (uncertain) = 1.2 > 1.0.
+        With conf=1.0 (confidence=1.0 node), triggers the normalization branch.
+        """
+        from aura.allocation import _node_attributes_to_carrier_bias
+
+        node = _node(
+            "n_norm",
+            "complex",
+            element_ids=[],
+            confidence=1.0,
+            view_dependent=1.0,   # triggers neural += 0.5 + 0.4 = 0.9
+            specular=1.0,
+            uncertain=1.0,        # triggers neural += 0.3 → total 1.2 → max_score > 1.0
+        )
+        bias = _node_attributes_to_carrier_bias(node)
+        # All scores must be in [0, 1] after normalization
+        for s in bias.scores:
+            assert 0.0 <= s <= 1.0, f"Score {s} out of [0, 1] after normalization"

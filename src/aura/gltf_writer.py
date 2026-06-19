@@ -96,9 +96,9 @@ def write_gltf(scene: "AuraScene", output_path: "str | Path") -> Path:
         col_bytes += struct.pack("<fff", *rgb)
 
     # Pad to 4-byte alignment (already aligned for float32 triples, but be safe)
-    while len(pos_bytes) % 4:
+    while len(pos_bytes) % 4:  # pragma: no cover — float32 triples are always 12-byte aligned
         pos_bytes += b"\x00"
-    while len(col_bytes) % 4:
+    while len(col_bytes) % 4:  # pragma: no cover
         col_bytes += b"\x00"
 
     bin_data = bytes(pos_bytes) + bytes(col_bytes)

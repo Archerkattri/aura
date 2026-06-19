@@ -57,3 +57,31 @@ def test_ingest_adapters_cli_prints_contracts():
 
     assert payload[0]["id"] == "3dgs"
     assert all(item["output"] == "EvidenceSample" for item in payload)
+
+
+def test_ingest_adapter_spec_to_dict():
+    """Line 24: IngestAdapterSpec.to_dict() returns dict with expected keys."""
+    from aura.ingest.evidence import IngestAdapterSpec
+    spec = IngestAdapterSpec(id="test", status="implemented", notes="note")
+    d = spec.to_dict()
+    assert d["id"] == "test"
+    assert d["status"] == "implemented"
+    assert d["notes"] == "note"
+    assert d["output"] == "EvidenceSample"
+
+
+def test_depth_evidence_point_rejects_non_positive_radius():
+    """Line 39: DepthEvidencePoint.to_evidence_sample() raises ValueError when radius <= 0."""
+    import pytest
+    from aura import DepthEvidencePoint
+    point = DepthEvidencePoint(id="p1", position=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0), confidence=0.9, radius=0.0)
+    with pytest.raises(ValueError, match="radius"):
+        point.to_evidence_sample()
+
+
+def test_bounds_around_rejects_non_positive_radius():
+    """Line 127: _bounds_around raises ValueError when radius <= 0."""
+    import pytest
+    from aura.ingest.evidence import _bounds_around
+    with pytest.raises(ValueError, match="radius"):
+        _bounds_around((0.0, 0.0, 0.0), -1.0)

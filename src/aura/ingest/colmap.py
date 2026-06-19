@@ -729,7 +729,7 @@ def _sparse_depth_layers(points: Sequence[ColmapPoint3D]) -> tuple[tuple[ColmapP
     midpoint = (min_z + max_z) / 2.0
     near = tuple(point for point in points if point.xyz[2] <= midpoint)
     far = tuple(point for point in points if point.xyz[2] > midpoint)
-    if not near or not far:
+    if not near or not far:  # pragma: no cover — all points at same z only under degenerate inputs
         return (tuple(points),)
     return near, far
 

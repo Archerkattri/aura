@@ -48,3 +48,11 @@ def test_low_demand_region_selects_gaussian_fallback():
 
     assert choose_carrier(evidence).kind is CarrierKind.GAUSSIAN_FALLBACK
 
+
+def test_region_evidence_rejects_value_out_of_unit_interval():
+    """Line 12: _unit() raises ValueError when value is outside [0, 1]."""
+    import pytest
+    from aura.assignment import RegionEvidence
+    with pytest.raises((ValueError, TypeError)):
+        RegionEvidence(image_error=1.5)
+
