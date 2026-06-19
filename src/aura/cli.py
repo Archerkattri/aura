@@ -178,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
                        help="Final position LR after exponential decay (3DGS convention: 1e-2 of initial)")
     train.add_argument("--lr-decay-steps", type=int, default=0, dest="lr_decay_steps",
                        help="Steps over which to decay position LR (0 = use --iterations)")
+    train.add_argument("--opacity-reset-interval", type=int, default=0, dest="opacity_reset_interval",
+                       help="Reset opacity to --opacity-reset-value every N iters (0 = disabled). "
+                            "3DGS uses every 3000 iters; helps escape opacity saturation.")
+    train.add_argument("--opacity-reset-value", type=float, default=0.01, dest="opacity_reset_value",
+                       help="Value to reset opacity to when --opacity-reset-interval triggers")
     _add_loss_weight_args(train)
     train.add_argument("--checkpoint-dir", type=Path, default=None)
     train.add_argument("--checkpoint-interval", type=int, default=None)
@@ -1053,6 +1058,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
             lr_decay_steps=getattr(args, "lr_decay_steps", 0) or args.iterations,
             grad_accum_window=getattr(args, "grad_accum_window", 100),
             opacity_reset_interval=getattr(args, "opacity_reset_interval", 0),
+            opacity_reset_value=getattr(args, "opacity_reset_value", 0.01),
             max_carriers=args.max_carriers or 0,
             evolution_policy=None
             if args.disable_evolution
