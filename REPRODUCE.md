@@ -37,20 +37,51 @@ python -m aura.cli train outputs/<scene>-manifest.json \
 
 | Parameter | Value |
 |---|---|
-| Run | truck-3k-run5 |
+| Run | truck-3k-run6 |
 | Carriers | 129,531 |
 | Iterations | 3000 |
 | Loss at convergence | ~0.02 |
-| Checkpoint | `outputs/truck-3k-run5.aura` |
+| Checkpoint | `outputs/truck-3k-run6.aura` |
+
+> **Note**: truck-3k-run5 was trained before the batched gaussian parameter writeback fix
+> (commit 0f3797d). run6 uses the fixed code and should produce measurably better PSNR.
+
+### Training with densification (recommended for higher PSNR)
+
+```bash
+python -m aura.cli train outputs/<scene>-manifest.json \
+    --output outputs/<scene>-densify-run.aura \
+    --iterations 3000 \
+    --tile-size 256 \
+    --max-targets-per-batch 256 \
+    --max-targets-per-frame 16 \
+    --skip-validation \
+    --disable-evolution \
+    --position-lr 1.6e-4 \
+    --position-lr-final 1.6e-6 \
+    --lr-decay-steps 3000 \
+    --opacity-reset-interval 600 \
+    --depth-distortion-weight 0.001 \
+    --densify \
+    --densify-start-iter 500 \
+    --densify-end-iter 2500 \
+    --densify-interval 100
+```
 
 ## Evaluation
 
 ```bash
+# Fast evaluation using compiled CUDA renderer (recommended for 129k+ carrier scenes)
 python scripts/eval_psnr.py outputs/<scene>-run.aura outputs/<scene>-manifest.json \
-    --frames 20 --device cuda
+    --frames 20 --device cuda --renderer cuda --scale 0.125
+
+# Full-resolution evaluation (slow for large scenes; may OOM on <8 GB GPU)
+python scripts/eval_psnr.py outputs/<scene>-run.aura outputs/<scene>-manifest.json \
+    --frames 5 --device cuda --renderer torch --ray-batch 64
 ```
 
 Reports PSNR, SSIM (11×11 Gaussian window), and LPIPS (if `pip install lpips` is available).
+Use `--scale 0.125` to render at 1/8 resolution for faster evaluation; GT is downsampled to match.
 
 ### Reference numbers (T&T Truck scene)
 
