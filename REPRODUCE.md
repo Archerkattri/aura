@@ -10,9 +10,15 @@ pip install -e ".[torch,dev]"
 
 See `scripts/fetch_datasets.py --list` for dataset instructions.
 
-Datasets are NOT committed to git (binary, large). Each scene is ingested via:
+Datasets are NOT committed to git (binary, large). Each scene is ingested from
+its COLMAP sparse model into an AURA capture manifest:
 ```bash
-python -m aura.cli ingest <scene_dir>/ --output outputs/<scene>-manifest.json
+python -m aura.cli colmap-to-capture-manifest <scene_dir>/sparse/0 \
+    --root <scene_dir> \
+    --image-dir <scene_dir>/images \
+    --output outputs/<scene>-manifest.json \
+    --point-seeded            # one carrier per SfM point (3DGS-style; ~129k for truck)
+# omit --point-seeded (and pass --max-seed-regions N) for voxel-cluster seeding instead
 ```
 
 ## Training
@@ -93,6 +99,11 @@ Use `--scale 0.125` to render at 1/8 resolution for faster evaluation; GT is dow
 
 ## Seeds
 
-All random seeds are fixed:
-- Training: controlled by `--seed` flag (default 0) in `aura.cli`
-- Evaluation: deterministic ray ordering, no random sampling
+Runs are deterministic without an explicit seed flag:
+- Carrier seeding: deterministic from the COLMAP sparse model (one carrier per
+  SfM point with `--point-seeded`, or per occupied voxel cluster otherwise), so
+  the same manifest reproduces the same initial scene.
+- Training: deterministic given a fixed manifest and fixed hyper-parameters
+  (the optimizer iterates carriers/targets in a fixed order). There is no
+  `--seed` flag on `aura.cli train`.
+- Evaluation: deterministic ray ordering, no random sampling.
