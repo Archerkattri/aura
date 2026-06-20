@@ -8,7 +8,25 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from aura.gltf_writer import write_gltf
+from aura.gltf_writer import write_glb, write_gltf
+
+
+def _parse_glb(data: bytes):
+    """Parse a .glb into (header, json_dict, bin_bytes) for assertions."""
+    magic, version, total = struct.unpack_from("<III", data, 0)
+    offset = 12
+    json_dict = None
+    bin_bytes = b""
+    while offset < len(data):
+        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
+        offset += 8
+        chunk = data[offset : offset + chunk_len]
+        offset += chunk_len
+        if chunk_type == 0x4E4F534A:  # JSON
+            json_dict = json.loads(chunk.rstrip(b"\x20").decode("utf-8"))
+        elif chunk_type == 0x004E4942:  # BIN
+            bin_bytes = chunk
+    return (magic, version, total), json_dict, bin_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -258,3 +276,94 @@ def test_element_with_no_position_info_is_skipped(tmp_path: Path) -> None:
     # Only 1 element with valid position, so accessor count should be 1
     data = json.loads(gltf_path.read_text(encoding="utf-8"))
     assert data["accessors"][0]["count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# write_glb — binary glTF container
+# ---------------------------------------------------------------------------
+
+
+def test_write_glb_creates_single_file(tmp_path: Path) -> None:
+    """write_glb produces one self-contained .glb and no sidecar .bin."""
+    scene = _make_scene(10)
+    glb_path = tmp_path / "model.glb"
+    result = write_glb(scene, glb_path)
+    assert result == glb_path
+    assert glb_path.exists()
+    assert not glb_path.with_suffix(".bin").exists()
+
+
+def test_glb_header_is_well_formed(tmp_path: Path) -> None:
+    """The 12-byte header must declare magic 'glTF', version 2, and the exact
+    total file length."""
+    scene = _make_scene(7)
+    glb_path = tmp_path / "model.glb"
+    write_glb(scene, glb_path)
+    data = glb_path.read_bytes()
+    (magic, version, total), _, _ = _parse_glb(data)
+    assert magic == 0x46546C67  # "glTF"
+    assert version == 2
+    assert total == len(data), "header total length must equal file size"
+    # All chunks are 4-byte aligned, so the file length is a multiple of 4.
+    assert len(data) % 4 == 0
+
+
+def test_glb_json_chunk_matches_gltf_structure(tmp_path: Path) -> None:
+    """The embedded JSON must be a valid POINTS glTF with a uri-less buffer."""
+    n = 5
+    scene = _make_scene(n)
+    glb_path = tmp_path / "model.glb"
+    write_glb(scene, glb_path)
+    _, gltf, bin_bytes = _parse_glb(glb_path.read_bytes())
+    assert gltf is not None
+    assert gltf["asset"]["version"] == "2.0"
+    assert gltf["meshes"][0]["primitives"][0]["mode"] == 0  # POINTS
+    for acc in gltf["accessors"]:
+        assert acc["count"] == n
+    # GLB-stored buffers must NOT carry a uri (the BIN chunk is the buffer).
+    assert "uri" not in gltf["buffers"][0]
+    assert gltf["buffers"][0]["byteLength"] == len(bin_bytes)
+
+
+def test_glb_bin_chunk_holds_positions_and_colors(tmp_path: Path) -> None:
+    """The BIN chunk must contain n*12*2 bytes with the expected first point."""
+    scene = MagicMock()
+    element = MagicMock()
+    element.carrier_id = "gaussian"
+    element.mean = (1.5, 2.5, 3.5)
+    element.color = (0.25, 0.5, 0.75)
+    element.payload = {}
+    scene.elements = [element]
+
+    glb_path = tmp_path / "one.glb"
+    write_glb(scene, glb_path)
+    _, gltf, bin_bytes = _parse_glb(glb_path.read_bytes())
+    assert len(bin_bytes) == 1 * 12 * 2
+    x, y, z = struct.unpack_from("<fff", bin_bytes, 0)
+    assert abs(x - 1.5) < 1e-5 and abs(y - 2.5) < 1e-5 and abs(z - 3.5) < 1e-5
+    r, g, b = struct.unpack_from("<fff", bin_bytes, 12)
+    assert abs(r - 0.25) < 1e-5 and abs(g - 0.5) < 1e-5 and abs(b - 0.75) < 1e-5
+
+
+def test_glb_matches_gltf_point_set(tmp_path: Path) -> None:
+    """write_glb and write_gltf must export the same points/colors bytes."""
+    scene = _make_scene(13)
+    gltf_path = tmp_path / "m.gltf"
+    glb_path = tmp_path / "m.glb"
+    write_gltf(scene, gltf_path)
+    write_glb(scene, glb_path)
+    sidecar_bin = gltf_path.with_suffix(".bin").read_bytes()
+    _, _, glb_bin = _parse_glb(glb_path.read_bytes())
+    assert glb_bin == sidecar_bin
+
+
+def test_empty_scene_writes_valid_glb(tmp_path: Path) -> None:
+    """A scene with no gaussian elements yields a minimal valid .glb (no BIN)."""
+    scene = _make_scene(4, carrier_id="mesh")
+    glb_path = tmp_path / "empty.glb"
+    write_glb(scene, glb_path)
+    data = glb_path.read_bytes()
+    (magic, version, total), gltf, bin_bytes = _parse_glb(data)
+    assert magic == 0x46546C67 and version == 2 and total == len(data)
+    assert gltf["scenes"][0]["nodes"] == []
+    assert bin_bytes == b""
