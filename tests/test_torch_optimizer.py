@@ -2369,6 +2369,50 @@ def test_densification_engine_prunes_low_importance_carriers():
     assert num_densified == 0
 
 
+def test_densification_does_not_prune_during_recovery_window():
+    """A carrier below the opacity/importance threshold must NOT be pruned while
+    still inside the opacity-reset recovery window (steps_since_reset <
+    recovery_prune_delay) — it is given time to recover its opacity first."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+
+    scene = AuraScene(
+        name="recovery_prune",
+        elements=(
+            AuraElement(
+                id="faint",
+                carrier_id="surface",
+                bounds=Bounds((-0.5, -0.5, 0.0), (0.5, 0.5, 0.1)),
+                color=(0.1, 0.1, 0.1),
+                opacity=0.001,  # below the prune threshold
+            ),
+        ),
+    )
+    carrier_parameters = {
+        "faint": {
+            "opacity": torch.tensor([0.001], requires_grad=True),
+            "color": torch.tensor([0.1, 0.1, 0.1], requires_grad=True),
+        }
+    }
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=1.0,            # no densification
+        prune_importance_threshold=0.005,
+        prune_opacity_threshold=0.005,
+        recovery_prune_delay=200,      # recovery window of 200 steps
+    )
+    new_scene, _new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, {},
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=50,          # 50 < 200 -> still in recovery
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    assert num_pruned == 0, "carrier below threshold must survive during recovery window"
+    assert {e.id for e in new_scene.elements} == {"faint"}
+
+
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_densification_engine_new_parameters_are_trainable():
     """After densification, cloned parameters must have requires_grad=True."""
@@ -4526,6 +4570,60 @@ def test_densify_and_prune_batched_path_converts_and_clones():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch required")
+def test_densify_and_prune_batched_path_densifies_and_prunes():
+    """The batched (__batched__) path must drive BOTH densification (high grad)
+    and pruning (low opacity) through the per-element conversion, not just clone."""
+    import torch
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+    from aura.torch_kernels import _torch_batched_gaussian_parameter_tensors
+
+    def _gauss(i, opacity, cov):
+        return AuraElement(
+            id=f"g{i}", carrier_id="gaussian",
+            bounds=Bounds((float(i), 0.0, 0.0), (float(i) + 1.0, 1.0, 1.0)),
+            color=(0.5, 0.5, 0.5), opacity=opacity,
+            payload={
+                "type": "gaussian_fallback",
+                "mean": [float(i) + 0.5, 0.5, 0.5],
+                "covariance": [[cov, 0.0, 0.0], [0.0, cov, 0.0], [0.0, 0.0, cov]],
+            },
+        )
+
+    # g0: high grad -> densify; g1: tiny opacity -> prune; g2: normal -> keep.
+    elements = (_gauss(0, 0.8, 0.04), _gauss(1, 0.001, 0.0001), _gauss(2, 0.8, 0.0001))
+    scene = AuraScene(name="batched_split_prune", elements=elements)
+    carrier_parameters = _torch_batched_gaussian_parameter_tensors(
+        torch, elements, device="cpu", requires_grad=True
+    )
+    grad_accumulator = {
+        "g0.grad_absmax": 0.05,
+        "g1.grad_absmax": 0.0001,
+        "g2.grad_absmax": 0.0001,
+    }
+    cfg = DensificationConfig(
+        enabled=True,
+        grad_threshold=0.001,
+        split_threshold_scale=0.5,
+        prune_importance_threshold=0.005,
+        prune_opacity_threshold=0.005,
+        recovery_prune_delay=0,
+    )
+    new_scene, _new_params, num_densified, num_pruned = DensificationEngine.densify_and_prune(
+        scene, carrier_parameters, grad_accumulator,
+        absolute_iteration=500,
+        densification_config=cfg,
+        steps_since_reset=1000,
+        max_carriers_budget=0,
+        torch=torch,
+    )
+    ids = {e.id for e in new_scene.elements}
+    assert num_densified >= 1, "g0 (high grad) should densify through the batched path"
+    assert num_pruned >= 1, "g1 (tiny opacity) should prune through the batched path"
+    assert "g1" not in ids, "the faint carrier must be pruned"
+    assert "g2" in ids, "the normal carrier must survive"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch required")
 def test_restore_trained_parameters_batched_new_per_element_trained():
     """_restore_trained_parameters must restore per-element values into batched tensors.
 
@@ -4573,6 +4671,36 @@ def test_restore_trained_parameters_batched_new_per_element_trained():
     # e0 and e2 (indices 0, 2) should keep their fresh-init opacity (0.5, not 0.0)
     assert batched["opacity"].data[0].item() == pytest.approx(0.5, abs=1e-5)
     assert batched["opacity"].data[2].item() == pytest.approx(0.5, abs=1e-5)
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch required")
+def test_restore_trained_parameters_batched_handles_shape_mismatch():
+    """A trained value that cannot reshape into the batched slot is skipped
+    (left at fresh init) rather than crashing."""
+    import torch
+    from aura.torch_optimizer import _restore_trained_parameters
+    from aura.torch_kernels import _torch_batched_gaussian_parameter_tensors
+
+    elements = tuple(
+        AuraElement(
+            id=f"e{i}",
+            carrier_id="gaussian",
+            bounds=Bounds((float(i), 0.0, 0.0), (float(i) + 1.0, 1.0, 1.0)),
+            color=(0.1, 0.2, 0.3),
+            opacity=0.5,
+        )
+        for i in range(2)
+    )
+    new_carrier_parameters = _torch_batched_gaussian_parameter_tensors(
+        torch, elements, device="cpu", requires_grad=True
+    )
+    # e0's trained color has the WRONG length (2 vs the 3-wide slot) -> the
+    # reshape raises and the restore must skip it without crashing.
+    trained_parameters = {"e0": {"color": torch.tensor([0.9, 0.8])}}
+    _restore_trained_parameters(new_carrier_parameters, trained_parameters, elements=elements)
+    batched = new_carrier_parameters["__batched__"]
+    # The mismatched slot keeps its fresh-init color (0.1, 0.2, 0.3).
+    assert batched["color"].data[0].tolist() == pytest.approx([0.1, 0.2, 0.3], abs=1e-5)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch required")

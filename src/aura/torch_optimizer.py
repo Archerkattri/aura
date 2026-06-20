@@ -1339,8 +1339,8 @@ def _restore_trained_parameters(
                     try:
                         tv = trained_val.detach()
                         new_tensor.data[i].copy_(tv.reshape(new_tensor.data[i].shape))
-                    except (RuntimeError, ValueError):  # pragma: no cover — defensive guard
-                        pass  # Shape mismatch — leave as-is
+                    except (RuntimeError, ValueError):
+                        pass  # Shape mismatch — leave the slot at its fresh init
     else:
         for element_id, fields in new_carrier_parameters.items():
             trained_fields = trained_parameters.get(element_id)
