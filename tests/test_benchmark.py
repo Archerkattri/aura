@@ -169,6 +169,7 @@ def test_reference_benchmark_reports_native_package_metrics(tmp_path):
     assert payload["previewRender"]["visualClaimBoundary"]["productionClaimAllowed"] is False
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_capture_reconstruction_benchmark_trains_and_scores_capture_targets(tmp_path):
     manifest_path = _write_capture_benchmark_manifest(tmp_path)
     output_dir = tmp_path / "capture-benchmark.aura"
@@ -203,6 +204,7 @@ def test_capture_reconstruction_benchmark_trains_and_scores_capture_targets(tmp_
     assert (output_dir / "manifest.json").exists()
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_capture_benchmark_cli_prints_json(tmp_path):
     manifest_path = _write_capture_benchmark_manifest(tmp_path)
     output_dir = tmp_path / "capture-cli-benchmark.aura"

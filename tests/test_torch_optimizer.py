@@ -2369,6 +2369,7 @@ def test_densification_engine_prunes_low_importance_carriers():
     assert num_densified == 0
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_densification_does_not_prune_during_recovery_window():
     """A carrier below the opacity/importance threshold must NOT be pruned while
     still inside the opacity-reset recovery window (steps_since_reset <
@@ -3206,6 +3207,7 @@ def test_scale_regularization_active_in_training_loop():
 
 # ---- Batch: torch_optimize_capture_batches (lines 652, 654, 659, 661, 667) ----
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_rejects_empty_scene():
     """Cover line 652: empty scene raises ValueError."""
     # Use mock-like object; the empty-scene guard runs before batch validation
@@ -3216,6 +3218,7 @@ def test_torch_optimize_capture_batches_rejects_empty_scene():
         torch_optimize_capture_batches(scene, [_FakePacked()])
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_rejects_empty_batches():
     """Cover line 654: no batches raises ValueError."""
     scene = AuraScene(
@@ -3242,6 +3245,7 @@ def test_torch_optimize_capture_batches_skips_empty_target_count_batches():
         torch_optimize_capture_batches(scene, [_FakePackedZero()])
 
 
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
 def test_torch_optimize_capture_batches_rejects_oversize_packed_batch():
     """Cover line 661: packed batch exceeding max_samples_per_batch raises ValueError."""
     scene = AuraScene(
