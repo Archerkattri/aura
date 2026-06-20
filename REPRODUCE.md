@@ -3,7 +3,7 @@
 ## Environment
 
 ```bash
-pip install -e ".[torch,dev]"
+pip install -e ".[dev,gpu,assets]"
 ```
 
 ## Datasets
@@ -93,7 +93,7 @@ Use `--scale 0.125` to render at 1/8 resolution for faster evaluation; GT is dow
 
 | Method | PSNR | SSIM | LPIPS |
 |---|---|---|---|
-| 3DGS (Kerbl et al. 2023) | ~25.19 dB | ~0.857 | ~0.177 |
+| 3DGS (Kerbl et al. 2023) | ~25.19 dB | ~0.879 | ~0.148 |
 | MP-GS (multi-primitive) | ~25–27 dB | — | — |
 | AURA truck-3k-run5 | TBD | TBD | TBD |
 

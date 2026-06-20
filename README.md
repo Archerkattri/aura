@@ -234,7 +234,7 @@ python -m pytest
 
 ```text
 src/aura/
-  cli.py               CLI — train, render, ingest, benchmark, inspect commands
+  cli.py               CLI — train, render, ingest-adapters, benchmark, inspect commands
   core.py              Reconstruction contracts and adaptive evolution policy
   torch_renderer.py    Torch render batches, grouped carrier hits, compositing
   torch_optimizer.py   Tiled capture optimization and checkpoint snapshots

@@ -34,9 +34,12 @@ def parse_eval_txt(path: Path) -> dict:
                 result["psnr"] = float(line.split("Average PSNR:")[1].split("dB")[0].strip())
             except Exception:
                 pass
-        if "Average SSIM:" in line:
+        if "SSIM:" in line:
+            # eval_psnr emits the summary as "Average PSNR: .. dB  SSIM: 0.857 .."
+            # (the token is "SSIM:", not "Average SSIM:"); per-frame lines use
+            # "SSIM=" so they do not false-match here.
             try:
-                result["ssim"] = float(line.split("Average SSIM:")[1].split()[0].strip())
+                result["ssim"] = float(line.split("SSIM:")[1].split()[0].strip())
             except Exception:
                 pass
     return result

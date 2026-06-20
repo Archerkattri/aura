@@ -325,10 +325,14 @@ def image_psnr(left: RenderImage, right: RenderImage) -> float:
 
 
 def image_ssim(left: RenderImage, right: RenderImage) -> float:
-    """Return the structural similarity index (SSIM) between two images.
+    """Return a GLOBAL (single-window) SSIM approximation between two images.
 
     Uses the standard luminance/contrast/structure decomposition with
-    ``c1 = 0.01^2`` and ``c2 = 0.03^2`` (as in Wang et al. 2004).
+    ``c1 = 0.01^2`` and ``c2 = 0.03^2`` (as in Wang et al. 2004), but computes
+    the statistics ONCE over the whole flattened image rather than as the mean
+    over sliding local windows. This is a fast global proxy, NOT the windowed
+    SSIM of Wang et al.; for the windowed metric used in evaluation see the
+    Gaussian-window SSIM in scripts/eval_psnr.py.
     """
     _require_matching_dimensions(left, right)
     left_values = _flat_channels(left)

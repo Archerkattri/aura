@@ -1066,6 +1066,17 @@ def test_metric_value_returns_zero_for_missing_key():
     assert _metric_value({}, "ssim") == 0.0
 
 
+def test_metric_value_finite_psnr_capped_at_100():
+    """A finite PSNR above the ceiling is capped at 100 so it never outranks an
+    infinite (perfect) PSNR, which is also 100."""
+    from aura.benchmark import _metric_value
+    assert _metric_value({"psnr": 120.0}, "psnr") == 100.0
+    assert _metric_value({"psnr": 25.0}, "psnr") == 25.0
+    # Perfect (infinite) and a finite 120 dB now tie at the ceiling.
+    assert _metric_value({"psnrInfinite": True, "psnr": None}, "psnr") == \
+        _metric_value({"psnr": 120.0}, "psnr")
+
+
 # ---------------------------------------------------------------------------
 # _evaluate_capture_leave_one_out_baseline: skip zero-count batch (line 979),
 # raise when no targets (line 988)

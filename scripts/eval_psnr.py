@@ -341,7 +341,7 @@ def main():
             lpips_str = f"  LPIPS={avg_lpips:.4f}"
         res_note = f" at {args.scale:.2f}x scale" if args.scale != 1.0 else " (full resolution)"
         print(f"\nAverage PSNR: {avg_psnr:.2f} dB  SSIM: {avg_ssim:.4f}{lpips_str}{res_note}")
-        print("(3DGS reference: PSNR ~25.19 dB, SSIM ~0.857, LPIPS ~0.177 at full resolution)")
+        print("(3DGS reference: PSNR ~25.19 dB, SSIM ~0.879, LPIPS ~0.148 at full resolution)")
     else:
         print("No frames evaluated.")
 

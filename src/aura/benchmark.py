@@ -1040,8 +1040,13 @@ def _capture_metric_delta(initial: dict, trained: dict) -> dict:
 
 
 def _metric_value(metrics: dict, key: str) -> float:
-    if key == "psnr" and metrics.get("psnrInfinite"):
-        return 100.0
+    if key == "psnr":
+        # Cap BOTH the infinite (perfect) case and any finite PSNR above the
+        # ceiling at 100.0, so a perfect reconstruction never ranks below a
+        # merely near-perfect one (a finite 120 dB must not beat infinite).
+        value = metrics.get("psnr")
+        psnr = 100.0 if metrics.get("psnrInfinite") else (0.0 if value is None else float(value))
+        return min(psnr, 100.0)
     value = metrics.get(key)
     return 0.0 if value is None else float(value)
 
