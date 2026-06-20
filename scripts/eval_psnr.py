@@ -116,13 +116,75 @@ def ssim(pred: list[float], gt: list[float], width: int, height: int) -> float:
     return sum(ssim_vals) / len(ssim_vals) if ssim_vals else 1.0
 
 
-def render_frame_torch(scene, frame_data: dict, device: str = "cuda") -> tuple[int, int, list[float]]:
+def render_frame_cuda(
+    scene,
+    frame_data: dict,
+    device: str = "cuda",
+    scale: float = 1.0,
+    max_hits: int = 32,
+) -> tuple[int, int, list[float]]:
+    """Render one frame using the compiled CUDA extension (no BVH, fastest path)."""
+    from aura.cuda_renderer import cuda_render_rays
+    import numpy as np
+
+    intr = frame_data["intrinsics"]
+    full_W, full_H = int(intr["width"]), int(intr["height"])
+    W = max(1, int(full_W * scale))
+    H = max(1, int(full_H * scale))
+    fx = float(intr["fx"]) * scale
+    fy = float(intr["fy"]) * scale
+    cx = float(intr["cx"]) * scale
+    cy = float(intr["cy"]) * scale
+
+    origin = frame_data["camera_origin"]
+    look_at = frame_data["look_at"]
+    up = frame_data.get("up", [0.0, -1.0, 0.0])
+
+    def norm(v):
+        n = math.sqrt(sum(x * x for x in v))
+        return [x / n for x in v]
+
+    def cross(a, b):
+        return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
+
+    fwd = norm([look_at[i] - origin[i] for i in range(3)])
+    right = norm(cross(fwd, up))
+    up_actual = cross(right, fwd)
+
+    dirs = []
+    origs = []
+    for y_idx in range(H):
+        dy = (y_idx - cy) / fy
+        for x_idx in range(W):
+            dx = (x_idx - cx) / fx
+            d = [dx * right[i] + dy * up_actual[i] + fwd[i] for i in range(3)]
+            dirs.append(norm(d))
+            origs.append(origin)
+
+    origs_np = np.array(origs, dtype=np.float32)
+    dirs_np = np.array(dirs, dtype=np.float32)
+    batch = cuda_render_rays(scene, origs_np, dirs_np, device=device, use_bvh=False, max_hits=max_hits)
+    all_colors = [v for rgb in batch.color for v in rgb]
+    return W, H, all_colors
+
+
+def render_frame_torch(
+    scene,
+    frame_data: dict,
+    device: str = "cuda",
+    scale: float = 1.0,
+    ray_batch: int = 128,
+) -> tuple[int, int, list[float]]:
     from aura.torch_renderer import torch_scene_tensors, torch_render_rays
 
     intr = frame_data["intrinsics"]
-    W, H = int(intr["width"]), int(intr["height"])
-    fx, fy = float(intr["fx"]), float(intr["fy"])
-    cx, cy = float(intr["cx"]), float(intr["cy"])
+    full_W, full_H = int(intr["width"]), int(intr["height"])
+    W = max(1, int(full_W * scale))
+    H = max(1, int(full_H * scale))
+    fx = float(intr["fx"]) * scale
+    fy = float(intr["fy"]) * scale
+    cx = float(intr["cx"]) * scale
+    cy = float(intr["cy"]) * scale
 
     origin = frame_data["camera_origin"]
     look_at = frame_data["look_at"]
@@ -150,13 +212,12 @@ def render_frame_torch(scene, frame_data: dict, device: str = "cuda") -> tuple[i
             origs.append(origin)
 
     total_rays = W * H
-    batch_size = 4096
     all_colors: list[float] = []
 
     st = torch_scene_tensors(scene, device=device)
 
-    for start in range(0, total_rays, batch_size):
-        end = min(start + batch_size, total_rays)
+    for start in range(0, total_rays, ray_batch):
+        end = min(start + ray_batch, total_rays)
         result = torch_render_rays(
             scene,
             ray_origins=origs[start:end],
@@ -170,12 +231,33 @@ def render_frame_torch(scene, frame_data: dict, device: str = "cuda") -> tuple[i
     return W, H, all_colors
 
 
+def resize_pixels(pixels: list[float], src_w: int, src_h: int, dst_w: int, dst_h: int) -> list[float]:
+    """Nearest-neighbour downsample a flat RGB pixel list."""
+    out = []
+    for y in range(dst_h):
+        sy = y * src_h // dst_h
+        for x in range(dst_w):
+            sx = x * src_w // dst_w
+            idx = (sy * src_w + sx) * 3
+            out.extend(pixels[idx : idx + 3])
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate PSNR against ground truth")
     parser.add_argument("package_dir", type=Path)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--frames", type=int, default=10)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--scale", type=float, default=1.0,
+                        help="Render at this fraction of full resolution (e.g. 0.25 for 1/4). "
+                             "GT is downsampled to match. Avoids OOM on large scenes.")
+    parser.add_argument("--ray-batch", type=int, default=128,
+                        help="Ray batch size passed to the renderer (default 128). "
+                             "Increase for faster eval if GPU has headroom.")
+    parser.add_argument("--renderer", choices=["torch", "cuda"], default="torch",
+                        help="Renderer backend: 'torch' (default, batched) or 'cuda' "
+                             "(compiled CUDA extension, faster for large scenes).")
     args = parser.parse_args()
 
     from aura.package import load_package
@@ -183,6 +265,8 @@ def main():
     pkg = load_package(args.package_dir)
     scene = pkg.scene
     print(f"Scene: {len(scene.elements)} elements")
+    if args.scale != 1.0:
+        print(f"Scale: {args.scale:.2f}x  (ray-batch: {args.ray_batch}, renderer: {args.renderer})")
 
     with open(args.manifest) as f:
         manifest = json.load(f)
@@ -205,15 +289,23 @@ def main():
 
         print(f"  [{i+1}/{len(eval_frames)}] {img_path.name}...", flush=True)
         gt_W, gt_H, gt_pixels = load_jpg_as_rgb(str(img_path))
-        render_W, render_H, render_pixels = render_frame_torch(scene, frame, device=args.device)
+        if args.renderer == "cuda":
+            render_W, render_H, render_pixels = render_frame_cuda(
+                scene, frame, device=args.device, scale=args.scale, max_hits=32
+            )
+        else:
+            render_W, render_H, render_pixels = render_frame_torch(
+                scene, frame, device=args.device, scale=args.scale, ray_batch=args.ray_batch
+            )
 
+        # Downsample GT to rendered resolution when scale < 1.
         if (render_W, render_H) != (gt_W, gt_H):
-            print(f"    Size mismatch: {render_W}x{render_H} vs {gt_W}x{gt_H}")
-            continue
+            gt_pixels = resize_pixels(gt_pixels, gt_W, gt_H, render_W, render_H)
+            gt_W, gt_H = render_W, render_H
 
         if render_W * render_H > 256 * 256:
             import warnings
-            warnings.warn(f"Pure-python SSIM is slow at {render_W}x{render_H}. Consider downscaling first.")
+            warnings.warn(f"Pure-python SSIM is slow at {render_W}x{render_H}. Consider --scale 0.25.")
 
         mse_val = mse(render_pixels, gt_pixels)
         psnr_val = psnr_from_mse(mse_val)
@@ -233,8 +325,9 @@ def main():
         if lpips_values:
             avg_lpips = sum(lpips_values) / len(lpips_values)
             lpips_str = f"  LPIPS={avg_lpips:.4f}"
-        print(f"\nAverage PSNR: {avg_psnr:.2f} dB  SSIM: {avg_ssim:.4f}{lpips_str}")
-        print("(3DGS reference: PSNR ~25.19 dB, SSIM ~0.857, LPIPS ~0.177)")
+        res_note = f" at {args.scale:.2f}x scale" if args.scale != 1.0 else " (full resolution)"
+        print(f"\nAverage PSNR: {avg_psnr:.2f} dB  SSIM: {avg_ssim:.4f}{lpips_str}{res_note}")
+        print("(3DGS reference: PSNR ~25.19 dB, SSIM ~0.857, LPIPS ~0.177 at full resolution)")
     else:
         print("No frames evaluated.")
 

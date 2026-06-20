@@ -3175,3 +3175,39 @@ def test_coverage_table_value_out_of_range_raises():
     from aura.cuda_renderer import _table_value
     with pytest.raises(ValueError, match="out-of-range dictionary id"):
         _table_value(("a", "b"), 99)
+
+
+def test_coverage_import_module_glob_path_exception(monkeypatch):
+    # Lines 1543-1544: glob-based import attempt raises → return None
+    import aura.cuda_renderer as cr_mod
+    from aura.cuda_renderer import _import_cuda_renderer_extension_module
+
+    def _always_raise(name):
+        raise ImportError(f"no module named {name!r}")
+
+    monkeypatch.setattr(cr_mod, "import_module", _always_raise)
+    result = _import_cuda_renderer_extension_module()
+    assert result is None
+
+
+def test_coverage_resolve_cuda_extension_build_true_no_cached_module(monkeypatch):
+    # Line 1520: _import fails, build=True → calls _build_cuda_renderer_extension_module
+    import aura.cuda_renderer as cr_mod
+    from aura.cuda_renderer import _resolve_cuda_renderer_extension, _extension_status_failure
+
+    monkeypatch.setattr(cr_mod, "_import_cuda_renderer_extension_module", lambda: None)
+    stub_status = _extension_status_failure(
+        ("cuda/aura_bindings.cpp", "cuda/aura_carriers.cu"),
+        ("render_rays",),
+        "stub_build_skipped",
+        build_attempted=True,
+    )
+    monkeypatch.setattr(cr_mod, "_build_cuda_renderer_extension_module", lambda: (stub_status, None))
+    status, module = _resolve_cuda_renderer_extension(
+        extension=None,
+        extension_module=None,
+        build=True,
+    )
+    assert module is None
+    assert status.available is False
+    assert status.reason == "stub_build_skipped"

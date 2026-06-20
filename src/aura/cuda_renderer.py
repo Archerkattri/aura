@@ -518,146 +518,139 @@ def cuda_renderer_build_bvh(scene: AuraScene, *, method: str = "sah") -> CudaRen
 
     When method='sah' (default), uses 16-bin Surface Area Heuristic.
     When method='median', uses median centroid split.
+
+    Uses numpy for O(N log N) vectorized construction instead of O(N² log N)
+    pure-Python loops, making it practical for scenes with 100k+ elements.
     """
 
+    import numpy as np
+
     element_count = len(scene.elements)
-    mins = [tuple(float(value) for value in element.bounds.min_corner) for element in scene.elements]
-    maxs = [tuple(float(value) for value in element.bounds.max_corner) for element in scene.elements]
 
-    node_mins: list[tuple[float, float, float]] = []
-    node_maxs: list[tuple[float, float, float]] = []
-    node_left: list[int] = []
-    node_right: list[int] = []
-    node_element: list[int] = []
-
-    def _bounds_of(indices):
-        lo = [float("inf"), float("inf"), float("inf")]
-        hi = [float("-inf"), float("-inf"), float("-inf")]
-        for index in indices:
-            for axis in range(3):
-                lo[axis] = min(lo[axis], mins[index][axis])
-                hi[axis] = max(hi[axis], maxs[index][axis])
-        return (lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])
-
-    def _aabb_surface_area(lo, hi):
-        w = hi[0] - lo[0]
-        h = hi[1] - lo[1]
-        d = hi[2] - lo[2]
-        return 2.0 * (w * h + w * d + h * d)
-
+    node_mins_list: list[tuple[float, float, float]] = []
+    node_maxs_list: list[tuple[float, float, float]] = []
+    node_left_list: list[int] = []
+    node_right_list: list[int] = []
+    node_element_list: list[int] = []
     max_depth = 0
 
-    def _build(indices, depth):
+    if element_count == 0:
+        return CudaRendererBvh(
+            node_mins=(),
+            node_maxs=(),
+            node_left=(),
+            node_right=(),
+            node_element=(),
+            node_count=0,
+            element_count=0,
+            max_depth=0,
+        )
+
+    mins_np = np.array([element.bounds.min_corner for element in scene.elements], dtype=np.float32)
+    maxs_np = np.array([element.bounds.max_corner for element in scene.elements], dtype=np.float32)
+    centroids_np = (mins_np + maxs_np) * 0.5
+
+    def _sa(lo, hi):
+        d = hi - lo
+        return float(2.0 * (d[0] * d[1] + d[0] * d[2] + d[1] * d[2]))
+
+    def _build_np(indices: "np.ndarray", depth: int) -> int:
         nonlocal max_depth
         max_depth = max(max_depth, depth)
-        node_index = len(node_mins)
-        node_mins.append((0.0, 0.0, 0.0))
-        node_maxs.append((0.0, 0.0, 0.0))
-        node_left.append(-1)
-        node_right.append(-1)
-        node_element.append(-1)
-        lo, hi = _bounds_of(indices)
-        node_mins[node_index] = lo
-        node_maxs[node_index] = hi
+        node_index = len(node_mins_list)
+        node_mins_list.append((0.0, 0.0, 0.0))
+        node_maxs_list.append((0.0, 0.0, 0.0))
+        node_left_list.append(-1)
+        node_right_list.append(-1)
+        node_element_list.append(-1)
+
+        lo = mins_np[indices].min(axis=0)
+        hi = maxs_np[indices].max(axis=0)
+        node_mins_list[node_index] = (float(lo[0]), float(lo[1]), float(lo[2]))
+        node_maxs_list[node_index] = (float(hi[0]), float(hi[1]), float(hi[2]))
+
         if len(indices) == 1:
-            node_element[node_index] = indices[0]
+            node_element_list[node_index] = int(indices[0])
             return node_index
 
+        best_split: "tuple[np.ndarray, np.ndarray] | None" = None
+
         if method == "sah":
-            # SAH with 16 bins
             NUM_BINS = 16
             best_cost = float("inf")
-            best_left = None
-            best_right = None
-            parent_sa = _aabb_surface_area(lo, hi)
+            parent_sa = _sa(lo, hi)
 
             for axis in range(3):
-                centroids = [0.5 * (mins[i][axis] + maxs[i][axis]) for i in indices]
-                c_min = min(centroids)
-                c_max = max(centroids)
+                c = centroids_np[indices, axis]
+                c_min, c_max = float(c.min()), float(c.max())
                 if c_max - c_min < 1e-10:
                     continue
                 bin_size = (c_max - c_min) / NUM_BINS
-                bins_lo = [[float("inf")] * 3 for _ in range(NUM_BINS)]
-                bins_hi = [[float("-inf")] * 3 for _ in range(NUM_BINS)]
-                bins_count = [0] * NUM_BINS
-                for idx, i in enumerate(indices):
-                    b = int((centroids[idx] - c_min) / bin_size)
-                    b = min(b, NUM_BINS - 1)
-                    bins_count[b] += 1
-                    for ax in range(3):
-                        bins_lo[b][ax] = min(bins_lo[b][ax], mins[i][ax])
-                        bins_hi[b][ax] = max(bins_hi[b][ax], maxs[i][ax])
+                bin_ids = np.minimum(((c - c_min) / bin_size).astype(np.int32), NUM_BINS - 1)
 
-                # Evaluate 15 split planes
+                # Vectorized per-bin bounds and counts
+                bins_count = np.bincount(bin_ids, minlength=NUM_BINS).astype(np.int32)
+                bins_lo = np.full((NUM_BINS, 3), np.inf, dtype=np.float32)
+                bins_hi = np.full((NUM_BINS, 3), -np.inf, dtype=np.float32)
+                for ax in range(3):
+                    np.minimum.at(bins_lo[:, ax], bin_ids, mins_np[indices, ax])
+                    np.maximum.at(bins_hi[:, ax], bin_ids, maxs_np[indices, ax])
+
+                # Prefix and suffix sums for SAH cost evaluation
+                prefix_count = np.cumsum(bins_count)
+                suffix_count = np.cumsum(bins_count[::-1])[::-1]
+
+                prefix_lo = np.minimum.accumulate(np.where(bins_count[:, None] > 0, bins_lo, np.inf), axis=0)
+                prefix_hi = np.maximum.accumulate(np.where(bins_count[:, None] > 0, bins_hi, -np.inf), axis=0)
+                suffix_lo = np.minimum.accumulate(
+                    np.where(bins_count[:, None] > 0, bins_lo, np.inf)[::-1], axis=0
+                )[::-1]
+                suffix_hi = np.maximum.accumulate(
+                    np.where(bins_count[:, None] > 0, bins_hi, -np.inf)[::-1], axis=0
+                )[::-1]
+
                 for split in range(1, NUM_BINS):
-                    left_lo = [float("inf")] * 3
-                    left_hi = [float("-inf")] * 3
-                    left_count = 0
-                    for b in range(split):
-                        if bins_count[b] > 0:
-                            left_count += bins_count[b]
-                            for ax in range(3):
-                                left_lo[ax] = min(left_lo[ax], bins_lo[b][ax])
-                                left_hi[ax] = max(left_hi[ax], bins_hi[b][ax])
-                    right_lo = [float("inf")] * 3
-                    right_hi = [float("-inf")] * 3
-                    right_count = 0
-                    for b in range(split, NUM_BINS):
-                        if bins_count[b] > 0:
-                            right_count += bins_count[b]
-                            for ax in range(3):
-                                right_lo[ax] = min(right_lo[ax], bins_lo[b][ax])
-                                right_hi[ax] = max(right_hi[ax], bins_hi[b][ax])
-
-                    if left_count == 0 or right_count == 0:  # pragma: no cover — degenerate SAH bin
+                    l_count = int(prefix_count[split - 1])
+                    r_count = int(suffix_count[split])
+                    if l_count == 0 or r_count == 0:  # pragma: no cover — degenerate SAH bin
                         continue
-
-                    left_sa = _aabb_surface_area(left_lo, left_hi) if left_count > 0 else 0.0
-                    right_sa = _aabb_surface_area(right_lo, right_hi) if right_count > 0 else 0.0
-                    cost = (left_count * left_sa + right_count * right_sa) / max(parent_sa, 1e-10)
+                    ld = prefix_hi[split - 1] - prefix_lo[split - 1]
+                    rd = suffix_hi[split] - suffix_lo[split]
+                    l_sa = float(2.0 * (ld[0] * ld[1] + ld[0] * ld[2] + ld[1] * ld[2]))
+                    r_sa = float(2.0 * (rd[0] * rd[1] + rd[0] * rd[2] + rd[1] * rd[2]))
+                    cost = (l_count * l_sa + r_count * r_sa) / max(parent_sa, 1e-10)
                     if cost < best_cost:
                         best_cost = cost
-                        split_centroid = c_min + split * bin_size
-                        left_part = [i for idx, i in enumerate(indices) if 0.5 * (mins[i][axis] + maxs[i][axis]) < split_centroid]
-                        right_part = [i for i in indices if i not in set(left_part)]
-                        if left_part and right_part:
-                            best_left = left_part
-                            best_right = right_part
+                        split_v = c_min + split * bin_size
+                        lmask = centroids_np[indices, axis] < split_v
+                        if lmask.any() and (~lmask).any():
+                            best_split = (indices[lmask], indices[~lmask])
 
-            if best_left is not None and best_right is not None:
-                node_left[node_index] = _build(best_left, depth + 1)
-                node_right[node_index] = _build(best_right, depth + 1)
-                return node_index
-            # Fall through to median split if SAH failed
-
-        # Median split (fallback or method='median')
-        extent = tuple(hi[axis] - lo[axis] for axis in range(3))
-        axis = max(range(3), key=lambda candidate: extent[candidate])
-        centroid = lambda index: 0.5 * (mins[index][axis] + maxs[index][axis])  # noqa: E731
-        ordered = sorted(indices, key=centroid)
-        mid = len(ordered) // 2
-        left_indices = ordered[:mid]
-        right_indices = ordered[mid:]
-        if not left_indices or not right_indices:  # pragma: no cover — coincident centroid guard
-            # Degenerate split (coincident centroids); fall back to index split.
+        if best_split is None:
+            # Median split fallback
+            d = hi - lo
+            axis = int(np.argmax(d))
+            c = centroids_np[indices, axis]
+            order = np.argsort(c, kind="stable")
             mid = len(indices) // 2
-            left_indices = indices[:mid]
-            right_indices = indices[mid:]
-        node_left[node_index] = _build(left_indices, depth + 1)
-        node_right[node_index] = _build(right_indices, depth + 1)
+            if mid == 0 or mid == len(indices):  # pragma: no cover — degenerate case
+                mid = max(1, min(len(indices) - 1, mid))
+            best_split = (indices[order[:mid]], indices[order[mid:]])
+
+        left_idx, right_idx = best_split
+        node_left_list[node_index] = _build_np(left_idx, depth + 1)
+        node_right_list[node_index] = _build_np(right_idx, depth + 1)
         return node_index
 
-    if element_count > 0:
-        _build(list(range(element_count)), 1)
+    _build_np(np.arange(element_count, dtype=np.int32), 1)
 
     return CudaRendererBvh(
-        node_mins=tuple(value for node in node_mins for value in node),
-        node_maxs=tuple(value for node in node_maxs for value in node),
-        node_left=tuple(node_left),
-        node_right=tuple(node_right),
-        node_element=tuple(node_element),
-        node_count=len(node_mins),
+        node_mins=tuple(value for node in node_mins_list for value in node),
+        node_maxs=tuple(value for node in node_maxs_list for value in node),
+        node_left=tuple(node_left_list),
+        node_right=tuple(node_right_list),
+        node_element=tuple(node_element_list),
+        node_count=len(node_mins_list),
         element_count=element_count,
         max_depth=max_depth,
     )
@@ -1375,6 +1368,7 @@ def cuda_render_rays(
     require_cuda: bool = False,
     extension: CudaExtensionStatus | None = None,
     extension_module: Any | None = None,
+    use_bvh: bool = True,
 ) -> CudaRendererBatch:
     """Render batched rays through the CUDA renderer boundary.
 
@@ -1405,7 +1399,7 @@ def cuda_render_rays(
         and symbol_probe.binding_callable
         and extension_module is not None
     ):
-        return _compiled_extension_batch(scene, ray_origins, ray_directions, launch_config, extension, extension_module, device=device)
+        return _compiled_extension_batch(scene, ray_origins, ray_directions, launch_config, extension, extension_module, device=device, use_bvh=use_bvh)
     if extension.available and (require_cuda or fallback_backend == "none"):
         raise RuntimeError(f"CUDA renderer Python dispatch is unavailable: {symbol_probe.reason or 'binding_not_ready'}")
     if require_cuda or fallback_backend == "none":
@@ -1524,6 +1518,23 @@ def _import_cuda_renderer_extension_module() -> Any | None:
     try:
         return import_module(CUDA_EXTENSION_MODULE_NAME)
     except Exception:
+        pass
+    # PyTorch builds JIT extensions into a per-version cache dir (e.g.
+    # ~/.cache/torch_extensions/py311_cu121/<name>/) that is NOT in sys.path
+    # until load() has been called in the current process. If the .so already
+    # exists there, add the directory and import directly — no recompilation.
+    try:
+        from torch.utils.cpp_extension import get_default_build_root as _build_root
+        import sys as _sys
+        import os as _os
+        import glob as _glob
+        build_root = _build_root()
+        pattern = _os.path.join(build_root, "*", CUDA_EXTENSION_MODULE_NAME)
+        for cache_dir in _glob.glob(pattern):
+            if _os.path.isdir(cache_dir) and cache_dir not in _sys.path:
+                _sys.path.insert(0, cache_dir)
+        return import_module(CUDA_EXTENSION_MODULE_NAME)
+    except Exception:
         return None
 
 
@@ -1550,7 +1561,7 @@ def _build_cuda_renderer_extension_module() -> tuple[CudaExtensionStatus, Any | 
         return _extension_status_failure(source_paths, symbols, "cuda_home_unavailable", build_attempted=True), None
     if not bool(torch.cuda.is_available()):
         return _extension_status_failure(source_paths, symbols, "torch_cuda_unavailable", build_attempted=True), None
-    try:
+    try:  # pragma: no cover — requires CUDA_HOME + GPU compiler; not exercised in CI
         with ExitStack() as stack:
             resolved_sources = [
                 str(stack.enter_context(as_file(files("aura").joinpath(path))))
@@ -1563,9 +1574,9 @@ def _build_cuda_renderer_extension_module() -> tuple[CudaExtensionStatus, Any | 
                 is_python_module=True,
                 verbose=False,
             )
-    except Exception as exc:  # pragma: no cover - requires CUDA compiler/runtime matrix.
+    except Exception as exc:  # pragma: no cover
         return _extension_status_failure(source_paths, symbols, f"build_or_load_failed: {exc}", build_attempted=True), None
-    return _available_extension_status(build_attempted=True), module
+    return _available_extension_status(build_attempted=True), module  # pragma: no cover
 
 
 def _available_extension_status(*, build_attempted: bool) -> CudaExtensionStatus:
@@ -1687,6 +1698,7 @@ def _compiled_extension_batch(
     extension_module: Any,
     *,
     device: str | None,
+    use_bvh: bool = True,
 ) -> CudaRendererBatch:
     torch = _require_torch_for_cuda_dispatch()
     resolved_device = device or "cuda"
@@ -1716,7 +1728,7 @@ def _compiled_extension_batch(
         torch.tensor(scene_buffers.semantic_ids, dtype=torch.int32, device=resolved_device).contiguous(),
     )
     bvh_binding = getattr(extension_module, CUDA_RENDERER_BVH_BINDING_SYMBOL, None)
-    if element_count > 0 and callable(bvh_binding):
+    if use_bvh and element_count > 0 and callable(bvh_binding):
         bvh = cuda_renderer_build_bvh(scene)
         outputs = bvh_binding(
             ray_origin_tensor,
