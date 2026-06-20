@@ -133,7 +133,9 @@ def decode_semantic_feature(
 
     sparse_indices: Optional[List[int]] = payload.get("sparse_indices")
     sparse_weights: Optional[List[float]] = payload.get("sparse_weights")
-    codebook_dim = int(payload.get("codebook_dim", 64))
+    # Default the feature dimension to the actual codebook atom width when the
+    # payload omits it, so a non-default atom size does not index out of range.
+    codebook_dim = int(payload.get("codebook_dim", len(codebook[0]) if codebook else 64))
 
     if sparse_indices is None or sparse_weights is None:
         # No active atoms: return zero vector
@@ -149,10 +151,16 @@ def decode_semantic_feature(
             f"sparse_weights length ({len(sparse_weights)})"
         )
 
-    # Reconstruct feature vector: sum of weight_i * atom_i
+    # Reconstruct feature vector: sum of weight_i * atom_i. Guard the index
+    # range and clamp the per-atom loop to the atom width so a codebook whose
+    # atoms are narrower/wider than codebook_dim cannot index out of range.
     result = [0.0] * codebook_dim
     for idx, weight in zip(sparse_indices, sparse_weights):
+        if not 0 <= idx < len(codebook):
+            raise ValueError(
+                f"sparse index {idx} out of range for codebook of size {len(codebook)}"
+            )
         atom = codebook[idx]
-        for dim_i in range(codebook_dim):
+        for dim_i in range(min(codebook_dim, len(atom))):
             result[dim_i] += weight * atom[dim_i]
     return result

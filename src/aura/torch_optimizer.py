@@ -1192,6 +1192,15 @@ def _optimize_torch_batches(
                     )
                 materialization_summary = None
 
+            # Reset the per-carrier gradient statistics every densification
+            # interval — unconditionally, even when this pass densified/pruned
+            # nothing — so each interval's AbsGS gradient is measured fresh
+            # (matching 3DGS/AbsGS ADC semantics) and the accumulator cannot grow
+            # unbounded across the run. The densify pass already read a shallow
+            # copy (densify_grad_accum) above, so clearing here is safe.
+            grad_accumulator.clear()
+            grad_accum_step_count = 0
+
         if evolution_enabled or checkpoint_due:
             current_scene = _scene_from_carrier_parameters(
                 current_scene,

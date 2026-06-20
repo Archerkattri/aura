@@ -163,7 +163,21 @@ def render_frame_cuda(
 
     origs_np = np.array(origs, dtype=np.float32)
     dirs_np = np.array(dirs, dtype=np.float32)
-    batch = cuda_render_rays(scene, origs_np, dirs_np, device=device, use_bvh=False, max_hits=max_hits)
+    batch = cuda_render_rays(
+        scene, origs_np, dirs_np, device=device, use_bvh=False,
+        max_hits=max_hits, require_cuda=True,
+    )
+    # Honesty guard: never report CPU/torch fallback numbers as "cuda". If the
+    # compiled extension did not actually run on the GPU, fail loudly so the
+    # caller switches to --renderer torch (and gets correctly-labelled numbers)
+    # rather than silently mislabelling fallback results.
+    if getattr(batch, "backend", None) != "cuda" or not getattr(batch, "production_ready", False):
+        raise RuntimeError(
+            "cuda renderer did not run on the GPU "
+            f"(backend={getattr(batch, 'backend', None)!r}, "
+            f"reason={getattr(batch, 'reason', None)!r}); "
+            "re-run with --renderer torch for honest CPU numbers."
+        )
     all_colors = [v for rgb in batch.color for v in rgb]
     return W, H, all_colors
 

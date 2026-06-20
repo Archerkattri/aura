@@ -278,6 +278,49 @@ def test_semantic_sparse_codebook_decode():
     assert result == pytest.approx([1.0, 0.0, 1.0])
 
 
+def test_semantic_decode_defaults_dim_to_atom_width():
+    """When the payload omits codebook_dim, the feature width follows the actual
+    codebook atom width (here 5), so no IndexError on a non-default size."""
+    from aura.semantic import decode_semantic_feature
+
+    payload = {
+        "use_sparse_codebook": True,
+        "sparse_indices": [1],
+        "sparse_weights": [2.0],
+        # NOTE: no codebook_dim key
+    }
+    codebook = [[0.0] * 5, [1.0, 2.0, 3.0, 4.0, 5.0]]
+    result = decode_semantic_feature(payload, codebook=codebook)
+    assert result == pytest.approx([2.0, 4.0, 6.0, 8.0, 10.0])
+
+
+def test_semantic_decode_clamps_to_narrower_atom_width():
+    """codebook_dim wider than the atoms must not index past the atom."""
+    from aura.semantic import decode_semantic_feature
+
+    payload = {
+        "use_sparse_codebook": True,
+        "codebook_dim": 4,            # wider than the 2-wide atoms
+        "sparse_indices": [0],
+        "sparse_weights": [1.0],
+    }
+    result = decode_semantic_feature(payload, codebook=[[3.0, 4.0]])
+    assert result == pytest.approx([3.0, 4.0, 0.0, 0.0])
+
+
+def test_semantic_decode_out_of_range_index_raises():
+    from aura.semantic import decode_semantic_feature
+
+    payload = {
+        "use_sparse_codebook": True,
+        "codebook_dim": 2,
+        "sparse_indices": [5],        # codebook only has 1 atom
+        "sparse_weights": [1.0],
+    }
+    with pytest.raises(ValueError, match="out of range"):
+        decode_semantic_feature(payload, codebook=[[1.0, 1.0]])
+
+
 # ---------------------------------------------------------------------------
 # Cover lines 55, 275, 321, 398, 435 — error branches in payloads
 # ---------------------------------------------------------------------------
