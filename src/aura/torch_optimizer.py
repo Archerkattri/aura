@@ -502,7 +502,17 @@ class DensificationEngine:
                 for pname, ptensor in parent_fields.items():
                     if hasattr(ptensor, 'detach'):
                         new_tensor = ptensor.detach().clone()
-                        # Scale down support_radius/covariance for split children
+                        # Scale down support_radius/covariance for split children.
+                        # KNOWN LIMITATION: a single 0.7 factor is applied to all
+                        # three of {support_radius, gaussian_covariance_diag,
+                        # bandwidth}, but they carry different units —
+                        # gaussian_covariance_diag is a VARIANCE (squared scale),
+                        # support_radius is a LINEAR scale, and bandwidth is a Gabor
+                        # modulation coefficient. 3DGS shrinks the linear scale by
+                        # ~1/1.6 (variance by ~1/1.6**2) and offsets the two children
+                        # apart; here children share the parent centre and use one
+                        # factor. Tuning this correctly needs PSNR validation on a
+                        # densification run, so it is tracked rather than changed blind.
                         if pname in {"support_radius", "gaussian_covariance_diag", "bandwidth"}:
                             new_tensor = new_tensor * 0.7
                             new_tensor = new_tensor.clamp(min=1e-4)
@@ -905,6 +915,12 @@ def _optimize_torch_batches(
                     for name, parameter in fields.items():
                         if name in _OPACITY_PARAMS:
                             parameter.fill_(config.opacity_reset_value)
+                            # Also drop the Adam moments for this parameter so
+                            # stale exp_avg/exp_avg_sq momentum doesn't immediately
+                            # push opacity back toward its pre-reset value. 3DGS
+                            # resets BOTH the parameter and its optimizer state.
+                            if use_adam and adam_optimizer is not None:
+                                adam_optimizer.state.pop(parameter, None)
         else:
             steps_since_reset += 1
 
@@ -1179,6 +1195,15 @@ def _optimize_torch_batches(
                 # (scene_tensors re-initializes from element defaults, so we need
                 # to restore the in-memory trained values for retained carriers)
                 _restore_trained_parameters(carrier_parameters, new_carrier_parameters, elements=current_scene.elements)
+                # KNOWN LIMITATION: rebuilding the Adam optimizer here discards the
+                # accumulated momentum (exp_avg/exp_avg_sq) of retained carriers,
+                # whereas 3DGS transfers optimizer state for survivors and zero-inits
+                # only the new ones. The batched (__batched__) path stores every
+                # attribute as a single [N,*] tensor that torch_scene_tensors fully
+                # re-materializes, so per-carrier state transfer is not expressible
+                # without restructuring the tensor layout; momentum simply restarts
+                # each densification interval. Acceptable in practice (densify
+                # intervals are infrequent) but tracked for a future redesign.
                 if use_adam:
                     adam_optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
                 # Patch last step with densification counts
