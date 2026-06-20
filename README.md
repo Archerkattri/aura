@@ -20,6 +20,34 @@ confidence, geometry proxies, semantic grouping, and LOD.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design rationale
 and carrier-family descriptions.
 
+## Results (Tanks & Temples — Truck, real data)
+
+Ground truth (left) vs AURA render (right), three eval frames:
+
+![GT vs AURA — Truck](docs/aura_truck_comparison.png)
+
+| Run | Carriers | Iterations | PSNR | SSIM | Notes |
+|---|---|---|---|---|---|
+| AURA truck-3k-run6 | 129,531 | 3,000 | **6.89 dB** | 0.044 | converged checkpoint, 0.125× eval |
+| 3DGS (Kerbl 2023) | — | 30,000 | ~25.19 dB | ~0.879 | reference |
+
+> **Honest status:** these are *real* numbers from a real converged checkpoint
+> evaluated with the on-GPU CUDA renderer (the eval fails loudly rather than
+> mislabelling a CPU fallback). They are also **far from competitive** — the
+> 3,000-iteration run is badly under-converged. Training *does* optimise
+> (≈23k/129k carriers updated their opacity/colour/mean), but with the
+> memory-constrained target sampling (256 targets/batch, 16/frame) most
+> carriers never receive a gradient and the per-iteration loss stays
+> noisy-flat (~0.03). Reaching 3DGS-class quality needs far more iterations
+> and/or denser supervision. Reproduce with:
+>
+> ```bash
+> python scripts/eval_psnr.py outputs/truck-3k-run6.aura \
+>     outputs/truck-pts129k-manifest.json --frames 5 --renderer cuda --scale 0.125
+> python scripts/render_comparison.py outputs/truck-3k-run6.aura \
+>     outputs/truck-pts129k-manifest.json --out docs/aura_truck_comparison.png
+> ```
+
 ## Features
 
 - Native carrier registry for surface, volume, beta, gabor, neural residual,

@@ -49,8 +49,10 @@ python -m aura.cli train outputs/<scene>-manifest.json \
 | Loss at convergence | ~0.02 |
 | Checkpoint | `outputs/truck-3k-run6.aura` |
 
-> **Note**: truck-3k-run5 was trained before the batched gaussian parameter writeback fix
-> (commit 0f3797d). run6 uses the fixed code and should produce measurably better PSNR.
+> **Note**: run6 uses the fixed batched-gaussian writeback (commit 0f3797d) and
+> the writeback does work (≈23k carriers updated), but 3,000 iterations is far
+> too few to converge — run6 evaluates at 6.89 dB, essentially the untrained
+> floor. A competitive result needs many more iterations / denser supervision.
 
 ### Training with densification (recommended for higher PSNR)
 
@@ -95,7 +97,14 @@ Use `--scale 0.125` to render at 1/8 resolution for faster evaluation; GT is dow
 |---|---|---|---|
 | 3DGS (Kerbl et al. 2023) | ~25.19 dB | ~0.879 | ~0.148 |
 | MP-GS (multi-primitive) | ~25–27 dB | — | — |
-| AURA truck-3k-run5 | TBD | TBD | TBD |
+| AURA truck-3k-run6 (3,000 iters, 0.125× eval) | 6.89 dB | 0.044 | — |
+
+> **The AURA number is real but badly under-converged** (3,000 iters; the
+> per-iteration loss on memory-constrained random tiles stays noisy-flat, and
+> ~82% of carriers never receive a gradient). It is NOT competitive with 3DGS
+> and should not be read as such — it is the honest current state, measured
+> on-GPU with the CUDA renderer. See README "Results" for the visual and the
+> convergence caveat.
 
 ## Seeds
 
