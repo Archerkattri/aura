@@ -1737,7 +1737,17 @@ def _torch_composite_carrier_hits(
     color = torch.sum(weight_by_order.unsqueeze(2) * carrier_colors_by_order, dim=1)
     confidence_num = torch.sum(weight_by_order * confidence_by_order, dim=1)
     confidence_den = torch.sum(weight_by_order, dim=1)
-    remaining = inclusive_remaining[:, -1] if order_count else torch.ones((ray_count,), dtype=torch.float32, device=device)
+    # Remaining transmittance (-> alpha = 1 - remaining) computed from the SAME
+    # post-threshold weights that drive colour and expected depth, via the exact
+    # alpha-compositing identity prod(1-a_i) = 1 - sum(T_i * a_i). The previous
+    # value used the pre-threshold cumprod, so with transmittance_threshold > 0
+    # the reported alpha counted contributions that colour/depth had dropped,
+    # leaving depth and alpha mutually inconsistent near the cutoff.
+    remaining = (
+        torch.clamp(1.0 - torch.sum(weight_by_order, dim=1), min=0.0, max=1.0).to(torch.float32)
+        if order_count
+        else torch.ones((ray_count,), dtype=torch.float32, device=device)
+    )
     residual = torch.any(active_by_order & residual_by_order, dim=1)
     element_weights = torch.zeros((ray_count, len(elements)), dtype=torch.float32, device=device).scatter_add(1, global_indices, weight_by_order)
 
