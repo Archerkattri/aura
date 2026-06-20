@@ -192,6 +192,7 @@ from aura.training_targets import (
     capture_tensors_to_packed_render_batches,
     capture_tensors_to_render_targets,
     plan_capture_tensor_sampling,
+    sampling_coverage_report,
 )
 from aura.torch_renderer import (
     TorchCaptureAssetBatch,
@@ -337,6 +338,7 @@ __all__ = [
     "capture_tensors_to_packed_render_batches",
     "capture_tensors_to_render_targets",
     "plan_capture_tensor_sampling",
+    "sampling_coverage_report",
     "choose_carrier",
     "cuda_kernel_extension_report",
     "cuda_kernel_extension_status",

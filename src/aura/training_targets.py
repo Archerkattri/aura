@@ -552,6 +552,97 @@ def plan_capture_tensor_sampling(
     )
 
 
+def sampling_coverage_report(plan: CaptureSamplingPlan) -> dict:
+    """Quantify how much of each frame a sampling plan actually supervises.
+
+    Pure, side-effect-free diagnostic computed from the already-materialized
+    ``CaptureSamplingPlan`` tile fields. It does NOT re-sample, does NOT touch
+    the plan↔packed-batch invariant, and changes no training target.
+
+    Motivation: with a tight ``max_targets_per_frame`` cap the planner stops
+    after the first N valid pixels of each frame (raster order, top-left), so
+    most of the frame — and most carriers — are never supervised, and the same
+    subset is reused every iteration (see docs/CONVERGENCE_TODO.md). This report
+    surfaces that starvation as a number so a GPU run can measure it before and
+    after applying a coverage fix.
+
+    Coverage denominator note: when ``max_targets_per_frame`` truncates the
+    per-frame scan early, the planner stops visiting later pixels/tiles, so the
+    tile's scan-truncated ``candidate_pixel_count`` would hide the starvation.
+    To surface it honestly, ``capacityPixelCount`` here is each present tile's
+    FULL stride-decimated grid capacity (derived from its ``size`` and the
+    plan's ``pixel_stride``) — i.e. how many pixels the tile *could* supervise.
+    ``coverageFraction = sampled / capacity`` therefore drops below 1.0 exactly
+    when the cap leaves pixels in a present tile unsupervised. (Tiles dropped
+    entirely by an early frame-level stop are not in the plan and cannot be
+    counted from the plan alone; ``tileCount`` is reported so a shrinking
+    tile count also signals dropped coverage.)
+
+    Returns a dict with overall and per-frame coverage:
+
+    - ``sampledPixelCount`` / ``capacityPixelCount`` / ``maskedPixelCount``
+    - ``coverageFraction``: sampled / capacity (1.0 = every pixel in every
+      present tile supervised; small values indicate the cap is starving
+      coverage)
+    - ``tileCount``: number of tiles present in the plan
+    - ``perFrame``: the same fields keyed by frame id
+
+    ``coverageFraction`` is in ``[0, 1]``; a capacity of 0 reports 0.0.
+    """
+
+    def _fraction(sampled: int, capacity: int) -> float:
+        return (sampled / capacity) if capacity > 0 else 0.0
+
+    def _tile_capacity(tile: CaptureSamplingTile) -> int:
+        width, height = tile.size
+        cols = (width + plan.pixel_stride - 1) // plan.pixel_stride
+        rows = (height + plan.pixel_stride - 1) // plan.pixel_stride
+        return cols * rows
+
+    per_frame: dict[str, dict] = {}
+    for tile in plan.tiles:
+        bucket = per_frame.setdefault(
+            tile.frame_id,
+            {
+                "sampledPixelCount": 0,
+                "capacityPixelCount": 0,
+                "maskedPixelCount": 0,
+                "tileCount": 0,
+            },
+        )
+        bucket["sampledPixelCount"] += tile.sampled_pixel_count
+        bucket["capacityPixelCount"] += _tile_capacity(tile)
+        bucket["maskedPixelCount"] += tile.masked_pixel_count
+        bucket["tileCount"] += 1
+    for bucket in per_frame.values():
+        bucket["coverageFraction"] = _fraction(
+            bucket["sampledPixelCount"], bucket["capacityPixelCount"]
+        )
+
+    total_sampled = sum(b["sampledPixelCount"] for b in per_frame.values())
+    total_capacity = sum(b["capacityPixelCount"] for b in per_frame.values())
+    total_masked = sum(b["maskedPixelCount"] for b in per_frame.values())
+    return {
+        "format": "AURA_SAMPLING_COVERAGE_REPORT",
+        "pixelStride": plan.pixel_stride,
+        "tileSize": plan.tile_size,
+        "maxTargetsPerFrame": plan.max_targets_per_frame,
+        "frameCount": len(per_frame),
+        "tileCount": len(plan.tiles),
+        "sampledPixelCount": total_sampled,
+        "capacityPixelCount": total_capacity,
+        "maskedPixelCount": total_masked,
+        "coverageFraction": _fraction(total_sampled, total_capacity),
+        "minFrameCoverageFraction": min(
+            (b["coverageFraction"] for b in per_frame.values()), default=0.0
+        ),
+        "maxFrameCoverageFraction": max(
+            (b["coverageFraction"] for b in per_frame.values()), default=0.0
+        ),
+        "perFrame": per_frame,
+    }
+
+
 def _max_sampled_pixels_per_tile(tile_size: int, pixel_stride: int) -> int:
     sampled_axis = (tile_size + pixel_stride - 1) // pixel_stride
     return max(1, sampled_axis * sampled_axis)

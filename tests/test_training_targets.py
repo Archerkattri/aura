@@ -23,6 +23,7 @@ from aura.training_targets import (
     capture_tensors_to_packed_render_batches,
     capture_tensors_to_render_targets,
     plan_capture_tensor_sampling,
+    sampling_coverage_report,
 )
 
 
@@ -1253,3 +1254,85 @@ def test_packed_buffer_metadata_returns_dict_for_values():
     assert result["dtype"] == "float64"
     assert result["shape"] == [3]
     assert result["valueCount"] == 3
+
+
+# ---------------------------------------------------------------------------
+# sampling_coverage_report — convergence diagnostic (docs/CONVERGENCE_TODO.md)
+# ---------------------------------------------------------------------------
+
+
+def _full_coverage_tensors(frame_id: str = "frame") -> CaptureFrameTensors:
+    """A 4x2 all-visible RGB capture (8 candidate pixels, none masked)."""
+    width, height = 4, 2
+    image_values = tuple(float((x + y) % 2) for y in range(height) for x in range(width) for _ in range(3))
+    return CaptureFrameTensors(
+        frame_id=frame_id,
+        image=CaptureTensor("image.ppm", "Netpbm", "stdlib", width, height, 3, image_values),
+    )
+
+
+def test_sampling_coverage_report_full_when_uncapped():
+    """With no per-frame cap every candidate pixel is supervised → coverage 1.0."""
+    frame = _training_frame()
+    tensors = _full_coverage_tensors()
+
+    plan = plan_capture_tensor_sampling((frame,), (tensors,), tile_size=4, max_targets_per_batch=8)
+    report = sampling_coverage_report(plan)
+
+    assert report["format"] == "AURA_SAMPLING_COVERAGE_REPORT"
+    assert report["capacityPixelCount"] == 8
+    assert report["sampledPixelCount"] == 8
+    assert report["maskedPixelCount"] == 0
+    assert report["coverageFraction"] == 1.0
+    assert report["frameCount"] == 1
+    assert report["perFrame"]["frame"]["coverageFraction"] == 1.0
+
+
+def test_sampling_coverage_report_quantifies_per_frame_cap_starvation():
+    """The convergence root cause: a tight max_targets_per_frame cap supervises
+    only a small top-left slice of the frame, leaving most pixels — and thus
+    most carriers — unsupervised. The diagnostic must surface that as a small
+    coverage fraction (< 1.0)."""
+    frame = _training_frame()
+    tensors = _full_coverage_tensors()
+
+    capped = plan_capture_tensor_sampling(
+        (frame,), (tensors,), tile_size=4, max_targets_per_frame=2, max_targets_per_batch=2
+    )
+    report = sampling_coverage_report(capped)
+
+    # 2 of the tile's 8-pixel capacity supervised → coverage = 0.25, far from full.
+    assert report["sampledPixelCount"] == 2
+    assert report["capacityPixelCount"] == 8
+    assert report["coverageFraction"] == 0.25
+    assert report["coverageFraction"] < 1.0
+
+    # And it is strictly worse than the uncapped plan on the same frame —
+    # the property the fix in docs/CONVERGENCE_TODO.md must improve.
+    uncapped = plan_capture_tensor_sampling(
+        (frame,), (tensors,), tile_size=4, max_targets_per_batch=8
+    )
+    assert report["coverageFraction"] < sampling_coverage_report(uncapped)["coverageFraction"]
+
+
+def test_sampling_coverage_report_accounts_for_masked_pixels():
+    """Masked pixels are candidates that are never sampled; coverage uses the
+    full candidate count as the denominator so masking lowers coverage."""
+    frame = _training_frame()
+    tensors = CaptureFrameTensors(
+        frame_id="frame",
+        image=CaptureTensor(
+            "image.ppm", "Netpbm", "stdlib", 4, 2, 3,
+            tuple(0.5 for _ in range(4 * 2 * 3)),
+        ),
+        # Mask out half the pixels (every other one is 0).
+        mask=CaptureTensor("mask.pgm", "Netpbm", "stdlib", 4, 2, 1, (1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0)),
+    )
+
+    plan = plan_capture_tensor_sampling((frame,), (tensors,), tile_size=4, max_targets_per_batch=8)
+    report = sampling_coverage_report(plan)
+
+    assert report["capacityPixelCount"] == 8
+    assert report["maskedPixelCount"] == 4
+    assert report["sampledPixelCount"] == 4
+    assert report["coverageFraction"] == 0.5
