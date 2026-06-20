@@ -2293,6 +2293,17 @@ def test_densification_engine_split_increases_carrier_count():
     )
     assert num_densified >= 1
     assert len(new_scene.elements) > len(scene.elements)
+    # Distinguish SPLIT from CLONE: a split shrinks the children's support
+    # radius (a clone would copy it unchanged). At least one new carrier must
+    # carry a support_radius strictly smaller than the parent's largest extent.
+    parent_max_radius = 2.0
+    child_radii = [
+        float(max(fields["support_radius"].tolist()))
+        for cid, fields in new_params.items()
+        if "support_radius" in fields and cid != "big_carrier"
+    ]
+    assert child_radii, "split should have produced new carriers with support_radius"
+    assert min(child_radii) < parent_max_radius
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is optional")
@@ -2888,6 +2899,20 @@ def test_densification_should_run_returns_false_past_end_iteration():
     assert DensificationEngine.should_run(500, cfg) is True
     # Before start
     assert DensificationEngine.should_run(99, cfg) is False
+
+
+def test_densification_should_run_only_on_interval_boundaries():
+    """should_run fires only on interval-aligned iterations within [start, end],
+    and is False for in-range iterations that are NOT on the interval."""
+    from aura.torch_optimizer import DensificationConfig, DensificationEngine
+    cfg = DensificationConfig(
+        enabled=True, start_iteration=500, end_iteration=1000, interval=100,
+    )
+    assert DensificationEngine.should_run(500, cfg) is True    # aligned at start
+    assert DensificationEngine.should_run(600, cfg) is True    # aligned interval
+    assert DensificationEngine.should_run(650, cfg) is False   # in range, off interval
+    assert DensificationEngine.should_run(1000, cfg) is True   # aligned at end
+    assert DensificationEngine.should_run(550, cfg) is False   # in range, off interval
 
 
 # ---- Batch: densify_and_prune gaussian_covariance_diag path (lines 375-377) ----
@@ -4611,6 +4636,11 @@ def test_batched_grad_accumulation_populates_element_ids_in_accumulator():
     )
     # The training completed without error.  Grad accum window is 1 so steps include grad_stats.
     assert len(result.steps) >= 1
+    # The actual point of the batched fix: per-element keys (element_id.grad_absmax)
+    # must be surfaced, never the pre-fix '__batched__.*' keys.
+    keys = {k for step in result.steps for (k, _) in step.grad_stats}
+    assert any(k.endswith(".grad_absmax") for k in keys)
+    assert not any(k.startswith("__batched__") for k in keys)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch required")
@@ -4670,3 +4700,6 @@ def test_batched_grad_accumulation_sgd_path():
         device="cpu",
     )
     assert len(result.steps) >= 1
+    keys = {k for step in result.steps for (k, _) in step.grad_stats}
+    assert any(k.endswith(".grad_absmax") for k in keys)
+    assert not any(k.startswith("__batched__") for k in keys)
