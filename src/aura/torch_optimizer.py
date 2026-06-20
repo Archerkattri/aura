@@ -351,6 +351,15 @@ class DensificationEngine:
         num_densified = 0
         num_pruned = 0
 
+        # Batched gaussian path: carrier_parameters["__batched__"] holds [N,*] tensors.
+        # Convert to per-element dict so the rest of this method works uniformly.
+        _batched = carrier_parameters.get("__batched__")
+        if _batched is not None:
+            carrier_parameters = {
+                element.id: {name: param[i] for name, param in _batched.items()}
+                for i, element in enumerate(scene.elements)
+            }
+
         # Compute per-element grad norms from accumulator
         grad_by_element: dict[str, float] = {}
         for key, grad_val in grad_accumulator.items():
@@ -970,17 +979,33 @@ def _optimize_torch_batches(
                 # Deliverable 3: Accumulate absolute gradients (also used by densification)
                 if config.grad_accum_window > 0 or _track_grads_for_densify:
                     grad_accum_step_count += 1
-                    _ga_keys: list = []
-                    _ga_tensors: list = []
-                    for element_id, fields in carrier_parameters.items():
-                        for param_name, parameter in fields.items():
-                            if getattr(parameter, 'grad', None) is not None:
-                                _ga_keys.append(f"{element_id}.{param_name}")
-                                _ga_tensors.append(parameter.grad.abs().mean())
-                    if _ga_keys:
-                        _ga_values = torch.stack(_ga_tensors).detach().cpu().tolist()
-                        for _k, _v in zip(_ga_keys, _ga_values):
-                            grad_accumulator[_k] = grad_accumulator.get(_k, 0.0) + _v
+                    _cp_batched = carrier_parameters.get("__batched__")
+                    if _cp_batched is not None:
+                        # Batched path: accumulate per-element max-abs gradient across all params
+                        _bg_norms: list = []
+                        for _param in _cp_batched.values():
+                            if getattr(_param, 'grad', None) is not None:
+                                _g = _param.grad.abs()
+                                _g = _g.flatten(1).max(dim=1).values if _g.dim() > 1 else _g
+                                _bg_norms.append(_g)
+                        if _bg_norms:
+                            _bg_combined = torch.stack(_bg_norms, dim=1).max(dim=1).values  # [N]
+                            _bg_vals = _bg_combined.detach().cpu().tolist()
+                            for _bg_el, _bg_v in zip(current_scene.elements, _bg_vals):
+                                _bg_k = f"{_bg_el.id}.grad_absmax"
+                                grad_accumulator[_bg_k] = grad_accumulator.get(_bg_k, 0.0) + _bg_v
+                    else:
+                        _ga_keys: list = []
+                        _ga_tensors: list = []
+                        for element_id, fields in carrier_parameters.items():
+                            for param_name, parameter in fields.items():
+                                if getattr(parameter, 'grad', None) is not None:
+                                    _ga_keys.append(f"{element_id}.{param_name}")
+                                    _ga_tensors.append(parameter.grad.abs().mean())
+                        if _ga_keys:
+                            _ga_values = torch.stack(_ga_tensors).detach().cpu().tolist()
+                            for _k, _v in zip(_ga_keys, _ga_values):
+                                grad_accumulator[_k] = grad_accumulator.get(_k, 0.0) + _v
 
                 adam_optimizer.step()
                 update = _TorchGradientStepState(
@@ -1011,17 +1036,32 @@ def _optimize_torch_batches(
                 # SGD path: Deliverable 3 grad accumulation (also used by densification)
                 if config.grad_accum_window > 0 or _track_grads_for_densify:
                     grad_accum_step_count += 1
-                    _ga_keys2: list = []
-                    _ga_tensors2: list = []
-                    for element_id, fields in carrier_parameters.items():
-                        for param_name, parameter in fields.items():
-                            if getattr(parameter, 'grad', None) is not None:
-                                _ga_keys2.append(f"{element_id}.{param_name}")
-                                _ga_tensors2.append(parameter.grad.abs().mean())
-                    if _ga_keys2:
-                        _ga_values2 = torch.stack(_ga_tensors2).detach().cpu().tolist()
-                        for _k2, _v2 in zip(_ga_keys2, _ga_values2):
-                            grad_accumulator[_k2] = grad_accumulator.get(_k2, 0.0) + _v2
+                    _cp_batched2 = carrier_parameters.get("__batched__")
+                    if _cp_batched2 is not None:
+                        _bg_norms2: list = []
+                        for _param2 in _cp_batched2.values():
+                            if getattr(_param2, 'grad', None) is not None:
+                                _g2 = _param2.grad.abs()
+                                _g2 = _g2.flatten(1).max(dim=1).values if _g2.dim() > 1 else _g2
+                                _bg_norms2.append(_g2)
+                        if _bg_norms2:
+                            _bg_combined2 = torch.stack(_bg_norms2, dim=1).max(dim=1).values
+                            _bg_vals2 = _bg_combined2.detach().cpu().tolist()
+                            for _bg_el2, _bg_v2 in zip(current_scene.elements, _bg_vals2):
+                                _bg_k2 = f"{_bg_el2.id}.grad_absmax"
+                                grad_accumulator[_bg_k2] = grad_accumulator.get(_bg_k2, 0.0) + _bg_v2
+                    else:
+                        _ga_keys2: list = []
+                        _ga_tensors2: list = []
+                        for element_id, fields in carrier_parameters.items():
+                            for param_name, parameter in fields.items():
+                                if getattr(parameter, 'grad', None) is not None:
+                                    _ga_keys2.append(f"{element_id}.{param_name}")
+                                    _ga_tensors2.append(parameter.grad.abs().mean())
+                        if _ga_keys2:
+                            _ga_values2 = torch.stack(_ga_tensors2).detach().cpu().tolist()
+                            for _k2, _v2 in zip(_ga_keys2, _ga_values2):
+                                grad_accumulator[_k2] = grad_accumulator.get(_k2, 0.0) + _v2
 
                 update = _gradient_step_carrier_parameters(
                     torch,
@@ -1138,7 +1178,7 @@ def _optimize_torch_batches(
                 # Re-copy the optimized values back into scene_tensors parameters
                 # (scene_tensors re-initializes from element defaults, so we need
                 # to restore the in-memory trained values for retained carriers)
-                _restore_trained_parameters(carrier_parameters, new_carrier_parameters)
+                _restore_trained_parameters(carrier_parameters, new_carrier_parameters, elements=current_scene.elements)
                 if use_adam:
                     adam_optimizer = _build_adam_optimizer(torch, carrier_parameters, config)
                 # Patch last step with densification counts
@@ -1236,26 +1276,51 @@ def _prepared_optimization_batch(
 def _restore_trained_parameters(
     new_carrier_parameters: dict[str, dict[str, Any]],
     trained_parameters: dict[str, dict[str, Any]],
+    elements: "list | None" = None,
 ) -> None:
     """After scene_tensors is rebuilt from element defaults, restore the in-memory
     optimized parameter values for carriers that were retained (not pruned or newly added).
 
     This prevents the scene_tensors re-initialization from wiping out all the training
     progress that happened before densification.
+
+    Handles the batched gaussian path: new_carrier_parameters may have __batched__ [N,*]
+    tensors (from torch_scene_tensors) while trained_parameters has per-element entries
+    (returned by densify_and_prune).
     """
-    for element_id, fields in new_carrier_parameters.items():
-        trained_fields = trained_parameters.get(element_id)
-        if trained_fields is None:
-            continue  # New carrier — keep fresh init from scene_tensors
-        for pname, new_tensor in fields.items():
-            trained_tensor = trained_fields.get(pname)
-            if trained_tensor is None:
-                continue
-            if hasattr(new_tensor, 'data') and hasattr(trained_tensor, 'detach'):
-                try:
-                    new_tensor.data.copy_(trained_tensor.detach())
-                except (RuntimeError, ValueError):
-                    pass  # Shape mismatch — leave as-is
+    if "__batched__" in new_carrier_parameters:
+        # Batched new + per-element trained: restore by element position
+        if not elements:
+            return  # pragma: no cover — caller always provides elements for batched
+        batched = new_carrier_parameters["__batched__"]
+        for i, element in enumerate(elements):
+            trained_fields = trained_parameters.get(element.id)
+            if trained_fields is None:
+                continue  # New carrier — keep fresh init
+            for pname, new_tensor in batched.items():
+                trained_val = trained_fields.get(pname)
+                if trained_val is None:
+                    continue
+                if hasattr(new_tensor, 'data') and hasattr(trained_val, 'detach'):
+                    try:
+                        tv = trained_val.detach()
+                        new_tensor.data[i].copy_(tv.reshape(new_tensor.data[i].shape))
+                    except (RuntimeError, ValueError):  # pragma: no cover — defensive guard
+                        pass  # Shape mismatch — leave as-is
+    else:
+        for element_id, fields in new_carrier_parameters.items():
+            trained_fields = trained_parameters.get(element_id)
+            if trained_fields is None:
+                continue  # New carrier — keep fresh init from scene_tensors
+            for pname, new_tensor in fields.items():
+                trained_tensor = trained_fields.get(pname)
+                if trained_tensor is None:
+                    continue
+                if hasattr(new_tensor, 'data') and hasattr(trained_tensor, 'detach'):
+                    try:
+                        new_tensor.data.copy_(trained_tensor.detach())
+                    except (RuntimeError, ValueError):
+                        pass  # Shape mismatch — leave as-is
 
 
 def _zero_carrier_parameter_grads(carrier_parameters: dict[str, dict[str, Any]]) -> None:
