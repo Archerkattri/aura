@@ -283,6 +283,9 @@ def _colmap_to_capture_manifest(
         origin = image.camera_origin
         look_at = centroid if centroid is not None else _add(origin, image.forward)
         depth = _distance(origin, look_at) if centroid is not None else default_depth
+        # Full world-to-camera rotation (rows), so the renderer keeps camera ROLL
+        # — the look_at/up reconstruction drops it, which caps reconstruction PSNR.
+        view_rotation = _quaternion_to_rotation((image.qw, image.qx, image.qy, image.qz))
         relative_image_path = Path(image_dir) / image.name
         intrinsics = _intrinsics_for_image(
             camera.intrinsics(), Path(root) / relative_image_path
@@ -298,6 +301,7 @@ def _colmap_to_capture_manifest(
                 "intrinsics": intrinsics,
                 "camera_origin": list(origin),
                 "look_at": list(look_at),
+                "view_rotation": [list(row) for row in view_rotation],
                 "target_color": list(_point_average_color(points) or target_color),
                 "target_depth": max(depth, 1e-6),
                 "semantic_label": None,

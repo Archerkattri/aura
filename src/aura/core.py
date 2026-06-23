@@ -46,6 +46,7 @@ class TrainingFrame:
     normal_path: str | None = None
     camera_model: str | None = None
     intrinsics: dict[str, float] | None = None
+    view_rotation: tuple[Vec3, Vec3, Vec3] | None = None  # full world->camera R (rows), preserves roll
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -72,6 +73,7 @@ class TrainingFrame:
             "normal_path": self.normal_path,
             "camera_model": self.camera_model,
             "intrinsics": dict(self.intrinsics) if self.intrinsics is not None else None,
+            **({"view_rotation": [list(r) for r in self.view_rotation]} if self.view_rotation is not None else {}),
         }
 
     @classmethod
@@ -92,6 +94,9 @@ class TrainingFrame:
             camera_model=str(payload["camera_model"]) if payload.get("camera_model") is not None else None,
             intrinsics={key: float(value) for key, value in payload["intrinsics"].items()}
             if payload.get("intrinsics") is not None
+            else None,
+            view_rotation=tuple(_vec3_from_payload(r, "view_rotation") for r in payload["view_rotation"])
+            if payload.get("view_rotation") is not None
             else None,
         )
 

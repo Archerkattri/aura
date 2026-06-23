@@ -305,9 +305,12 @@ def render_gaussians_cuda(means, quats, scales, opacities, colors, viewmat, K,
     idxTK, ntx = _bin_tiles(proj, colors, opacities, width, height, torch, tile, max_per_tile)
     f, p = _gabor_arrays(torch, proj.index, colors.device, freq, phase)
     ft = _ftypes_visible(torch, proj.index, colors.device, footprint, ftypes)
+    op = opacities[proj.index]
+    if getattr(proj, "opacity_comp", None) is not None:
+        op = op * proj.opacity_comp
     out, _T = ext.prism_forward(
         idxTK.contiguous(), proj.means2d.contiguous(), proj.conics.contiguous(),
-        colors[proj.index].contiguous(), opacities[proj.index].contiguous(), f, p, ft,
+        colors[proj.index].contiguous(), op.contiguous(), f, p, ft,
         float(beta_exp), int(bool(volumetric)), int(ntx), int(tile), int(width), int(height))
     return out
 
@@ -364,8 +367,11 @@ def render_gaussians_cuda_diff(means, quats, scales, opacities, colors, viewmat,
     if phase is not None:
         p = phase[proj.index].contiguous()
     ft = _ftypes_visible(torch, proj.index, colors.device, footprint, ftypes)
+    op = opacities[proj.index]
+    if getattr(proj, "opacity_comp", None) is not None:
+        op = op * proj.opacity_comp
     return fn.apply(idxTK.contiguous(), proj.means2d, proj.conics, colors[proj.index],
-                    opacities[proj.index], f, p, ft, float(beta_exp), int(bool(volumetric)),
+                    op, f, p, ft, float(beta_exp), int(bool(volumetric)),
                     int(ntx), int(tile), int(width), int(height))
 
 

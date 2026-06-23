@@ -115,14 +115,18 @@ def manifest_frame_to_camera(frame: dict, scale: float):
     cy = float(intr["cy"]) * scale
 
     origin = [float(c) for c in frame["camera_origin"]]
-    look_at = [float(c) for c in frame["look_at"]]
-    up = [float(c) for c in frame.get("up", [0.0, -1.0, 0.0])]
-
-    fwd = _normalize3([look_at[i] - origin[i] for i in range(3)])
-    right = _normalize3(_cross3(fwd, up))
-    up_actual = _cross3(right, fwd)
-
-    rows = [right, up_actual, fwd]
+    vr = frame.get("view_rotation")
+    if vr is not None:
+        # Use the full world-to-camera rotation from COLMAP (preserves roll).
+        rows = [[float(x) for x in row] for row in vr]
+    else:
+        # Fallback: reconstruct from look_at + up (drops camera roll).
+        look_at = [float(c) for c in frame["look_at"]]
+        up = [float(c) for c in frame.get("up", [0.0, -1.0, 0.0])]
+        fwd = _normalize3([look_at[i] - origin[i] for i in range(3)])
+        right = _normalize3(_cross3(fwd, up))
+        up_actual = _cross3(right, fwd)
+        rows = [right, up_actual, fwd]
     t = [-sum(rows[r][c] * origin[c] for c in range(3)) for r in range(3)]
     view = [
         [rows[0][0], rows[0][1], rows[0][2], t[0]],

@@ -96,6 +96,10 @@
         },
         "camera_origin": { "$ref": "#/$defs/vec3" },
         "look_at": { "$ref": "#/$defs/vec3" },
+        "view_rotation": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": { "$ref": "#/$defs/vec3" }
+        },
         "target_color": { "$ref": "#/$defs/vec3" },
         "target_depth": { "type": "number", "exclusiveMinimum": 0 },
         "semantic_label": { "$ref": "#/$defs/nullable_string" }

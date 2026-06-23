@@ -75,10 +75,11 @@ class ProjectedCarriers:
     conics: object    # [M,3] inverse-2D-covariance (a, b, c) for Gaussian/Gabor envelope
     radii: object     # [M] pixel support radius (for footprint scaling / culling)
     index: object     # [M] indices back into the original carrier arrays (visible subset)
+    opacity_comp: object = None  # [M] EWA antialiasing opacity compensation (<=1), or None
 
 
 def project_gaussians(means, cov3d, viewmat, K, width, height, torch,
-                      *, near: float = 0.01, eps2d: float = 0.3):
+                      *, near: float = 0.01, eps2d: float = 0.3, antialias: bool = False):
     """Project 3D Gaussians to 2D. Returns ProjectedCarriers (visible subset).
 
     viewmat: [4,4] world->camera (rows [right, up, forward], +Z forward — the
@@ -107,6 +108,8 @@ def project_gaussians(means, cov3d, viewmat, K, width, height, torch,
     J[:, 1, 1] = fy / zc
     J[:, 1, 2] = -fy * p_cam[:, 1] / (zc * zc)
     cov2d = J @ cov_cam @ J.transpose(1, 2)  # [N,2,2]
+    a0 = cov2d[:, 0, 0]; b0 = cov2d[:, 0, 1]; c0 = cov2d[:, 1, 1]
+    det_orig = (a0 * c0 - b0 * b0).clamp(min=1e-12)
     # Low-pass dilation (gsplat eps2d): keep sub-pixel splats renderable.
     cov2d[:, 0, 0] = cov2d[:, 0, 0] + eps2d
     cov2d[:, 1, 1] = cov2d[:, 1, 1] + eps2d
@@ -115,6 +118,11 @@ def project_gaussians(means, cov3d, viewmat, K, width, height, torch,
     b = cov2d[:, 0, 1]
     c = cov2d[:, 1, 1]
     det = (a * c - b * b).clamp(min=1e-12)
+    # EWA antialiasing opacity compensation (gsplat "antialiased" mode): the
+    # dilation grows the footprint, so scale opacity by sqrt(det_orig/det_dilated)
+    # (<=1) to conserve energy — without this, dilated sub-pixel splats render too
+    # opaque, which is the main fidelity gap vs gsplat on dense scenes.
+    opacity_comp = (det_orig / det).clamp(min=0.0, max=1.0).sqrt() if antialias else None
     # conic = inverse(cov2d) = 1/det [[c,-b],[-b,a]] -> store (xx, xy, yy)
     conic = torch.stack([c / det, -b / det, a / det], dim=1)
     # 3-sigma radius from the larger eigenvalue.
@@ -127,7 +135,8 @@ def project_gaussians(means, cov3d, viewmat, K, width, height, torch,
     keep = valid & on_screen & torch.isfinite(det)
     idx = torch.nonzero(keep, as_tuple=False).squeeze(1)
     return ProjectedCarriers(
-        means2d=means2d[idx], depths=z[idx], conics=conic[idx], radii=radii[idx], index=idx
+        means2d=means2d[idx], depths=z[idx], conics=conic[idx], radii=radii[idx], index=idx,
+        opacity_comp=(opacity_comp[idx] if opacity_comp is not None else None),
     )
 
 
@@ -263,6 +272,7 @@ def composite(
     T = torch.ones((height, width), dtype=torch.float32, device=device)
 
     order = torch.argsort(proj.depths)  # front (small z) -> back
+    # pixel CENTRES (+0.5), matching gsplat's sampling convention
     ys = torch.arange(height, device=device, dtype=torch.float32)
     xs = torch.arange(width, device=device, dtype=torch.float32)
     gy, gx = torch.meshgrid(ys, xs, indexing="ij")  # [H,W]
@@ -387,7 +397,7 @@ def composite_tiled(
     tile_ix = torch.arange(T, device=device) % ntx
     tile_iy = torch.arange(T, device=device) // ntx
     px = (tile_ix.view(T, 1) * ts + torch.arange(ts, device=device).view(1, ts)).to(f32)  # [T,ts]
-    py = (tile_iy.view(T, 1) * ts + torch.arange(ts, device=device).view(1, ts)).to(f32)  # [T,ts]
+    py = (tile_iy.view(T, 1) * ts + torch.arange(ts, device=device).view(1, ts)).to(f32)
     # pixel grid [T, ts, ts]
     gx = px.view(T, 1, ts).expand(T, ts, ts)
     gy = py.view(T, ts, 1).expand(T, ts, ts)

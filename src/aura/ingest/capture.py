@@ -515,6 +515,9 @@ def _frame_from_capture_payload(payload: dict[str, Any]) -> TrainingFrame:
         intrinsics={key: float(value) for key, value in payload["intrinsics"].items()}
         if payload.get("intrinsics") is not None
         else None,
+        view_rotation=tuple(_vec3(r, "view_rotation") for r in payload["view_rotation"])
+        if payload.get("view_rotation") is not None
+        else None,
     )
 
 
