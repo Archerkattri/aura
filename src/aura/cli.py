@@ -1194,6 +1194,7 @@ def _train_gsplat_command(args: argparse.Namespace) -> Path:
     from aura.gsplat_renderer import (
         GsplatTrainConfig,
         gsplat_available,
+        seed_gaussian_params_from_regions,
         train_scene_gsplat,
     )
 
@@ -1206,12 +1207,16 @@ def _train_gsplat_command(args: argparse.Namespace) -> Path:
     manifest_obj = load_capture_manifest(
         args.manifest, validate=not getattr(args, "skip_validation", False)
     )
-    # Seed the scene with the proven COLMAP->carrier path, then free the image
-    # tensors (gsplat reloads images from disk per iteration).
-    tensors = load_capture_asset_tensors(manifest_obj)
-    dataset = capture_tensors_to_training_dataset(manifest_obj, tensors)
-    seed_scene = _scene_from_training_dataset(dataset, name="aura_gsplat_train")
-    del tensors, dataset
+    if not manifest_obj.regions:
+        raise SystemExit("train-gsplat requires at least one seed region in the manifest")
+    # Fast GPU-first seed: build the trainable Gaussian tensors straight from the
+    # manifest's COLMAP point regions (mean/color/opacity/bounds), skipping both
+    # the heavy image-tensor load and the single-threaded decompose/BVH build so
+    # the RTX rasterizer starts almost immediately. Images are reloaded from disk
+    # per iteration by the trainer.
+    seed_params, ctx = seed_gaussian_params_from_regions(
+        manifest_obj.regions, device=args.device
+    )
 
     raw_manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     config = GsplatTrainConfig(
@@ -1227,7 +1232,7 @@ def _train_gsplat_command(args: argparse.Namespace) -> Path:
         log=lambda message: print(message, file=_sys.stderr, flush=True),
     )
     trained_scene, history = train_scene_gsplat(
-        seed_scene, raw_manifest, config=config, device=args.device
+        seed_params, ctx, raw_manifest, config=config, device=args.device
     )
 
     package_dir = package_scene(

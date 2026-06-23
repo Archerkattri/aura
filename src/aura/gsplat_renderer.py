@@ -206,6 +206,51 @@ def scene_to_gaussian_params(scene: AuraScene, *, device: str):
     return params, ctx
 
 
+def seed_gaussian_params_from_regions(regions, *, device: str):
+    """Seed trainable gsplat leaf tensors DIRECTLY from manifest point regions.
+
+    This is the fast GPU-first seed path: it skips both the heavy image-tensor
+    load and the ``decompose_evidence`` scene/BVH build (single-threaded CPU,
+    minutes for 129k points), so the rasterizer starts almost immediately. It
+    replicates ``decomposition._payload_for``'s Gaussian seed exactly — mean is
+    the region bounding-box centre, the covariance is diagonal with variance =
+    half-extent² per axis (so scale = half-extent, identity rotation) — and
+    builds everything as vectorised tensors on ``device``.
+    """
+
+    torch, _ = require_gsplat()
+    if not regions:
+        raise ValueError("no seed regions provided")
+    mins = torch.tensor([list(r.bounds.min_corner) for r in regions],
+                        dtype=torch.float32, device=device)
+    maxs = torch.tensor([list(r.bounds.max_corner) for r in regions],
+                        dtype=torch.float32, device=device)
+    means = 0.5 * (mins + maxs)
+    half = (0.5 * (maxs - mins)).clamp(min=1e-4)  # sigma per axis (variance = half²)
+    log_scales = torch.log(half)
+    quats = torch.zeros((len(regions), 4), dtype=torch.float32, device=device)
+    quats[:, 0] = 1.0  # identity rotation (wxyz)
+    colors = torch.tensor([list(r.color) for r in regions],
+                          dtype=torch.float32, device=device).clamp(0.0, 1.0)
+    opac = torch.tensor([float(r.opacity) for r in regions],
+                        dtype=torch.float32, device=device).clamp(1e-4, 1 - 1e-4)
+    params = {
+        "means": means.clone().requires_grad_(True),
+        "log_scales": log_scales.clone().requires_grad_(True),
+        "quats": quats.clone().requires_grad_(True),
+        "logit_opacities": torch.logit(opac).clone().requires_grad_(True),
+        "colors": colors.clone().requires_grad_(True),
+    }
+    ctx = {
+        "element_ids": [r.id for r in regions],
+        "gaussian_elements": (),
+        "scene_name": "aura_gsplat_train",
+        "chunks": (),
+        "semantic_graph": None,
+    }
+    return params, ctx
+
+
 def _rotation_matrix_to_quat_wxyz(R, torch):
     """Batched rotation matrix [N,3,3] -> normalised wxyz quaternion [N,4]."""
 
@@ -268,6 +313,7 @@ def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
     import dataclasses
 
     originals = ctx.get("gaussian_elements", ())
+    element_ids = ctx.get("element_ids")
     n = len(means_l)
     elements: list[AuraElement] = []
     for i in range(n):
@@ -296,9 +342,14 @@ def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
             # fresh id and no chunk link.)
             elements.append(dataclasses.replace(originals[i], **new_fields))
         else:
+            eid = (
+                element_ids[i]
+                if element_ids and i < len(element_ids)
+                else f"gsplat_gaussian_{i:06d}"
+            )
             elements.append(
                 AuraElement(
-                    id=f"gsplat_gaussian_{i:06d}",
+                    id=eid,
                     carrier_id="gaussian",
                     confidence=1.0,
                     **new_fields,
@@ -312,11 +363,14 @@ def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
     from .decomposition import carrier_lod_elements_and_chunks
 
     chunked_elements, chunks = carrier_lod_elements_and_chunks(tuple(elements))
+    from .semantic import SemanticGraph
+
+    semantic_graph = ctx.get("semantic_graph") or SemanticGraph()
     return AuraScene(
         name=ctx.get("scene_name", "aura_gsplat_train"),
         elements=chunked_elements,
         chunks=chunks,
-        semantic_graph=ctx.get("semantic_graph"),
+        semantic_graph=semantic_graph,
     )
 
 
@@ -363,57 +417,88 @@ def _load_image_rgb(path: Path, torch, device, target_w: int, target_h: int):
 
 
 def train_scene_gsplat(
-    scene: AuraScene,
+    seed_params: dict,
+    ctx: dict,
     manifest: dict,
     *,
     config: GsplatTrainConfig,
     device: str = "cuda",
 ):
-    """Optimise a scene's Gaussian carriers with the gsplat differentiable
-    rasterizer and return ``(trained_scene, history)``.
+    """Optimise seed Gaussian params with the gsplat differentiable rasterizer
+    and return ``(trained_scene, history)``.
 
-    ``history`` is a dict with the loss trace and final Gaussian count (which
-    may exceed the seed count when ``config.densify`` is enabled).
+    ``seed_params`` / ``ctx`` come from either :func:`scene_to_gaussian_params`
+    (train an existing AuraScene) or :func:`seed_gaussian_params_from_regions`
+    (fast GPU-first seed straight from manifest points). ``history`` carries the
+    loss trace and final Gaussian count (which may exceed the seed count when
+    ``config.densify`` is enabled).
     """
 
     torch, gsplat = require_gsplat()
     from gsplat import rasterization
 
     log = config.log or (lambda _msg: None)
-    params, ctx = scene_to_gaussian_params(scene, device=device)
     root = Path(manifest.get("root", "."))
     frames = [f for f in manifest["frames"] if (root / f["image_path"]).exists()]
     if not frames:
         raise ValueError("manifest has no readable training frames")
 
+    # gsplat's DefaultStrategy mutates a canonically-named ParameterDict + the
+    # matching per-key optimizers IN PLACE when it grows/prunes Gaussians, so we
+    # adopt gsplat's exact key names: means / scales (log) / quats (wxyz) /
+    # opacities (logit) / colors. This is the single source of truth for both
+    # the fixed-count and densifying paths.
+    splats = torch.nn.ParameterDict(
+        {
+            "means": torch.nn.Parameter(seed_params["means"].detach().clone()),
+            "scales": torch.nn.Parameter(seed_params["log_scales"].detach().clone()),
+            "quats": torch.nn.Parameter(seed_params["quats"].detach().clone()),
+            "opacities": torch.nn.Parameter(seed_params["logit_opacities"].detach().clone()),
+            "colors": torch.nn.Parameter(seed_params["colors"].detach().clone()),
+        }
+    ).to(device)
+    lr = {
+        "means": config.position_lr,
+        "scales": config.log_scale_lr,
+        "quats": config.quat_lr,
+        "opacities": config.opacity_lr,
+        "colors": config.color_lr,
+    }
     optimizers = {
-        "means": torch.optim.Adam([params["means"]], lr=config.position_lr, eps=1e-15),
-        "log_scales": torch.optim.Adam([params["log_scales"]], lr=config.log_scale_lr, eps=1e-15),
-        "quats": torch.optim.Adam([params["quats"]], lr=config.quat_lr, eps=1e-15),
-        "logit_opacities": torch.optim.Adam([params["logit_opacities"]], lr=config.opacity_lr, eps=1e-15),
-        "colors": torch.optim.Adam([params["colors"]], lr=config.color_lr, eps=1e-15),
+        key: torch.optim.Adam([splats[key]], lr=lr[key], eps=1e-15) for key in splats
     }
 
     strategy = None
     strategy_state = None
     if config.densify:
-        # gsplat's DefaultStrategy mutates a ParameterDict in place and needs
-        # the canonical parameter keys (means/scales/quats/opacities/sh0...).
-        # We adapt by exposing aliases that share storage with our leaves.
-        strategy, strategy_state = _build_densify_strategy(
-            gsplat, params, optimizers, config, torch
+        # scene_scale calibrates DefaultStrategy's absolute size thresholds; use
+        # the seed point cloud's spread about its centroid.
+        with torch.no_grad():
+            centroid = splats["means"].mean(dim=0, keepdim=True)
+            scene_scale = float((splats["means"] - centroid).norm(dim=1).mean().clamp(min=1e-3))
+        strategy = gsplat.DefaultStrategy(
+            grow_grad2d=config.densify_grad2d,
+            refine_start_iter=config.refine_start_iter,
+            refine_stop_iter=config.refine_stop_iter,
+            refine_every=config.refine_every,
+            reset_every=config.reset_every,
+            absgrad=True,
+            key_for_gradient="means2d",
+            verbose=False,
         )
+        strategy.check_sanity(splats, optimizers)
+        strategy_state = strategy.initialize_state(scene_scale=scene_scale)
 
-    def render(frame, scale, retain_grad=False):
+    def render(frame, scale):
         view, k, w, h = manifest_frame_to_camera(frame, scale)
         viewmat = torch.tensor(view, dtype=torch.float32, device=device).unsqueeze(0)
         kmat = torch.tensor(k, dtype=torch.float32, device=device).unsqueeze(0)
-        out, alpha, info = rasterization(
-            means=params["means"],
-            quats=params["quats"],
-            scales=torch.exp(params["log_scales"]),
-            opacities=torch.sigmoid(params["logit_opacities"]),
-            colors=params["colors"],
+        out, _alpha, info = rasterization(
+            means=splats["means"],
+            quats=splats["quats"],
+            scales=torch.exp(splats["scales"]),
+            opacities=torch.sigmoid(splats["opacities"]),
+            colors=splats["colors"],
             viewmats=viewmat,
             Ks=kmat,
             width=w,
@@ -421,8 +506,6 @@ def train_scene_gsplat(
             packed=False,
             absgrad=bool(config.densify),
         )
-        if retain_grad and "means2d" in info:
-            info["means2d"].retain_grad()
         return out[0], info, w, h  # out[0]: [H,W,3]
 
     def _l1_ssim(rendered, gt):
@@ -436,64 +519,42 @@ def train_scene_gsplat(
     n_frames = len(frames)
     for it in range(config.iterations):
         frame = frames[it % n_frames]
-        view, k, w, h = manifest_frame_to_camera(frame, config.scale)
+        _v, _k, w, h = manifest_frame_to_camera(frame, config.scale)
         gt = _load_image_rgb(root / frame["image_path"], torch, device, w, h)
-        rendered, info, _w, _h = render(frame, config.scale, retain_grad=config.densify)
+        rendered, info, _w, _h = render(frame, config.scale)
         loss = _l1_ssim(rendered, gt)
 
         if strategy is not None:
-            strategy.step_pre_backward(params=_alias(params), optimizers=optimizers,
-                                       state=strategy_state, step=it, info=info)
+            strategy.step_pre_backward(
+                params=splats, optimizers=optimizers, state=strategy_state, step=it, info=info
+            )
         for opt in optimizers.values():
             opt.zero_grad(set_to_none=True)
         loss.backward()
         for opt in optimizers.values():
             opt.step()
         if strategy is not None:
-            strategy.step_post_backward(params=_alias(params), optimizers=optimizers,
-                                        state=strategy_state, step=it, info=info,
-                                        packed=False)
+            strategy.step_post_backward(
+                params=splats, optimizers=optimizers, state=strategy_state,
+                step=it, info=info, packed=False,
+            )
 
         if it % config.log_every == 0 or it == config.iterations - 1:
             history["loss"].append((it, float(loss.detach())))
             log(f"  [gsplat] iter {it + 1}/{config.iterations}  loss={float(loss.detach()):.4f}  "
-                f"N={params['means'].shape[0]}")
+                f"N={splats['means'].shape[0]}")
 
-    trained_scene = gaussian_params_to_scene(params, ctx)
-    history["final_gaussian_count"] = int(params["means"].shape[0])
+    trained = {
+        "means": splats["means"],
+        "log_scales": splats["scales"],
+        "quats": splats["quats"],
+        "logit_opacities": splats["opacities"],
+        "colors": splats["colors"],
+    }
+    trained_scene = gaussian_params_to_scene(trained, ctx)
+    history["final_gaussian_count"] = int(splats["means"].shape[0])
     history["seed_gaussian_count"] = len(ctx["gaussian_elements"])
     return trained_scene, history
-
-
-def _alias(params):  # pragma: no cover - only used on the densify path
-    """Expose our leaves under gsplat DefaultStrategy's canonical key names."""
-
-    import torch  # local import; gsplat path only
-
-    return torch.nn.ParameterDict(
-        {
-            "means": params["means"],
-            "scales": params["log_scales"],
-            "quats": params["quats"],
-            "opacities": params["logit_opacities"],
-            "colors": params["colors"],
-        }
-    )
-
-
-def _build_densify_strategy(gsplat, params, optimizers, config, torch):  # pragma: no cover - GPU densify path
-    strategy = gsplat.DefaultStrategy(
-        grow_grad2d=config.densify_grad2d,
-        refine_start_iter=config.refine_start_iter,
-        refine_stop_iter=config.refine_stop_iter,
-        refine_every=config.refine_every,
-        reset_every=config.reset_every,
-        absgrad=True,
-        key_for_gradient="means2d",
-        verbose=False,
-    )
-    state = strategy.initialize_state(scene_scale=1.0)
-    return strategy, state
 
 
 def _ssim(a, b, torch, window: int = 11, sigma: float = 1.5):
