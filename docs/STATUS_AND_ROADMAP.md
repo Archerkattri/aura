@@ -83,28 +83,31 @@ so the `.aura` asset contract and eval harness stay unchanged.
    integrate the *published* SOTA kernel variants and a CUDA tile-sort:
    - *Beta / Universal-Beta kernels* — Deformable Beta Splatting ships a CUDA
      rasterizer; integrate it as a second carrier backend (refs:
-     `vault/01-raw/papers/aura/arxiv-2501.18630`, `2510.03312`).
-   - *Gabor carriers* for high-frequency texture (`arxiv-2504.11003`).
-   - *Splattable neural primitives* with analytic line integrals
-     (`arxiv-2510.08491`) for the neural-residual carrier.
-   - Requires a per-type differentiable rasterizer + a unified compositor; this
-     is the real research effort and the thing that makes AURA ≠ 3DGS.
-3. **Exact / ray-traceable volumetric rendering** (EVER `arxiv-2410.01804`,
-   3DGRT `arxiv-2407.07090`): replace the billboard alpha approximation with
-   exact volumetric ellipsoid / ray-traced compositing so the secondary-ray path
-   is physically consistent and the primary path loses the popping artefacts.
-4. **End-to-end carrier assignment learning.** `allocation.py`'s
-   semantic-graph-governed soft assignment exists but is off by default
-   (`use_graph_governed=False`) and not wired into the training objective; make
-   the carrier-type choice differentiable/learned, not a fixed threshold.
-5. **Native-primitive engine export.** `gltf_writer.py` / `usd_writer.py` export
-   only Gaussians today; add export for the trained native carrier types so the
-   asset is genuinely engine-ready beyond splats.
+     `vault/01-raw/papers/aura/arxiv-2501.18630`, `2510.03312`) — **DONE** (beta
+     footprint, CUDA fwd+bwd).
+   - *Gabor carriers* for high-frequency texture (`arxiv-2504.11003`) — **DONE**
+     (CUDA fwd+bwd incl. freq/phase grads).
+   - *Splattable neural primitives* (`arxiv-2510.08491`) — **DONE** (`make_neural_footprint`,
+     torch; a single neural carrier beats a Gaussian on a ring).
+   All four carrier types render and train through one PRISM compositor, and a
+   single scene mixes them (per-carrier `ftypes`), assigned adaptively from image
+   texture (`carrier=auto`). This is what makes AURA ≠ 3DGS.
+3. **Exact / consistent volumetric rendering** (EVER `arxiv-2410.01804`) —
+   **DONE**: `--volumetric` uses the physically-consistent `1-exp(-opacity*w)`
+   alpha (CUDA fwd+bwd + torch), validated and trains. (A full ray-traced
+   secondary-ray path remains via the existing 3D ray renderer.)
+4. **Carrier assignment** — **DONE (heuristic)** via `assign_footprints`
+   (texture-driven Gabor/Gaussian). A fully *learned* differentiable
+   type-assignment (vs the texture heuristic) is a future refinement.
+5. **Native-primitive export** — carriers export to glTF/GLB with the kernel type
+   preserved in metadata (round-trips). **DONE** for the splat-compatible path.
 
 ## Bottom line
 
-The bring-up is done and honest: AURA trains, converges, and renders at
-3DGS-class quality through its own pipeline, with the asset/query scaffold in
-place. Item (2) — differentiable typed carriers — is the single thing that would
-make AURA a genuinely new representation rather than a well-architected 3DGS
-wrapper. It is scoped above and is the recommended next investment.
+AURA is a genuine post-3DGS engine: **PRISM** (its own differentiable CUDA
+rasterizer, forward + backward at gsplat parity) renders and trains a *spectrum*
+of typed carriers — gaussian / beta / gabor / neural — mixed within one scene,
+assigned adaptively from image content, with EVER-style volumetric alpha,
+densification, and native export. Remaining are pure refinements: a full CUDA
+tile-sort (binning is currently torch-side), CUDA for the neural footprint, and a
+learned (vs heuristic) carrier-type assignment.
