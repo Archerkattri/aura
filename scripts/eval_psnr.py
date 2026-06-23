@@ -315,8 +315,9 @@ def main():
     parser.add_argument("--ray-batch", type=int, default=128,
                         help="Ray batch size passed to the renderer (default 128). "
                              "Increase for faster eval if GPU has headroom.")
-    parser.add_argument("--renderer", choices=["torch", "cuda", "gsplat"], default="torch",
-                        help="Renderer backend: 'gsplat' (tiled rasterizer, AURA's "
+    parser.add_argument("--renderer", choices=["torch", "cuda", "gsplat", "prism"], default="torch",
+                        help="Renderer backend: 'prism' (AURA's own tiled differentiable "
+                        "rasterizer), 'gsplat' (tiled rasterizer, AURA's "
                         "high-fidelity primary-view path), 'torch' (default, batched) or 'cuda' "
                              "(compiled CUDA extension, faster for large scenes).")
     args = parser.parse_args()
@@ -350,7 +351,12 @@ def main():
 
         print(f"  [{i+1}/{len(eval_frames)}] {img_path.name}...", flush=True)
         gt_W, gt_H, gt_pixels = load_jpg_as_rgb(str(img_path))
-        if args.renderer == "gsplat":
+        if args.renderer == "prism":
+            from aura.prism import render_scene_prism
+            render_W, render_H, render_pixels = render_scene_prism(
+                scene, frame, scale=args.scale, device=args.device
+            )
+        elif args.renderer == "gsplat":
             # Primary-view path: the tiled differentiable rasterizer (full
             # front-to-back alpha compositing of ALL Gaussians) — AURA's
             # high-fidelity render path, matching the training renderer. The

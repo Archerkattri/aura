@@ -49,17 +49,23 @@ so the `.aura` asset contract and eval harness stay unchanged.
    coefficients (gsplat supports `colors=[N,K,3]`, `sh_degree=d` natively). Store
    SH on the carrier (payload/metadata), render with SH in both the rasterizer
    and ray paths. ~1–2 days, gsplat-native, low risk.
-2. **Typed differentiable carriers** (the core differentiator) — **STARTED
-   2026-06-23.** `src/aura/rasterizer_native.py` is an AURA-native differentiable
-   rasterizer (pure-torch, autograd, GPU) with a *pluggable per-carrier 2D
-   footprint*: `gaussian_footprint` (validated to match gsplat at ~31 dB),
-   `beta_footprint` (bounded polynomial, Deformable-Beta-style), `gabor_footprint`
-   (oscillatory). A non-Gaussian **Beta carrier now trains end-to-end with
-   gradients** through it (test_rasterizer_native: L1 0.087→0.003) — the first
-   time AURA optimises a non-Gaussian primitive. Remaining: wire it into the
-   `train-gsplat`/scene boundary so mixed-type scenes train at scale, add a tiled
-   / CUDA fast path (current dense compositor is O(M·H·W), fine for validation /
-   modest scenes), and integrate the published kernels:
+2. **Typed differentiable carriers via PRISM** (the core differentiator) —
+   **DELIVERED 2026-06-23.** `src/aura/prism.py` is **PRISM** (Pluggable
+   Radiance-prImitive Splatting Module), AURA's own differentiable rasterizer and
+   the alternative to gsplat: pure-torch, autograd, GPU, with a *pluggable
+   per-carrier 2D footprint* — `gaussian_footprint` (validated to match gsplat at
+   ~31 dB), `beta_footprint` (bounded polynomial, Deformable-Beta-style),
+   `gabor_footprint` (oscillatory). Two compositors: `composite` (dense
+   reference) and `composite_tiled` (tile-binned, ~78 dB match to dense, scales —
+   20k carriers @256² in ~30 ms). It is wired end to end: `aura train-prism
+   --carrier {gaussian,beta}` trains real posed images with **no gsplat**
+   (truck: 11.1 dB at 400 iters), and `eval_psnr --renderer prism` renders it.
+   A non-Gaussian **Beta carrier trains end-to-end with gradients** (tests:
+   L1 0.087→0.003). **Remaining for PRISM:** a custom-CUDA fast path (the
+   pure-torch tiled compositor is the bottleneck at 100k+ carriers / high-res —
+   target gsplat-class speed), per-tile-cap tuning + densification on the PRISM
+   path, distinct carrier_ids/payloads + native export for non-Gaussian carriers,
+   and integrating the published kernels:
    - *Beta / Universal-Beta kernels* — Deformable Beta Splatting ships a CUDA
      rasterizer; integrate it as a second carrier backend (refs:
      `vault/01-raw/papers/aura/arxiv-2501.18630`, `2510.03312`).

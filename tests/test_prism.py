@@ -1,4 +1,4 @@
-"""Tests for the AURA-native differentiable rasterizer (rasterizer_native.py).
+"""Tests for the AURA-native differentiable rasterizer (prism.py).
 
 The rasterizer is the post-3DGS substrate: a differentiable GPU alpha
 compositor with a pluggable per-carrier footprint, so non-Gaussian carriers
@@ -24,7 +24,7 @@ def _device():
 @requires_torch
 def test_gradients_flow_through_rasterizer():
     import torch
-    from aura.rasterizer_native import render_gaussians
+    from aura.prism import render_gaussians
 
     dev = _device()
     torch.manual_seed(0)
@@ -48,7 +48,7 @@ def test_matches_gsplat_on_gaussians():
     import math
     import torch
     from gsplat import rasterization
-    from aura.rasterizer_native import render_gaussians
+    from aura.prism import render_gaussians
 
     dev = _device()
     torch.manual_seed(0)
@@ -76,7 +76,7 @@ def test_beta_typed_carrier_trains():
     """The genuine post-3DGS check: a NON-Gaussian (Beta, bounded-polynomial)
     carrier optimised end-to-end with gradients through the native rasterizer."""
     import torch
-    from aura.rasterizer_native import (
+    from aura.prism import (
         project_gaussians, quats_scales_to_cov3d, composite,
         beta_footprint, gaussian_footprint,
     )

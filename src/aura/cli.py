@@ -242,6 +242,24 @@ def main(argv: list[str] | None = None) -> int:
                               help="Enable gsplat DefaultStrategy adaptive densification + pruning")
     train_gsplat.add_argument("--skip-validation", action="store_true")
 
+    train_prism = sub.add_parser(
+        "train-prism",
+        help="Train a manifest's carriers with PRISM — AURA's own differentiable "
+             "rasterizer (Pluggable Radiance-prImitive Splatting) — supporting "
+             "typed carrier footprints (gaussian/beta), no gsplat dependency.",
+    )
+    train_prism.add_argument("manifest", type=Path)
+    train_prism.add_argument("--output", type=Path, default=Path("outputs/scene-prism.aura"))
+    train_prism.add_argument("--iterations", type=int, default=3000)
+    train_prism.add_argument("--scale", type=float, default=0.25)
+    train_prism.add_argument("--device", default="cuda")
+    train_prism.add_argument("--carrier", choices=["gaussian", "beta"], default="gaussian",
+                             help="Carrier footprint to train (gaussian = 3DGS-style; "
+                                  "beta = bounded Deformable-Beta-style kernel)")
+    train_prism.add_argument("--max-per-tile", type=int, default=256, dest="max_per_tile")
+    train_prism.add_argument("--ssim-weight", type=float, default=0.2)
+    train_prism.add_argument("--skip-validation", action="store_true")
+
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
         help="Load capture-manifest PNG, PPM/PGM, or COLMAP depth/normal-map assets and print deterministic summaries as JSON",
@@ -608,6 +626,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "train-gsplat":
         package_dir = _train_gsplat_command(args)
+        print(package_dir)
+        return 0
+    if args.command == "train-prism":
+        package_dir = _train_prism_command(args)
         print(package_dir)
         return 0
     if args.command == "inspect-capture-assets":
@@ -1254,6 +1276,58 @@ def _train_gsplat_command(args: argparse.Namespace) -> Path:
         "ssimWeight": args.ssim_weight,
         "seedGaussianCount": history.get("seed_gaussian_count"),
         "finalGaussianCount": history.get("final_gaussian_count"),
+        "lossTrace": history.get("loss", []),
+    }
+    (package_dir / "training_report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return package_dir
+
+
+def _train_prism_command(args: argparse.Namespace) -> Path:
+    """Train carriers with PRISM, AURA's own differentiable rasterizer."""
+
+    import sys as _sys
+    from aura.gsplat_renderer import gsplat_available, seed_gaussian_params_from_regions
+    from aura.prism import PrismTrainConfig, train_carriers_prism
+
+    # PRISM only needs torch (no gsplat for training/eval); reuse the gsplat
+    # seed helper which is pure-torch.
+    try:
+        import torch  # noqa: F401
+    except Exception:
+        raise SystemExit("train-prism requires torch.")
+
+    manifest_obj = load_capture_manifest(
+        args.manifest, validate=not getattr(args, "skip_validation", False)
+    )
+    if not manifest_obj.regions:
+        raise SystemExit("train-prism requires at least one seed region in the manifest")
+    seed_params, ctx = seed_gaussian_params_from_regions(manifest_obj.regions, device=args.device)
+    raw_manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+    config = PrismTrainConfig(
+        iterations=args.iterations,
+        scale=args.scale,
+        ssim_weight=args.ssim_weight,
+        max_per_tile=args.max_per_tile,
+        log=lambda message: print(message, file=_sys.stderr, flush=True),
+    )
+    trained_scene, history = train_carriers_prism(
+        seed_params, ctx, raw_manifest, config=config, device=args.device, carrier=args.carrier
+    )
+    package_dir = package_scene(
+        trained_scene, fallbacks={"mesh": "fallback/aura-prism-train-preview.glb"}
+    ).write(args.output)
+    report = {
+        "format": "AURA_PRISM_TRAINING_REPORT",
+        "renderBackend": "prism-native-differentiable-rasterizer",
+        "carrier": args.carrier,
+        "manifest": str(args.manifest),
+        "device": args.device,
+        "iterations": args.iterations,
+        "scale": args.scale,
+        "maxPerTile": args.max_per_tile,
+        "finalCarrierCount": history.get("final_gaussian_count"),
         "lossTrace": history.get("loss", []),
     }
     (package_dir / "training_report.json").write_text(
