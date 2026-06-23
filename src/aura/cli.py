@@ -217,6 +217,28 @@ def main(argv: list[str] | None = None) -> int:
     # 3DGS-style adaptive densification + pruning (off by default)
     _add_densification_args(train)
 
+    train_gsplat = sub.add_parser(
+        "train-gsplat",
+        help="Train a manifest's Gaussian carriers with the gsplat differentiable "
+             "CUDA rasterizer (fast O(pixels) backward), then write the trained "
+             "Gaussians back into an .aura package AURA's own renderer evaluates.",
+    )
+    train_gsplat.add_argument("manifest", type=Path)
+    train_gsplat.add_argument("--output", type=Path, default=Path("outputs/scene-gsplat.aura"))
+    train_gsplat.add_argument("--iterations", type=int, default=7000)
+    train_gsplat.add_argument("--scale", type=float, default=0.25,
+                              help="Train at this fraction of full image resolution")
+    train_gsplat.add_argument("--device", default="cuda")
+    train_gsplat.add_argument("--position-lr", type=float, default=1.6e-4)
+    train_gsplat.add_argument("--log-scale-lr", type=float, default=5e-3)
+    train_gsplat.add_argument("--quat-lr", type=float, default=1e-3)
+    train_gsplat.add_argument("--opacity-lr", type=float, default=5e-2)
+    train_gsplat.add_argument("--color-lr", type=float, default=2.5e-3)
+    train_gsplat.add_argument("--ssim-weight", type=float, default=0.2)
+    train_gsplat.add_argument("--densify", action="store_true",
+                              help="Enable gsplat DefaultStrategy adaptive densification + pruning")
+    train_gsplat.add_argument("--skip-validation", action="store_true")
+
     inspect_capture_assets = sub.add_parser(
         "inspect-capture-assets",
         help="Load capture-manifest PNG, PPM/PGM, or COLMAP depth/normal-map assets and print deterministic summaries as JSON",
@@ -579,6 +601,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "train":
         package_dir = _train_capture_manifest_command(args)
+        print(package_dir)
+        return 0
+    if args.command == "train-gsplat":
+        package_dir = _train_gsplat_command(args)
         print(package_dir)
         return 0
     if args.command == "inspect-capture-assets":
@@ -1152,6 +1178,78 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     }
     report_path = package_dir / "training_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return package_dir
+
+
+def _train_gsplat_command(args: argparse.Namespace) -> Path:
+    """Train Gaussian carriers with the gsplat differentiable CUDA rasterizer.
+
+    Seeds from the SAME COLMAP-derived carriers AURA's dense path uses, optimises
+    them against the manifest's posed images via gsplat (fast O(pixels) backward),
+    then writes the trained Gaussians back into an ordinary .aura package so
+    AURA's own forward renderer evaluates the result unchanged.
+    """
+
+    import sys as _sys
+    from aura.gsplat_renderer import (
+        GsplatTrainConfig,
+        gsplat_available,
+        train_scene_gsplat,
+    )
+
+    if not gsplat_available():
+        raise SystemExit(
+            "train-gsplat requires torch + gsplat (the differentiable CUDA "
+            "rasterizer). Install them on the GPU machine first."
+        )
+
+    manifest_obj = load_capture_manifest(
+        args.manifest, validate=not getattr(args, "skip_validation", False)
+    )
+    # Seed the scene with the proven COLMAP->carrier path, then free the image
+    # tensors (gsplat reloads images from disk per iteration).
+    tensors = load_capture_asset_tensors(manifest_obj)
+    dataset = capture_tensors_to_training_dataset(manifest_obj, tensors)
+    seed_scene = _scene_from_training_dataset(dataset, name="aura_gsplat_train")
+    del tensors, dataset
+
+    raw_manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+    config = GsplatTrainConfig(
+        iterations=args.iterations,
+        scale=args.scale,
+        position_lr=args.position_lr,
+        log_scale_lr=args.log_scale_lr,
+        quat_lr=args.quat_lr,
+        opacity_lr=args.opacity_lr,
+        color_lr=args.color_lr,
+        ssim_weight=args.ssim_weight,
+        densify=bool(args.densify),
+        log=lambda message: print(message, file=_sys.stderr, flush=True),
+    )
+    trained_scene, history = train_scene_gsplat(
+        seed_scene, raw_manifest, config=config, device=args.device
+    )
+
+    package_dir = package_scene(
+        trained_scene, fallbacks={"mesh": "fallback/aura-gsplat-train-preview.glb"}
+    ).write(args.output)
+    report = {
+        "format": "AURA_GSPLAT_TRAINING_REPORT",
+        "name": trained_scene.name,
+        "manifest": str(args.manifest),
+        "device": args.device,
+        "renderBackend": "gsplat-differentiable-cuda-rasterizer",
+        "iterations": args.iterations,
+        "scale": args.scale,
+        "densify": bool(args.densify),
+        "ssimWeight": args.ssim_weight,
+        "seedGaussianCount": history.get("seed_gaussian_count"),
+        "finalGaussianCount": history.get("final_gaussian_count"),
+        "lossTrace": history.get("loss", []),
+    }
+    (package_dir / "training_report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return package_dir
 
 
