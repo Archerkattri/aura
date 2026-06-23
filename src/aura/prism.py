@@ -153,9 +153,12 @@ def beta_footprint(dx, dy, conic, torch, *, beta: float = 2.0):
     return torch.clamp(1.0 - r / 3.0, min=0.0) ** beta
 
 
-def gabor_footprint(dx, dy, conic, freq, phase, torch):
+def gabor_footprint(dx, dy, conic, torch, freq=None, phase=0.0):
     """Gabor carrier: Gaussian envelope * positive cosine modulation, for
-    high-frequency texture (freq = [fx, fy] in pixel^-1, phase scalar)."""
+    high-frequency texture (freq = [fx, fy] in pixel^-1, phase scalar).
+    ``torch`` is the 4th positional arg to match the other footprint kernels."""
+    if freq is None:
+        freq = torch.zeros(2, device=dx.device)
     quad = conic[..., 0] * dx * dx + 2.0 * conic[..., 1] * dx * dy + conic[..., 2] * dy * dy
     env = torch.exp(-0.5 * quad.clamp(min=0.0))
     osc = torch.cos(freq[..., 0] * dx + freq[..., 1] * dy + phase)
@@ -415,21 +418,23 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
     if not frames:
         raise ValueError("manifest has no readable training frames")
 
-    means = seed_params["means"].detach().clone().requires_grad_(True)
-    log_scales = seed_params["log_scales"].detach().clone().requires_grad_(True)
-    quats = seed_params["quats"].detach().clone().requires_grad_(True)
-    logit_op = seed_params["logit_opacities"].detach().clone().requires_grad_(True)
-    colors = seed_params["colors"].detach().clone().requires_grad_(True)
-    opt = torch.optim.Adam([
-        {"params": [means], "lr": config.position_lr},
-        {"params": [log_scales], "lr": config.log_scale_lr},
-        {"params": [quats], "lr": config.quat_lr},
-        {"params": [logit_op], "lr": config.opacity_lr},
-        {"params": [colors], "lr": config.color_lr},
-    ], eps=1e-15)
+    _LRS = {"means": config.position_lr, "log_scales": config.log_scale_lr,
+            "quats": config.quat_lr, "logit_opacities": config.opacity_lr,
+            "colors": config.color_lr}
+
+    def _new_params(src):
+        return {k: src[k].detach().clone().requires_grad_(True) for k in _LRS}
+
+    def _build_opt(p):
+        return torch.optim.Adam([{"params": [p[k]], "lr": _LRS[k]} for k in _LRS], eps=1e-15)
+
+    P = _new_params({k: seed_params[k] for k in _LRS})
+    opt = _build_opt(P)
 
     history = {"loss": []}
     nf = len(frames)
+    grad_accum = torch.zeros(P["means"].shape[0], device=device)
+    accum_n = 0
     for it in range(config.iterations):
         frame = frames[it % nf]
         view, k, w, h = manifest_frame_to_camera(frame, config.scale)
@@ -437,22 +442,22 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         viewmat = torch.tensor(view, dtype=torch.float32, device=device)
         K = torch.tensor(k, dtype=torch.float32, device=device)
         img = None
-        if carrier == "gaussian":
-            # Fast path: differentiable PRISM CUDA kernel (forward + backward).
+        if carrier in ("gaussian", "beta"):
             try:
                 from .prism_cuda import cuda_available, render_gaussians_cuda_diff
                 if cuda_available():
                     img = render_gaussians_cuda_diff(
-                        means, quats, torch.exp(log_scales), torch.sigmoid(logit_op),
-                        colors.clamp(0, 1), viewmat, K, w, h, max_per_tile=config.max_per_tile,
+                        P["means"], P["quats"], torch.exp(P["log_scales"]), torch.sigmoid(P["logit_opacities"]),
+                        P["colors"].clamp(0, 1), viewmat, K, w, h, max_per_tile=config.max_per_tile,
+                        footprint=carrier,
                     )
             except Exception:
                 img = None
         if img is None:
-            cov = quats_scales_to_cov3d(quats, torch.exp(log_scales), torch)
-            proj = project_gaussians(means, cov, viewmat, K, w, h, torch)
+            cov = quats_scales_to_cov3d(P["quats"], torch.exp(P["log_scales"]), torch)
+            proj = project_gaussians(P["means"], cov, viewmat, K, w, h, torch)
             img = composite_tiled(
-                proj, colors.clamp(0, 1), torch.sigmoid(logit_op), w, h, torch,
+                proj, P["colors"].clamp(0, 1), torch.sigmoid(P["logit_opacities"]), w, h, torch,
                 footprint=footprint, max_per_tile=config.max_per_tile,
             )
         l1 = torch.abs(img - gt).mean()
@@ -460,13 +465,45 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
+
+        # Adaptive densification: accumulate positional gradient magnitude, then
+        # periodically clone high-gradient carriers and prune transparent ones.
+        if config.densify and P["means"].grad is not None:
+            with torch.no_grad():
+                grad_accum += P["means"].grad.norm(dim=1)
+                accum_n += 1
+            due = (config.densify_start < it < config.densify_stop
+                   and it > 0 and it % config.densify_interval == 0)
+            if due:
+                with torch.no_grad():
+                    avg = grad_accum / max(accum_n, 1)
+                    opacity = torch.sigmoid(P["logit_opacities"])
+                    keep = opacity > config.prune_opacity
+                    clone = keep & (avg > config.grad_threshold)
+                    if int(P["means"].shape[0]) >= config.max_carriers:
+                        clone = torch.zeros_like(clone)
+                    keep_idx = torch.nonzero(keep, as_tuple=False).squeeze(1)
+                    clone_idx = torch.nonzero(clone, as_tuple=False).squeeze(1)
+                    jitter = torch.zeros_like(P["means"][clone_idx]).normal_(0, 1e-3)
+                    new = {}
+                    for key in _LRS:
+                        kept = P[key][keep_idx]
+                        cl = P[key][clone_idx]
+                        if key == "means":
+                            cl = cl + jitter
+                        new[key] = torch.cat([kept, cl], dim=0)
+                P = _new_params(new)
+                opt = _build_opt(P)
+                grad_accum = torch.zeros(P["means"].shape[0], device=device)
+                accum_n = 0
+
         if it % config.log_every == 0 or it == config.iterations - 1:
             history["loss"].append((it, float(loss.detach())))
-            log(f"  [prism:{carrier}] iter {it + 1}/{config.iterations}  loss={float(loss.detach()):.4f}  N={means.shape[0]}")
+            log(f"  [prism:{carrier}] iter {it + 1}/{config.iterations}  loss={float(loss.detach()):.4f}  N={P['means'].shape[0]}")
 
     trained = {
-        "means": means, "log_scales": log_scales, "quats": quats,
-        "logit_opacities": logit_op, "colors": colors,
+        "means": P["means"], "log_scales": P["log_scales"], "quats": P["quats"],
+        "logit_opacities": P["logit_opacities"], "colors": P["colors"],
     }
     scene = gaussian_params_to_scene(trained, {**ctx, "sh_degree": 0})
     # Tag the footprint type so PRISM eval renders the right kernel.
@@ -480,7 +517,7 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         else:
             tagged.append(e)
     scene = dataclasses.replace(scene, elements=tuple(tagged))
-    history["final_gaussian_count"] = int(means.shape[0])
+    history["final_gaussian_count"] = int(P["means"].shape[0])
     return scene, history
 
 
@@ -496,6 +533,13 @@ class PrismTrainConfig:
     ssim_weight: float = 0.2
     max_per_tile: int = 256
     log_every: int = 100
+    densify: bool = False
+    densify_interval: int = 100
+    densify_start: int = 200
+    densify_stop: int = 15000
+    grad_threshold: float = 2e-4
+    prune_opacity: float = 0.05
+    max_carriers: int = 2_000_000
     log: Callable | None = None
 
 
@@ -515,10 +559,10 @@ def render_scene_prism(scene, frame, scale, *, device="cuda"):
     view, k, w, h = manifest_frame_to_camera(frame, scale)
     viewmat = torch.tensor(view, dtype=torch.float32, device=device)
     K = torch.tensor(k, dtype=torch.float32, device=device)
-    is_gaussian = footprint is _FOOTPRINTS["gaussian"]
+    fp_name = next(iter(fps)) if len(fps) == 1 else "gaussian"
     with torch.no_grad():
         img = None
-        if is_gaussian:
+        if fp_name in ("gaussian", "beta"):
             # Fast path: the hand-written PRISM CUDA forward kernel (~18x the
             # torch compositor, real-time). Falls back to torch if unavailable.
             try:
@@ -527,7 +571,7 @@ def render_scene_prism(scene, frame, scale, *, device="cuda"):
                     img = render_gaussians_cuda(
                         params["means"], params["quats"], torch.exp(params["log_scales"]),
                         torch.sigmoid(params["logit_opacities"]), params["colors"].clamp(0, 1),
-                        viewmat, K, w, h,
+                        viewmat, K, w, h, footprint=fp_name,
                     )
             except Exception:
                 img = None

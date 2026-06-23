@@ -1,105 +1,83 @@
-"""PRISM CUDA fast path — a hand-written CUDA tile-compositing kernel for the
-Gaussian carrier footprint, built with torch's runtime ``load_inline`` (compiled
-against the local nvcc, no prebuilt wheel).
+"""PRISM CUDA fast path — hand-written CUDA tile-compositing kernels for AURA's
+own differentiable rasterizer, compiled at runtime via torch ``load_inline``
+against the local nvcc (no prebuilt wheel).
 
-This is the start of the "alternative to gsplat made for AURA" at the kernel
-level. The torch-side projection + tile binning + depth sort (in ``prism.py``)
-are reused; this module only replaces the expensive per-pixel front-to-back
-alpha-composite scan with a fused CUDA kernel. One CUDA thread renders one pixel,
-walking its tile's depth-sorted carrier list with early termination — the same
-structure as gsplat's ``rasterize_to_pixels``.
+Supports the full PRISM footprint family in CUDA — **gaussian (0), beta (1),
+gabor (2)** — for both forward rendering and the differentiable backward, with
+analytic gradients. One CUDA thread renders one pixel, walking its tile's
+depth-sorted carrier list (gsplat-style). The torch-side projection + tile
+binning + depth sort (``prism.py``) are reused; these kernels replace the
+expensive per-pixel composite scan and its backward.
 
-v1 implements the **forward** Gaussian composite (fast rendering / eval). The
-differentiable CUDA backward is the documented next step; differentiable
-training continues to use the pure-torch tiled compositor in ``prism.py`` (which
-also runs on the GPU via torch ops). Falls back cleanly if CUDA/nvcc is absent.
+Footprint weight ``w`` (before opacity) and its analytic derivatives:
+  gaussian: w = exp(-0.5 p),                       p = aᐧdx²+2bᐧdxᐧdy+cᐧdy²
+  beta:     w = max(1 - sqrt(p)/3, 0)^be           (compact support, DBS-style)
+  gabor:    w = exp(-0.5 p) ᐧ (1+cos(θ))/2,          θ = fxᐧdx + fyᐧdy + phase
+Gabor's modulation depends on (dx,dy) directly, so its means2d gradient has an
+extra term beyond the shared ``dw/dp`` path (handled in the kernel). Falls back
+to the torch compositor if CUDA/nvcc is unavailable.
 """
 
 from __future__ import annotations
 
 import functools
 
+# Footprint type codes (kept in sync with prism.py footprint registry).
+FOOTPRINT_GAUSSIAN = 0
+FOOTPRINT_BETA = 1
+FOOTPRINT_GABOR = 2
+
 _CUDA_SRC = r"""
 #include <torch/extension.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-// One thread per pixel; one block per tile (ts*ts threads). Each thread walks
-// its tile's depth-sorted carrier slot list [T,K] (idxTK, -1 = empty) and does
-// front-to-back alpha compositing of the Gaussian footprint.
-__global__ void prism_forward_kernel(
-    const long*  __restrict__ idxTK,    // [T*K]
-    const float* __restrict__ means2d,  // [N*2]
-    const float* __restrict__ conics,   // [N*3] (a,b,c) inverse 2D cov
-    const float* __restrict__ colors,   // [N*3]
-    const float* __restrict__ opac,     // [N]
-    int ntx, int ts, int W, int H, int K,
-    float* __restrict__ out,            // [H*W*3]
-    float* __restrict__ final_T)        // [H*W]
+// Footprint weight + derivatives. Returns w; sets dw_dp (d w / d power) and, for
+// gabor, the extra direct (dx,dy) modulation derivatives dw_dmod_dx/dy and the
+// gabor-param grads. For gaussian/beta the extra terms are zero.
+__device__ __forceinline__ float prism_footprint(
+    int ftype, float p, float dx, float dy,
+    float fxk, float fyk, float phasek, float be,
+    float* dw_dp, float* dw_ddx_extra, float* dw_ddy_extra,
+    float* dw_dfx, float* dw_dfy, float* dw_dphase)
 {
-    int tile = blockIdx.x;
-    int local = threadIdx.x;
-    if (local >= ts * ts) return;
-    int tx = tile % ntx;
-    int ty = tile / ntx;
-    int px = tx * ts + (local % ts);
-    int py = ty * ts + (local / ts);
-    if (px >= W || py >= H) return;
-
-    float Tt = 1.0f, c0 = 0.f, c1 = 0.f, c2 = 0.f;
-    float fx = (float)px, fy = (float)py;
-    const long* tile_list = idxTK + (long)tile * K;
-    for (int k = 0; k < K; ++k) {
-        long idx = tile_list[k];
-        if (idx < 0) break;
-        float dx = fx - means2d[idx * 2 + 0];
-        float dy = fy - means2d[idx * 2 + 1];
-        float a = conics[idx * 3 + 0];
-        float b = conics[idx * 3 + 1];
-        float c = conics[idx * 3 + 2];
-        float power = a * dx * dx + 2.f * b * dx * dy + c * dy * dy;
-        if (power < 0.f) power = 0.f;
-        float w = __expf(-0.5f * power);
-        float al = opac[idx] * w;
-        if (al > 0.999f) al = 0.999f;
-        float contrib = Tt * al;
-        c0 += contrib * colors[idx * 3 + 0];
-        c1 += contrib * colors[idx * 3 + 1];
-        c2 += contrib * colors[idx * 3 + 2];
-        Tt *= (1.f - al);
-        if (Tt < 1e-4f) break;
+    *dw_dp = 0.f; *dw_ddx_extra = 0.f; *dw_ddy_extra = 0.f;
+    *dw_dfx = 0.f; *dw_dfy = 0.f; *dw_dphase = 0.f;
+    if (ftype == 1) {  // beta: (1 - r/3)^be, r=sqrt(p)
+        float r = sqrtf(fmaxf(p, 0.f));
+        float t = 1.f - r / 3.f;
+        if (t <= 0.f) return 0.f;
+        float w = powf(t, be);
+        // dw/dp = be*t^(be-1) * (-1/3) * dr/dp,  dr/dp = 1/(2r)
+        if (r > 1e-6f) *dw_dp = be * powf(t, be - 1.f) * (-1.f / 3.f) * (0.5f / r);
+        return w;
+    } else if (ftype == 2) {  // gabor: exp(-0.5p) * (1+cos(theta))/2
+        float env = __expf(-0.5f * p);
+        float theta = fxk * dx + fyk * dy + phasek;
+        float mod = 0.5f * (1.f + cosf(theta));
+        float w = env * mod;
+        *dw_dp = -0.5f * env * mod;                 // via envelope
+        float dmod = -0.5f * sinf(theta);           // d mod / d theta
+        *dw_ddx_extra = env * dmod * fxk;           // d w / d dx (direct, not via p)
+        *dw_ddy_extra = env * dmod * fyk;
+        *dw_dfx = env * dmod * dx;
+        *dw_dfy = env * dmod * dy;
+        *dw_dphase = env * dmod;
+        return w;
+    } else {  // gaussian
+        float w = __expf(-0.5f * p);
+        *dw_dp = -0.5f * w;
+        return w;
     }
-    int pix = (py * W + px);
-    out[pix * 3 + 0] = c0;
-    out[pix * 3 + 1] = c1;
-    out[pix * 3 + 2] = c2;
-    final_T[pix] = Tt;
 }
 
-std::vector<torch::Tensor> prism_forward(
-    torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
-    torch::Tensor colors, torch::Tensor opac,
-    int ntx, int ts, int W, int H)
-{
-    int T = idxTK.size(0);
-    int K = idxTK.size(1);
-    auto out = torch::zeros({H, W, 3}, means2d.options());
-    auto final_T = torch::ones({H, W}, means2d.options());
-    int threads = ts * ts;
-    prism_forward_kernel<<<T, threads>>>(
-        idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
-        colors.data_ptr<float>(), opac.data_ptr<float>(),
-        ntx, ts, W, H, K, out.data_ptr<float>(), final_T.data_ptr<float>());
-    return {out, final_T};
-}
-
-// Forward WITHOUT early-termination: processes all K valid slots so the
-// transmittance T_k is well-defined for every splat in the backward reverse
-// pass. Saves final_T per pixel (product over all valid splats).
-__global__ void prism_forward_full_kernel(
+template <bool EARLY>
+__global__ void prism_fwd(
     const long* __restrict__ idxTK, const float* __restrict__ means2d,
     const float* __restrict__ conics, const float* __restrict__ colors,
-    const float* __restrict__ opac, int ntx, int ts, int W, int H, int K,
+    const float* __restrict__ opac, const float* __restrict__ freq,
+    const float* __restrict__ phase, int ftype, float be,
+    int ntx, int ts, int W, int H, int K,
     float* __restrict__ out, float* __restrict__ final_T)
 {
     int tile = blockIdx.x, local = threadIdx.x;
@@ -109,30 +87,34 @@ __global__ void prism_forward_full_kernel(
     if (px >= W || py >= H) return;
     float Tt = 1.f, c0 = 0.f, c1 = 0.f, c2 = 0.f, fx = (float)px, fy = (float)py;
     const long* tl = idxTK + (long)tile * K;
+    float dp, ex, ey, gfx, gfy, gph;
     for (int k = 0; k < K; ++k) {
         long idx = tl[k]; if (idx < 0) break;
         float dx = fx - means2d[idx*2], dy = fy - means2d[idx*2+1];
         float a = conics[idx*3], b = conics[idx*3+1], c = conics[idx*3+2];
-        float power = a*dx*dx + 2.f*b*dx*dy + c*dy*dy; if (power < 0.f) power = 0.f;
-        float w = __expf(-0.5f*power);
+        float p = a*dx*dx + 2.f*b*dx*dy + c*dy*dy; if (p < 0.f) p = 0.f;
+        float w = prism_footprint(ftype, p, dx, dy, freq[idx*2], freq[idx*2+1],
+                                  phase[idx], be, &dp, &ex, &ey, &gfx, &gfy, &gph);
         float al = opac[idx]*w; if (al > 0.999f) al = 0.999f;
         float contrib = Tt*al;
         c0 += contrib*colors[idx*3]; c1 += contrib*colors[idx*3+1]; c2 += contrib*colors[idx*3+2];
         Tt *= (1.f-al);
+        if (EARLY && Tt < 1e-4f) break;
     }
     int pix = py*W+px;
     out[pix*3]=c0; out[pix*3+1]=c1; out[pix*3+2]=c2; final_T[pix]=Tt;
 }
 
-// Per-pixel reverse-traversal backward (3DGS-style): reconstructs T_k from the
-// saved final_T and accumulates gradients into per-carrier buffers via atomics.
-__global__ void prism_backward_kernel(
+__global__ void prism_bwd(
     const long* __restrict__ idxTK, const float* __restrict__ means2d,
     const float* __restrict__ conics, const float* __restrict__ colors,
-    const float* __restrict__ opac, const float* __restrict__ final_T,
-    const float* __restrict__ grad_out, int ntx, int ts, int W, int H, int K,
+    const float* __restrict__ opac, const float* __restrict__ freq,
+    const float* __restrict__ phase, const float* __restrict__ final_T,
+    const float* __restrict__ grad_out, int ftype, float be,
+    int ntx, int ts, int W, int H, int K,
     float* __restrict__ g_means2d, float* __restrict__ g_conics,
-    float* __restrict__ g_colors, float* __restrict__ g_opac)
+    float* __restrict__ g_colors, float* __restrict__ g_opac,
+    float* __restrict__ g_freq, float* __restrict__ g_phase)
 {
     int tile = blockIdx.x, local = threadIdx.x;
     if (local >= ts * ts) return;
@@ -144,95 +126,123 @@ __global__ void prism_backward_kernel(
     float fx = (float)px, fy = (float)py;
     const long* tl = idxTK + (long)tile * K;
     int nvalid = 0; for (int k = 0; k < K; ++k) { if (tl[k] < 0) break; nvalid++; }
-    float Tt = final_T[pix];      // T after all valid splats
-    float s0 = 0.f, s1 = 0.f, s2 = 0.f;   // suffix color accumulated from behind
+    float Tt = final_T[pix];
+    float s0 = 0.f, s1 = 0.f, s2 = 0.f;
+    float dp, ex, ey, gfx, gfy, gph;
     for (int k = nvalid - 1; k >= 0; --k) {
         long idx = tl[k];
         float dx = fx - means2d[idx*2], dy = fy - means2d[idx*2+1];
         float a = conics[idx*3], b = conics[idx*3+1], c = conics[idx*3+2];
-        float power = a*dx*dx + 2.f*b*dx*dy + c*dy*dy; if (power < 0.f) power = 0.f;
-        float w = __expf(-0.5f*power);
+        float p = a*dx*dx + 2.f*b*dx*dy + c*dy*dy; if (p < 0.f) p = 0.f;
+        float w = prism_footprint(ftype, p, dx, dy, freq[idx*2], freq[idx*2+1],
+                                  phase[idx], be, &dp, &ex, &ey, &gfx, &gfy, &gph);
         float al = opac[idx]*w; bool clamped = false;
         if (al > 0.999f) { al = 0.999f; clamped = true; }
         float one_m = 1.f - al;
-        float T_k = Tt / one_m;          // T before this splat
+        float T_k = Tt / one_m;
         float contrib = T_k * al;
         float col0 = colors[idx*3], col1 = colors[idx*3+1], col2 = colors[idx*3+2];
-        // grad wrt color
-        atomicAdd(&g_colors[idx*3],   contrib * dC0);
-        atomicAdd(&g_colors[idx*3+1], contrib * dC1);
-        atomicAdd(&g_colors[idx*3+2], contrib * dC2);
-        // dC/d alpha = T_k*color - suffix/(1-al)
+        atomicAdd(&g_colors[idx*3],   contrib*dC0);
+        atomicAdd(&g_colors[idx*3+1], contrib*dC1);
+        atomicAdd(&g_colors[idx*3+2], contrib*dC2);
         float dC_da = dC0*(T_k*col0 - s0/one_m) + dC1*(T_k*col1 - s1/one_m) + dC2*(T_k*col2 - s2/one_m);
-        float dL_dal = clamped ? 0.f : dC_da;       // clamp kills gradient
-        // alpha = opac*w
+        float dL_dal = clamped ? 0.f : dC_da;
+        // alpha = opac * w
         atomicAdd(&g_opac[idx], dL_dal * w);
         float dL_dw = dL_dal * opac[idx];
-        float dL_dpower = dL_dw * (-0.5f * w);
-        atomicAdd(&g_conics[idx*3],   dL_dpower * dx * dx);
-        atomicAdd(&g_conics[idx*3+1], dL_dpower * 2.f * dx * dy);
-        atomicAdd(&g_conics[idx*3+2], dL_dpower * dy * dy);
-        float dpow_dmx = -(2.f*a*dx + 2.f*b*dy);
-        float dpow_dmy = -(2.f*b*dx + 2.f*c*dy);
-        atomicAdd(&g_means2d[idx*2],   dL_dpower * dpow_dmx);
-        atomicAdd(&g_means2d[idx*2+1], dL_dpower * dpow_dmy);
-        // advance suffix + transmittance for next (earlier) splat
+        // w depends on p (-> conic + means2d) and, for gabor, directly on dx,dy + gabor params.
+        float dL_dp = dL_dw * dp;
+        atomicAdd(&g_conics[idx*3],   dL_dp * dx * dx);
+        atomicAdd(&g_conics[idx*3+1], dL_dp * 2.f * dx * dy);
+        atomicAdd(&g_conics[idx*3+2], dL_dp * dy * dy);
+        float dp_dmx = -(2.f*a*dx + 2.f*b*dy);
+        float dp_dmy = -(2.f*b*dx + 2.f*c*dy);
+        // d dx / d mx = -1 ; gabor extra terms use that (ex = dw/d dx).
+        float dL_dmx = dL_dp * dp_dmx + dL_dw * ex * (-1.f);
+        float dL_dmy = dL_dp * dp_dmy + dL_dw * ey * (-1.f);
+        atomicAdd(&g_means2d[idx*2],   dL_dmx);
+        atomicAdd(&g_means2d[idx*2+1], dL_dmy);
+        if (ftype == 2) {
+            atomicAdd(&g_freq[idx*2],   dL_dw * gfx);
+            atomicAdd(&g_freq[idx*2+1], dL_dw * gfy);
+            atomicAdd(&g_phase[idx],    dL_dw * gph);
+        }
         s0 += contrib*col0; s1 += contrib*col1; s2 += contrib*col2;
         Tt = T_k;
     }
 }
 
+static torch::Tensor _zeros_like(torch::Tensor x){ return torch::zeros_like(x); }
+
+std::vector<torch::Tensor> prism_forward(
+    torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
+    torch::Tensor colors, torch::Tensor opac, torch::Tensor freq, torch::Tensor phase,
+    int ftype, double be, int ntx, int ts, int W, int H)
+{
+    int K = idxTK.size(1);
+    auto out = torch::zeros({H, W, 3}, means2d.options());
+    auto fT = torch::ones({H, W}, means2d.options());
+    prism_fwd<true><<<idxTK.size(0), ts*ts>>>(
+        idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
+        colors.data_ptr<float>(), opac.data_ptr<float>(), freq.data_ptr<float>(),
+        phase.data_ptr<float>(), ftype, (float)be, ntx, ts, W, H, K,
+        out.data_ptr<float>(), fT.data_ptr<float>());
+    return {out, fT};
+}
+
 std::vector<torch::Tensor> prism_forward_full(
     torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
-    torch::Tensor colors, torch::Tensor opac, int ntx, int ts, int W, int H)
+    torch::Tensor colors, torch::Tensor opac, torch::Tensor freq, torch::Tensor phase,
+    int ftype, double be, int ntx, int ts, int W, int H)
 {
-    int T = idxTK.size(0), K = idxTK.size(1);
+    int K = idxTK.size(1);
     auto out = torch::zeros({H, W, 3}, means2d.options());
-    auto final_T = torch::ones({H, W}, means2d.options());
-    prism_forward_full_kernel<<<T, ts*ts>>>(
+    auto fT = torch::ones({H, W}, means2d.options());
+    prism_fwd<false><<<idxTK.size(0), ts*ts>>>(
         idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
-        colors.data_ptr<float>(), opac.data_ptr<float>(), ntx, ts, W, H, K,
-        out.data_ptr<float>(), final_T.data_ptr<float>());
-    return {out, final_T};
+        colors.data_ptr<float>(), opac.data_ptr<float>(), freq.data_ptr<float>(),
+        phase.data_ptr<float>(), ftype, (float)be, ntx, ts, W, H, K,
+        out.data_ptr<float>(), fT.data_ptr<float>());
+    return {out, fT};
 }
 
 std::vector<torch::Tensor> prism_backward(
     torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
-    torch::Tensor colors, torch::Tensor opac, torch::Tensor final_T,
-    torch::Tensor grad_out, int ntx, int ts, int W, int H)
+    torch::Tensor colors, torch::Tensor opac, torch::Tensor freq, torch::Tensor phase,
+    torch::Tensor final_T, torch::Tensor grad_out, int ftype, double be,
+    int ntx, int ts, int W, int H)
 {
-    int T = idxTK.size(0), K = idxTK.size(1);
-    auto g_means2d = torch::zeros_like(means2d);
-    auto g_conics = torch::zeros_like(conics);
-    auto g_colors = torch::zeros_like(colors);
-    auto g_opac = torch::zeros_like(opac);
-    prism_backward_kernel<<<T, ts*ts>>>(
+    int K = idxTK.size(1);
+    auto gm = torch::zeros_like(means2d), gc = torch::zeros_like(conics);
+    auto gcol = torch::zeros_like(colors), gop = torch::zeros_like(opac);
+    auto gfreq = torch::zeros_like(freq), gph = torch::zeros_like(phase);
+    prism_bwd<<<idxTK.size(0), ts*ts>>>(
         idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
-        colors.data_ptr<float>(), opac.data_ptr<float>(), final_T.data_ptr<float>(),
-        grad_out.contiguous().data_ptr<float>(), ntx, ts, W, H, K,
-        g_means2d.data_ptr<float>(), g_conics.data_ptr<float>(),
-        g_colors.data_ptr<float>(), g_opac.data_ptr<float>());
-    return {g_means2d, g_conics, g_colors, g_opac};
+        colors.data_ptr<float>(), opac.data_ptr<float>(), freq.data_ptr<float>(),
+        phase.data_ptr<float>(), final_T.data_ptr<float>(), grad_out.contiguous().data_ptr<float>(),
+        ftype, (float)be, ntx, ts, W, H, K,
+        gm.data_ptr<float>(), gc.data_ptr<float>(), gcol.data_ptr<float>(),
+        gop.data_ptr<float>(), gfreq.data_ptr<float>(), gph.data_ptr<float>());
+    return {gm, gc, gcol, gop, gfreq, gph};
 }
 """
 
 _CPP_SRC = (
-    "std::vector<torch::Tensor> prism_forward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, int, int, int);\n"
-    "std::vector<torch::Tensor> prism_forward_full(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, int, int, int);\n"
-    "std::vector<torch::Tensor> prism_backward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, int, int, int);"
+    "std::vector<torch::Tensor> prism_forward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, double, int, int, int, int);\n"
+    "std::vector<torch::Tensor> prism_forward_full(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, double, int, int, int, int);\n"
+    "std::vector<torch::Tensor> prism_backward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, double, int, int, int, int);"
 )
 
 
 @functools.lru_cache(maxsize=1)
 def _load():
-    """Compile + cache the CUDA extension; returns the module or None."""
     try:
         import torch
         from torch.utils.cpp_extension import load_inline
         if not torch.cuda.is_available():
             return None
         return load_inline(
-            name="prism_cuda_ext",
+            name="prism_cuda_ext_v2",
             cpp_sources=[_CPP_SRC],
             cuda_sources=[_CUDA_SRC],
             functions=["prism_forward", "prism_forward_full", "prism_backward"],
@@ -246,56 +256,64 @@ def cuda_available() -> bool:
     return _load() is not None
 
 
-def render_gaussians_cuda(means, quats, scales, opacities, colors, viewmat, K,
-                          width, height, *, tile: int = 16, max_per_tile: int = 256):
-    """Forward-render a Gaussian scene with the PRISM CUDA kernel. Returns an
-    [H,W,3] image. Raises if the extension is unavailable (caller may fall back
-    to the torch path). Reuses prism.py's projection + tile binning."""
+def _footprint_code(footprint) -> int:
+    if footprint in ("beta", FOOTPRINT_BETA):
+        return FOOTPRINT_BETA
+    if footprint in ("gabor", FOOTPRINT_GABOR):
+        return FOOTPRINT_GABOR
+    return FOOTPRINT_GAUSSIAN
 
+
+def _gabor_arrays(torch, M, device, freq=None, phase=None):
+    f = freq if freq is not None else torch.zeros((M, 2), dtype=torch.float32, device=device)
+    p = phase if phase is not None else torch.zeros((M,), dtype=torch.float32, device=device)
+    return f.contiguous(), p.contiguous()
+
+
+def render_gaussians_cuda(means, quats, scales, opacities, colors, viewmat, K,
+                          width, height, *, tile=16, max_per_tile=256,
+                          footprint="gaussian", beta_exp=2.0, freq=None, phase=None):
+    """Forward-render a scene with the PRISM CUDA kernel for the given footprint
+    (gaussian/beta/gabor). Reuses prism.py projection + tile binning."""
     import torch
     from .prism import quats_scales_to_cov3d, project_gaussians
-
     ext = _load()
     if ext is None:
         raise RuntimeError("PRISM CUDA extension unavailable (no nvcc/CUDA?)")
-
     cov = quats_scales_to_cov3d(quats, scales, torch)
     proj = project_gaussians(means, cov, viewmat, K, width, height, torch)
     idxTK, ntx = _bin_tiles(proj, colors, opacities, width, height, torch, tile, max_per_tile)
-    # Gather contiguous per-carrier arrays (visible subset) for the kernel.
-    means2d = proj.means2d.contiguous()
-    conics = proj.conics.contiguous()
-    col = colors[proj.index].contiguous()
-    op = opacities[proj.index].contiguous()
+    f, p = _gabor_arrays(torch, proj.index.shape[0], colors.device,
+                         None if freq is None else freq[proj.index],
+                         None if phase is None else phase[proj.index])
     out, _T = ext.prism_forward(
-        idxTK.contiguous(), means2d, conics, col, op, int(ntx), int(tile), int(width), int(height)
-    )
+        idxTK.contiguous(), proj.means2d.contiguous(), proj.conics.contiguous(),
+        colors[proj.index].contiguous(), opacities[proj.index].contiguous(), f, p,
+        _footprint_code(footprint), float(beta_exp), int(ntx), int(tile), int(width), int(height))
     return out
 
 
 def _make_autograd_fn():
     import torch
-
     ext = _load()
     if ext is None:
         return None
 
     class _PrismRasterize(torch.autograd.Function):
         @staticmethod
-        def forward(ctx, idxTK, means2d, conics, colors, opac, ntx, ts, W, H):
-            out, final_T = ext.prism_forward_full(idxTK, means2d, conics, colors, opac, ntx, ts, W, H)
-            ctx.save_for_backward(idxTK, means2d, conics, colors, opac, final_T)
-            ctx.dims = (ntx, ts, W, H)
+        def forward(ctx, idxTK, means2d, conics, colors, opac, freq, phase, ftype, be, ntx, ts, W, H):
+            out, fT = ext.prism_forward_full(idxTK, means2d, conics, colors, opac, freq, phase, ftype, be, ntx, ts, W, H)
+            ctx.save_for_backward(idxTK, means2d, conics, colors, opac, freq, phase, fT)
+            ctx.meta = (ftype, be, ntx, ts, W, H)
             return out
 
         @staticmethod
         def backward(ctx, grad_out):
-            idxTK, means2d, conics, colors, opac, final_T = ctx.saved_tensors
-            ntx, ts, W, H = ctx.dims
-            gm, gc, gcol, gop = ext.prism_backward(
-                idxTK, means2d, conics, colors, opac, final_T, grad_out, ntx, ts, W, H
-            )
-            return (None, gm, gc, gcol, gop, None, None, None, None)
+            idxTK, means2d, conics, colors, opac, freq, phase, fT = ctx.saved_tensors
+            ftype, be, ntx, ts, W, H = ctx.meta
+            gm, gc, gcol, gop, gfreq, gph = ext.prism_backward(
+                idxTK, means2d, conics, colors, opac, freq, phase, fT, grad_out, ftype, be, ntx, ts, W, H)
+            return (None, gm, gc, gcol, gop, gfreq, gph, None, None, None, None, None, None)
 
     return _PrismRasterize
 
@@ -306,32 +324,33 @@ def _autograd_fn():
 
 
 def render_gaussians_cuda_diff(means, quats, scales, opacities, colors, viewmat, K,
-                               width, height, *, tile: int = 16, max_per_tile: int = 256):
-    """Differentiable PRISM CUDA render: forward + custom CUDA backward via an
-    autograd.Function. Projection/binning run in torch (autograd flows through
-    them); the composite forward/backward run in the CUDA kernels. Gradients
-    reach means/quats/scales/opacity/colors. Raises if CUDA is unavailable."""
-
+                               width, height, *, tile=16, max_per_tile=256,
+                               footprint="gaussian", beta_exp=2.0, freq=None, phase=None):
+    """Differentiable PRISM CUDA render (forward + custom CUDA backward) for the
+    given footprint. Gradients reach means/quats/scales/opacity/colors (and gabor
+    freq/phase). Projection/binning run in torch autograd."""
     import torch
     from .prism import quats_scales_to_cov3d, project_gaussians
-
     fn = _autograd_fn()
     if fn is None:
         raise RuntimeError("PRISM CUDA extension unavailable")
     cov = quats_scales_to_cov3d(quats, scales, torch)
     proj = project_gaussians(means, cov, viewmat, K, width, height, torch)
     idxTK, ntx = _bin_tiles(proj, colors, opacities, width, height, torch, tile, max_per_tile)
-    means2d = proj.means2d
-    conics = proj.conics
-    col = colors[proj.index]
-    op = opacities[proj.index]
-    return fn.apply(idxTK.contiguous(), means2d, conics, col, op, int(ntx), int(tile), int(width), int(height))
+    fsel = None if freq is None else freq[proj.index]
+    psel = None if phase is None else phase[proj.index]
+    f, p = _gabor_arrays(torch, proj.index.shape[0], colors.device, fsel, psel)
+    if fsel is not None:
+        f = fsel.contiguous()
+    if psel is not None:
+        p = psel.contiguous()
+    return fn.apply(idxTK.contiguous(), proj.means2d, proj.conics, colors[proj.index],
+                    opacities[proj.index], f, p, _footprint_code(footprint), float(beta_exp),
+                    int(ntx), int(tile), int(width), int(height))
 
 
 def _bin_tiles(proj, colors, opacities, width, height, torch, tile, max_per_tile):
-    """Tile-bin + depth-sort visible carriers into a padded [T,K] slot index
-    (shared logic with prism.composite_tiled)."""
-
+    """Tile-bin + depth-sort visible carriers into a padded [T,K] slot index."""
     device = colors.device
     M = int(proj.index.shape[0])
     ntx = (width + tile - 1) // tile

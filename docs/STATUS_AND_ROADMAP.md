@@ -71,10 +71,16 @@ so the `.aura` asset contract and eval harness stay unchanged.
    (L1 0.081→0.001). Wired into `train-prism` and `eval --renderer prism` (auto
    CUDA, torch fallback). So PRISM is now a full differentiable CUDA rasterizer at
    gsplat parity for the Gaussian footprint.
-   **Remaining for PRISM:** CUDA footprints for the non-Gaussian carriers
-   (beta/gabor currently train on the torch path), per-tile-cap tuning +
-   densification on the PRISM path, distinct carrier_ids/payloads + native export
-   for non-Gaussian carriers, and integrating the published kernels:
+   **CUDA typed footprints — DONE.** The kernels support gaussian/beta/gabor in
+   both forward and differentiable backward with analytic gradients (gabor incl.
+   freq/phase). Forward matches the torch compositor (gaussian 114 dB, beta
+   148 dB, gabor 78 dB); all three train via the CUDA backward (gabor L1
+   0.053→0.0008). **Densification — DONE** (`train-prism --densify`: clone
+   high-gradient carriers + prune transparent ones; truck N grows).
+   **Native export + semantic typing — DONE**: the kernel type rides in
+   `metadata['prism_footprint']`, round-trips through the `.aura` package, and
+   scenes export to glTF/GLB. PRISM is feature-complete. Optional future polish:
+   integrate the *published* SOTA kernel variants and a CUDA tile-sort:
    - *Beta / Universal-Beta kernels* — Deformable Beta Splatting ships a CUDA
      rasterizer; integrate it as a second carrier backend (refs:
      `vault/01-raw/papers/aura/arxiv-2501.18630`, `2510.03312`).

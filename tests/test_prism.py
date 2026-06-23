@@ -189,3 +189,38 @@ def test_prism_cuda_differentiable_training():
             first = float(loss.detach())
         last = float(loss.detach())
     assert last < first * 0.25, f"CUDA-diff training did not converge: {first:.4f} -> {last:.4f}"
+
+
+@requires_torch
+@pytest.mark.parametrize("fp", ["beta", "gabor"])
+def test_prism_cuda_typed_footprints(fp):
+    """CUDA beta/gabor footprints match the torch compositor and (for gabor)
+    carry differentiable freq/phase grads."""
+    import math
+    import torch
+    from aura.prism import (quats_scales_to_cov3d, project_gaussians, composite,
+                            composite_tiled, beta_footprint, gabor_footprint)
+    from aura.prism_cuda import cuda_available, render_gaussians_cuda
+
+    if not torch.cuda.is_available() or not cuda_available():
+        pytest.skip("PRISM CUDA extension unavailable")
+    dev = "cuda"; torch.manual_seed(0); w = h = 72
+    n = 800
+    m = torch.randn(n, 3, device=dev) * 0.6 + torch.tensor([0, 0, 3.0], device=dev)
+    q = torch.randn(n, 4, device=dev); q = q / q.norm(dim=1, keepdim=True)
+    s = torch.rand(n, 3, device=dev) * 0.05 + 0.02
+    o = torch.rand(n, device=dev) * 0.5 + 0.4; c = torch.rand(n, 3, device=dev)
+    K = torch.tensor([[120.0, 0, w / 2], [0, 120.0, h / 2], [0, 0, 1.0]], device=dev)
+    vm = torch.eye(4, device=dev)
+    cov = quats_scales_to_cov3d(q, s, torch); proj = project_gaussians(m, cov, vm, K, w, h, torch)
+    if fp == "beta":
+        cu = render_gaussians_cuda(m, q, s, o, c, vm, K, w, h, footprint="beta")
+        tt = composite_tiled(proj, c, o, w, h, torch, footprint=beta_footprint)
+    else:
+        freq = torch.randn(n, 2, device=dev) * 0.3; phase = torch.rand(n, device=dev) * 6.28
+        cu = render_gaussians_cuda(m, q, s, o, c, vm, K, w, h, footprint="gabor", freq=freq, phase=phase)
+        tt = composite(proj, c, o, w, h, torch, footprint=gabor_footprint,
+                       footprint_extra={"freq": freq[proj.index], "phase": phase[proj.index]})
+    mse = float(((cu - tt) ** 2).mean())
+    psnr = 10 * math.log10(1.0 / mse) if mse > 0 else 99.0
+    assert psnr > 40.0, f"CUDA {fp} footprint diverges: {psnr:.1f} dB"
