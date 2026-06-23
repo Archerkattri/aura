@@ -47,6 +47,11 @@ python scripts/eval_psnr.py <out>.aura outputs/truck-pts129k-manifest.json --ren
 
 ## Results (Tanks & Temples — Truck, real data)
 
+Ground truth vs an executed **vanilla 3DGS (gsplat)** baseline vs **AURA**, on the
+same scene and eval frames (matched budget, 0.25× scale):
+
+![Ground truth vs vanilla 3DGS vs AURA — Truck](docs/aura_vs_3dgs_truck.png)
+
 **Convergence vs an executed 3DGS baseline** (same scene, same eval split, AURA's
 own pipeline):
 
@@ -89,6 +94,15 @@ remaining performance work.
 
 Reproduce: `python experiments/prism_ablation.py --configs auto,beta,gaussian ...`
 and `python experiments/prism_benchmark.py` (results in `experiments/results/`).
+
+> **On the two render paths:** the 15.5 dB convergence figure (and the image
+> above) use AURA's *gsplat-backed* path, which currently has the highest
+> fidelity on dense (100k+ carrier) scenes. The carrier ablation uses **PRISM**
+> (AURA's own kernel) for both training and rendering, so it is internally
+> consistent but a few dB lower in absolute terms — PRISM trails the gsplat
+> backend by ~4 dB on dense scenes today (the EWA dilation / opacity-compensation
+> match is being closed). PRISM is what makes the *typed-carrier* engine possible
+> and is real-time; the gsplat backend is the current quality reference.
 
 ## Features
 
