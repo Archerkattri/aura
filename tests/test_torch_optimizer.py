@@ -4835,3 +4835,35 @@ def test_batched_grad_accumulation_sgd_path():
     keys = {k for step in result.steps for (k, _) in step.grad_stats}
     assert any(k.endswith(".grad_absmax") for k in keys)
     assert not any(k.startswith("__batched__") for k in keys)
+
+
+class TestRotatingBatchWindow:
+    """Carrier-coverage rotation: _rotating_batch_window_indices (see
+    docs/CONVERGENCE_TODO.md, carrier gradient starvation)."""
+
+    _fn = staticmethod(torch_optimizer_module._rotating_batch_window_indices)
+
+    def test_disabled_returns_none(self):
+        # window 0 (default) or >= total => process every batch (None sentinel)
+        assert self._fn(0, 0, 10) is None
+        assert self._fn(5, 10, 10) is None
+        assert self._fn(5, 99, 10) is None
+        assert self._fn(0, 4, 0) is None
+
+    def test_window_size_and_wraparound(self):
+        # 7 batches, window 3: iter 0 -> [0,1,2], iter 1 -> [3,4,5],
+        # iter 2 -> [6,0,1] (wraps), iter 3 -> [2,3,4] ...
+        assert self._fn(0, 3, 7) == (0, 1, 2)
+        assert self._fn(1, 3, 7) == (3, 4, 5)
+        assert self._fn(2, 3, 7) == (6, 0, 1)
+        assert all(0 <= i < 7 for i in self._fn(2, 3, 7))
+
+    def test_full_coverage_over_a_cycle(self):
+        # Over ceil(total/window) iterations every batch index is visited.
+        total, window = 8128, 32  # representative of a real full-coverage plan
+        import math
+        cycle = math.ceil(total / window)
+        seen = set()
+        for it in range(cycle):
+            seen.update(self._fn(it, window, total))
+        assert seen == set(range(total))

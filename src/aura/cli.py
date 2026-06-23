@@ -64,6 +64,7 @@ from aura.training_targets import (
     capture_tensors_to_packed_render_batches,
     capture_tensors_to_render_targets,
     plan_capture_tensor_sampling,
+    sampling_coverage_report,
 )
 
 NATIVE_DEMO_FALLBACKS = {
@@ -164,6 +165,11 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--max-targets-per-frame", type=int, default=4096)
     train.add_argument("--tile-size", type=int, default=256)
     train.add_argument("--max-targets-per-batch", type=int, default=1024)
+    train.add_argument("--batches-per-iteration", type=int, default=0, dest="batches_per_iteration",
+                       help="Process a rotating window of this many batches per iteration instead "
+                            "of every batch (0 = all). With a full-coverage plan this bounds the "
+                            "dense renderer's per-step cost while round-robin rotation ensures every "
+                            "carrier eventually receives gradients (fixes carrier gradient starvation).")
     train.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
     train.add_argument("--color-learning-rate", type=float, default=0.25)
     train.add_argument("--position-lr", type=float, default=1.6e-4, dest="position_lr",
@@ -1045,6 +1051,12 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     else:
         scene = _scene_from_training_dataset(dataset, name="aura_train")
         resume_iteration_offset = 0
+    # Coverage diagnostic is best-effort: it must never crash report writing on
+    # an otherwise-successful training run.
+    try:
+        sampling_coverage = sampling_coverage_report(sampling_plan)
+    except Exception:  # pragma: no cover — defensive around the diagnostic
+        sampling_coverage = None
     densification_config = _densification_config_from_args(args)
     result = torch_optimize_capture_batches(
         scene,
@@ -1067,6 +1079,7 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
             opacity_reset_interval=getattr(args, "opacity_reset_interval", 0),
             opacity_reset_value=getattr(args, "opacity_reset_value", 0.01),
             max_carriers=args.max_carriers or 0,
+            batches_per_iteration=getattr(args, "batches_per_iteration", 0),
             evolution_policy=None
             if args.disable_evolution
             else CarrierEvolutionPolicy(
@@ -1112,6 +1125,8 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
         "captureSamplingPlan": sampling_plan.to_dict(),
         "packedBatchCount": len(packed_batches),
         "packedTargetCount": sum(batch.target_count for batch in packed_batches),
+        "batchesPerIteration": getattr(args, "batches_per_iteration", 0),
+        "samplingCoverage": sampling_coverage,
         "lossWeights": _loss_weights_from_args(args).to_dict(),
         "torch": torch_renderer_status().to_dict(),
         "adaptiveEvolutionEnabled": not args.disable_evolution,

@@ -40,6 +40,29 @@ from aura.torch_renderer import (
 )
 
 
+def _rotating_batch_window_indices(
+    iteration: int, window: int, total_batches: int
+) -> tuple[int, ...] | None:
+    """Indices of the batch window to process on ``iteration``.
+
+    Returns ``None`` when every batch should run this iteration — i.e. when
+    ``window`` is 0/unset or not smaller than ``total_batches`` (the original
+    behaviour). Otherwise returns a contiguous wrap-around window of ``window``
+    indices starting at ``(iteration * window) % total_batches``. Advancing the
+    start by ``window`` each iteration makes consecutive iterations tile the
+    full batch list, so over ``ceil(total_batches / window)`` iterations every
+    batch — and thus every carrier its rays hit — is supervised exactly once
+    per cycle. This bounds the dense ray x carrier renderer's per-iteration
+    cost while still driving full carrier coverage (see
+    docs/CONVERGENCE_TODO.md, "carrier gradient starvation").
+    """
+
+    if window <= 0 or window >= total_batches or total_batches == 0:
+        return None
+    start = (iteration * window) % total_batches
+    return tuple((start + offset) % total_batches for offset in range(window))
+
+
 @dataclass(frozen=True)
 class DensificationConfig:
     """3DGS-style adaptive densification + pruning + regularization schedule.
@@ -120,6 +143,14 @@ class TorchOptimizationConfig:
     recovery_window: int = 100
     # Deliverable 6: Budget ceiling
     max_carriers: int = 0
+    # Carrier-coverage fix: process a rotating window of this many batches per
+    # iteration instead of every batch (0 = all batches every iteration, the
+    # original behaviour). With a full-coverage sampling plan the dense
+    # ray x carrier renderer cannot afford every batch each step, so a small
+    # per-iteration window keeps memory/time bounded while round-robin rotation
+    # guarantees every carrier eventually receives gradients across an epoch
+    # (see docs/CONVERGENCE_TODO.md, "carrier gradient starvation").
+    batches_per_iteration: int = 0
     # Deliverable: Adaptive densification + pruning + regularization (3DGS ADC)
     densification: DensificationConfig = field(default_factory=DensificationConfig)
 
@@ -140,6 +171,8 @@ class TorchOptimizationConfig:
             raise TypeError("torch evolution_policy must be a CarrierEvolutionPolicy or None")
         if self.iteration_offset < 0:
             raise ValueError("torch iteration_offset must be non-negative")
+        if self.batches_per_iteration < 0:
+            raise ValueError("torch batches_per_iteration must be non-negative")
         if self.checkpoint_interval is not None and self.checkpoint_interval <= 0:
             raise ValueError("torch checkpoint_interval must be positive when set")
         if self.optimizer_type not in ('sgd', 'adam'):
@@ -937,7 +970,22 @@ def _optimize_torch_batches(
                 if group.get('name') == 'position':
                     group['lr'] = new_position_lr
 
-        for batch, batch_index, target_offset, source_windows in prepared_batches:
+        # Carrier-coverage rotation: when batches_per_iteration is set and is
+        # smaller than the batch count, process a contiguous wrap-around window
+        # of that many batches, advancing the window by its own width each
+        # iteration so consecutive iterations tile the full batch list. Over
+        # ceil(total / window) iterations every batch — and thus every carrier
+        # its rays hit — is supervised, at bounded per-iteration cost.
+        window_indices = _rotating_batch_window_indices(
+            iteration, config.batches_per_iteration, len(prepared_batches)
+        )
+        iteration_batches = (
+            prepared_batches
+            if window_indices is None
+            else tuple(prepared_batches[index] for index in window_indices)
+        )
+
+        for batch, batch_index, target_offset, source_windows in iteration_batches:
             if use_adam and adam_optimizer is not None:
                 adam_optimizer.zero_grad()
             else:

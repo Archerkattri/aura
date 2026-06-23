@@ -73,6 +73,13 @@ def _make_train_mocks(tmp_path: pathlib.Path):
     mock_sampling_plan = MagicMock()
     mock_sampling_plan.max_targets_per_batch = 10
     mock_sampling_plan.to_dict.return_value = {}
+    # Real scalar fields + empty tiles so the best-effort coverage diagnostic
+    # (sampling_coverage_report) returns a JSON-serializable report rather than
+    # mock objects when the planner is patched out.
+    mock_sampling_plan.pixel_stride = 1
+    mock_sampling_plan.tile_size = 256
+    mock_sampling_plan.max_targets_per_frame = 16
+    mock_sampling_plan.tiles = ()
 
     pkg_dir = tmp_path / "scene.aura"
     pkg_dir.mkdir()
