@@ -63,9 +63,15 @@ def psnr_from_mse(mse_val: float) -> float:
 def ssim(pred: list[float], gt: list[float], width: int, height: int) -> float:
     """Compute SSIM between two flat RGB images using an 11x11 Gaussian window.
 
-    pred, gt: flat list of floats in [0,1], length = width * height * 3
-    Returns SSIM in [-1, 1] (1.0 = identical).
+    Uses a vectorised torch (GPU if available) implementation when torch is
+    installed — the pure-Python path below is O(W*H*121) and is hundreds of
+    times slower at full resolution. Both paths use the same luminance + 11x11
+    Gaussian-window SSIM definition, so numbers stay comparable.
     """
+    fast = _ssim_torch(pred, gt, width, height)
+    if fast is not None:
+        return fast
+
     import math
 
     K1, K2, L = 0.01, 0.03, 1.0
@@ -114,6 +120,46 @@ def ssim(pred: list[float], gt: list[float], width: int, height: int) -> float:
             ssim_vals.append(num / den if den != 0 else 1.0)
 
     return sum(ssim_vals) / len(ssim_vals) if ssim_vals else 1.0
+
+
+def _ssim_torch(pred: list[float], gt: list[float], width: int, height: int) -> float | None:
+    """Vectorised luminance SSIM (11x11 Gaussian window) on GPU/CPU via torch.
+
+    Returns None if torch is unavailable so the caller falls back to the pure
+    Python implementation. Matches the reference's K1=0.01, K2=0.03, L=1.0 and
+    only counts fully-valid windows (conv2d 'valid' region), like the loop below.
+    """
+    try:
+        import torch
+    except Exception:
+        return None
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    n = width * height
+    p = torch.tensor(pred, dtype=torch.float32, device=device).reshape(n, 3)
+    g = torch.tensor(gt, dtype=torch.float32, device=device).reshape(n, 3)
+    w_lum = torch.tensor([0.2126, 0.7152, 0.0722], dtype=torch.float32, device=device)
+    lp = (p * w_lum).sum(1).reshape(1, 1, height, width)
+    lg = (g * w_lum).sum(1).reshape(1, 1, height, width)
+
+    half, sigma = 5, 1.5
+    coords = torch.arange(-half, half + 1, dtype=torch.float32, device=device)
+    g1 = torch.exp(-(coords ** 2) / (2 * sigma * sigma))
+    k2d = (g1[:, None] * g1[None, :])
+    k2d = (k2d / k2d.sum()).reshape(1, 1, 2 * half + 1, 2 * half + 1)
+
+    def filt(t):
+        return torch.nn.functional.conv2d(t, k2d)  # 'valid' region only
+
+    mu_x, mu_y = filt(lp), filt(lg)
+    mu_x2, mu_y2, mu_xy = mu_x * mu_x, mu_y * mu_y, mu_x * mu_y
+    sig_x = filt(lp * lp) - mu_x2
+    sig_y = filt(lg * lg) - mu_y2
+    sig_xy = filt(lp * lg) - mu_xy
+    c1, c2 = (0.01) ** 2, (0.03) ** 2
+    num = (2 * mu_xy + c1) * (2 * sig_xy + c2)
+    den = (mu_x2 + mu_y2 + c1) * (sig_x + sig_y + c2)
+    return float((num / den).mean())
 
 
 def render_frame_cuda(
@@ -269,8 +315,9 @@ def main():
     parser.add_argument("--ray-batch", type=int, default=128,
                         help="Ray batch size passed to the renderer (default 128). "
                              "Increase for faster eval if GPU has headroom.")
-    parser.add_argument("--renderer", choices=["torch", "cuda"], default="torch",
-                        help="Renderer backend: 'torch' (default, batched) or 'cuda' "
+    parser.add_argument("--renderer", choices=["torch", "cuda", "gsplat"], default="torch",
+                        help="Renderer backend: 'gsplat' (tiled rasterizer, AURA's "
+                        "high-fidelity primary-view path), 'torch' (default, batched) or 'cuda' "
                              "(compiled CUDA extension, faster for large scenes).")
     args = parser.parse_args()
 
@@ -303,7 +350,17 @@ def main():
 
         print(f"  [{i+1}/{len(eval_frames)}] {img_path.name}...", flush=True)
         gt_W, gt_H, gt_pixels = load_jpg_as_rgb(str(img_path))
-        if args.renderer == "cuda":
+        if args.renderer == "gsplat":
+            # Primary-view path: the tiled differentiable rasterizer (full
+            # front-to-back alpha compositing of ALL Gaussians) — AURA's
+            # high-fidelity render path, matching the training renderer. The
+            # "cuda"/"torch" 3D ray renderers below are the secondary-ray/query
+            # path and cap hits per ray, so they score lower on primary view.
+            from aura.gsplat_renderer import render_scene_gsplat
+            render_W, render_H, render_pixels = render_scene_gsplat(
+                scene, frame, scale=args.scale, device=args.device
+            )
+        elif args.renderer == "cuda":
             render_W, render_H, render_pixels = render_frame_cuda(
                 scene, frame, device=args.device, scale=args.scale, max_hits=32
             )

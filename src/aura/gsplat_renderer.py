@@ -170,15 +170,13 @@ def scene_to_gaussian_params(scene: AuraScene, *, device: str):
     opac = torch.tensor([float(e.opacity) for e in gaussians], dtype=torch.float32, device=device)
 
     # Symmetrise then eigendecompose covariance into rotation + axis variances.
-    # Run eigh on CPU: cuSOLVER's batched syevd rejects very large 3x3 batches
-    # (CUSOLVER_STATUS_INVALID_VALUE), and CPU LAPACK is robust + fast here. A
-    # tiny diagonal regulariser keeps degenerate (zero-extent) seeds well-posed.
+    # cuSOLVER's batched syevd rejects a single very large 3x3 batch
+    # (CUSOLVER_STATUS_INVALID_VALUE on 129k+), so eigh is run in GPU-sized
+    # chunks (fast) with a CPU fallback. A tiny diagonal regulariser keeps
+    # degenerate (zero-extent) seeds well-posed.
     cov = 0.5 * (cov + cov.transpose(1, 2))
-    cov_cpu = cov.detach().cpu()
-    cov_cpu = cov_cpu + 1e-9 * torch.eye(3, dtype=cov_cpu.dtype).unsqueeze(0)
-    eigvals, eigvecs = torch.linalg.eigh(cov_cpu)  # ascending eigvals; eigvecs columns
-    eigvals = eigvals.to(device)
-    eigvecs = eigvecs.to(device)
+    cov = cov + 1e-9 * torch.eye(3, dtype=cov.dtype, device=device).unsqueeze(0)
+    eigvals, eigvecs = _batched_eigh(cov, torch)
     variances = eigvals.clamp(min=1e-12)
     scales = torch.sqrt(variances)  # [N, 3]
     log_scales = torch.log(scales.clamp(min=1e-9))
@@ -249,6 +247,34 @@ def seed_gaussian_params_from_regions(regions, *, device: str):
         "semantic_graph": None,
     }
     return params, ctx
+
+
+def _batched_eigh(cov, torch, chunk: int = 16384):
+    """Symmetric eigendecomposition over a large [N,3,3] batch.
+
+    cuSOLVER rejects one huge batched syevd call, so decompose in GPU-sized
+    chunks; if any chunk errors (driver quirk), fall back to CPU LAPACK for it.
+    Returns (eigvals [N,3] ascending, eigvecs [N,3,3] columns).
+    """
+
+    n = cov.shape[0]
+    if n <= chunk:
+        try:
+            return torch.linalg.eigh(cov)
+        except Exception:
+            vals, vecs = torch.linalg.eigh(cov.detach().cpu())
+            return vals.to(cov.device), vecs.to(cov.device)
+    vals_parts, vecs_parts = [], []
+    for start in range(0, n, chunk):
+        block = cov[start : start + chunk]
+        try:
+            v, q = torch.linalg.eigh(block)
+        except Exception:
+            v, q = torch.linalg.eigh(block.detach().cpu())
+            v, q = v.to(cov.device), q.to(cov.device)
+        vals_parts.append(v)
+        vecs_parts.append(q)
+    return torch.cat(vals_parts, dim=0), torch.cat(vecs_parts, dim=0)
 
 
 def _rotation_matrix_to_quat_wxyz(R, torch):
