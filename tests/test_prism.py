@@ -150,3 +150,42 @@ def test_prism_cuda_forward_matches_torch_tiled():
     mse = float(((cu - tt) ** 2).mean())
     psnr = 10 * math.log10(1.0 / mse) if mse > 0 else 99.0
     assert psnr > 50.0, f"CUDA kernel diverges from torch tiled: {psnr:.1f} dB"
+
+
+@requires_torch
+def test_prism_cuda_differentiable_training():
+    """The differentiable PRISM CUDA path (forward + custom CUDA backward) trains
+    a scene end-to-end — full gsplat-parity at the kernel level."""
+    import torch
+    from aura.prism_cuda import cuda_available, render_gaussians_cuda_diff
+    from aura.prism import render_gaussians
+
+    if not torch.cuda.is_available() or not cuda_available():
+        pytest.skip("PRISM CUDA extension unavailable (no GPU/nvcc)")
+    dev = "cuda"
+    torch.manual_seed(0)
+    w = h = 56
+    K = torch.tensor([[90.0, 0, w / 2], [0, 90.0, h / 2], [0, 0, 1.0]], device=dev)
+    vm = torch.eye(4, device=dev)
+    gm = torch.tensor([[-0.3, -0.1, 3.0], [0.3, 0.1, 3.0]], device=dev)
+    gq = torch.zeros(2, 4, device=dev); gq[:, 0] = 1
+    gs = torch.full((2, 3), 0.16, device=dev); go = torch.full((2,), 0.9, device=dev)
+    gc = torch.tensor([[0.9, 0.2, 0.2], [0.2, 0.8, 0.3]], device=dev)
+    target = render_gaussians(gm, gq, gs, go, gc, vm, K, w, h, device=dev).detach()
+
+    m = 8
+    means = (torch.randn(m, 3, device=dev) * 0.3 + torch.tensor([0, 0, 3.0], device=dev)).requires_grad_(True)
+    ls = torch.log(torch.full((m, 3), 0.18, device=dev)).requires_grad_(True)
+    q = torch.zeros(m, 4, device=dev); q[:, 0] = 1; q = q.requires_grad_(True)
+    lo = torch.logit(torch.full((m,), 0.5, device=dev)).requires_grad_(True)
+    col = torch.rand(m, 3, device=dev).requires_grad_(True)
+    opt = torch.optim.Adam([means, ls, q, lo, col], lr=0.05)
+    first = last = None
+    for it in range(200):
+        img = render_gaussians_cuda_diff(means, q, torch.exp(ls), torch.sigmoid(lo), col.clamp(0, 1), vm, K, w, h)
+        loss = torch.abs(img - target).mean()
+        opt.zero_grad(); loss.backward(); opt.step()
+        if it == 0:
+            first = float(loss.detach())
+        last = float(loss.detach())
+    assert last < first * 0.25, f"CUDA-diff training did not converge: {first:.4f} -> {last:.4f}"

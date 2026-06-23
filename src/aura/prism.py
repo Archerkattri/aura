@@ -436,12 +436,25 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         gt = _load_image_rgb(root / frame["image_path"], torch, device, w, h)
         viewmat = torch.tensor(view, dtype=torch.float32, device=device)
         K = torch.tensor(k, dtype=torch.float32, device=device)
-        cov = quats_scales_to_cov3d(quats, torch.exp(log_scales), torch)
-        proj = project_gaussians(means, cov, viewmat, K, w, h, torch)
-        img = composite_tiled(
-            proj, colors.clamp(0, 1), torch.sigmoid(logit_op), w, h, torch,
-            footprint=footprint, max_per_tile=config.max_per_tile,
-        )
+        img = None
+        if carrier == "gaussian":
+            # Fast path: differentiable PRISM CUDA kernel (forward + backward).
+            try:
+                from .prism_cuda import cuda_available, render_gaussians_cuda_diff
+                if cuda_available():
+                    img = render_gaussians_cuda_diff(
+                        means, quats, torch.exp(log_scales), torch.sigmoid(logit_op),
+                        colors.clamp(0, 1), viewmat, K, w, h, max_per_tile=config.max_per_tile,
+                    )
+            except Exception:
+                img = None
+        if img is None:
+            cov = quats_scales_to_cov3d(quats, torch.exp(log_scales), torch)
+            proj = project_gaussians(means, cov, viewmat, K, w, h, torch)
+            img = composite_tiled(
+                proj, colors.clamp(0, 1), torch.sigmoid(logit_op), w, h, torch,
+                footprint=footprint, max_per_tile=config.max_per_tile,
+            )
         l1 = torch.abs(img - gt).mean()
         loss = (1 - config.ssim_weight) * l1 + config.ssim_weight * (1 - _ssim(img, gt, torch))
         opt.zero_grad(set_to_none=True)
