@@ -444,6 +444,7 @@ class GsplatTrainConfig:
     color_lr: float = 2.5e-3
     ssim_weight: float = 0.2
     sh_degree: int = 0  # 0 = flat per-carrier RGB; >0 = view-dependent SH bands
+    sh_warmup_interval: int = 1000  # add one SH band every N iters (3DGS convention)
     densify: bool = False
     densify_grad2d: float = 2e-4
     refine_start_iter: int = 500
@@ -557,7 +558,7 @@ def train_scene_gsplat(
         strategy.check_sanity(splats, optimizers)
         strategy_state = strategy.initialize_state(scene_scale=scene_scale)
 
-    def render(frame, scale):
+    def render(frame, scale, active_sh):
         view, k, w, h = manifest_frame_to_camera(frame, scale)
         viewmat = torch.tensor(view, dtype=torch.float32, device=device).unsqueeze(0)
         kmat = torch.tensor(k, dtype=torch.float32, device=device).unsqueeze(0)
@@ -573,7 +574,7 @@ def train_scene_gsplat(
             height=h,
             packed=False,
             absgrad=bool(config.densify),
-            sh_degree=(sh_degree if sh_degree > 0 else None),
+            sh_degree=(active_sh if sh_degree > 0 else None),
         )
         return out[0], info, w, h  # out[0]: [H,W,3]
 
@@ -590,7 +591,11 @@ def train_scene_gsplat(
         frame = frames[it % n_frames]
         _v, _k, w, h = manifest_frame_to_camera(frame, config.scale)
         gt = _load_image_rgb(root / frame["image_path"], torch, device, w, h)
-        rendered, info, _w, _h = render(frame, config.scale)
+        # SH degree warmup (3DGS convention): start at DC only and add one band
+        # every sh_warmup_interval iters, so high-frequency bands don't get noisy
+        # gradients before the coarse colour converges.
+        active_sh = min(sh_degree, it // max(1, config.sh_warmup_interval)) if sh_degree > 0 else 0
+        rendered, info, _w, _h = render(frame, config.scale, active_sh)
         loss = _l1_ssim(rendered, gt)
 
         if strategy is not None:

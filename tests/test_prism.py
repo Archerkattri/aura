@@ -121,3 +121,32 @@ def test_beta_typed_carrier_trains():
             first = float(loss.detach())
         last = float(loss.detach())
     assert last < first * 0.5, f"beta carrier did not converge: {first:.4f} -> {last:.4f}"
+
+
+@requires_torch
+def test_prism_cuda_forward_matches_torch_tiled():
+    """The hand-written PRISM CUDA forward kernel matches the torch compositor."""
+    import math
+    import torch
+    from aura.prism import quats_scales_to_cov3d, project_gaussians, composite_tiled
+    from aura.prism_cuda import cuda_available, render_gaussians_cuda
+
+    if not torch.cuda.is_available() or not cuda_available():
+        pytest.skip("PRISM CUDA extension unavailable (no GPU/nvcc)")
+    dev = "cuda"
+    torch.manual_seed(0)
+    n, w, h = 1500, 96, 96
+    means = torch.randn(n, 3, device=dev) * 0.6 + torch.tensor([0, 0, 3.0], device=dev)
+    quats = torch.randn(n, 4, device=dev); quats = quats / quats.norm(dim=1, keepdim=True)
+    scales = torch.rand(n, 3, device=dev) * 0.05 + 0.02
+    opac = torch.rand(n, device=dev) * 0.5 + 0.4
+    colors = torch.rand(n, 3, device=dev)
+    K = torch.tensor([[120.0, 0, w / 2], [0, 120.0, h / 2], [0, 0, 1.0]], device=dev)
+    vm = torch.eye(4, device=dev)
+    cu = render_gaussians_cuda(means, quats, scales, opac, colors, vm, K, w, h)
+    cov = quats_scales_to_cov3d(quats, scales, torch)
+    proj = project_gaussians(means, cov, vm, K, w, h, torch)
+    tt = composite_tiled(proj, colors, opac, w, h, torch)
+    mse = float(((cu - tt) ** 2).mean())
+    psnr = 10 * math.log10(1.0 / mse) if mse > 0 else 99.0
+    assert psnr > 50.0, f"CUDA kernel diverges from torch tiled: {psnr:.1f} dB"

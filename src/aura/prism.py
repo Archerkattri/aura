@@ -499,14 +499,30 @@ def render_scene_prism(scene, frame, scale, *, device="cuda"):
     fps = {((getattr(e, "metadata", None) or {}).get("prism_footprint", "gaussian"))
            for e in scene.elements if e.carrier_id == "gaussian"}
     footprint = _FOOTPRINTS.get(next(iter(fps)) if len(fps) == 1 else "gaussian", _FOOTPRINTS["gaussian"])
-    cov = quats_scales_to_cov3d(params["quats"], torch.exp(params["log_scales"]), torch)
     view, k, w, h = manifest_frame_to_camera(frame, scale)
     viewmat = torch.tensor(view, dtype=torch.float32, device=device)
     K = torch.tensor(k, dtype=torch.float32, device=device)
+    is_gaussian = footprint is _FOOTPRINTS["gaussian"]
     with torch.no_grad():
-        proj = project_gaussians(params["means"], cov, viewmat, K, w, h, torch)
-        img = composite_tiled(proj, params["colors"].clamp(0, 1),
-                              torch.sigmoid(params["logit_opacities"]), w, h, torch,
-                              footprint=footprint)
+        img = None
+        if is_gaussian:
+            # Fast path: the hand-written PRISM CUDA forward kernel (~18x the
+            # torch compositor, real-time). Falls back to torch if unavailable.
+            try:
+                from .prism_cuda import cuda_available, render_gaussians_cuda
+                if cuda_available():
+                    img = render_gaussians_cuda(
+                        params["means"], params["quats"], torch.exp(params["log_scales"]),
+                        torch.sigmoid(params["logit_opacities"]), params["colors"].clamp(0, 1),
+                        viewmat, K, w, h,
+                    )
+            except Exception:
+                img = None
+        if img is None:
+            cov = quats_scales_to_cov3d(params["quats"], torch.exp(params["log_scales"]), torch)
+            proj = project_gaussians(params["means"], cov, viewmat, K, w, h, torch)
+            img = composite_tiled(proj, params["colors"].clamp(0, 1),
+                                  torch.sigmoid(params["logit_opacities"]), w, h, torch,
+                                  footprint=footprint)
     flat = img.clamp(0.0, 1.0).reshape(-1).cpu().tolist()
     return w, h, flat
