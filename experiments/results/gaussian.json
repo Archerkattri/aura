@@ -1,0 +1,15 @@
+{
+  "config": "gaussian",
+  "carrier": "gaussian",
+  "volumetric": false,
+  "densify": false,
+  "iterations": 1500,
+  "scale": 0.25,
+  "psnr": 11.372,
+  "ssim": 0.2487,
+  "train_seconds": 20.6,
+  "final_carriers": 129531,
+  "footprint_counts": {
+    "gaussian": 129531
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "config": "auto_volumetric",
+  "carrier": "auto",
+  "volumetric": true,
+  "densify": false,
+  "iterations": 1500,
+  "scale": 0.25,
+  "psnr": 12.056,
+  "ssim": 0.244,
+  "train_seconds": 22.3,
+  "final_carriers": 129531,
+  "footprint_counts": {
+    "gaussian": 90680,
+    "gabor": 38851
+  }
+}

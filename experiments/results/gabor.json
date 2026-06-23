@@ -1,0 +1,15 @@
+{
+  "config": "gabor",
+  "carrier": "gabor",
+  "volumetric": false,
+  "densify": false,
+  "iterations": 1500,
+  "scale": 0.25,
+  "psnr": 11.935,
+  "ssim": 0.2474,
+  "train_seconds": 21.4,
+  "final_carriers": 129531,
+  "footprint_counts": {
+    "gabor": 129531
+  }
+}

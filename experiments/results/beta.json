@@ -1,0 +1,15 @@
+{
+  "config": "beta",
+  "carrier": "beta",
+  "volumetric": false,
+  "densify": false,
+  "iterations": 1500,
+  "scale": 0.25,
+  "psnr": 12.097,
+  "ssim": 0.2479,
+  "train_seconds": 20.3,
+  "final_carriers": 129531,
+  "footprint_counts": {
+    "beta": 129531
+  }
+}
