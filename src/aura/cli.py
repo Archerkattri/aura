@@ -235,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
     train_gsplat.add_argument("--opacity-lr", type=float, default=5e-2)
     train_gsplat.add_argument("--color-lr", type=float, default=2.5e-3)
     train_gsplat.add_argument("--ssim-weight", type=float, default=0.2)
+    train_gsplat.add_argument("--sh-degree", type=int, default=0, dest="sh_degree",
+                              help="Spherical-harmonic degree for view-dependent colour "
+                                   "(0 = flat RGB; 3 = full 3DGS-style view dependence)")
     train_gsplat.add_argument("--densify", action="store_true",
                               help="Enable gsplat DefaultStrategy adaptive densification + pruning")
     train_gsplat.add_argument("--skip-validation", action="store_true")
@@ -1228,6 +1231,7 @@ def _train_gsplat_command(args: argparse.Namespace) -> Path:
         opacity_lr=args.opacity_lr,
         color_lr=args.color_lr,
         ssim_weight=args.ssim_weight,
+        sh_degree=getattr(args, "sh_degree", 0),
         densify=bool(args.densify),
         log=lambda message: print(message, file=_sys.stderr, flush=True),
     )

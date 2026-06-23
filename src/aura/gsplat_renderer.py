@@ -43,6 +43,10 @@ from .carrier_payloads import GaussianFallbackPayload
 from .scene import AuraScene
 
 
+#: gsplat's degree-0 spherical-harmonic basis constant (rgb = 0.5 + C0 * sh0).
+_SH_C0 = 0.28209479177387814
+
+
 def gsplat_available() -> bool:
     """True when torch + gsplat (the differentiable CUDA rasterizer) import."""
 
@@ -308,6 +312,24 @@ def _quat_wxyz_to_rotation_matrix(quat, torch):
     return R
 
 
+def _with_sh_metadata(element, sh_coeffs, sh_degree, dataclasses):
+    """Attach view-dependent SH coefficients to a carrier's metadata.
+
+    ``element.color`` keeps the flat DC colour (so the 3D ray renderer still
+    works); the full SH coefficients ride in ``metadata['gsplat_sh']`` so the
+    rasterizer eval path can reproduce view-dependent appearance.
+    """
+
+    import json
+
+    meta = dict(getattr(element, "metadata", None) or {})
+    # The .aura element schema constrains metadata values to strings, so the SH
+    # coefficients are stored JSON-encoded and decoded on the render path.
+    meta["gsplat_sh"] = json.dumps([[float(c) for c in band] for band in sh_coeffs])
+    meta["gsplat_sh_degree"] = str(int(sh_degree))
+    return dataclasses.replace(element, metadata=meta)
+
+
 def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
     """Write trained gsplat leaf tensors back into a new :class:`AuraScene`.
 
@@ -323,7 +345,15 @@ def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
         scales = torch.exp(params["log_scales"].detach())
         quats = params["quats"].detach()
         opac = torch.sigmoid(params["logit_opacities"].detach())
-        colors = params["colors"].detach().clamp(0.0, 1.0)
+        raw_colors = params["colors"].detach()
+        sh_degree = int(ctx.get("sh_degree", 0) or 0)
+        sh_l = None
+        if raw_colors.dim() == 3:  # [N, K, 3] spherical-harmonic coefficients
+            base_rgb = (0.5 + _SH_C0 * raw_colors[:, 0, :]).clamp(0.0, 1.0)
+            colors_l = base_rgb.cpu().tolist()
+            sh_l = raw_colors.cpu().tolist()  # full coeffs for view-dependent eval
+        else:  # [N, 3] flat colour
+            colors_l = raw_colors.clamp(0.0, 1.0).cpu().tolist()
 
         R = _quat_wxyz_to_rotation_matrix(quats, torch)  # [N,3,3]
         S2 = torch.diag_embed(scales * scales)  # [N,3,3]
@@ -334,7 +364,6 @@ def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
         cov_l = cov.cpu().tolist()
         scales_l = scales.cpu().tolist()
         opac_l = opac.cpu().tolist()
-        colors_l = colors.cpu().tolist()
 
     import dataclasses
 
@@ -366,21 +395,20 @@ def gaussian_params_to_scene(params: dict, ctx: dict) -> AuraScene:
             # carrier; only the trained geometry/appearance changes. (When
             # densification grows N beyond the seed count, extra Gaussians get a
             # fresh id and no chunk link.)
-            elements.append(dataclasses.replace(originals[i], **new_fields))
+            elem = dataclasses.replace(originals[i], **new_fields)
+            if sh_l is not None:
+                elem = _with_sh_metadata(elem, sh_l[i], sh_degree, dataclasses)
+            elements.append(elem)
         else:
             eid = (
                 element_ids[i]
                 if element_ids and i < len(element_ids)
                 else f"gsplat_gaussian_{i:06d}"
             )
-            elements.append(
-                AuraElement(
-                    id=eid,
-                    carrier_id="gaussian",
-                    confidence=1.0,
-                    **new_fields,
-                )
-            )
+            elem = AuraElement(id=eid, carrier_id="gaussian", confidence=1.0, **new_fields)
+            if sh_l is not None:
+                elem = _with_sh_metadata(elem, sh_l[i], sh_degree, dataclasses)
+            elements.append(elem)
 
     elements.extend(ctx.get("non_gaussian", ()))
     # Training moved geometry, so the seed-time LOD chunk partition no longer
@@ -415,6 +443,7 @@ class GsplatTrainConfig:
     opacity_lr: float = 5e-2
     color_lr: float = 2.5e-3
     ssim_weight: float = 0.2
+    sh_degree: int = 0  # 0 = flat per-carrier RGB; >0 = view-dependent SH bands
     densify: bool = False
     densify_grad2d: float = 2e-4
     refine_start_iter: int = 500
@@ -474,13 +503,26 @@ def train_scene_gsplat(
     # adopt gsplat's exact key names: means / scales (log) / quats (wxyz) /
     # opacities (logit) / colors. This is the single source of truth for both
     # the fixed-count and densifying paths.
+    sh_degree = max(0, int(config.sh_degree))
+    base_rgb = seed_params["colors"].detach().clamp(1e-4, 1 - 1e-4)
+    if sh_degree > 0:
+        # View-dependent appearance: colors become SH coefficients [N, K, 3].
+        # Seed the DC band from the flat seed colour (inverse of gsplat's SH
+        # eval rgb = 0.5 + C0*sh0), zero the higher bands.
+        n = base_rgb.shape[0]
+        K = (sh_degree + 1) ** 2
+        sh = torch.zeros((n, K, 3), dtype=torch.float32, device=device)
+        sh[:, 0, :] = (base_rgb - 0.5) / _SH_C0
+        colors_param = torch.nn.Parameter(sh)
+    else:
+        colors_param = torch.nn.Parameter(base_rgb.clone())
     splats = torch.nn.ParameterDict(
         {
             "means": torch.nn.Parameter(seed_params["means"].detach().clone()),
             "scales": torch.nn.Parameter(seed_params["log_scales"].detach().clone()),
             "quats": torch.nn.Parameter(seed_params["quats"].detach().clone()),
             "opacities": torch.nn.Parameter(seed_params["logit_opacities"].detach().clone()),
-            "colors": torch.nn.Parameter(seed_params["colors"].detach().clone()),
+            "colors": colors_param,
         }
     ).to(device)
     lr = {
@@ -531,6 +573,7 @@ def train_scene_gsplat(
             height=h,
             packed=False,
             absgrad=bool(config.densify),
+            sh_degree=(sh_degree if sh_degree > 0 else None),
         )
         return out[0], info, w, h  # out[0]: [H,W,3]
 
@@ -577,6 +620,7 @@ def train_scene_gsplat(
         "logit_opacities": splats["opacities"],
         "colors": splats["colors"],
     }
+    ctx = {**ctx, "sh_degree": sh_degree}
     trained_scene = gaussian_params_to_scene(trained, ctx)
     history["final_gaussian_count"] = int(splats["means"].shape[0])
     history["seed_gaussian_count"] = len(ctx["gaussian_elements"])
@@ -619,6 +663,9 @@ def render_scene_gsplat(scene: AuraScene, frame: dict, scale: float, *, device: 
     from gsplat import rasterization
 
     params, _ctx = scene_to_gaussian_params(scene, device=device)
+    # If carriers carry view-dependent SH coefficients (from SH training), render
+    # with them; otherwise render the flat per-carrier colour.
+    colors, sh_degree = _scene_sh_colors(scene, params["colors"], device, torch)
     view, k, w, h = manifest_frame_to_camera(frame, scale)
     with torch.no_grad():
         out, _alpha, _info = rasterization(
@@ -626,12 +673,37 @@ def render_scene_gsplat(scene: AuraScene, frame: dict, scale: float, *, device: 
             quats=params["quats"],
             scales=torch.exp(params["log_scales"]),
             opacities=torch.sigmoid(params["logit_opacities"]),
-            colors=params["colors"],
+            colors=colors,
             viewmats=torch.tensor(view, dtype=torch.float32, device=device).unsqueeze(0),
             Ks=torch.tensor(k, dtype=torch.float32, device=device).unsqueeze(0),
             width=w,
             height=h,
             packed=False,
+            sh_degree=(sh_degree if sh_degree and sh_degree > 0 else None),
         )
     flat = out[0].clamp(0.0, 1.0).reshape(-1).cpu().tolist()
     return w, h, flat
+
+
+def _scene_sh_colors(scene, flat_colors, device, torch):
+    """Return (colors, sh_degree) for rasterization. If the scene's Gaussian
+    carriers carry ``metadata['gsplat_sh']``, assemble an [N,K,3] SH tensor in
+    the same carrier order scene_to_gaussian_params used; else return the flat
+    [N,3] colours with sh_degree 0."""
+
+    import json
+
+    gaussians = [e for e in scene.elements if _is_gaussian(e)]
+    sh_rows = []
+    degree = 0
+    for e in gaussians:
+        meta = getattr(e, "metadata", None) or {}
+        sh = meta.get("gsplat_sh")
+        if sh is None:
+            return flat_colors, 0  # mixed/absent -> flat path
+        sh_rows.append(json.loads(sh) if isinstance(sh, str) else sh)
+        degree = int(meta.get("gsplat_sh_degree", degree) or 0)
+    if not sh_rows:
+        return flat_colors, 0
+    colors = torch.tensor(sh_rows, dtype=torch.float32, device=device)  # [N,K,3]
+    return colors, degree
