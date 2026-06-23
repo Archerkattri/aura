@@ -1,7 +1,42 @@
 # Convergence TODO — carrier gradient starvation
 
-**Status of this document:** root-cause analysis + a *proposed* fix for the GPU
-operator. I (the offline, no-GPU agent) deliberately did **not** implement the
+> **2026-06-23 GPU RESULT (resolved + new blocker found).** The starvation fix
+> was implemented and run on a real RTX 5090. Instead of the fragile
+> `sample_phase` rewrite, the safe full-coverage plan is kept and the optimizer
+> processes a **rotating window** of batches per iteration
+> (`--batches-per-iteration`, see `_rotating_batch_window_indices` in
+> `torch_optimizer.py`). On the real Tanks&Temples truck scene (129,531
+> carriers) this drives **`coverageFraction` 1.0 / minFrame 1.0** — every frame
+> is now fully supervised (vs 16 px/frame in run6), so carriers are no longer
+> starved of gradients. Verified: torch-renderer eval and cuda-renderer eval
+> **agree** (7.44 vs 7.50 dB), so there is no train/eval renderer mismatch.
+>
+> **But coverage was necessary, not sufficient.** After 3 epochs (425 iters,
+> window 64) AURA reaches only **7.50 dB** (cuda eval, 0.125 scale) — off the
+> ~6.9 dB untrained floor but nowhere near useful. Root cause is now a *speed*
+> wall, not a coverage bug: training is bound to the **dense O(rays×carriers)
+> torch renderer** (`torch_render_capture_training_objective`); the CUDA
+> renderer is **forward-only (no autograd/backward)**, so it cannot train. The
+> dense path forces tiny 256-ray batches (8192 rays OOMs at 129k carriers), so
+> one epoch over the full-coverage plan is ~25 min and each carrier gets only a
+> handful of gradient updates. Matching 3DGS's thousands of per-primitive steps
+> would need tens of hours.
+>
+> Honest executed baseline at the **same** scene + eval split + 0.125 scale:
+> real gsplat 3DGS = **14.04 dB / SSIM 0.207** at 7000 iters
+> (`outputs/eval_truck_baseline3dgs.txt`). AURA at 3 epochs = 7.50 dB.
+>
+> **Next required piece (architectural, not a config tweak):** a *differentiable*
+> CUDA rasterizer for the training step (tiled, sorted, O(pixels) not
+> O(pixels×carriers)) — i.e. give `aura_carriers.cu` a backward pass and wire it
+> into `torch_render_capture_training_objective`. Until then AURA-Core trains but
+> does not converge to 3DGS quality in feasible wall-clock. Recipe to reproduce
+> this run: `scripts/run_truck_coverage.sh`.
+
+---
+
+**Status of this document (original, pre-GPU):** root-cause analysis + a
+*proposed* fix for the GPU operator. I (the offline, no-GPU agent) deliberately did **not** implement the
 core rotation fix, because the change touches a tightly-coupled
 plan↔packed-batch invariant whose target/sample-offset accounting cannot be
 verified correct without running the torch/GPU training path. Guessing here
