@@ -262,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
     train_prism.add_argument("--ssim-weight", type=float, default=0.2)
     train_prism.add_argument("--densify", action="store_true",
                              help="Adaptive densification: clone high-gradient carriers + prune transparent ones")
+    train_prism.add_argument("--volumetric", action="store_true",
+                             help="EVER-style volumetrically-consistent alpha (1-exp(-opacity*w))")
     train_prism.add_argument("--skip-validation", action="store_true")
 
     inspect_capture_assets = sub.add_parser(
@@ -1315,6 +1317,7 @@ def _train_prism_command(args: argparse.Namespace) -> Path:
         ssim_weight=args.ssim_weight,
         max_per_tile=args.max_per_tile,
         densify=bool(getattr(args, "densify", False)),
+        volumetric=bool(getattr(args, "volumetric", False)),
         log=lambda message: print(message, file=_sys.stderr, flush=True),
     )
     trained_scene, history = train_carriers_prism(

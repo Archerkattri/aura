@@ -224,3 +224,101 @@ def test_prism_cuda_typed_footprints(fp):
     mse = float(((cu - tt) ** 2).mean())
     psnr = 10 * math.log10(1.0 / mse) if mse > 0 else 99.0
     assert psnr > 40.0, f"CUDA {fp} footprint diverges: {psnr:.1f} dB"
+
+
+@requires_torch
+def test_typed_carriers_beat_gaussian_on_high_frequency():
+    """Post-3DGS thesis check: on high-frequency content, Gabor carriers fit
+    better than the same number of Gaussian carriers (the whole point of typed
+    adaptive carriers). Pure-torch so it runs without a GPU."""
+    import torch
+    from aura.prism import (quats_scales_to_cov3d, project_gaussians, composite_tiled,
+                            gaussian_footprint, gabor_footprint)
+
+    dev = _device()
+    torch.manual_seed(0)
+    w = h = 48
+    K = torch.tensor([[80.0, 0, w / 2], [0, 80.0, h / 2], [0, 0, 1.0]], device=dev)
+    vm = torch.eye(4, device=dev)
+    # High-frequency striped target.
+    yy, xx = torch.meshgrid(torch.arange(h, device=dev).float(),
+                            torch.arange(w, device=dev).float(), indexing="ij")
+    stripe = (0.5 + 0.5 * torch.cos(xx * 1.2)).unsqueeze(-1).repeat(1, 1, 3)
+    target = stripe.clamp(0, 1)
+
+    def fit(footprint, freq=None, phase=None, iters=300):
+        torch.manual_seed(1)
+        m = 12
+        means = (torch.randn(m, 3, device=dev) * 0.15 + torch.tensor([0, 0, 3.0], device=dev)).requires_grad_(True)
+        ls = torch.log(torch.full((m, 3), 0.5, device=dev)).requires_grad_(True)
+        q = torch.zeros(m, 4, device=dev); q[:, 0] = 1; q = q.requires_grad_(True)
+        lo = torch.logit(torch.full((m,), 0.5, device=dev)).requires_grad_(True)
+        col = torch.rand(m, 3, device=dev).requires_grad_(True)
+        params = [means, ls, q, lo, col]
+        fr = ph = None
+        if freq is not None:
+            fr = freq.clone().requires_grad_(True); ph = phase.clone().requires_grad_(True)
+            params += [fr, ph]
+        opt = torch.optim.Adam(params, lr=0.05)
+        extra = {}
+        for it in range(iters):
+            cov = quats_scales_to_cov3d(q, torch.exp(ls), torch)
+            proj = project_gaussians(means, cov, vm, K, w, h, torch)
+            if fr is not None:
+                extra = {"freq": fr[proj.index], "phase": ph[proj.index]}
+            img = composite_tiled(proj, col.clamp(0, 1), torch.sigmoid(lo), w, h, torch,
+                                  footprint=footprint, footprint_extra=extra)
+            loss = torch.abs(img - target).mean()
+            opt.zero_grad(); loss.backward(); opt.step()
+        return float(loss.detach())
+
+    g_loss = fit(gaussian_footprint)
+    fr = torch.randn(12, 2, device=dev) * 0.2
+    fr[:, 0] += 1.2  # bias toward the stripe frequency
+    ph = torch.zeros(12, device=dev)
+    gab_loss = fit(gabor_footprint, freq=fr, phase=ph)
+    assert gab_loss < g_loss, f"gabor ({gab_loss:.4f}) should beat gaussian ({g_loss:.4f}) on stripes"
+
+
+@requires_torch
+def test_volumetric_alpha_trains_and_differs():
+    """EVER-style volumetric-consistent alpha (1-exp(-opacity*w)) renders
+    differently from billboard alpha and trains end-to-end via the CUDA path."""
+    import torch
+    from aura.prism_cuda import cuda_available, render_gaussians_cuda, render_gaussians_cuda_diff
+    from aura.prism import render_gaussians
+
+    if not torch.cuda.is_available() or not cuda_available():
+        pytest.skip("PRISM CUDA extension unavailable")
+    dev = "cuda"; torch.manual_seed(0); w = h = 64
+    K = torch.tensor([[90.0, 0, w / 2], [0, 90.0, h / 2], [0, 0, 1.0]], device=dev)
+    vm = torch.eye(4, device=dev)
+    def scene(n):
+        m = torch.randn(n, 3, device=dev) * 0.5 + torch.tensor([0, 0, 3.0], device=dev)
+        q = torch.randn(n, 4, device=dev); q = q / q.norm(dim=1, keepdim=True)
+        s = torch.rand(n, 3, device=dev) * 0.06 + 0.03
+        o = torch.rand(n, device=dev) * 0.6 + 0.3; c = torch.rand(n, 3, device=dev)
+        return m, q, s, o, c
+    m, q, s, o, c = scene(400)
+    billboard = render_gaussians_cuda(m, q, s, o, c, vm, K, w, h, volumetric=False)
+    volumetric = render_gaussians_cuda(m, q, s, o, c, vm, K, w, h, volumetric=True)
+    assert not torch.allclose(billboard, volumetric)
+    # train under volumetric alpha
+    gm, gq, gs, go, gc = scene(3)
+    target = render_gaussians_cuda(gm, gq, gs, go, gc, vm, K, w, h, volumetric=True).detach()
+    M = 8
+    mm = (torch.randn(M, 3, device=dev) * 0.3 + torch.tensor([0, 0, 3.0], device=dev)).requires_grad_(True)
+    ls = torch.log(torch.full((M, 3), 0.18, device=dev)).requires_grad_(True)
+    qq = torch.zeros(M, 4, device=dev); qq[:, 0] = 1; qq = qq.requires_grad_(True)
+    lo = torch.logit(torch.full((M,), 0.5, device=dev)).requires_grad_(True)
+    col = torch.rand(M, 3, device=dev).requires_grad_(True)
+    opt = torch.optim.Adam([mm, ls, qq, lo, col], lr=0.05)
+    first = last = None
+    for it in range(200):
+        img = render_gaussians_cuda_diff(mm, qq, torch.exp(ls), torch.sigmoid(lo), col.clamp(0, 1), vm, K, w, h, volumetric=True)
+        loss = torch.abs(img - target).mean()
+        opt.zero_grad(); loss.backward(); opt.step()
+        if it == 0:
+            first = float(loss.detach())
+        last = float(loss.detach())
+    assert last < first * 0.4, f"volumetric training did not converge: {first:.4f} -> {last:.4f}"

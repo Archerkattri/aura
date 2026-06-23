@@ -189,10 +189,14 @@ def composite(
     footprint: Callable | None = None,
     footprint_extra: dict | None = None,
     background=None,
+    volumetric: bool = False,
 ):
     """Render visible carriers to an [H,W,3] image via depth-sorted front-to-back
     alpha compositing. Differentiable end-to-end. ``footprint`` defaults to the
     Gaussian kernel; pass beta/gabor (or a custom callable) for typed carriers.
+    ``volumetric=True`` uses the EVER-style physically-consistent alpha
+    ``1 - exp(-opacity*w)`` (optical-depth absorption) instead of the billboard
+    ``opacity*w``.
 
     Dense per-carrier scan (O(M*H*W)) — correct and fully differentiable, good
     for validation and modest scenes; tiled/CUDA acceleration is future work.
@@ -225,7 +229,10 @@ def composite(
         conic_m = proj.conics[m]
         kwargs = {key: val[m] if hasattr(val, "__getitem__") else val for key, val in extra.items()}
         weight = footprint(dx, dy, conic_m, torch, **kwargs)  # [H,W]
-        alpha = (sub_opac[m] * weight).clamp(0.0, 0.999)
+        if volumetric:
+            alpha = (1.0 - torch.exp(-(sub_opac[m] * weight).clamp(min=0.0))).clamp(0.0, 0.999)
+        else:
+            alpha = (sub_opac[m] * weight).clamp(0.0, 0.999)
         contrib = T * alpha
         img = img + contrib.unsqueeze(-1) * sub_colors[m].view(1, 1, 3)
         T = T * (1.0 - alpha)
@@ -245,6 +252,7 @@ def composite_tiled(
     background=None,
     tile: int = 16,
     max_per_tile: int = 256,
+    volumetric: bool = False,
 ):
     """Tiled differentiable front-to-back alpha compositing.
 
@@ -350,7 +358,10 @@ def composite_tiled(
         conic_k = g_conic[:, k, :].view(T, 1, 3).expand(T, P, 3)
         kwargs = {kk: vv[:, k] if hasattr(vv, "shape") else vv for kk, vv in extra_TK.items()}
         weight = footprint(dx, dy, conic_k, torch, **kwargs)  # [T,P]
-        alpha = (g_op[:, k].view(T, 1) * weight).clamp(0.0, 0.999)
+        if volumetric:
+            alpha = (1.0 - torch.exp(-(g_op[:, k].view(T, 1) * weight).clamp(min=0.0))).clamp(0.0, 0.999)
+        else:
+            alpha = (g_op[:, k].view(T, 1) * weight).clamp(0.0, 0.999)
         contrib = trans * alpha
         out = out + contrib.unsqueeze(-1) * g_col[:, k, :].view(T, 1, 3)
         trans = trans * (1.0 - alpha)
@@ -540,14 +551,14 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
             img = render_gaussians_cuda_diff(
                 P["means"], P["quats"], torch.exp(P["log_scales"]), torch.sigmoid(P["logit_opacities"]),
                 P["colors"].clamp(0, 1), viewmat, K, w, h, max_per_tile=config.max_per_tile,
-                ftypes=ft, freq=P["freq"], phase=P["phase"],
+                ftypes=ft, freq=P["freq"], phase=P["phase"], volumetric=config.volumetric,
             )
         else:  # torch fallback (homogeneous footprint only)
             cov = quats_scales_to_cov3d(P["quats"], torch.exp(P["log_scales"]), torch)
             proj = project_gaussians(P["means"], cov, viewmat, K, w, h, torch)
             img = composite_tiled(
                 proj, P["colors"].clamp(0, 1), torch.sigmoid(P["logit_opacities"]), w, h, torch,
-                footprint=homo_fp, max_per_tile=config.max_per_tile,
+                footprint=homo_fp, max_per_tile=config.max_per_tile, volumetric=config.volumetric,
             )
         l1 = torch.abs(img - gt).mean()
         loss = (1 - config.ssim_weight) * l1 + config.ssim_weight * (1 - _ssim(img, gt, torch))
@@ -606,6 +617,8 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
             code = int(ft_l[gaussian_i]); counts[code] = counts.get(code, 0) + 1
             meta = dict(getattr(e, "metadata", None) or {})
             meta["prism_footprint"] = FOOTPRINT_NAMES.get(code, "gaussian")
+            if config.volumetric:
+                meta["prism_volumetric"] = "1"
             if code == FOOTPRINT_CODES["gabor"]:
                 meta["prism_freq"] = _json.dumps(freq_l[gaussian_i])
                 meta["prism_phase"] = str(phase_l[gaussian_i])
@@ -638,6 +651,7 @@ class PrismTrainConfig:
     grad_threshold: float = 2e-4
     prune_opacity: float = 0.05
     max_carriers: int = 2_000_000
+    volumetric: bool = False  # EVER-style 1-exp(-opacity*w) alpha
     log: Callable | None = None
 
 
@@ -671,10 +685,12 @@ def render_scene_prism(scene, frame, scale, *, device="cuda"):
     (torch fallback for homogeneous scenes)."""
 
     torch = _require_torch()
-    from .gsplat_renderer import scene_to_gaussian_params, manifest_frame_to_camera
+    from .gsplat_renderer import scene_to_gaussian_params, manifest_frame_to_camera, _is_gaussian
 
     params, _ctx = scene_to_gaussian_params(scene, device=device)
     ft, fr, ph = _scene_carrier_types(scene, torch, device)
+    vol = any((getattr(e, "metadata", None) or {}).get("prism_volumetric") == "1"
+              for e in scene.elements if _is_gaussian(e))
     view, k, w, h = manifest_frame_to_camera(frame, scale)
     viewmat = torch.tensor(view, dtype=torch.float32, device=device)
     K = torch.tensor(k, dtype=torch.float32, device=device)
@@ -686,7 +702,7 @@ def render_scene_prism(scene, frame, scale, *, device="cuda"):
                 img = render_gaussians_cuda(
                     params["means"], params["quats"], torch.exp(params["log_scales"]),
                     torch.sigmoid(params["logit_opacities"]), params["colors"].clamp(0, 1),
-                    viewmat, K, w, h, ftypes=ft, freq=fr, phase=ph,
+                    viewmat, K, w, h, ftypes=ft, freq=fr, phase=ph, volumetric=vol,
                 )
         except Exception:
             img = None
