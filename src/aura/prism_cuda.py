@@ -76,7 +76,7 @@ __global__ void prism_fwd(
     const long* __restrict__ idxTK, const float* __restrict__ means2d,
     const float* __restrict__ conics, const float* __restrict__ colors,
     const float* __restrict__ opac, const float* __restrict__ freq,
-    const float* __restrict__ phase, int ftype, float be,
+    const float* __restrict__ phase, const long* __restrict__ ftypes, float be,
     int ntx, int ts, int W, int H, int K,
     float* __restrict__ out, float* __restrict__ final_T)
 {
@@ -90,10 +90,11 @@ __global__ void prism_fwd(
     float dp, ex, ey, gfx, gfy, gph;
     for (int k = 0; k < K; ++k) {
         long idx = tl[k]; if (idx < 0) break;
+        int ft = (int)ftypes[idx];
         float dx = fx - means2d[idx*2], dy = fy - means2d[idx*2+1];
         float a = conics[idx*3], b = conics[idx*3+1], c = conics[idx*3+2];
         float p = a*dx*dx + 2.f*b*dx*dy + c*dy*dy; if (p < 0.f) p = 0.f;
-        float w = prism_footprint(ftype, p, dx, dy, freq[idx*2], freq[idx*2+1],
+        float w = prism_footprint(ft, p, dx, dy, freq[idx*2], freq[idx*2+1],
                                   phase[idx], be, &dp, &ex, &ey, &gfx, &gfy, &gph);
         float al = opac[idx]*w; if (al > 0.999f) al = 0.999f;
         float contrib = Tt*al;
@@ -109,8 +110,9 @@ __global__ void prism_bwd(
     const long* __restrict__ idxTK, const float* __restrict__ means2d,
     const float* __restrict__ conics, const float* __restrict__ colors,
     const float* __restrict__ opac, const float* __restrict__ freq,
-    const float* __restrict__ phase, const float* __restrict__ final_T,
-    const float* __restrict__ grad_out, int ftype, float be,
+    const float* __restrict__ phase, const long* __restrict__ ftypes,
+    const float* __restrict__ final_T,
+    const float* __restrict__ grad_out, float be,
     int ntx, int ts, int W, int H, int K,
     float* __restrict__ g_means2d, float* __restrict__ g_conics,
     float* __restrict__ g_colors, float* __restrict__ g_opac,
@@ -131,10 +133,11 @@ __global__ void prism_bwd(
     float dp, ex, ey, gfx, gfy, gph;
     for (int k = nvalid - 1; k >= 0; --k) {
         long idx = tl[k];
+        int ft = (int)ftypes[idx];
         float dx = fx - means2d[idx*2], dy = fy - means2d[idx*2+1];
         float a = conics[idx*3], b = conics[idx*3+1], c = conics[idx*3+2];
         float p = a*dx*dx + 2.f*b*dx*dy + c*dy*dy; if (p < 0.f) p = 0.f;
-        float w = prism_footprint(ftype, p, dx, dy, freq[idx*2], freq[idx*2+1],
+        float w = prism_footprint(ft, p, dx, dy, freq[idx*2], freq[idx*2+1],
                                   phase[idx], be, &dp, &ex, &ey, &gfx, &gfy, &gph);
         float al = opac[idx]*w; bool clamped = false;
         if (al > 0.999f) { al = 0.999f; clamped = true; }
@@ -162,7 +165,7 @@ __global__ void prism_bwd(
         float dL_dmy = dL_dp * dp_dmy + dL_dw * ey * (-1.f);
         atomicAdd(&g_means2d[idx*2],   dL_dmx);
         atomicAdd(&g_means2d[idx*2+1], dL_dmy);
-        if (ftype == 2) {
+        if (ft == 2) {
             atomicAdd(&g_freq[idx*2],   dL_dw * gfx);
             atomicAdd(&g_freq[idx*2+1], dL_dw * gfy);
             atomicAdd(&g_phase[idx],    dL_dw * gph);
@@ -177,7 +180,7 @@ static torch::Tensor _zeros_like(torch::Tensor x){ return torch::zeros_like(x); 
 std::vector<torch::Tensor> prism_forward(
     torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
     torch::Tensor colors, torch::Tensor opac, torch::Tensor freq, torch::Tensor phase,
-    int ftype, double be, int ntx, int ts, int W, int H)
+    torch::Tensor ftypes, double be, int ntx, int ts, int W, int H)
 {
     int K = idxTK.size(1);
     auto out = torch::zeros({H, W, 3}, means2d.options());
@@ -185,7 +188,7 @@ std::vector<torch::Tensor> prism_forward(
     prism_fwd<true><<<idxTK.size(0), ts*ts>>>(
         idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
         colors.data_ptr<float>(), opac.data_ptr<float>(), freq.data_ptr<float>(),
-        phase.data_ptr<float>(), ftype, (float)be, ntx, ts, W, H, K,
+        phase.data_ptr<float>(), ftypes.data_ptr<long>(), (float)be, ntx, ts, W, H, K,
         out.data_ptr<float>(), fT.data_ptr<float>());
     return {out, fT};
 }
@@ -193,7 +196,7 @@ std::vector<torch::Tensor> prism_forward(
 std::vector<torch::Tensor> prism_forward_full(
     torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
     torch::Tensor colors, torch::Tensor opac, torch::Tensor freq, torch::Tensor phase,
-    int ftype, double be, int ntx, int ts, int W, int H)
+    torch::Tensor ftypes, double be, int ntx, int ts, int W, int H)
 {
     int K = idxTK.size(1);
     auto out = torch::zeros({H, W, 3}, means2d.options());
@@ -201,7 +204,7 @@ std::vector<torch::Tensor> prism_forward_full(
     prism_fwd<false><<<idxTK.size(0), ts*ts>>>(
         idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
         colors.data_ptr<float>(), opac.data_ptr<float>(), freq.data_ptr<float>(),
-        phase.data_ptr<float>(), ftype, (float)be, ntx, ts, W, H, K,
+        phase.data_ptr<float>(), ftypes.data_ptr<long>(), (float)be, ntx, ts, W, H, K,
         out.data_ptr<float>(), fT.data_ptr<float>());
     return {out, fT};
 }
@@ -209,7 +212,7 @@ std::vector<torch::Tensor> prism_forward_full(
 std::vector<torch::Tensor> prism_backward(
     torch::Tensor idxTK, torch::Tensor means2d, torch::Tensor conics,
     torch::Tensor colors, torch::Tensor opac, torch::Tensor freq, torch::Tensor phase,
-    torch::Tensor final_T, torch::Tensor grad_out, int ftype, double be,
+    torch::Tensor ftypes, torch::Tensor final_T, torch::Tensor grad_out, double be,
     int ntx, int ts, int W, int H)
 {
     int K = idxTK.size(1);
@@ -219,8 +222,8 @@ std::vector<torch::Tensor> prism_backward(
     prism_bwd<<<idxTK.size(0), ts*ts>>>(
         idxTK.data_ptr<long>(), means2d.data_ptr<float>(), conics.data_ptr<float>(),
         colors.data_ptr<float>(), opac.data_ptr<float>(), freq.data_ptr<float>(),
-        phase.data_ptr<float>(), final_T.data_ptr<float>(), grad_out.contiguous().data_ptr<float>(),
-        ftype, (float)be, ntx, ts, W, H, K,
+        phase.data_ptr<float>(), ftypes.data_ptr<long>(), final_T.data_ptr<float>(),
+        grad_out.contiguous().data_ptr<float>(), (float)be, ntx, ts, W, H, K,
         gm.data_ptr<float>(), gc.data_ptr<float>(), gcol.data_ptr<float>(),
         gop.data_ptr<float>(), gfreq.data_ptr<float>(), gph.data_ptr<float>());
     return {gm, gc, gcol, gop, gfreq, gph};
@@ -228,9 +231,9 @@ std::vector<torch::Tensor> prism_backward(
 """
 
 _CPP_SRC = (
-    "std::vector<torch::Tensor> prism_forward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, double, int, int, int, int);\n"
-    "std::vector<torch::Tensor> prism_forward_full(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, double, int, int, int, int);\n"
-    "std::vector<torch::Tensor> prism_backward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, int, double, int, int, int, int);"
+    "std::vector<torch::Tensor> prism_forward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, double, int, int, int, int);\n"
+    "std::vector<torch::Tensor> prism_forward_full(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, double, int, int, int, int);\n"
+    "std::vector<torch::Tensor> prism_backward(torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, double, int, int, int, int);"
 )
 
 
@@ -242,7 +245,7 @@ def _load():
         if not torch.cuda.is_available():
             return None
         return load_inline(
-            name="prism_cuda_ext_v2",
+            name="prism_cuda_ext_v3",
             cpp_sources=[_CPP_SRC],
             cuda_sources=[_CUDA_SRC],
             functions=["prism_forward", "prism_forward_full", "prism_backward"],
@@ -264,17 +267,27 @@ def _footprint_code(footprint) -> int:
     return FOOTPRINT_GAUSSIAN
 
 
-def _gabor_arrays(torch, M, device, freq=None, phase=None):
-    f = freq if freq is not None else torch.zeros((M, 2), dtype=torch.float32, device=device)
-    p = phase if phase is not None else torch.zeros((M,), dtype=torch.float32, device=device)
+def _gabor_arrays(torch, idx, device, freq=None, phase=None):
+    n = idx.shape[0]
+    f = (freq[idx] if freq is not None else torch.zeros((n, 2), dtype=torch.float32, device=device))
+    p = (phase[idx] if phase is not None else torch.zeros((n,), dtype=torch.float32, device=device))
     return f.contiguous(), p.contiguous()
+
+
+def _ftypes_visible(torch, idx, device, footprint="gaussian", ftypes=None):
+    """Per-visible-carrier footprint-type long tensor: either gathered from a
+    per-carrier ``ftypes`` (over ALL carriers) or broadcast from a footprint name."""
+    if ftypes is not None:
+        return ftypes[idx].to(torch.long).contiguous()
+    return torch.full((idx.shape[0],), _footprint_code(footprint), dtype=torch.long, device=device).contiguous()
 
 
 def render_gaussians_cuda(means, quats, scales, opacities, colors, viewmat, K,
                           width, height, *, tile=16, max_per_tile=256,
-                          footprint="gaussian", beta_exp=2.0, freq=None, phase=None):
-    """Forward-render a scene with the PRISM CUDA kernel for the given footprint
-    (gaussian/beta/gabor). Reuses prism.py projection + tile binning."""
+                          footprint="gaussian", ftypes=None, beta_exp=2.0, freq=None, phase=None):
+    """Forward-render a scene with the PRISM CUDA kernel. ``footprint`` broadcasts
+    one kernel to all carriers; ``ftypes`` (per-carrier int codes over all
+    carriers) renders a HETEROGENEOUS mix. Reuses prism.py projection + binning."""
     import torch
     from .prism import quats_scales_to_cov3d, project_gaussians
     ext = _load()
@@ -283,13 +296,12 @@ def render_gaussians_cuda(means, quats, scales, opacities, colors, viewmat, K,
     cov = quats_scales_to_cov3d(quats, scales, torch)
     proj = project_gaussians(means, cov, viewmat, K, width, height, torch)
     idxTK, ntx = _bin_tiles(proj, colors, opacities, width, height, torch, tile, max_per_tile)
-    f, p = _gabor_arrays(torch, proj.index.shape[0], colors.device,
-                         None if freq is None else freq[proj.index],
-                         None if phase is None else phase[proj.index])
+    f, p = _gabor_arrays(torch, proj.index, colors.device, freq, phase)
+    ft = _ftypes_visible(torch, proj.index, colors.device, footprint, ftypes)
     out, _T = ext.prism_forward(
         idxTK.contiguous(), proj.means2d.contiguous(), proj.conics.contiguous(),
-        colors[proj.index].contiguous(), opacities[proj.index].contiguous(), f, p,
-        _footprint_code(footprint), float(beta_exp), int(ntx), int(tile), int(width), int(height))
+        colors[proj.index].contiguous(), opacities[proj.index].contiguous(), f, p, ft,
+        float(beta_exp), int(ntx), int(tile), int(width), int(height))
     return out
 
 
@@ -301,18 +313,18 @@ def _make_autograd_fn():
 
     class _PrismRasterize(torch.autograd.Function):
         @staticmethod
-        def forward(ctx, idxTK, means2d, conics, colors, opac, freq, phase, ftype, be, ntx, ts, W, H):
-            out, fT = ext.prism_forward_full(idxTK, means2d, conics, colors, opac, freq, phase, ftype, be, ntx, ts, W, H)
-            ctx.save_for_backward(idxTK, means2d, conics, colors, opac, freq, phase, fT)
-            ctx.meta = (ftype, be, ntx, ts, W, H)
+        def forward(ctx, idxTK, means2d, conics, colors, opac, freq, phase, ftypes, be, ntx, ts, W, H):
+            out, fT = ext.prism_forward_full(idxTK, means2d, conics, colors, opac, freq, phase, ftypes, be, ntx, ts, W, H)
+            ctx.save_for_backward(idxTK, means2d, conics, colors, opac, freq, phase, ftypes, fT)
+            ctx.meta = (be, ntx, ts, W, H)
             return out
 
         @staticmethod
         def backward(ctx, grad_out):
-            idxTK, means2d, conics, colors, opac, freq, phase, fT = ctx.saved_tensors
-            ftype, be, ntx, ts, W, H = ctx.meta
+            idxTK, means2d, conics, colors, opac, freq, phase, ftypes, fT = ctx.saved_tensors
+            be, ntx, ts, W, H = ctx.meta
             gm, gc, gcol, gop, gfreq, gph = ext.prism_backward(
-                idxTK, means2d, conics, colors, opac, freq, phase, fT, grad_out, ftype, be, ntx, ts, W, H)
+                idxTK, means2d, conics, colors, opac, freq, phase, ftypes, fT, grad_out, be, ntx, ts, W, H)
             return (None, gm, gc, gcol, gop, gfreq, gph, None, None, None, None, None, None)
 
     return _PrismRasterize
@@ -325,10 +337,10 @@ def _autograd_fn():
 
 def render_gaussians_cuda_diff(means, quats, scales, opacities, colors, viewmat, K,
                                width, height, *, tile=16, max_per_tile=256,
-                               footprint="gaussian", beta_exp=2.0, freq=None, phase=None):
-    """Differentiable PRISM CUDA render (forward + custom CUDA backward) for the
-    given footprint. Gradients reach means/quats/scales/opacity/colors (and gabor
-    freq/phase). Projection/binning run in torch autograd."""
+                               footprint="gaussian", ftypes=None, beta_exp=2.0, freq=None, phase=None):
+    """Differentiable PRISM CUDA render (forward + custom CUDA backward).
+    ``footprint`` broadcasts one kernel; ``ftypes`` renders a heterogeneous mix.
+    Gradients reach means/quats/scales/opacity/colors (and gabor freq/phase)."""
     import torch
     from .prism import quats_scales_to_cov3d, project_gaussians
     fn = _autograd_fn()
@@ -337,15 +349,14 @@ def render_gaussians_cuda_diff(means, quats, scales, opacities, colors, viewmat,
     cov = quats_scales_to_cov3d(quats, scales, torch)
     proj = project_gaussians(means, cov, viewmat, K, width, height, torch)
     idxTK, ntx = _bin_tiles(proj, colors, opacities, width, height, torch, tile, max_per_tile)
-    fsel = None if freq is None else freq[proj.index]
-    psel = None if phase is None else phase[proj.index]
-    f, p = _gabor_arrays(torch, proj.index.shape[0], colors.device, fsel, psel)
-    if fsel is not None:
-        f = fsel.contiguous()
-    if psel is not None:
-        p = psel.contiguous()
+    f, p = _gabor_arrays(torch, proj.index, colors.device, freq, phase)
+    if freq is not None:
+        f = freq[proj.index].contiguous()
+    if phase is not None:
+        p = phase[proj.index].contiguous()
+    ft = _ftypes_visible(torch, proj.index, colors.device, footprint, ftypes)
     return fn.apply(idxTK.contiguous(), proj.means2d, proj.conics, colors[proj.index],
-                    opacities[proj.index], f, p, _footprint_code(footprint), float(beta_exp),
+                    opacities[proj.index], f, p, ft, float(beta_exp),
                     int(ntx), int(tile), int(width), int(height))
 
 
