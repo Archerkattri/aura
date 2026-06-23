@@ -173,6 +173,54 @@ def gabor_footprint(dx, dy, conic, torch, freq=None, phase=0.0):
     return env * (1.0 + osc) * 0.5
 
 
+def make_neural_footprint(torch, *, latent_dim: int = 4, hidden: int = 32, n_freq: int = 4, device="cuda"):
+    """Splat-the-Net-style **neural carrier**: a bounded neural primitive whose
+    footprint is a small shared MLP over Fourier features of the local
+    (conic-normalised) offset plus a per-carrier latent, gated by a Gaussian
+    envelope so support stays bounded. Returns ``(footprint_callable, module)``;
+    add ``module.parameters()`` (and the per-carrier latents) to the optimizer to
+    train it. The footprint matches the ``(dx, dy, conic, torch, latent=...)``
+    calling convention of :func:`composite`.
+
+    A neural carrier can represent local appearance a single Gaussian/Beta/Gabor
+    cannot (rings, corners, fine structure) — the expressive end of the carrier
+    spectrum (see the AURA roadmap; arXiv:2510.08491 Splat-the-Net)."""
+
+    nn = torch.nn
+    in_dim = 2 * 2 * n_freq + latent_dim
+    net = nn.Sequential(
+        nn.Linear(in_dim, hidden), nn.ReLU(),
+        nn.Linear(hidden, hidden), nn.ReLU(),
+        nn.Linear(hidden, 1),
+    ).to(device)
+    freqs = (2.0 ** torch.arange(n_freq, dtype=torch.float32, device=device)) * 3.14159265
+
+    def footprint(dx, dy, conic, torch_, latent=None):
+        quad = conic[..., 0] * dx * dx + 2.0 * conic[..., 1] * dx * dy + conic[..., 2] * dy * dy
+        env = torch_.exp(-0.5 * quad.clamp(min=0.0))
+        # local coords scaled so the 3-sigma footprint maps to ~[-1,1]
+        r = quad.clamp(min=0.0).sqrt().clamp(max=3.0) / 3.0  # [..]
+        ang = torch_.atan2(dy, dx)
+        u = (r * torch_.cos(ang)); v = (r * torch_.sin(ang))
+        feats = []
+        for f in freqs:
+            feats += [torch_.sin(f * u), torch_.cos(f * u), torch_.sin(f * v), torch_.cos(f * v)]
+        feat = torch_.stack(feats, dim=-1)  # [..., 4*n_freq]
+        if latent is not None:
+            lat = latent
+            while lat.dim() < feat.dim():
+                lat = lat.unsqueeze(0)
+            lat = lat.expand(*feat.shape[:-1], lat.shape[-1])
+            feat = torch_.cat([feat, lat], dim=-1)
+        else:
+            zeros = torch_.zeros(*feat.shape[:-1], latent_dim, device=feat.device)
+            feat = torch_.cat([feat, zeros], dim=-1)
+        density = torch_.sigmoid(net(feat).squeeze(-1))
+        return env * density
+
+    return footprint, net
+
+
 # --------------------------------------------------------------------------- #
 # Differentiable front-to-back alpha compositing (depth-sorted dense scan).
 # --------------------------------------------------------------------------- #

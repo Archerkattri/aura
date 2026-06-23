@@ -322,3 +322,47 @@ def test_volumetric_alpha_trains_and_differs():
             first = float(loss.detach())
         last = float(loss.detach())
     assert last < first * 0.4, f"volumetric training did not converge: {first:.4f} -> {last:.4f}"
+
+
+@requires_torch
+def test_neural_carrier_trains_and_beats_gaussian_on_ring():
+    """Splat-the-Net-style neural carrier: a bounded neural primitive represents
+    a non-Gaussian local pattern (a ring) better than a Gaussian carrier."""
+    import torch
+    from aura.prism import (make_neural_footprint, composite, project_gaussians,
+                            quats_scales_to_cov3d, gaussian_footprint)
+
+    dev = _device(); torch.manual_seed(0); w = h = 40
+    K = torch.tensor([[70.0, 0, w / 2], [0, 70.0, h / 2], [0, 0, 1.0]], device=dev)
+    vm = torch.eye(4, device=dev)
+    # Target: a ring (annulus) — impossible for a single Gaussian to match.
+    yy, xx = torch.meshgrid(torch.arange(h, device=dev).float() - h / 2,
+                            torch.arange(w, device=dev).float() - w / 2, indexing="ij")
+    rad = (xx * xx + yy * yy).sqrt()
+    ring = torch.exp(-((rad - 9.0) ** 2) / 8.0).unsqueeze(-1).repeat(1, 1, 3).clamp(0, 1)
+
+    # one carrier centred in front of the camera
+    means = torch.tensor([[0.0, 0.0, 3.0]], device=dev)
+    quats = torch.zeros(1, 4, device=dev); quats[:, 0] = 1
+    scales = torch.full((1, 3), 0.7, device=dev)
+    opac = torch.full((1,), 0.95, device=dev)
+
+    def fit(footprint, params_extra, latents=None, iters=400):
+        torch.manual_seed(1)
+        col = torch.ones(1, 3, device=dev).requires_grad_(True)
+        params = [col] + params_extra
+        opt = torch.optim.Adam(params, lr=0.02)
+        for it in range(iters):
+            cov = quats_scales_to_cov3d(quats, scales, torch)
+            proj = project_gaussians(means, cov, vm, K, w, h, torch)
+            extra = {"latent": latents[proj.index]} if latents is not None else {}
+            img = composite(proj, col.clamp(0, 1), opac, w, h, torch, footprint=footprint, footprint_extra=extra)
+            loss = torch.abs(img - ring).mean()
+            opt.zero_grad(); loss.backward(); opt.step()
+        return float(loss.detach())
+
+    g_loss = fit(gaussian_footprint, [])
+    nfp, net = make_neural_footprint(torch, device=dev)
+    latents = torch.randn(1, 4, device=dev).requires_grad_(True)
+    n_loss = fit(nfp, list(net.parameters()) + [latents], latents=latents)
+    assert n_loss < g_loss, f"neural ({n_loss:.4f}) should beat gaussian ({g_loss:.4f}) on a ring"
