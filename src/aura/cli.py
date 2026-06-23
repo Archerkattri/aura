@@ -253,9 +253,11 @@ def main(argv: list[str] | None = None) -> int:
     train_prism.add_argument("--iterations", type=int, default=3000)
     train_prism.add_argument("--scale", type=float, default=0.25)
     train_prism.add_argument("--device", default="cuda")
-    train_prism.add_argument("--carrier", choices=["gaussian", "beta"], default="gaussian",
-                             help="Carrier footprint to train (gaussian = 3DGS-style; "
-                                  "beta = bounded Deformable-Beta-style kernel)")
+    train_prism.add_argument("--carrier", choices=["gaussian", "beta", "gabor", "auto"], default="gaussian",
+                             help="Carrier footprint: gaussian (3DGS-style), beta (bounded "
+                                  "Deformable-Beta kernel), gabor (oscillatory, high-freq), or "
+                                  "'auto' = adaptive per-region typing from image texture "
+                                  "(Gabor on high-frequency regions, Gaussian elsewhere)")
     train_prism.add_argument("--max-per-tile", type=int, default=256, dest="max_per_tile")
     train_prism.add_argument("--ssim-weight", type=float, default=0.2)
     train_prism.add_argument("--densify", action="store_true",
@@ -1331,6 +1333,7 @@ def _train_prism_command(args: argparse.Namespace) -> Path:
         "scale": args.scale,
         "maxPerTile": args.max_per_tile,
         "finalCarrierCount": history.get("final_gaussian_count"),
+        "footprintCounts": history.get("footprint_counts"),
         "lossTrace": history.get("loss", []),
     }
     (package_dir / "training_report.json").write_text(

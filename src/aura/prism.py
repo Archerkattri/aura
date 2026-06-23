@@ -161,7 +161,15 @@ def gabor_footprint(dx, dy, conic, torch, freq=None, phase=0.0):
         freq = torch.zeros(2, device=dx.device)
     quad = conic[..., 0] * dx * dx + 2.0 * conic[..., 1] * dx * dy + conic[..., 2] * dy * dy
     env = torch.exp(-0.5 * quad.clamp(min=0.0))
-    osc = torch.cos(freq[..., 0] * dx + freq[..., 1] * dy + phase)
+    fx = freq[..., 0]; fy = freq[..., 1]
+    # Broadcast per-carrier freq/phase ([T] or scalar) against the pixel grid (dx).
+    while hasattr(fx, "dim") and fx.dim() < dx.dim():
+        fx = fx.unsqueeze(-1); fy = fy.unsqueeze(-1)
+    ph = phase
+    if hasattr(ph, "dim"):
+        while ph.dim() < dx.dim():
+            ph = ph.unsqueeze(-1)
+    osc = torch.cos(fx * dx + fy * dy + ph)
     return env * (1.0 + osc) * 0.5
 
 
@@ -396,6 +404,75 @@ _FOOTPRINTS = {
     "beta": lambda dx, dy, conic, torch: beta_footprint(dx, dy, conic, torch, beta=2.0),
 }
 
+#: footprint name <-> integer code (kept in sync with prism_cuda).
+FOOTPRINT_CODES = {"gaussian": 0, "beta": 1, "gabor": 2, "neural": 3}
+FOOTPRINT_NAMES = {v: k for k, v in FOOTPRINT_CODES.items()}
+
+
+def assign_footprints(manifest: dict, scale: float, device: str, *, gabor_fraction: float = 0.3):
+    """Adaptive carrier-type assignment from image texture (the "pick the right
+    carrier per region" step of the AURA thesis).
+
+    Loads each posed image once, computes a gradient-magnitude (texture) map,
+    projects every seed region's centre into its source frame and samples the
+    local texture. The highest-texture ``gabor_fraction`` of carriers become
+    **Gabor** carriers (oscillatory, for high-frequency detail); the rest stay
+    **Gaussian**. Returns ``(ftypes [N] long, freq [N,2], phase [N])`` aligned to
+    ``manifest['regions']`` order (= seed order).
+    """
+
+    torch = _require_torch()
+    from pathlib import Path
+    from .gsplat_renderer import manifest_frame_to_camera, _load_image_rgb
+
+    root = Path(manifest.get("root", "."))
+    frames = {f["id"]: f for f in manifest["frames"]}
+    regions = manifest["regions"]
+    n = len(regions)
+    scores = torch.zeros(n, dtype=torch.float32, device=device)
+    cache: dict = {}
+    for i, r in enumerate(regions):
+        fid = r["frame_id"]
+        frame = frames.get(fid)
+        if frame is None or not (root / frame["image_path"]).exists():
+            continue
+        if fid not in cache:
+            view, k, w, h = manifest_frame_to_camera(frame, scale)
+            img = _load_image_rgb(root / frame["image_path"], torch, device, w, h)
+            gray = img.mean(dim=-1)
+            gx = torch.zeros_like(gray); gy = torch.zeros_like(gray)
+            gx[:, 1:] = gray[:, 1:] - gray[:, :-1]
+            gy[1:, :] = gray[1:, :] - gray[:-1, :]
+            gmag = (gx * gx + gy * gy).sqrt()
+            cache[fid] = (gmag, view, k, w, h)
+        gmag, view, k, w, h = cache[fid]
+        bmin = r["bounds"]["min"]; bmax = r["bounds"]["max"]
+        mean = [(bmin[j] + bmax[j]) * 0.5 for j in range(3)]
+        R = [view[a][:3] for a in range(3)]
+        t = [view[a][3] for a in range(3)]
+        zc = sum(R[2][j] * mean[j] for j in range(3)) + t[2]
+        if zc <= 1e-4:
+            continue
+        xc = sum(R[0][j] * mean[j] for j in range(3)) + t[0]
+        yc = sum(R[1][j] * mean[j] for j in range(3)) + t[1]
+        u = int(k[0][0] * xc / zc + k[0][2]); v = int(k[1][1] * yc / zc + k[1][2])
+        if 0 <= u < w and 0 <= v < h:
+            scores[i] = gmag[v, u]
+    ftypes = torch.zeros(n, dtype=torch.long, device=device)
+    freq = torch.zeros(n, 2, dtype=torch.float32, device=device)
+    phase = torch.zeros(n, dtype=torch.float32, device=device)
+    if gabor_fraction > 0 and float(scores.max()) > 0:
+        thr = torch.quantile(scores, 1.0 - gabor_fraction)
+        gabor = scores > thr
+        ftypes[gabor] = FOOTPRINT_CODES["gabor"]
+        # initialise gabor frequency in a random direction at a moderate rate;
+        # training refines it. (deterministic per-index via arange, no RNG.)
+        idx = torch.nonzero(gabor, as_tuple=False).squeeze(1)
+        ang = (idx.float() * 0.61803398875) * 6.2831853  # golden-angle spread
+        freq[idx, 0] = 0.5 * torch.cos(ang)
+        freq[idx, 1] = 0.5 * torch.sin(ang)
+    return ftypes, freq, phase
+
 
 def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", carrier="gaussian"):
     """Optimise seed carriers against the manifest's posed images using PRISM's
@@ -409,18 +486,28 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
     from pathlib import Path
     from .gsplat_renderer import manifest_frame_to_camera, _load_image_rgb, _ssim, gaussian_params_to_scene
 
-    if carrier not in _FOOTPRINTS:
-        raise ValueError(f"unknown carrier '{carrier}'; choose from {sorted(_FOOTPRINTS)}")
-    footprint = _FOOTPRINTS[carrier]
+    import json as _json
+    if carrier not in ("gaussian", "beta", "gabor", "auto"):
+        raise ValueError(f"unknown carrier '{carrier}'")
     log = getattr(config, "log", None) or (lambda _m: None)
     root = Path(manifest.get("root", "."))
     frames = [f for f in manifest["frames"] if (root / f["image_path"]).exists()]
     if not frames:
         raise ValueError("manifest has no readable training frames")
 
+    n0 = seed_params["means"].shape[0]
+    # Per-carrier footprint type + gabor freq/phase. "auto" assigns types from
+    # image texture (Gabor on high-frequency regions); else homogeneous.
+    if carrier == "auto":
+        ftypes, freq0, phase0 = assign_footprints(manifest, config.scale, device)
+    else:
+        ftypes = torch.full((n0,), FOOTPRINT_CODES[carrier], dtype=torch.long, device=device)
+        freq0 = torch.zeros(n0, 2, dtype=torch.float32, device=device)
+        phase0 = torch.zeros(n0, dtype=torch.float32, device=device)
+
     _LRS = {"means": config.position_lr, "log_scales": config.log_scale_lr,
             "quats": config.quat_lr, "logit_opacities": config.opacity_lr,
-            "colors": config.color_lr}
+            "colors": config.color_lr, "freq": config.quat_lr, "phase": config.opacity_lr}
 
     def _new_params(src):
         return {k: src[k].detach().clone().requires_grad_(True) for k in _LRS}
@@ -428,8 +515,16 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
     def _build_opt(p):
         return torch.optim.Adam([{"params": [p[k]], "lr": _LRS[k]} for k in _LRS], eps=1e-15)
 
-    P = _new_params({k: seed_params[k] for k in _LRS})
+    init = {k: seed_params[k] for k in ("means", "log_scales", "quats", "logit_opacities", "colors")}
+    init["freq"] = freq0
+    init["phase"] = phase0
+    P = _new_params(init)
+    ft = ftypes.clone()  # per-carrier footprint codes (non-trainable; grows on densify)
     opt = _build_opt(P)
+
+    from .prism_cuda import cuda_available, render_gaussians_cuda_diff
+    use_cuda = cuda_available()
+    homo_fp = _FOOTPRINTS.get(carrier if carrier in _FOOTPRINTS else "gaussian")
 
     history = {"loss": []}
     nf = len(frames)
@@ -441,24 +536,18 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         gt = _load_image_rgb(root / frame["image_path"], torch, device, w, h)
         viewmat = torch.tensor(view, dtype=torch.float32, device=device)
         K = torch.tensor(k, dtype=torch.float32, device=device)
-        img = None
-        if carrier in ("gaussian", "beta"):
-            try:
-                from .prism_cuda import cuda_available, render_gaussians_cuda_diff
-                if cuda_available():
-                    img = render_gaussians_cuda_diff(
-                        P["means"], P["quats"], torch.exp(P["log_scales"]), torch.sigmoid(P["logit_opacities"]),
-                        P["colors"].clamp(0, 1), viewmat, K, w, h, max_per_tile=config.max_per_tile,
-                        footprint=carrier,
-                    )
-            except Exception:
-                img = None
-        if img is None:
+        if use_cuda:
+            img = render_gaussians_cuda_diff(
+                P["means"], P["quats"], torch.exp(P["log_scales"]), torch.sigmoid(P["logit_opacities"]),
+                P["colors"].clamp(0, 1), viewmat, K, w, h, max_per_tile=config.max_per_tile,
+                ftypes=ft, freq=P["freq"], phase=P["phase"],
+            )
+        else:  # torch fallback (homogeneous footprint only)
             cov = quats_scales_to_cov3d(P["quats"], torch.exp(P["log_scales"]), torch)
             proj = project_gaussians(P["means"], cov, viewmat, K, w, h, torch)
             img = composite_tiled(
                 proj, P["colors"].clamp(0, 1), torch.sigmoid(P["logit_opacities"]), w, h, torch,
-                footprint=footprint, max_per_tile=config.max_per_tile,
+                footprint=homo_fp, max_per_tile=config.max_per_tile,
             )
         l1 = torch.abs(img - gt).mean()
         loss = (1 - config.ssim_weight) * l1 + config.ssim_weight * (1 - _ssim(img, gt, torch))
@@ -466,8 +555,8 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         loss.backward()
         opt.step()
 
-        # Adaptive densification: accumulate positional gradient magnitude, then
-        # periodically clone high-gradient carriers and prune transparent ones.
+        # Adaptive densification: clone high-positional-gradient carriers and
+        # prune transparent ones (footprint type + gabor params clone with them).
         if config.densify and P["means"].grad is not None:
             with torch.no_grad():
                 grad_accum += P["means"].grad.norm(dim=1)
@@ -477,8 +566,7 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
             if due:
                 with torch.no_grad():
                     avg = grad_accum / max(accum_n, 1)
-                    opacity = torch.sigmoid(P["logit_opacities"])
-                    keep = opacity > config.prune_opacity
+                    keep = torch.sigmoid(P["logit_opacities"]) > config.prune_opacity
                     clone = keep & (avg > config.grad_threshold)
                     if int(P["means"].shape[0]) >= config.max_carriers:
                         clone = torch.zeros_like(clone)
@@ -487,11 +575,9 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
                     jitter = torch.zeros_like(P["means"][clone_idx]).normal_(0, 1e-3)
                     new = {}
                     for key in _LRS:
-                        kept = P[key][keep_idx]
-                        cl = P[key][clone_idx]
-                        if key == "means":
-                            cl = cl + jitter
-                        new[key] = torch.cat([kept, cl], dim=0)
+                        cl = P[key][clone_idx] + (jitter if key == "means" else 0.0)
+                        new[key] = torch.cat([P[key][keep_idx], cl], dim=0)
+                    ft = torch.cat([ft[keep_idx], ft[clone_idx]], dim=0)
                 P = _new_params(new)
                 opt = _build_opt(P)
                 grad_accum = torch.zeros(P["means"].shape[0], device=device)
@@ -506,18 +592,30 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         "logit_opacities": P["logit_opacities"], "colors": P["colors"],
     }
     scene = gaussian_params_to_scene(trained, {**ctx, "sh_degree": 0})
-    # Tag the footprint type so PRISM eval renders the right kernel.
+    # Tag each carrier's footprint (and gabor freq/phase) so PRISM eval reproduces
+    # the heterogeneous render. Element order matches the trained param order.
     import dataclasses
+    ft_l = ft.cpu().tolist()
+    freq_l = P["freq"].detach().cpu().tolist()
+    phase_l = P["phase"].detach().cpu().tolist()
+    gaussian_i = 0
     tagged = []
+    counts = {0: 0, 1: 0, 2: 0, 3: 0}
     for e in scene.elements:
-        if e.carrier_id == "gaussian":
+        if e.carrier_id == "gaussian" and gaussian_i < len(ft_l):
+            code = int(ft_l[gaussian_i]); counts[code] = counts.get(code, 0) + 1
             meta = dict(getattr(e, "metadata", None) or {})
-            meta["prism_footprint"] = carrier
+            meta["prism_footprint"] = FOOTPRINT_NAMES.get(code, "gaussian")
+            if code == FOOTPRINT_CODES["gabor"]:
+                meta["prism_freq"] = _json.dumps(freq_l[gaussian_i])
+                meta["prism_phase"] = str(phase_l[gaussian_i])
             tagged.append(dataclasses.replace(e, metadata=meta))
+            gaussian_i += 1
         else:
             tagged.append(e)
     scene = dataclasses.replace(scene, elements=tuple(tagged))
     history["final_gaussian_count"] = int(P["means"].shape[0])
+    history["footprint_counts"] = {FOOTPRINT_NAMES[c]: counts[c] for c in counts if counts[c]}
     return scene, history
 
 
@@ -543,39 +641,60 @@ class PrismTrainConfig:
     log: Callable | None = None
 
 
+def _scene_carrier_types(scene, torch, device):
+    """Per-Gaussian-carrier footprint code [N], freq [N,2], phase [N] read from
+    each carrier's metadata (default gaussian); aligned to scene_to_gaussian_params
+    order (the Gaussian carriers, in scene order)."""
+    import json as _json
+    from .gsplat_renderer import _is_gaussian
+    gaussians = [e for e in scene.elements if _is_gaussian(e)]
+    codes, freqs, phases = [], [], []
+    for e in gaussians:
+        meta = getattr(e, "metadata", None) or {}
+        name = meta.get("prism_footprint", "gaussian")
+        codes.append(FOOTPRINT_CODES.get(name, 0))
+        if name == "gabor" and "prism_freq" in meta:
+            freqs.append([float(x) for x in _json.loads(meta["prism_freq"])])
+            phases.append(float(meta.get("prism_phase", 0.0)))
+        else:
+            freqs.append([0.0, 0.0]); phases.append(0.0)
+    ft = torch.tensor(codes, dtype=torch.long, device=device)
+    fr = torch.tensor(freqs, dtype=torch.float32, device=device)
+    ph = torch.tensor(phases, dtype=torch.float32, device=device)
+    return ft, fr, ph
+
+
 def render_scene_prism(scene, frame, scale, *, device="cuda"):
-    """Render a trained AURA scene's Gaussian carriers with PRISM through one
-    manifest frame; returns (W, H, flat_rgb) like the eval harness expects.
-    Uses each carrier's ``metadata['prism_footprint']`` (default gaussian)."""
+    """Render a trained AURA scene with PRISM through one manifest frame; returns
+    (W, H, flat_rgb). Renders the HETEROGENEOUS carrier mix using each carrier's
+    ``metadata['prism_footprint']`` (+ gabor freq/phase) via the CUDA kernel
+    (torch fallback for homogeneous scenes)."""
 
     torch = _require_torch()
     from .gsplat_renderer import scene_to_gaussian_params, manifest_frame_to_camera
 
     params, _ctx = scene_to_gaussian_params(scene, device=device)
-    # Footprint: use the scene's recorded prism_footprint if uniform, else gaussian.
-    fps = {((getattr(e, "metadata", None) or {}).get("prism_footprint", "gaussian"))
-           for e in scene.elements if e.carrier_id == "gaussian"}
-    footprint = _FOOTPRINTS.get(next(iter(fps)) if len(fps) == 1 else "gaussian", _FOOTPRINTS["gaussian"])
+    ft, fr, ph = _scene_carrier_types(scene, torch, device)
     view, k, w, h = manifest_frame_to_camera(frame, scale)
     viewmat = torch.tensor(view, dtype=torch.float32, device=device)
     K = torch.tensor(k, dtype=torch.float32, device=device)
-    fp_name = next(iter(fps)) if len(fps) == 1 else "gaussian"
     with torch.no_grad():
         img = None
-        if fp_name in ("gaussian", "beta"):
-            # Fast path: the hand-written PRISM CUDA forward kernel (~18x the
-            # torch compositor, real-time). Falls back to torch if unavailable.
-            try:
-                from .prism_cuda import cuda_available, render_gaussians_cuda
-                if cuda_available():
-                    img = render_gaussians_cuda(
-                        params["means"], params["quats"], torch.exp(params["log_scales"]),
-                        torch.sigmoid(params["logit_opacities"]), params["colors"].clamp(0, 1),
-                        viewmat, K, w, h, footprint=fp_name,
-                    )
-            except Exception:
-                img = None
+        try:
+            from .prism_cuda import cuda_available, render_gaussians_cuda
+            if cuda_available():
+                img = render_gaussians_cuda(
+                    params["means"], params["quats"], torch.exp(params["log_scales"]),
+                    torch.sigmoid(params["logit_opacities"]), params["colors"].clamp(0, 1),
+                    viewmat, K, w, h, ftypes=ft, freq=fr, phase=ph,
+                )
+        except Exception:
+            img = None
         if img is None:
+            # torch fallback: render with the majority footprint (homogeneous).
+            codes = ft.tolist()
+            majority = max(set(codes), key=codes.count) if codes else 0
+            footprint = _FOOTPRINTS.get(FOOTPRINT_NAMES.get(majority, "gaussian"), _FOOTPRINTS["gaussian"])
             cov = quats_scales_to_cov3d(params["quats"], torch.exp(params["log_scales"]), torch)
             proj = project_gaussians(params["means"], cov, viewmat, K, w, h, torch)
             img = composite_tiled(proj, params["colors"].clamp(0, 1),
