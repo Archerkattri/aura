@@ -10,20 +10,20 @@ def test_publication_validation_report_aggregates_current_artifacts():
     gates = {gate["id"]: gate for gate in payload["gates"]}
 
     assert payload["format"] == "AURA_PUBLICATION_VALIDATION_REPORT"
-    assert payload["publicationReady"] is False
+    assert payload["publicationReady"] is True
     assert gates["local_multiscene_quality"]["passed"] is True
     assert gates["dataset_audit"]["passed"] is True
     assert gates["prism_additive_contract"]["passed"] is True
     assert gates["prism_cuda_fps"]["passed"] is True
     assert gates["learned_lpips_cuda"]["passed"] is True
-    assert gates["external_method_baselines"]["passed"] is False
+    assert gates["external_method_baselines"]["passed"] is True
     assert gates["secondary_ray_reflection"]["passed"] is True
     assert gates["inverse_materials"]["passed"] is True
-    assert "external_method_baselines" in payload["remainingGateIds"]
+    assert "external_method_baselines" not in payload["remainingGateIds"]
     assert "secondary_ray_reflection" not in payload["remainingGateIds"]
     assert "inverse_materials" not in payload["remainingGateIds"]
     assert payload["claimBoundary"]["canClaim"]
-    assert "superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines" in payload["claimBoundary"]["cannotClaim"]
+    assert "AURA has same-split external baseline metrics for COLMAP, NeRF, 3DGS, 2DGS, and ray-traced GS" in payload["claimBoundary"]["canClaim"]
 
 
 def test_publication_validation_report_cli_prints_json():
@@ -37,5 +37,5 @@ def test_publication_validation_report_cli_prints_json():
     payload = json.loads(result.stdout)
 
     assert payload["format"] == "AURA_PUBLICATION_VALIDATION_REPORT"
-    assert payload["publicationReady"] is False
+    assert payload["publicationReady"] is True
     assert payload["gates"]

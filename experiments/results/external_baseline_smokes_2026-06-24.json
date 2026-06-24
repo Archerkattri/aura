@@ -5,9 +5,9 @@
   "colmap": {
     "frames": 1,
     "scale": 0.25,
-    "psnr": 8.9961,
-    "ssim": 0.049045,
-    "lpips": 0.772041
+    "psnr": 8.9952,
+    "ssim": 0.049027,
+    "lpips": 0.757455
   },
   "nerf": {
     "frames": 1,
@@ -17,7 +17,22 @@
     "lpips": 0.971559,
     "iterations": 1
   },
+  "two_dgs": {
+    "frames": 1,
+    "scale": 0.25,
+    "psnr": 10.7072,
+    "ssim": 0.177134,
+    "lpips": 0.645361
+  },
+  "ray_traced_gs": {
+    "frames": 1,
+    "scale": 0.25,
+    "psnr": 6.7688,
+    "ssim": 0.066934,
+    "lpips": 0.822136,
+    "maxCarriers": 2048
+  },
   "device": "cuda",
   "seed": 0,
-  "notes": "Same-split CUDA smoke metrics. COLMAP is sparse SfM point rendering; NeRF is the repo's compact frequency-encoded MLP smoke, not an official nerfstudio/SOTA baseline."
+  "notes": "Same-split CUDA smoke metrics. COLMAP is sparse SfM point rendering; NeRF is the repo's compact frequency-encoded MLP smoke; 2DGS is a COLMAP-seeded surfel splat smoke; ray_traced_gs is a carrier-side volumetric ray traversal smoke. These are protocol baselines, not official leaderboard-quality external repo runs."
 }

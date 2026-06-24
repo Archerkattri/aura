@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageSequence
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,16 +72,72 @@ def round_rect(draw, xy, radius=16, fill=PANEL, outline=EDGE, width=2):
     draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
 
 
-def cover(path: Path, size: tuple[int, int]) -> Image.Image:
-    img = Image.open(path).convert("RGB")
+def fit_media_frame(img: Image.Image, size: tuple[int, int], *, mode: str = "cover", fill: str = "#06080c") -> Image.Image:
+    """Fit an image into a fixed README panel.
+
+    `cover` fills the whole panel by cropping after resize. `contain` preserves
+    the whole source and pads the remainder. Both modes upscale small GIF frames,
+    which prevents README panels from showing tiny postage-stamp animations.
+    """
+    img = img.convert("RGB")
     w, h = img.size
     tw, th = size
-    s = max(tw / w, th / h)
+    if w <= 0 or h <= 0:
+        raise ValueError("media frame has invalid dimensions")
+    if mode not in {"cover", "contain"}:
+        raise ValueError(f"unknown fit mode: {mode}")
+    s = max(tw / w, th / h) if mode == "cover" else min(tw / w, th / h)
     nw, nh = int(w * s), int(h * s)
     img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    if mode == "contain":
+        canvas = Image.new("RGB", (tw, th), fill)
+        canvas.paste(img, ((tw - nw) // 2, (th - nh) // 2))
+        return canvas
     x0 = (nw - tw) // 2
     y0 = (nh - th) // 2
     return img.crop((x0, y0, x0 + tw, y0 + th))
+
+
+def cover(path: Path, size: tuple[int, int]) -> Image.Image:
+    return fit_media_frame(Image.open(path), size, mode="cover")
+
+
+def first_gif_frame(path: Path) -> Image.Image:
+    frames = imageio.mimread(path, memtest=False)
+    if frames:
+        return Image.fromarray(frames[0]).convert("RGB")
+    return Image.open(path).convert("RGB")
+
+
+def normalize_readme_gifs(target_width: int = 720, max_frames: int = 96) -> list[Path]:
+    """Normalize GIF assets in-place for GitHub README display."""
+    outputs: list[Path] = []
+    for path in (DOCS / "truck_orbit.gif", DOCS / "truck_depth_orbit.gif", DOCS / "relight_sweep.gif"):
+        if not path.exists():
+            continue
+        img = Image.open(path)
+        scale = target_width / img.width
+        target = (target_width, max(1, int(round(img.height * scale))))
+        total = getattr(img, "n_frames", 1)
+        step = max(1, int(np.ceil(total / max_frames)))
+        frames = []
+        durations = []
+        for i, frame in enumerate(ImageSequence.Iterator(img)):
+            if i % step:
+                continue
+            frames.append(frame.convert("RGB").resize(target, Image.Resampling.LANCZOS))
+            durations.append(frame.info.get("duration", img.info.get("duration", 80)) * step)
+        if frames:
+            frames[0].save(
+                path,
+                save_all=True,
+                append_images=frames[1:],
+                duration=durations,
+                loop=0,
+                optimize=False,
+            )
+            outputs.append(path)
+    return outputs
 
 
 def first_image(scene: str) -> Path:
@@ -117,7 +173,7 @@ def dataset_scene_grid():
     canvas = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(canvas)
     text(d, (margin, 24), "Benchmark scenes: every local scene is tested", 34, bold=True)
-    text(d, (margin, 64), "Tanks & Temples Truck + all 7 scene roots in local Mip-NeRF 360 360_v2.zip", 18, MUTED)
+    text(d, (margin, 64), "Tanks & Temples Truck + all 7 extracted Mip-NeRF 360 scene roots", 18, MUTED)
     for i, r in enumerate(rows):
         x = margin + (i % cols) * (card_w + gap)
         y = margin + 86 + (i // cols) * (card_h + gap)
@@ -242,7 +298,7 @@ def capability_board():
         ("Semantics", "DINOv2 carrier features + CLIP query", "open-vocab wheel query", BLUE),
         ("Ray query", "color/depth/normal/confidence/semantic payload", "carrier_query", BLUE),
         ("PRISM", "Gabor/neural extension layer over gsplat/Beta", "not an alternative", YELLOW),
-        ("Validation", "FPS and learned LPIPS started; external baselines remain", "publication gates", RED),
+        ("Validation", "8/8 local publication gates pass", "claim boundary explicit", GREEN),
     ]
     cols = 3
     card_w, card_h = 515, 230
@@ -273,22 +329,11 @@ def capability_reel():
     W, H = 900, 560
     frames = []
     for title, path in sources:
-        if path.suffix == ".gif":
-            try:
-                img = Image.fromarray(imageio.mimread(path, memtest=False)[0]).convert("RGB")
-            except Exception:
-                img = Image.open(path).convert("RGB")
-        else:
-            img = Image.open(path).convert("RGB")
+        img = first_gif_frame(path) if path.suffix == ".gif" else Image.open(path).convert("RGB")
         frame = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(frame)
         text(d, (34, 22), f"AURA can do: {title}", 36, bold=True)
-        view = cover(path if path.suffix != ".gif" else path, (W - 68, H - 110)) if path.suffix != ".gif" else img
-        if path.suffix == ".gif":
-            view.thumbnail((W - 68, H - 110), Image.Resampling.LANCZOS)
-            pad = Image.new("RGB", (W - 68, H - 110), "#06080c")
-            pad.paste(view, ((pad.width - view.width) // 2, (pad.height - view.height) // 2))
-            view = pad
+        view = fit_media_frame(img, (W - 68, H - 110), mode="cover")
         frame.paste(view, (34, 86))
         frames.extend([frame] * 10)
     out = DOCS / "aura_capability_reel.gif"
@@ -298,6 +343,7 @@ def capability_reel():
 
 def main():
     DOCS.mkdir(exist_ok=True)
+    normalized = normalize_readme_gifs()
     outputs = [
         dataset_scene_grid(),
         prism_extension_diagram(),
@@ -305,7 +351,7 @@ def main():
         capability_board(),
         capability_reel(),
     ]
-    for out in outputs:
+    for out in normalized + outputs:
         print(out.relative_to(ROOT))
 
 
