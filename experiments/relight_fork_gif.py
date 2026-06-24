@@ -53,7 +53,7 @@ def main():
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent / "docs/relight_sweep.gif"))
     ap.add_argument("--view", type=int, default=20)
     ap.add_argument("--n", type=int, default=48)
-    ap.add_argument("--downscale", type=int, default=3)
+    ap.add_argument("--downscale", type=int, default=1)
     a = ap.parse_args()
 
     sc, bm = load(a.source, a.model, a.sb_number)

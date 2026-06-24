@@ -47,7 +47,7 @@ def main():
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent / "docs/truck_flythrough.gif"))
     ap.add_argument("--n", type=int, default=48)
     ap.add_argument("--fps", type=int, default=16)
-    ap.add_argument("--downscale", type=int, default=2)
+    ap.add_argument("--downscale", type=int, default=1)
     ap.add_argument("--mode", choices=["flythrough", "orbit"], default="orbit")
     ap.add_argument("--render-mode", default="RGB", help="RGB | Normal | EDepth | Depth")
     a = ap.parse_args()

@@ -109,15 +109,18 @@ def first_gif_frame(path: Path) -> Image.Image:
     return Image.open(path).convert("RGB")
 
 
-def normalize_readme_gifs(target_width: int = 720, max_frames: int = 96) -> list[Path]:
-    """Normalize GIF assets in-place for GitHub README display."""
+def normalize_readme_gifs(target_width: int = 979, max_frames: int = 96) -> list[Path]:
+    """Normalize GIF assets without dropping below the source Truck resolution."""
     outputs: list[Path] = []
     for path in (DOCS / "truck_orbit.gif", DOCS / "truck_depth_orbit.gif", DOCS / "relight_sweep.gif"):
         if not path.exists():
             continue
         img = Image.open(path)
-        scale = target_width / img.width
-        target = (target_width, max(1, int(round(img.height * scale))))
+        if img.width >= target_width:
+            target = img.size
+        else:
+            scale = target_width / img.width
+            target = (target_width, max(1, int(round(img.height * scale))))
         total = getattr(img, "n_frames", 1)
         step = max(1, int(np.ceil(total / max_frames)))
         frames = []
