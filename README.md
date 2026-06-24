@@ -108,10 +108,9 @@ responds to light direction, so the same carriers are relightable:
 
 ![albedo · lit from left · lit from right](docs/relight_truck.png)
 
-Honest scope:
-covariance normals are unsigned/noisy and the albedo still holds residual baked
-shading — this is an editable relighting *layer*, not a full inverse-rendering
-material decomposition.
+Honest scope: covariance normals are unsigned/noisy and the albedo still holds
+residual baked shading — this is an editable relighting *layer*, not a full
+inverse-rendering material decomposition.
 
 ### Per-carrier confidence
 
