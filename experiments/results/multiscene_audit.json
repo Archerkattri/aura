@@ -1,0 +1,79 @@
+{
+  "local_scene_count": 8,
+  "complete": true,
+  "missing": [],
+  "scenes": [
+    {
+      "scene": "truck",
+      "path": "data/tanks/truck",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 26.39360237121582,
+      "gaussian_psnr": 25.961856842041016,
+      "delta_psnr": 0.4317455291748047
+    },
+    {
+      "scene": "bicycle",
+      "path": "data/mipnerf360/bicycle",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 25.148128509521484,
+      "gaussian_psnr": 24.843175888061523,
+      "delta_psnr": 0.30495262145996094
+    },
+    {
+      "scene": "bonsai",
+      "path": "data/mipnerf360/bonsai",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 34.03269958496094,
+      "gaussian_psnr": 32.27204895019531,
+      "delta_psnr": 1.760650634765625
+    },
+    {
+      "scene": "counter",
+      "path": "data/mipnerf360/counter",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 30.319522857666016,
+      "gaussian_psnr": 28.8087215423584,
+      "delta_psnr": 1.5108013153076172
+    },
+    {
+      "scene": "garden",
+      "path": "data/mipnerf360/garden",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 27.265220642089844,
+      "gaussian_psnr": 26.6373348236084,
+      "delta_psnr": 0.6278858184814453
+    },
+    {
+      "scene": "kitchen",
+      "path": "data/mipnerf360/kitchen",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 32.374977111816406,
+      "gaussian_psnr": 31.287168502807617,
+      "delta_psnr": 1.087808609008789
+    },
+    {
+      "scene": "room",
+      "path": "data/mipnerf360/room",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 32.78147506713867,
+      "gaussian_psnr": 32.294620513916016,
+      "delta_psnr": 0.48685455322265625
+    },
+    {
+      "scene": "stump",
+      "path": "data/mipnerf360/stump",
+      "has_beta": true,
+      "has_gaussian": true,
+      "beta_psnr": 26.64301109313965,
+      "gaussian_psnr": 26.455883026123047,
+      "delta_psnr": 0.18712806701660156
+    }
+  ]
+}

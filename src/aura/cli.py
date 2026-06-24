@@ -352,6 +352,13 @@ def main(argv: list[str] | None = None) -> int:
     export_splat.add_argument("source", type=Path, help="package dir containing carriers.npz, or a carriers.npz file")
     export_splat.add_argument("--output", type=Path, default=Path("outputs/splat.glb"))
 
+    export_usd = sub.add_parser(
+        "export-usd",
+        help="Export a .aura package to USD ASCII (.usda) preview/metadata bridge",
+    )
+    export_usd.add_argument("package_dir", type=Path)
+    export_usd.add_argument("--output", type=Path, default=Path("outputs/scene.usda"))
+
     confidence = sub.add_parser(
         "confidence", help="Compute per-carrier multi-view confidence and write it into carriers.npz")
     confidence.add_argument("source", type=Path, help="package dir or carriers.npz")
@@ -671,6 +678,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export-splat":
         from .carrier_io import load_carriers
         out = _export_splat_command(args, load_carriers)
+        print(out)
+        return 0
+    if args.command == "export-usd":
+        out = _export_usd_command(args)
         print(out)
         return 0
     if args.command == "confidence":
@@ -1302,6 +1313,17 @@ def _export_splat_command(args: argparse.Namespace, load_carriers) -> Path:
     if out.suffix.lower() == ".gltf":
         return write_splat_gltf(carriers, out)
     return write_splat_glb(carriers, out)
+
+
+def _export_usd_command(args: argparse.Namespace) -> Path:
+    """Export a package to a USD ASCII preview/metadata bridge."""
+    from .package import load_package
+    from .usd_writer import write_usda
+
+    package = load_package(args.package_dir)
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return write_usda(package.scene, out)
 
 
 def _train_gsplat_command(args: argparse.Namespace) -> Path:

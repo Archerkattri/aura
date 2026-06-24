@@ -52,9 +52,9 @@ relightable, exportable asset contract — building on the gsplat engine, not re
 
 ## Quality
 
-Across **8 real scenes** (Tanks & Temples Truck + Mip-NeRF 360 bicycle/bonsai/
-counter/garden/kitchen/room/stump), AURA's Beta carriers beat the fixed-Gaussian
-control on every scene:
+Across **8 real scenes** (Tanks & Temples Truck + every scene present in the local
+Mip-NeRF 360 `360_v2.zip`: bicycle/bonsai/counter/garden/kitchen/room/stump),
+AURA's Beta carriers beat the fixed-Gaussian control on every scene:
 
 | Scene | AURA Beta PSNR ↑ | Fixed Gaussian PSNR ↑ | Δ PSNR |
 |---|---:|---:|---:|
@@ -95,10 +95,12 @@ quality with **half the carriers**.
 Export trained carriers to the ratified Khronos
 [`KHR_gaussian_splatting`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_gaussian_splatting)
 glTF/GLB extension — position, colour+opacity, rotation, scale, and higher-order SH —
-so an AURA scene loads as real splats in any conformant engine.
+so an AURA scene loads as real splats in any conformant engine. A USD ASCII bridge
+is also available for DCC/scene-graph workflows.
 
 ```bash
 aura export-splat scene/carriers.npz --output scene.glb
+aura export-usd   scene.aura --output scene.usda
 ```
 
 ### Relighting
@@ -211,6 +213,7 @@ bash experiments/dbs_truck_ablation.sh                 # typed Beta vs fixed Gau
 bash experiments/dbs_compactness_sweep.sh              # compactness (½ the carriers)
 bash experiments/run_multiscene.sh 7000 1              # 8-scene Beta-vs-Gaussian sweep on GPU1
 python experiments/collect_multiscene.py               # multi-scene table + charts
+python experiments/audit_multiscene.py                 # prove every local scene has both arms
 python experiments/render_turntable.py                 # reconstruction GIF
 python experiments/relight_fork_gif.py                 # relighting GIF
 python experiments/semantic_distill.py                 # semantic segmentation
@@ -235,6 +238,7 @@ All on Tanks & Temples — Truck, rendered through the trained carriers.
 src/aura/        the library — reconstruction, carriers, rasterizers, asset contract
   prism.py / prism_cuda.py   PRISM typed-carrier differentiable rasterizer
   gltf_splat.py              KHR_gaussian_splatting export
+  usd_writer.py              USD ASCII preview/metadata bridge
   relight.py confidence.py carrier_query.py   relight / confidence / ray-query
   carrier_io.py             fast binary carriers.npz sidecar
   schemas/                  JSON Schemas for the .aura package

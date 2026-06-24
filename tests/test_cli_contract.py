@@ -10,7 +10,14 @@ import pytest
 torch = pytest.importorskip("torch")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from aura.carrier_io import save_carriers, load_carriers  # noqa: E402
-from aura.cli import _ray_query_command, _confidence_command, _export_splat_command  # noqa: E402
+from aura import package_scene  # noqa: E402
+from aura.cli import (  # noqa: E402
+    _confidence_command,
+    _export_splat_command,
+    _export_usd_command,
+    _ray_query_command,
+    native_demo_scene,
+)
 
 
 def _make_carriers(d):
@@ -48,3 +55,15 @@ def test_export_splat_command_writes_glb(tmp_path):
     _make_carriers(tmp_path)
     out = _export_splat_command(Namespace(source=tmp_path, output=tmp_path / "x.glb"), load_carriers)
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_export_usd_command_writes_usda(tmp_path):
+    package_dir = tmp_path / "scene.aura"
+    package_scene(native_demo_scene()).write(package_dir)
+
+    out = _export_usd_command(Namespace(package_dir=package_dir, output=tmp_path / "scene.usda"))
+
+    assert out.exists()
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("#usda 1.0")
+    assert "GaussianCarriers" in text
