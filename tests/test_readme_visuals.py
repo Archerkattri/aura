@@ -57,6 +57,7 @@ def test_readme_includes_local_truck_and_train_media_only():
     assert "docs/truck_orbit.gif" in readme
     assert "docs/train_orbit.gif" in readme
     assert "docs/train_depth_orbit.gif" in readme
+    assert "Tanks and Temples" not in readme
     assert "Temple scene" not in readme
     assert "docs/temple" not in readme.lower()
     assert "M60" not in readme

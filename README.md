@@ -9,8 +9,8 @@ confidence, semantics, relighting, ray queries, PRISM extension footprints, and
 standards-based export.
 
 <p align="center">
-  <img src="docs/truck_orbit.gif" width="82%" alt="AURA reconstruction orbit on Tanks and Temples Truck"><br>
-  <em>Tanks and Temples Truck reconstructed as an AURA asset.</em>
+  <img src="docs/truck_orbit.gif" width="82%" alt="AURA reconstruction orbit on Truck"><br>
+  <em>Truck reconstructed as an AURA asset.</em>
 </p>
 
 <p align="center">
@@ -79,8 +79,8 @@ control.
 
 ![Per-scene PSNR gains](docs/multiscene_delta.png)
 
-The rendered Tanks and Temples media in this README is limited to the local
-Truck and Train assets currently present in the workspace.
+The rendered scene media in this README is limited to the local Truck and Train
+assets currently present in the workspace.
 
 ### Truck Compactness
 
