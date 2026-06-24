@@ -27,6 +27,7 @@ Gaussian carrier model (wxyz quats, linear-RGB colour, opacity in [0,1]).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable
 
@@ -630,6 +631,21 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         torch.nn.utils.clip_grad_norm_(list(P.values()), 10.0)
         opt.step()
 
+        # Exponential position-LR decay (3DGS-style): coarse-to-fine convergence.
+        if config.position_lr_final > 0.0 and config.iterations > 1:
+            t = it / (config.iterations - 1)
+            lr = config.position_lr * (config.position_lr_final / config.position_lr) ** t
+            for grp in opt.param_groups:
+                if grp["params"][0] is P["means"]:
+                    grp["lr"] = lr
+        # Opacity reset: periodically clamp opacities down so floaters must re-earn
+        # them (removes view-inconsistent blobs that otherwise dominate at high caps).
+        if (config.opacity_reset_interval and it > 0
+                and it % config.opacity_reset_interval == 0):
+            with torch.no_grad():
+                cap = math.log(config.opacity_reset_to / (1 - config.opacity_reset_to))
+                P["logit_opacities"].clamp_(max=cap)
+
         # Adaptive densification: clone high-positional-gradient carriers and
         # prune transparent ones (footprint type + gabor params clone with them).
         if config.densify and P["means"].grad is not None:
@@ -718,6 +734,10 @@ class PrismTrainConfig:
     prune_opacity: float = 0.05
     max_carriers: int = 2_000_000
     volumetric: bool = False  # EVER-style 1-exp(-opacity*w) alpha
+    # 3DGS-style training stabilisers (default off → unchanged behaviour):
+    opacity_reset_interval: int = 0     # every N iters clamp opacity down to opacity_reset_to (floater control)
+    opacity_reset_to: float = 0.01
+    position_lr_final: float = 0.0      # >0 → exponential decay of the means LR to this over training
     log: Callable | None = None
 
 

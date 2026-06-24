@@ -366,3 +366,35 @@ def test_neural_carrier_trains_and_beats_gaussian_on_ring():
     latents = torch.randn(1, 4, device=dev).requires_grad_(True)
     n_loss = fit(nfp, list(net.parameters()) + [latents], latents=latents)
     assert n_loss < g_loss, f"neural ({n_loss:.4f}) should beat gaussian ({g_loss:.4f}) on a ring"
+
+
+def test_opacity_reset_does_not_mass_prune():
+    """opacity reset to a value ABOVE the prune threshold must keep carriers alive
+    (regression for the reset<prune mass-extinction bug)."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("needs CUDA")
+    import numpy as np
+    from aura.prism import train_carriers_prism, PrismTrainConfig
+    n = 200
+    rng = np.random.default_rng(0)
+    seed = {
+        "means": torch.tensor(rng.standard_normal((n, 3)) * 0.3, dtype=torch.float32, device="cuda"),
+        "log_scales": torch.full((n, 3), -2.5, device="cuda"),
+        "quats": torch.tensor([[1.0, 0, 0, 0]], device="cuda").repeat(n, 1),
+        "logit_opacities": torch.zeros(n, device="cuda"),
+        "colors": torch.rand(n, 3, device="cuda"),
+    }
+    ctx = {"width": 64, "height": 64, "sh_degree": 0}
+    manifest = {"root": ".", "frames": [{
+        "image_path": "tests/fixtures/tiny.png", "intrinsics": {"width": 64, "height": 64, "fx": 64, "fy": 64, "cx": 32, "cy": 32},
+        "camera_origin": [0, 0, -3.0], "look_at": [0, 0, 0], "up": [0, -1.0, 0]}]}
+    # if the fixture image is missing the loader will raise; only assert when runnable
+    from pathlib import Path as _P
+    if not _P("tests/fixtures/tiny.png").exists():
+        pytest.skip("no tiny fixture image")
+    cfg = PrismTrainConfig(iterations=40, scale=1.0, densify=True, densify_start=5,
+                           densify_interval=10, opacity_reset_interval=15,
+                           opacity_reset_to=0.06, prune_opacity=0.02)
+    scene, _ = train_carriers_prism(seed, ctx, manifest, config=cfg, device="cuda")
+    assert len([e for e in scene.elements]) > 0  # carriers survived the resets

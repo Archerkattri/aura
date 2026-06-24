@@ -264,6 +264,13 @@ def main(argv: list[str] | None = None) -> int:
                              help="Adaptive densification: clone high-gradient carriers + prune transparent ones")
     train_prism.add_argument("--volumetric", action="store_true",
                              help="EVER-style volumetrically-consistent alpha (1-exp(-opacity*w))")
+    # 3DGS-style training stabilisers (on by default — fix divergence, +1.56 dB on truck)
+    train_prism.add_argument("--position-lr-final", type=float, default=1.6e-6, dest="position_lr_final",
+                             help="Final means LR for exponential decay (0 disables); stabilises late training")
+    train_prism.add_argument("--opacity-reset-interval", type=int, default=750, dest="opacity_reset_interval",
+                             help="Clamp opacity down every N iters so floaters re-earn it (0 disables)")
+    train_prism.add_argument("--opacity-reset-value", type=float, default=0.06, dest="opacity_reset_value",
+                             help="Reset opacity to this; keep ABOVE the prune threshold to avoid mass-pruning")
     train_prism.add_argument("--skip-validation", action="store_true")
 
     inspect_capture_assets = sub.add_parser(
@@ -1406,6 +1413,11 @@ def _train_prism_command(args: argparse.Namespace) -> Path:
         max_per_tile=args.max_per_tile,
         densify=bool(getattr(args, "densify", False)),
         volumetric=bool(getattr(args, "volumetric", False)),
+        position_lr_final=getattr(args, "position_lr_final", 1.6e-6),
+        opacity_reset_interval=getattr(args, "opacity_reset_interval", 750),
+        opacity_reset_to=getattr(args, "opacity_reset_value", 0.06),
+        # keep prune threshold below the reset value so resets don't mass-prune carriers
+        prune_opacity=min(0.02, getattr(args, "opacity_reset_value", 0.06) * 0.5),
         log=lambda message: print(message, file=_sys.stderr, flush=True),
     )
     trained_scene, history = train_carriers_prism(

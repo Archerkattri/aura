@@ -230,9 +230,13 @@ PRISM trains all four footprints (gaussian/beta/gabor/neural):
 - ✅ **Semantics via feature lifting + open-vocab query.** Multi-view DINOv2
   features are aggregated per carrier (coherent segmentation), and a text query
   ("a wheel") highlights the matching group via CLIP — no manual labels.
-- ⚠️ **Quality engine is gsplat + Beta, not PRISM.** PRISM-native training still
-  trails by several dB on dense scenes; it stays a real-time research substrate.
-  Closing that gap is the main remaining open item.
+- ⚠️ **Quality engine is gsplat + Beta, not PRISM — but PRISM is now stable.**
+  Adding 3DGS-style stabilisers (opacity reset + position-LR decay, now the
+  `train-prism` defaults) fixed PRISM's training divergence and lifted truck quality
+  **+1.56 dB** (10.48 → 12.04 @0.25/3k, `experiments/prism_quality_ab.py`); carriers
+  are now retained (111k vs 80k) instead of pruned away. PRISM still trails
+  gsplat/Beta in absolute PSNR — narrowed, not closed — so it stays the real-time
+  research substrate while gsplat+Beta carry quality.
 
 Reproduce: `experiments/dbs_truck_ablation.sh`, `experiments/dbs_routing_sweep.sh`,
 `experiments/render_gifs.py`, `experiments/direct_pose_test.py`.
