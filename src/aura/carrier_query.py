@@ -24,7 +24,7 @@ def carrier_ray_query(carriers, origin, direction, *, k=3.0, min_opacity=0.0,
     origin / direction are length-3 sequences (world space). ``min_opacity`` and
     ``min_confidence`` reject carriers below those thresholds before hit-testing —
     use ``min_confidence`` (with the multi-view confidence field) to skip
-    speculative floaters. Honest caveat: a geometric first-surface query over a raw
+    speculative floaters. Note: a geometric first-surface query over a raw
     (unpruned) 3DGS/MCMC cloud is sensitive to near-camera floaters; the full
     volumetric integral lives in the rasterizer. Opacity/confidence filtering and
     densification pruning mitigate it."""
@@ -54,8 +54,7 @@ def carrier_ray_query(carriers, origin, direction, *, k=3.0, min_opacity=0.0,
                               confidence=0.0, provenance="miss")
 
     # Front-to-back opacity accumulation: the "surface" is the carrier where the
-    # accumulated alpha crosses 0.5. This ignores wispy near-camera floaters that a
-    # naive nearest-centre hit would wrongly pick, matching what the rasterizer sees.
+    # accumulated alpha crosses 0.5. This ignores wispy near-camera floaters that a nearest-centre hit would otherwise pick, matching what the rasterizer sees.
     idx_hits = torch.nonzero(hit, as_tuple=False).squeeze(-1)
     order = torch.argsort(t[idx_hits])
     ordered = idx_hits[order]

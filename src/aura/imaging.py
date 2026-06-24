@@ -14,7 +14,7 @@ probed at runtime so the rest of the pipeline degrades gracefully:
 
 The capability probes here are *real*: they attempt a tiny encode/decode rather
 than only checking for an importable module, so tests can gate the hard MP4
-encode step on an honest signal while always exercising the frame-sequence path.
+encode step on a real signal while always exercising the frame-sequence path.
 """
 
 from __future__ import annotations

@@ -53,8 +53,8 @@ def _rotating_batch_window_indices(
     full batch list, so over ``ceil(total_batches / window)`` iterations every
     batch — and thus every carrier its rays hit — is supervised exactly once
     per cycle. This bounds the dense ray x carrier renderer's per-iteration
-    cost while still driving full carrier coverage (see
-    the README (carrier-gradient/convergence notes), "carrier gradient starvation").
+    cost while still driving full carrier coverage so every carrier
+    receives gradients under full-coverage sampling.
     """
 
     if window <= 0 or window >= total_batches or total_batches == 0:
@@ -149,7 +149,7 @@ class TorchOptimizationConfig:
     # ray x carrier renderer cannot afford every batch each step, so a small
     # per-iteration window keeps memory/time bounded while round-robin rotation
     # guarantees every carrier eventually receives gradients across an epoch
-    # (see the README (carrier-gradient/convergence notes), "carrier gradient starvation").
+    # (full-coverage sampling).
     batches_per_iteration: int = 0
     # Deliverable: Adaptive densification + pruning + regularization (3DGS ADC)
     densification: DensificationConfig = field(default_factory=DensificationConfig)

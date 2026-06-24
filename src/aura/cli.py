@@ -169,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="Process a rotating window of this many batches per iteration instead "
                             "of every batch (0 = all). With a full-coverage plan this bounds the "
                             "dense renderer's per-step cost while round-robin rotation ensures every "
-                            "carrier eventually receives gradients (fixes carrier gradient starvation).")
+                            "carrier eventually receives gradients (full-coverage sampling).")
     train.add_argument("--device", default=None, help="Torch device such as cuda or cpu")
     train.add_argument("--color-learning-rate", type=float, default=0.25)
     train.add_argument("--position-lr", type=float, default=1.6e-4, dest="position_lr",

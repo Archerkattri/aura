@@ -1,15 +1,18 @@
 """PRISM — Pluggable Radiance-prImitive Splatting Module.
 
-AURA's own differentiable rasterizer, built as the alternative to gsplat that
-splats *typed* carriers, not just 3D Gaussians. (A prism handles a whole
-spectrum; PRISM splats a whole spectrum of carrier types.)
+PRISM **extends** a Gaussian rasterizer (gsplat) rather than replacing it: gsplat
+remains the engine for fast, high-quality *Gaussian* rasterization (and now ray
+tracing via 3DGUT/3DGRT), while PRISM adds the one thing it lacks — splatting
+*typed, non-Gaussian* carriers (Beta, Gabor, neural) under one differentiable
+pipeline. Use gsplat for Gaussian quality; use PRISM when a region needs a carrier
+type gsplat can't express. (A prism handles a whole spectrum; PRISM splats a whole
+spectrum of carrier types.)
 
-The genuine post-3DGS substrate: a differentiable, GPU, front-to-back
-alpha-compositing rasterizer whose per-primitive 2D footprint is *pluggable* by
-carrier type. Gaussians use an exponential conic falloff (validated against
-gsplat at ~31 dB); Beta carriers use a bounded polynomial falloff; Gabor
-carriers use an oscillatory envelope. New carrier types add one footprint
-function — no change to projection or compositing.
+A differentiable, GPU, front-to-back alpha-compositing rasterizer whose
+per-primitive 2D footprint is *pluggable* by carrier type. Gaussians use an
+exponential conic falloff (validated against gsplat at ~31 dB); Beta carriers use
+a bounded polynomial falloff; Gabor carriers use an oscillatory envelope. New
+carrier types add one footprint function — no change to projection or compositing.
 
 Pure PyTorch (autograd handles the backward pass), so any carrier whose
 footprint is a differentiable function of its parameters trains end-to-end with

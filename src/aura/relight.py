@@ -9,7 +9,7 @@ BRDFs produce a *relit* per-carrier colour under arbitrary lights, which gsplat 
 rasterizes. This is an explicit, editable lighting model on top of the same
 carriers — a core post-3DGS differentiator.
 
-Approximation, stated honestly: normals from covariance are unsigned and noisy for
+Scope: normals from covariance are unsigned and noisy for
 near-isotropic carriers, and albedo from baked colour still contains residual
 shading. This is a usable relighting layer, not a full inverse-rendering material
 decomposition.
