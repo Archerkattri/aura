@@ -42,14 +42,21 @@ def test_primary_readme_gifs_keep_source_width():
 
 def test_readme_gifs_play_at_normal_speed():
     for path in (
-        ROOT / "docs" / "truck_orbit.gif",
-        ROOT / "docs" / "truck_depth_orbit.gif",
         ROOT / "docs" / "relight_sweep.gif",
         ROOT / "docs" / "train_orbit.gif",
         ROOT / "docs" / "train_depth_orbit.gif",
     ):
         img = Image.open(path)
         assert img.info.get("duration", 0) >= 100, path
+
+
+def test_truck_readme_gifs_play_slow_enough_to_inspect():
+    for path in (
+        ROOT / "docs" / "truck_orbit.gif",
+        ROOT / "docs" / "truck_depth_orbit.gif",
+    ):
+        img = Image.open(path)
+        assert img.info.get("duration", 0) >= 200, path
 
 
 def test_readme_includes_local_truck_and_train_media_only():
