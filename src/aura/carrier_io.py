@@ -32,6 +32,8 @@ def save_carriers(
     ftypes=None,      # [N] int PRISM footprint codes (optional)
     freq=None,        # [N,2] gabor freq (optional)
     phase=None,       # [N]   gabor phase (optional)
+    beta=None,        # [N]   Beta-kernel shape (Deformable Beta Splatting; optional)
+    sb=None,          # [N,L,6] spherical-Beta view-dependent colour lobes (optional)
 ):
     """Write carrier tensors to ``<path>/carriers.npz`` (path may be a package
     dir or a file path). Accepts torch tensors or numpy arrays."""
@@ -61,6 +63,10 @@ def save_carriers(
         data["freq"] = _np(freq)
     if phase is not None:
         data["phase"] = _np(phase)
+    if beta is not None:
+        data["beta"] = _np(beta)
+    if sb is not None:
+        data["sb"] = _np(sb)
     np.savez(target, **data)
     return target
 
@@ -97,6 +103,10 @@ def load_carriers(path, *, device="cuda"):
         out["freq"] = t("freq")
     if "phase" in z:
         out["phase"] = t("phase")
+    if "beta" in z:
+        out["beta"] = t("beta")
+    if "sb" in z:
+        out["sb"] = t("sb")
     return out
 
 

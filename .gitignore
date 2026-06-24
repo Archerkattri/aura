@@ -48,3 +48,4 @@ LOCAL_SECRETS.md
 # Harness-managed agent worktrees
 .claude/
 .gpu_venv/
+.dbs_venv/
