@@ -83,6 +83,47 @@ AURA is now genuinely competitive with 3DGS view synthesis. The remaining gap to
 the published ~25 dB reflects densification/LR tuning and harness/eval-protocol
 differences, not the representation.
 
+### Typed carriers beat fixed Gaussians at matched budget (the post-3DGS claim)
+
+The point of a post-3DGS engine is that **adaptive typed carriers reconstruct
+better than one fixed primitive**. AURA proves this with a controlled experiment
+(`experiments/dbs_truck_ablation.sh`) using **Deformable Beta Splatting** carriers
+— same harness, data, `llffhold=8` eval, MCMC densification, and **1,000,000
+carriers per arm** — varying only the carrier's type degrees of freedom:
+
+| Carrier type | kernel + colour | PSNR ↑ | SSIM ↑ | LPIPS ↓ |
+|---|---|---|---|---|
+| fixed (Gaussian-style) | frozen kernel + SH colour | 26.017 | 0.8904 | 0.1277 |
+| **adaptive Beta** | deformable Beta kernel + spherical-Beta colour | **26.352** | **0.8964** | **0.1219** |
+
+**+0.335 dB / +0.0060 SSIM / −0.0058 LPIPS** from making the carrier type adaptive,
+at matched carrier count. The learned shapes are genuinely non-degenerate (β median
+2.75, range 0.02–51.85 — carriers specialise per region).
+
+![GT · fixed Gaussian · deformable Beta — Truck held-out view](docs/beta_vs_gauss_truck.png)
+
+_Held-out test view, with a zoom crop. Top: full frame; bottom: detail crop._
+
+Honest scope: the fixed arm is a frozen-β bounded kernel (a conservative stand-in
+for a literal Gaussian), and the comparison matches *carrier count*, not *bytes*
+(Beta stores extra params). DBS's separate *compactness* claim (fewer carriers for
+equal quality) is a tracked follow-up. The Beta backend runs in an isolated venv
+(`.dbs_venv`); `scripts/dbs_bridge.py` converts its output into AURA's
+`carriers.npz` (typed params and all).
+
+### Standards-compliant asset export (`KHR_gaussian_splatting`)
+
+AURA exports trained carriers to the ratified Khronos
+[`KHR_gaussian_splatting`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_gaussian_splatting)
+glTF/GLB extension (POSITION, COLOR_0 rgba, ROTATION, SCALE, OPACITY, higher-order
+SH), so assets load as real splats in conformant engines (three.js / PlayCanvas /
+Babylon) — not a degenerate point cloud. Validated end to end: DBS-train → 1M Beta
+carriers → `carriers.npz` → a 52 MB engine-loadable GLB.
+
+```bash
+aura export-splat path/to/package_or_carriers.npz --output scene.glb
+```
+
 ### Rasterizer speed (PRISM forward, RTX 5090, ms/frame · FPS)
 
 PRISM's CUDA kernel is real-time; ~18–25× its own torch tiled path. gsplat (a
@@ -96,19 +137,21 @@ mature fused library) is faster still.
 
 ### Honest status of PRISM and typed carriers
 
-PRISM (AURA's own typed-carrier rasterizer) is real-time and trains all four
+The real-scene typed-carrier quality win **is now established** — but via the
+**Beta backend**, not PRISM (see the ablation table above: adaptive Beta beats a
+fixed Gaussian by +0.335 dB at matched budget on real Truck data).
+
+PRISM (AURA's *own* typed-carrier rasterizer) is real-time and trains all four
 carrier footprints (gaussian/beta/gabor/neural), but it is **not yet at parity
-with the gsplat backend on quality**: PRISM-native training trails by several dB
-on dense real scenes, and showed instability at very large per-tile caps. An
-earlier carrier-type ablation suggested typed/mixed carriers beat plain Gaussian
-(+0.8 dB) — but that result **did not survive the pose fix**: at correct poses,
-Gaussian (12.08) ≈ adaptive-mix (11.98) at the same budget. Typed carriers still
-demonstrably help on *controlled* signals (Gabor beats Gaussian on stripes, a
-neural carrier beats a Gaussian on a ring — `tests/test_prism.py`), but a
-real-scene advantage at matched poses/budget is **not yet established**. Closing
-the PRISM-vs-gsplat quality gap, and a learned (vs heuristic) carrier assignment,
-are the open problems. The convergence numbers above use the gsplat backend,
-which is AURA's current quality reference.
+with the gsplat/Beta backends on quality**: PRISM-native training trails by several
+dB on dense real scenes, and showed instability at very large per-tile caps. An
+earlier PRISM carrier-type ablation suggested typed/mixed carriers beat plain
+Gaussian (+0.8 dB) — but that PRISM result **did not survive the pose fix**: at
+correct poses, Gaussian (12.08) ≈ adaptive-mix (11.98) at the same budget. So
+PRISM stays a research substrate (it proves typed footprints train with gradients,
+and is real-time for forward rendering); the **quality engine is gsplat, and Beta
+for the typed win**. The remaining open contribution is adaptive *per-region
+routing between kernel families* beating the best single family at matched budget.
 
 Reproduce: `python experiments/prism_ablation.py ...`, `prism_benchmark.py`,
 `direct_pose_test.py` (results in `experiments/results/`).

@@ -39,7 +39,21 @@ gap**. Two make-or-break claims, both currently UNPROVEN in AURA:
 
 ## The plan
 
-### Track 1 — typed-carrier quality win via DBS (the highest-certainty path)
+### Track 1 — typed-carrier quality win via DBS ✅ DONE (2026-06-24)
+
+**Result:** built DBS on sm_120 in an isolated `.dbs_venv`; reproduced it on Truck
+(26.39 dB). Matched-budget ablation (`experiments/dbs_truck_ablation.sh`, 1M
+carriers each, same harness/eval): **adaptive Beta 26.352 dB vs fixed-Gaussian
+26.017 dB → +0.335 dB / +0.0060 SSIM / −0.0058 LPIPS.** Typed carriers measurably
+beat a fixed primitive at matched budget on real data. `carrier_io` round-trips
+β+sb; `scripts/dbs_bridge.py` converts DBS → `carriers.npz`. Figure:
+`docs/beta_vs_gauss_truck.png`. Open follow-ups: (a) DBS *compactness* claim
+(match bytes not count), (b) **adaptive per-region routing between kernel families**
+beating the best single family — the genuinely novel contribution (Track 1b).
+
+<details><summary>Original Track 1 plan (for reference)</summary>
+
+#### Original plan — typed-carrier quality win via DBS (the highest-certainty path)
 
 Do **not** try to fix PRISM's compositor. Instead adopt **Deformable Beta
 Splatting** (`github.com/RongLiu-Leo/beta-splatting`) — a *gsplat-derived* CUDA
@@ -59,6 +73,15 @@ learnable per-primitive Beta shape. Steps:
 4. Then the *novel* step: **adaptive per-region routing** between Beta shapes
    (and Gaussian as the β→∞ limit), and prove the mix beats the best single
    setting at matched budget. This is the open contribution.
+
+</details>
+
+### Track 2 — unified asset contract (in progress)
+
+- ✅ **`KHR_gaussian_splatting` export** (`aura.gltf_splat`, `aura export-splat`):
+  the ratified Khronos extension — engine-loadable GLB validated end to end.
+- ⬜ Ray-query / secondary rays / relighting (3DGRT-style), semantics+confidence,
+  unified `rayQuery(r)` interface. Unchanged from below.
 
 ### Track 2 — the unified asset contract (the other make-or-break claim)
 
