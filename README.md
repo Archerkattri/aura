@@ -61,10 +61,18 @@ spherical-Beta colour held on) decomposes the +0.335 dB:
   per carrier. The open novel question is routing between *distinct families*
   (Beta vs Gabor), not β within Beta.
 
-The comparison matches *carrier count*, not *bytes* (Beta stores extra params);
-DBS's separate *compactness* claim is a tracked follow-up. The Beta backend runs in
-an isolated venv (`.dbs_venv`); `scripts/dbs_bridge.py` converts its output into
-AURA's `carriers.npz` (typed params and all).
+**…and it's more compact** (`experiments/dbs_compactness_sweep.sh`, Beta vs
+fixed-Gaussian at matched `cap_max`):
+
+| carriers | Beta | fixed-Gaussian |
+|---|---|---|
+| 250k | 25.57 | 25.16 |
+| 500k | **26.07** | 25.78 |
+| 1M | 26.35 | 26.02 |
+
+**Beta@500k (26.07 dB) beats Gaussian@1M (26.02 dB)** — equal quality at *half* the
+carriers. The Beta backend runs in an isolated venv (`.dbs_venv`);
+`scripts/dbs_bridge.py` converts its output into AURA's `carriers.npz`.
 
 <details>
 <summary><strong>Footnote: the pose fix that unblocked all of this (+6.6 dB)</strong></summary>
