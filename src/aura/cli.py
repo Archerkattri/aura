@@ -338,6 +338,13 @@ def main(argv: list[str] | None = None) -> int:
     export_report = sub.add_parser("export-report", help="Print native/glTF/USD runtime export readiness as JSON")
     export_report.add_argument("package_dir", type=Path)
 
+    export_splat = sub.add_parser(
+        "export-splat",
+        help="Export carriers (a .aura package dir or carriers.npz) to standard KHR_gaussian_splatting glTF/GLB",
+    )
+    export_splat.add_argument("source", type=Path, help="package dir containing carriers.npz, or a carriers.npz file")
+    export_splat.add_argument("--output", type=Path, default=Path("outputs/splat.glb"))
+
     sub.add_parser("readiness-report", help="Print AURA production-readiness audit as JSON")
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
@@ -637,6 +644,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "train-prism":
         package_dir = _train_prism_command(args)
         print(package_dir)
+        return 0
+    if args.command == "export-splat":
+        from .carrier_io import load_carriers
+        out = _export_splat_command(args, load_carriers)
+        print(out)
         return 0
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
@@ -1210,6 +1222,20 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     report_path = package_dir / "training_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return package_dir
+
+
+def _export_splat_command(args: argparse.Namespace, load_carriers) -> Path:
+    """Export carriers to a standard KHR_gaussian_splatting glTF/GLB asset."""
+    from .gltf_splat import write_splat_glb, write_splat_gltf
+
+    carriers = load_carriers(args.source, device="cpu")
+    if carriers is None:
+        raise SystemExit(f"no carriers.npz found at {args.source}")
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.suffix.lower() == ".gltf":
+        return write_splat_gltf(carriers, out)
+    return write_splat_glb(carriers, out)
 
 
 def _train_gsplat_command(args: argparse.Namespace) -> Path:
