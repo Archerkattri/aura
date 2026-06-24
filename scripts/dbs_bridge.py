@@ -28,12 +28,22 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))            # aura.carrier_io (numpy-only path)
 DBS = Path("/tmp/dbs")
 sys.path.insert(0, str(DBS))                      # scene.beta_model
 
 import numpy as np
 import torch
+
+
+def _load_carrier_io():
+    """Import aura.carrier_io WITHOUT triggering aura/__init__ (which pulls heavy
+    deps like jsonschema that the lean .dbs_venv does not have)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aura_carrier_io", str(ROOT / "src" / "aura" / "carrier_io.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _load_betamodel(ply: str, sb_number: int, sh_degree: int):
@@ -46,7 +56,7 @@ def _load_betamodel(ply: str, sb_number: int, sh_degree: int):
 
 
 def cmd_convert(args):
-    from aura.carrier_io import save_carriers
+    save_carriers = _load_carrier_io().save_carriers
     m = _load_betamodel(args.ply, args.sb_number, args.sh_degree)
     with torch.no_grad():
         means = m.get_xyz.detach()                       # [N,3]
