@@ -1,20 +1,36 @@
-"""Hybrid renderer — PRISM as a true extension of the gsplat engine.
+"""Hybrid renderer — PRISM as an extension layer on top of gsplat/Beta.
 
-The Gaussian rasterizer (gsplat) is fast and high-quality and now even ray-traces;
-there is no point re-implementing it. So AURA routes work by carrier type:
+The quality path is **not** PRISM. AURA uses mature quality backends first:
 
-  * **Gaussian** carriers  → gsplat  (the engine: speed + quality)
-  * **non-Gaussian** carriers (Beta / Gabor / neural) → PRISM  (the typed footprints
-    gsplat cannot express)
+  * **Gaussian** carriers  → gsplat
+  * **Beta** carriers      → Deformable Beta / DBS-compatible quality backend
 
-and depth-composites the two layers into one image. A scene that is all Gaussians
-renders *exactly* as gsplat (zero overhead); a scene that mixes types gets gsplat
-quality on the Gaussian bulk plus PRISM's typed carriers where they help — the
-extension, not a replacement.
+PRISM is the additive extension layer for carrier footprints those quality
+backends do not cover (currently Gabor/neural, plus explicitly opt-in experimental
+PRISM footprints). A scene with no PRISM-extension carriers renders exactly as the
+primary backend; a mixed scene depth-composites PRISM's extension layer over that
+primary image. PRISM extends gsplat/Beta, it does not compete with or replace them.
 """
 from __future__ import annotations
 
 FOOTPRINT_CODES = {"gaussian": 0, "beta": 1, "gabor": 2, "neural": 3}
+PRIMARY_QUALITY_CODES = frozenset((FOOTPRINT_CODES["gaussian"], FOOTPRINT_CODES["beta"]))
+DEFAULT_PRISM_EXTENSION_CODES = frozenset((FOOTPRINT_CODES["gabor"], FOOTPRINT_CODES["neural"]))
+
+
+def extension_mask(ftypes, *, include_beta: bool = False):
+    """Return the carriers PRISM should render as an extension layer.
+
+    By default, Gaussian and Beta carriers stay with the primary quality backend
+    (gsplat / DBS-Beta). PRISM handles only extension footprints such as Gabor or
+    neural carriers. ``include_beta=True`` is intentionally explicit and reserved
+    for experiments comparing PRISM's bounded Beta footprint, not production
+    quality rendering.
+    """
+    mask = (ftypes == FOOTPRINT_CODES["gabor"]) | (ftypes == FOOTPRINT_CODES["neural"])
+    if include_beta:
+        mask = mask | (ftypes == FOOTPRINT_CODES["beta"])
+    return mask
 
 
 def _prism_layer(means, quats, scales, opacities, colors, ftypes, freq, phase,
@@ -56,15 +72,22 @@ def _prism_layer(means, quats, scales, opacities, colors, ftypes, freq, phase,
 
 
 def render_hybrid(means, quats, scales, opacities, colors, ftypes, viewmat, K,
-                  width, height, *, freq=None, phase=None, sh_degree=None, device="cuda"):
-    """Render a mixed-carrier scene: gsplat for Gaussian carriers, PRISM for the
-    rest, depth-composited. ``ftypes`` is a per-carrier int (0=gaussian, 1=beta,
-    2=gabor, 3=neural). Returns rgb [H,W,3]. All-Gaussian → identical to gsplat."""
+                  width, height, *, freq=None, phase=None, sh_degree=None, device="cuda",
+                  include_beta_in_prism: bool = False):
+    """Render a mixed-carrier scene with PRISM as an additive extension layer.
+
+    Primary quality carriers (Gaussian and Beta) are kept on the primary backend
+    path. In this tensor-level helper, that primary path is represented by the
+    gsplat-compatible rasterization call; production DBS/Beta renders should feed
+    the Beta quality result as the primary layer before compositing PRISM
+    extensions. ``include_beta_in_prism`` is opt-in for PRISM-Beta experiments
+    only. Returns rgb [H,W,3].
+    """
     import torch
     from gsplat import rasterization
 
     ftypes = ftypes.to(device)
-    is_g = ftypes == FOOTPRINT_CODES["gaussian"]
+    is_extension = extension_mask(ftypes, include_beta=include_beta_in_prism)
     vm = viewmat.unsqueeze(0) if viewmat.dim() == 2 else viewmat
     Ks = K.unsqueeze(0) if K.dim() == 2 else K
     n = means.shape[0]
@@ -73,8 +96,8 @@ def render_hybrid(means, quats, scales, opacities, colors, ftypes, viewmat, K,
     if phase is None:
         phase = torch.zeros(n, device=device)
 
-    # --- Gaussian layer via gsplat (RGB + expected depth + alpha) ---
-    g = torch.nonzero(is_g, as_tuple=False).squeeze(-1)
+    # --- Primary quality layer via gsplat/DBS-compatible tensors ---
+    g = torch.nonzero(~is_extension, as_tuple=False).squeeze(-1)
     rgb_g = torch.zeros((height, width, 3), device=device)
     a_g = torch.zeros((height, width), device=device)
     d_g = torch.full((height, width), 1e9, device=device)
@@ -86,8 +109,8 @@ def render_hybrid(means, quats, scales, opacities, colors, ftypes, viewmat, K,
         rgb_g = out[0, ..., :3]; d_g = out[0, ..., 3].clamp(min=1e-6)
         a_g = alphas[0, ..., 0]
 
-    # --- non-Gaussian layer via PRISM ---
-    p = torch.nonzero(~is_g, as_tuple=False).squeeze(-1)
+    # --- PRISM extension layer ---
+    p = torch.nonzero(is_extension, as_tuple=False).squeeze(-1)
     if p.numel() == 0:
         return rgb_g                       # pure-Gaussian scene == gsplat exactly
     p_colors = colors[p]

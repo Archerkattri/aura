@@ -375,6 +375,20 @@ def main(argv: list[str] | None = None) -> int:
     ray_query.add_argument("--min-confidence", type=float, default=0.0)
     ray_query.add_argument("--device", default="cuda")
 
+    relight_preview = sub.add_parser(
+        "relight-preview",
+        help="Render one relit preview frame from trained carriers and a capture manifest",
+    )
+    relight_preview.add_argument("source", type=Path, help="package dir or carriers.npz")
+    relight_preview.add_argument("manifest", type=Path, help="capture/posed-frame manifest JSON")
+    relight_preview.add_argument("--output", type=Path, default=Path("outputs/relit.ppm"))
+    relight_preview.add_argument("--frame", type=int, default=0)
+    relight_preview.add_argument("--scale", type=float, default=1.0)
+    relight_preview.add_argument("--light-direction", type=float, nargs=3, default=(0.2, 0.7, 0.6))
+    relight_preview.add_argument("--intensity", type=float, default=1.2)
+    relight_preview.add_argument("--ambient", type=float, default=0.1)
+    relight_preview.add_argument("--device", default="cuda")
+
     sub.add_parser("readiness-report", help="Print AURA production-readiness audit as JSON")
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
@@ -690,6 +704,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "ray-query":
         print(_ray_query_command(args))
+        return 0
+    if args.command == "relight-preview":
+        out = _relight_preview_command(args)
+        print(out)
         return 0
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
@@ -1299,6 +1317,34 @@ def _ray_query_command(args: argparse.Namespace) -> str:
     result = carrier_ray_query(carriers, args.origin, args.direction,
                                min_confidence=args.min_confidence, device=args.device)
     return json.dumps(asdict(result))
+
+
+def _relight_preview_command(args: argparse.Namespace) -> Path:
+    """Render a relit carrier preview to PPM."""
+    import json
+    from .carrier_io import load_carriers
+    from .relight import render_relit
+    from .render import RenderImage
+    from .shading import DirectionalLight
+
+    carriers = load_carriers(args.source, device=args.device)
+    if carriers is None:
+        raise SystemExit(f"no carriers.npz found at {args.source}")
+    manifest = json.loads(Path(args.manifest).read_text())
+    frames = manifest.get("frames", [])
+    if not frames:
+        raise SystemExit(f"manifest has no frames: {args.manifest}")
+    frame = frames[int(args.frame) % len(frames)]
+    light = DirectionalLight(direction=tuple(args.light_direction), intensity=float(args.intensity))
+    width, height, flat = render_relit(
+        carriers, frame, args.scale, [light],
+        ambient=float(args.ambient), device=args.device,
+    )
+    pixels = tuple(
+        (float(flat[i]), float(flat[i + 1]), float(flat[i + 2]))
+        for i in range(0, len(flat), 3)
+    )
+    return RenderImage(width, height, pixels).write_ppm(args.output)
 
 
 def _export_splat_command(args: argparse.Namespace, load_carriers) -> Path:

@@ -31,8 +31,9 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert "callable cuda_renderer fallback is not CUDA acceleration" in by_id["cuda_backend"]["gaps"]
     assert by_id["renderer_trainer"]["productionReady"] is False
     assert "renderer real-time performance is not yet benchmarked at production resolution" in by_id["renderer_trainer"]["gaps"]
+    assert any("secondary-ray/reflection integration remains future work" in gap for gap in by_id["renderer_trainer"]["gaps"])
     assert by_id["benchmarks"]["productionReady"] is False
-    assert any("3DGS" in gap for gap in by_id["benchmarks"]["gaps"])
+    assert any("external" in step for step in by_id["benchmarks"]["nextSteps"])
     assert payload["torchCarrierKernels"]["productionReady"] is False
     assert payload["cudaKernelSources"]["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
     assert payload["legacyCudaRenderer"]["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
@@ -55,7 +56,8 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0
     assert payload["backendReadiness"]["productionCudaReady"] is False
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
-    assert "pending reproducible real-dataset baseline benchmarks" in payload["summary"]
+    assert "multi-scene Beta-vs-Gaussian evidence" in payload["summary"]
+    assert "external-method baselines" in payload["summary"]
 
 
 def test_readiness_pillar_serializes_json_safe_fields():

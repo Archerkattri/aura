@@ -15,6 +15,7 @@ from aura.cli import (  # noqa: E402
     _confidence_command,
     _export_splat_command,
     _export_usd_command,
+    _relight_preview_command,
     _ray_query_command,
     native_demo_scene,
 )
@@ -67,3 +68,33 @@ def test_export_usd_command_writes_usda(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert text.startswith("#usda 1.0")
     assert "GaussianCarriers" in text
+
+
+def test_relight_preview_command_writes_ppm(tmp_path, monkeypatch):
+    _make_carriers(tmp_path)
+    manifest = tmp_path / "m.json"
+    manifest.write_text(json.dumps({"root": ".", "frames": [_frame()]}))
+
+    def fake_render_relit(carriers, frame, scale, lights, *, ambient=0.1, device="cuda"):
+        assert len(lights) == 1
+        assert ambient == 0.2
+        assert device == "cpu"
+        return 2, 1, [1.0, 0.0, 0.0, 0.0, 0.5, 1.0]
+
+    import aura.relight
+    monkeypatch.setattr(aura.relight, "render_relit", fake_render_relit)
+
+    out = _relight_preview_command(Namespace(
+        source=tmp_path,
+        manifest=manifest,
+        output=tmp_path / "relit.ppm",
+        frame=0,
+        scale=1.0,
+        light_direction=[0.0, 0.0, 1.0],
+        intensity=1.0,
+        ambient=0.2,
+        device="cpu",
+    ))
+
+    assert out.exists()
+    assert out.read_text(encoding="ascii").startswith("P3\n2 1\n255")

@@ -1,12 +1,12 @@
 """PRISM — Pluggable Radiance-prImitive Splatting Module.
 
-PRISM **extends** a Gaussian rasterizer (gsplat) rather than replacing it: gsplat
-remains the engine for fast, high-quality *Gaussian* rasterization (and now ray
-tracing via 3DGUT/3DGRT), while PRISM adds the one thing it lacks — splatting
-*typed, non-Gaussian* carriers (Beta, Gabor, neural) under one differentiable
-pipeline. Use gsplat for Gaussian quality; use PRISM when a region needs a carrier
-type gsplat can't express. (A prism handles a whole spectrum; PRISM splats a whole
-spectrum of carrier types.)
+PRISM **extends** the quality renderers rather than replacing them: gsplat remains
+the engine for fast, high-quality Gaussian rasterization, the DBS/Beta backend
+carries the high-quality Beta path, and PRISM adds carrier footprints those engines
+do not cover (Gabor/neural, plus explicitly opt-in experimental PRISM footprints)
+under one differentiable pipeline. Use gsplat/DBS-Beta for quality; use PRISM as
+the additive typed-footprint layer. (A prism handles a spectrum; PRISM adds the
+extra colours of that spectrum.)
 
 A differentiable, GPU, front-to-back alpha-compositing rasterizer whose
 per-primitive 2D footprint is *pluggable* by carrier type. Gaussians use an

@@ -152,10 +152,11 @@ AURA is an **engine + contract layer**:
 - **Typed carriers — Beta / Gabor / neural.** Quality and compactness come from
   carriers gsplat doesn't have. AURA trains **Deformable Beta Splatting** carriers
   (a learnable bounded kernel + spherical-Beta colour) for the headline results.
-- **PRISM — the typed-carrier rasterizer.** `aura.prism` is a differentiable, GPU,
-  pluggable-footprint rasterizer that **extends** the Gaussian engine to splat
-  non-Gaussian carriers (Beta, Gabor, neural) under one pipeline — use gsplat for
-  Gaussian quality, PRISM where a region needs a carrier type gsplat can't express.
+- **PRISM — the typed-carrier extension layer.** `aura.prism` is a differentiable,
+  GPU, pluggable-footprint rasterizer that **adds** carrier footprints the quality
+  backends do not cover. Use gsplat for Gaussian quality, the DBS/Beta backend for
+  Beta quality, and PRISM as the additive layer for Gabor/neural/experimental
+  footprints — not as an alternative to gsplat/Beta.
 
 | Footprint | Kernel |
 |---|---|
@@ -198,6 +199,7 @@ aura train-prism  scene/manifest.json --output scene.aura --carrier beta --densi
 aura export-splat scene.aura --output scene.glb                          # engine export
 aura confidence   scene.aura scene/manifest.json                         # confidence field
 aura ray-query    scene.aura --origin 0 0 0 --direction 0 0 1            # query payload
+aura relight-preview scene.aura scene/manifest.json --output relit.ppm   # editable relight preview
 aura render       scene.aura --backend torch --output view.ppm           # render
 aura validate-package scene.aura && aura inspect-package scene.aura
 ```
@@ -236,7 +238,8 @@ All on Tanks & Temples — Truck, rendered through the trained carriers.
 
 ```text
 src/aura/        the library — reconstruction, carriers, rasterizers, asset contract
-  prism.py / prism_cuda.py   PRISM typed-carrier differentiable rasterizer
+  hybrid.py                  gsplat/DBS-Beta primary path + PRISM extension layer
+  prism.py / prism_cuda.py   PRISM additive typed-footprint rasterizer
   gltf_splat.py              KHR_gaussian_splatting export
   usd_writer.py              USD ASCII preview/metadata bridge
   relight.py confidence.py carrier_query.py   relight / confidence / ray-query
