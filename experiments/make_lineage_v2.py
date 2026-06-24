@@ -105,7 +105,10 @@ def main():
         nw, nh, nflat = nerf(f, a.scale)
         ner = img_of(nflat, nw, nh).resize((w, h))
         tdgs = img_of(render_model(gauss, view, k, w, h, 0), w, h)
-        aura = img_of(render_model(beta, view, k, w, h, 2), w, h)
+        # render Beta with SH colour (sb off) — raw rasterization culls carriers but
+        # the spherical-Beta path expects sb_params aligned to the visible set; SH
+        # colour shows the Beta-kernel reconstruction faithfully for the thumbnail.
+        aura = img_of(render_model(beta, view, k, w, h, 0), w, h)
         rows.append([gt, col, ner, tdgs, aura])
 
     labels = ["Ground truth", "COLMAP (SfM points)", "NeRF", "vanilla 3DGS", "AURA (Beta)"]
