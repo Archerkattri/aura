@@ -1,89 +1,25 @@
-# AURA-Core
+# AURA — Adaptive Unified Radiance Asset
 
-**AURA** (Adaptive Unified Radiance Asset) is a post-3DGS 3D scene
-reconstruction engine. It trains a mixed adaptive carrier representation
-directly from posed image, depth, mask, and normal captures and exports a
-queryable `.aura` scene package.
+> **Photogrammetry → NeRF → 3D Gaussian Splatting → AURA**
 
-```text
-COLMAP / MVS  →  NeRF  →  3D Gaussian Splatting  →  AURA
-```
+A **post-3DGS** reconstruction engine. Instead of one primitive type everywhere,
+AURA reconstructs a scene as adaptive **_typed_ radiance carriers** and wraps them
+in a single **queryable · relightable · standards-exportable** asset contract —
+the things a raw 3DGS splat cloud can't do.
 
-Rather than optimizing a single primitive type across the entire scene, AURA
-assigns each spatial region the most appropriate carrier from a typed family
-(surface, volume, beta kernel, gabor/frequency, neural residual, semantic, or
-Gaussian fallback). Carriers evolve during training through split, promote,
-merge, and demote decisions driven by measured residuals. The result is an
-auditable, ray-queryable scene representation with native support for
-confidence, geometry proxies, semantic grouping, and LOD.
+<p align="center">
+  <img src="docs/truck_orbit.gif" width="70%" alt="AURA reconstruction of the Tanks & Temples Truck (orbit)"><br>
+  <em>AURA reconstruction of Tanks &amp; Temples — Truck (26.4 dB, adaptive Beta carriers).</em>
+</p>
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design rationale
-and carrier-family descriptions.
+The lineage AURA extends, all rendered through the **same correct COLMAP poses**:
 
-## PRISM — AURA's own differentiable rasterizer
+![Ground truth · COLMAP SfM points · NeRF · vanilla 3DGS · AURA](docs/lineage_truck.png)
 
-AURA renders and trains through **PRISM** (*Pluggable Radiance-prImitive
-Splatting Module*, `aura.prism` / `aura.prism_cuda`) — a differentiable, GPU,
-tile-based alpha-compositing rasterizer with a **pluggable per-carrier
-footprint**, built as AURA's own alternative to gsplat. It splats a *spectrum*
-of carrier types, not just Gaussians, and trains them jointly:
+_Ground truth · COLMAP SfM point cloud · NeRF (compact, from scratch) · vanilla
+3DGS · AURA. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design._
 
-| Footprint | Kernel | Backend |
-|---|---|---|
-| **gaussian** | `exp(-½·conic)` (3DGS-style) | CUDA fwd + diff. backward |
-| **beta** | bounded `(1-r/3)^β` (Deformable-Beta) | CUDA fwd + diff. backward |
-| **gabor** | envelope × oscillation (high-freq texture) | CUDA fwd + diff. backward |
-| **neural** | bounded MLP over Fourier features (Splat-the-Net) | torch (autograd) |
-
-A single scene mixes carrier types per region (`--carrier auto` assigns Gabor to
-high-texture regions from image gradients, Gaussian elsewhere). PRISM also
-supports adaptive densification (`--densify`) and EVER-style
-volumetrically-consistent alpha (`--volumetric`, `1-exp(-opacity·w)`).
-
-```bash
-aura train-prism outputs/truck-pts129k-manifest.json --carrier auto --densify --scale 0.25
-python scripts/eval_psnr.py <out>.aura outputs/truck-pts129k-manifest.json --renderer prism --scale 0.25
-```
-
-## Results (Tanks & Temples — Truck, real data)
-
-The reconstruction lineage on the same scene, eval frames, and **the same correct
-COLMAP poses** (Photogrammetry → NeRF → 3DGS → AURA):
-
-![GT · COLMAP · NeRF · 3DGS · AURA — Truck](docs/lineage_truck.png)
-
-_Ground truth · COLMAP SfM point cloud (photogrammetry) · NeRF (compact
-from-scratch) · executed vanilla 3DGS · AURA. AURA reconstructs the truck sharply,
-on par with vanilla 3DGS — its current quality path is the gsplat backend, so the
-two look alike (that's honest, not a coincidence)._
-
-### The pose fix (the real story)
-
-AURA (and the executed baseline) initially plateaued at ~14–16 dB while published
-3DGS reaches ~25. The cause was **not** the representation — it was a bug: the
-COLMAP→manifest conversion stored only `camera_origin` + `look_at` (forward
-direction) and reconstructed the view from a fixed `up=(0,-1,0)`, **dropping
-camera roll**. Handheld captures have roll, so every pose was wrong and
-reconstruction was capped regardless of iterations/SH/densification.
-
-Smoking gun (`experiments/direct_pose_test.py`): training gsplat with the **full
-COLMAP poses** (quaternion+translation) directly gives **20.6 dB** @0.25 (7k
-iters) vs ~14 dB through the manifest path — **+6.6 dB from correct poses alone**.
-The fix carries the full world-to-camera rotation (`view_rotation`) through the
-pipeline. After it:
-
-| Run (correct poses) | Scale | Iters | PSNR | SSIM | N |
-|---|---|---|---|---|---|
-| AURA (gsplat backend) | 0.25 | 7,000 | 18.44 dB | 0.580 | 129,531 |
-| AURA (gsplat backend, full-res, SH, densify) | 1.0 | 30,000 | **19.44 dB** | 0.689 | 3,428,171 |
-| direct COLMAP-pose gsplat (reference) | 0.25 | 7,000 | 20.60 dB | — | 129,531 |
-| 3DGS (Kerbl 2023, published, original repo) | 1.0 | 30,000 | ~25.19 dB | ~0.879 | — |
-
-AURA is now genuinely competitive with 3DGS view synthesis. The remaining gap to
-the published ~25 dB reflects densification/LR tuning and harness/eval-protocol
-differences, not the representation.
-
-### Typed carriers beat fixed Gaussians at matched budget (the post-3DGS claim)
+## Does it work? — typed carriers beat fixed Gaussians
 
 The point of a post-3DGS engine is that **adaptive typed carriers reconstruct
 better than one fixed primitive**. AURA proves this with a controlled experiment
@@ -130,6 +66,24 @@ DBS's separate *compactness* claim is a tracked follow-up. The Beta backend runs
 an isolated venv (`.dbs_venv`); `scripts/dbs_bridge.py` converts its output into
 AURA's `carriers.npz` (typed params and all).
 
+<details>
+<summary><strong>Footnote: the pose fix that unblocked all of this (+6.6 dB)</strong></summary>
+
+Early runs plateaued at ~14–16 dB. The cause was **not** the representation — the
+COLMAP→manifest conversion stored only `camera_origin` + `look_at` and rebuilt the
+view from a fixed `up=(0,-1,0)`, **dropping camera roll**. Carrying the full
+world-to-camera rotation (`view_rotation`) gave **+6.6 dB from poses alone**
+(`experiments/direct_pose_test.py`); the comparison figures above all use the
+corrected poses. The gsplat backend then reaches 18–19 dB at reduced scale; the
+Beta backend reaches the 26 dB numbers above at full DBS settings.
+
+</details>
+
+## Post-3DGS capabilities (what a raw 3DGS cloud can't do)
+
+These work over the **real trained carriers** (`carriers.npz`), not a toy scene,
+and are what make AURA an *asset contract* rather than a splat dump.
+
 ### Standards-compliant asset export (`KHR_gaussian_splatting`)
 
 AURA exports trained carriers to the ratified Khronos
@@ -150,15 +104,43 @@ carrier as a surface element — **normal** = the Gaussian's short axis, **albed
 the diffuse colour — and applies `shading.py`'s Lambertian / Cook-Torrance BRDFs to
 produce a *relit* colour under arbitrary lights, then rasterizes
 (`aura.relight.render_relit`, `experiments/relight_demo.py`, 5 tests). The scene
-responds to light direction, so the same carriers are relightable. Honest scope:
+responds to light direction, so the same carriers are relightable:
+
+![albedo · lit from left · lit from right](docs/relight_truck.png)
+
+Honest scope:
 covariance normals are unsigned/noisy and the albedo still holds residual baked
 shading — this is an editable relighting *layer*, not a full inverse-rendering
 material decomposition.
 
-### Rasterizer speed (PRISM forward, RTX 5090, ms/frame · FPS)
+### Per-carrier confidence
 
-PRISM's CUDA kernel is real-time; ~18–25× its own torch tiled path. gsplat (a
-mature fused library) is faster still.
+Every carrier gets a **confidence** in `[0,1]` from *multi-view observation
+support* — how many posed views actually see it (`aura.confidence`,
+`multiview_confidence`). Speculative floaters seen by few views score low; the
+field is stored in `carriers.npz` and exported as the `_AURA_CONFIDENCE` glTF
+attribute. On Truck: median 1.0, with the low tail flagging the ~0.04% floaters.
+No mainstream 3DGS pipeline exposes a per-primitive confidence.
+
+### Unified ray query
+
+One call answers a ray over the trained carriers with the full contract payload —
+`rayQuery(r) → {color, depth, normal, confidence, semantic_id, transmittance}`
+(`aura.carrier_query`, front-to-back opacity accumulation; the confidence field
+doubles as a floater filter). The same payload geometry powers depth/normal
+readout:
+
+<p align="center">
+  <img src="docs/truck_depth_orbit.gif" width="55%" alt="AURA expected-depth orbit"><br>
+  <em>Expected-depth render (near = dark, far = light) — the geometry the ray query reads.</em>
+</p>
+
+## Speed (PRISM, RTX 5090, ms/frame · FPS)
+
+AURA also ships **PRISM** (`aura.prism` / `aura.prism_cuda`) — its *own* pluggable
+differentiable rasterizer that splats gaussian/beta/gabor/neural footprints (an
+alternative to gsplat, kept as a real-time research substrate). Its CUDA kernel is
+real-time, ~18–25× its own torch tiled path; gsplat (mature, fused) is faster still.
 
 | Carriers | Res | PRISM CUDA | PRISM torch | gsplat |
 |---|---|---|---|---|
@@ -166,28 +148,49 @@ mature fused library) is faster still.
 | 100k | 512² | 1.99 ms / 503 fps | 36.4 ms | 0.29 ms |
 | 200k | 979×546 | 7.23 ms / 138 fps | 54.5 ms | 1.26 ms |
 
-### Honest status of PRISM and typed carriers
+PRISM trains all four footprints (gaussian/beta/gabor/neural):
 
-The real-scene typed-carrier quality win **is now established** — but via the
-**Beta backend**, not PRISM (see the ablation table above: adaptive Beta beats a
-fixed Gaussian by +0.335 dB at matched budget on real Truck data).
+| Footprint | Kernel | Backend |
+|---|---|---|
+| **gaussian** | `exp(-½·conic)` (3DGS-style) | CUDA fwd + diff. backward |
+| **beta** | bounded `(1-r/3)^β` (Deformable-Beta) | CUDA fwd + diff. backward |
+| **gabor** | envelope × oscillation (high-freq texture) | CUDA fwd + diff. backward |
+| **neural** | bounded MLP over Fourier features (Splat-the-Net) | torch (autograd) |
 
-PRISM (AURA's *own* typed-carrier rasterizer) is real-time and trains all four
-carrier footprints (gaussian/beta/gabor/neural), but it is **not yet at parity
-with the gsplat/Beta backends on quality**: PRISM-native training trails by several
-dB on dense real scenes, and showed instability at very large per-tile caps. An
-earlier PRISM carrier-type ablation suggested typed/mixed carriers beat plain
-Gaussian (+0.8 dB) — but that PRISM result **did not survive the pose fix**: at
-correct poses, Gaussian (12.08) ≈ adaptive-mix (11.98) at the same budget. So
-PRISM stays a research substrate (it proves typed footprints train with gradients,
-and is real-time for forward rendering); the **quality engine is gsplat, and Beta
-for the typed win**. The remaining open contribution is adaptive *per-region
-routing between kernel families* beating the best single family at matched budget.
+## What's proven vs open (honest status)
 
-Reproduce: `python experiments/prism_ablation.py ...`, `prism_benchmark.py`,
-`direct_pose_test.py` (results in `experiments/results/`).
+- ✅ **Typed beats fixed**, on real data, controlled: adaptive Beta +0.335 dB over a
+  Gaussian-style carrier at matched budget. The win is mostly the spherical-Beta
+  **colour** (~+0.4 dB) and partly the kernel **shape** (~+0.09 dB).
+- ✅ **Asset contract over real carriers**: KHR export, relighting, per-carrier
+  confidence, and a unified ray query — all tested.
+- ❌ **Adaptive per-region β routing does *not* beat a good global β** (honest
+  negative). The genuinely-open novel claim is routing between *distinct kernel
+  families* (Beta vs Gabor), which needs a second kernel in a quality rasterizer.
+- ⚠️ **Quality engine is gsplat + Beta, not PRISM.** PRISM-native training still
+  trails by several dB on dense scenes; it stays a real-time research substrate.
+  Open: cross-family routing, DBS-style compactness, semantic supervision.
 
-## Features
+Reproduce: `experiments/dbs_truck_ablation.sh`, `experiments/dbs_routing_sweep.sh`,
+`experiments/render_gifs.py`, `experiments/direct_pose_test.py`.
+
+## What's inside
+
+- **Carrier registry & `.aura` format** — typed carriers (surface/volume/beta/
+  gabor/neural/semantic/Gaussian) with schema-validated payloads; fast binary
+  `carriers.npz` sidecar (`aura.carrier_io`).
+- **Reconstruction** — capture-manifest ingest (COLMAP import), tiled torch
+  optimisation (`aura train`), the gsplat backend (`aura train-gsplat`), PRISM
+  (`aura train-prism`), and the DBS Beta bridge (`scripts/dbs_bridge.py`).
+- **Asset contract** — KHR_gaussian_splatting export (`aura export-splat`),
+  relighting (`aura.relight`), confidence (`aura.confidence`), unified ray query
+  (`aura.carrier_query`), shading (Lambertian + Cook-Torrance + IBL), CUDA/BVH
+  ray traversal, EXR/PFM + turntable export.
+- **Eval** — GPU PSNR/SSIM, real-scene benchmark harness, memory-stability probe.
+
+<details>
+<summary>Full capability list</summary>
+
 
 - Native carrier registry for surface, volume, beta, gabor, neural residual,
   semantic, and Gaussian fallback carriers with typed payload validation.
@@ -236,18 +239,13 @@ Reproduce: `python experiments/prism_ablation.py ...`, `prism_benchmark.py`,
 - Real-scene benchmark harness scoring an `.aura` package against external
   COLMAP/NeRF/3DGS baseline renders (PSNR/SSIM/LPIPS-proxy JSON report).
 
-## Maturity
+</details>
 
 All capabilities above are implemented and covered by the deterministic test
-suite. The advanced optimization, anti-aliasing, carrier, allocation, and
-shading paths are validated on fixtures and gated behind opt-in configuration so
-that default behavior is unchanged. Quantitative quality and performance claims
-against COLMAP / NeRF / 3DGS baselines require running `aura benchmark-real-scene`
-on external datasets and have not yet been published. The
-semantic-graph-governed allocation framework provides working graph-driven
-carrier selection plus the differentiable inter-type-conversion and
-cross-carrier residual structure; learning those assignments end-to-end is a
-training-time step that runs once real captures are supplied.
+suite (advanced optimization / anti-aliasing / allocation / shading paths are
+opt-in so default behaviour is unchanged). The real-scene quality numbers in this
+README come from the DBS Beta backend; reproduce them with the scripts under
+`experiments/`.
 
 ## Requirements
 
