@@ -58,12 +58,14 @@ def fit(target, mode, n_carriers, iters, device, seed):
     tgt = torch.tensor(target, dtype=torch.float32, device=device)
     g = int(math.sqrt(n_carriers))
     n = g * g
-    # carriers on a frontal grid at z=2; camera at origin, +z forward
-    lin = torch.linspace(-1, 1, g, device=device)
+    # carriers on a frontal grid at z=2; camera at origin, +z forward. With
+    # focal=W/2 below, a point (x,y,2) maps to pixel (W/4·x+W/2, ...), so x,y ∈
+    # [-2,2] spans the full image. Init scale ≈ half the grid spacing for coverage.
+    lin = torch.linspace(-2, 2, g, device=device)
     gy, gx = torch.meshgrid(lin, lin, indexing="ij")
     means = torch.stack([gx.reshape(-1), gy.reshape(-1), torch.full((n,), 2.0, device=device)], 1)
     means = means.clone().requires_grad_(True)
-    logscale = torch.full((n, 3), math.log(0.06), device=device, requires_grad=True)
+    logscale = torch.full((n, 3), math.log(2.0 / g), device=device, requires_grad=True)
     quats = torch.tensor([[1.0, 0, 0, 0]], device=device).repeat(n, 1).clone().requires_grad_(True)
     logit_o = torch.full((n,), 0.5, device=device, requires_grad=True)
     colors = torch.rand(n, 3, device=device, requires_grad=True)
