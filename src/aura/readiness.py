@@ -97,6 +97,7 @@ def production_readiness_report() -> ProductionReadinessReport:
     backend_readiness = evaluate_backend_readiness(readiness_scene)
     cuda_production = _cuda_production_artifact()
     native_real_capture = _native_real_capture_artifact()
+    torch_backend_validation = _torch_backend_validation_artifact()
     pillars = (
         ReadinessPillar(
             id="native_carriers",
@@ -141,20 +142,22 @@ def production_readiness_report() -> ProductionReadinessReport:
             id="torch_backend",
             title="PyTorch reference backend",
             implemented=bool(torch_status.get("available")) or bool(kernel_report.get("autogradCarrierCount", 0)),
-            production_ready=False,
+            production_ready=bool(torch_backend_validation.get("passed")),
             evidence=(
                 "torch renderer status is reportable through aura torch-renderer-status",
                 "carrier payloads have torch autograd kernel specs",
                 f"backend readiness reports {backend_readiness['sceneCarrierAutogradCoverageRate']:.0%} scene-carrier autograd coverage",
                 "the torch optimizer consumes packed capture tensor batches when PyTorch is installed",
                 "grouped torch ray/carrier intersection and compositing is carrier-complete and covered by parity tests",
+                *_torch_backend_validation_evidence(torch_backend_validation),
             ),
-            gaps=(
+            gaps=() if torch_backend_validation.get("passed") else (
                 "the renderer and optimizer are validated on deterministic fixtures, not full real capture datasets",
                 "full-resolution tiled or GPU-native data loading at dataset scale is not yet benchmarked",
+                *_torch_backend_validation_gaps(torch_backend_validation),
             ),
             next_steps=(
-                "run torch optimization on real captures with memory-bounded batching",
+                "extend the bounded torch CUDA validation to larger target budgets as GPU memory allows",
                 "publish renderer/optimizer throughput and quality on real-dataset baselines",
             ),
         ),
@@ -337,6 +340,54 @@ def _native_real_capture_gaps(payload: dict) -> tuple[str, ...]:
     if payload.get("reason") == "missing":
         return ("native real-capture validation artifact is missing",)
     return ("native real-capture validation artifact did not pass",)
+
+
+def _torch_backend_validation_artifact() -> dict:
+    payload = _latest_json(RESULTS, "torch_backend_validation*.json")
+    if not payload:
+        return {"passed": False, "reason": "missing"}
+    packed_target_count = int(payload.get("packedTargetCount", 0))
+    min_packed_targets = int(payload.get("minPackedTargets", 0))
+    manifest_regions = int(payload.get("manifestRegionCount", 0))
+    min_manifest_regions = int(payload.get("minManifestRegions", 0))
+    render_seconds = float(payload.get("renderSeconds", 0.0))
+    passed = (
+        bool(payload.get("passed"))
+        and str(payload.get("device", "")).startswith("cuda")
+        and bool(payload.get("finiteLosses"))
+        and int(payload.get("loadedFrameCount", 0)) > 0
+        and int(payload.get("sceneElementCount", 0)) > 0
+        and int(payload.get("packedBatchCount", 0)) > 0
+        and packed_target_count >= min_packed_targets
+        and manifest_regions >= min_manifest_regions
+        and int(payload.get("maxBatchTargetCount", 0)) <= int(payload.get("maxAllowedBatchTargets", 0))
+        and render_seconds > 0.0
+    )
+    return {
+        **payload,
+        "passed": passed,
+        "packedTargetCount": packed_target_count,
+        "minPackedTargets": min_packed_targets,
+        "manifestRegionCount": manifest_regions,
+        "minManifestRegions": min_manifest_regions,
+        "renderSeconds": render_seconds,
+    }
+
+
+def _torch_backend_validation_evidence(payload: dict) -> tuple[str, ...]:
+    if not payload.get("passed"):
+        return ()
+    return (
+        f"real-capture packed CUDA render validated {payload['packedTargetCount']} targets on {payload.get('device')}",
+        f"real capture manifest includes {payload['manifestRegionCount']} regions and bounded CUDA batches stayed within {payload.get('maxAllowedBatchTargets')} targets",
+        f"torch backend render summary produced finite losses in {payload['renderSeconds']:.3f}s",
+    )
+
+
+def _torch_backend_validation_gaps(payload: dict) -> tuple[str, ...]:
+    if payload.get("reason") == "missing":
+        return ("torch backend real-capture CUDA validation artifact is missing",)
+    return ("torch backend real-capture CUDA validation artifact did not pass",)
 
 
 def _summary(pillars: tuple[ReadinessPillar, ...]) -> str:

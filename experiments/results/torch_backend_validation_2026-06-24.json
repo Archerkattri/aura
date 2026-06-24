@@ -1,0 +1,451 @@
+{
+  "format": "AURA_TORCH_BACKEND_VALIDATION",
+  "passed": true,
+  "device": "cuda:0",
+  "manifestFrameCount": 251,
+  "manifestRegionCount": 129531,
+  "loadedFrameCount": 1,
+  "sceneElementCount": 2048,
+  "packedBatchCount": 1,
+  "packedTargetCount": 64,
+  "maxBatchTargetCount": 64,
+  "maxAllowedBatchTargets": 256,
+  "minManifestRegions": 100000,
+  "minPackedTargets": 32,
+  "finiteLosses": true,
+  "renderSeconds": 0.4489992840681225,
+  "failures": [],
+  "manifest": "/home/krishi/workspace/brain/workspace/projects/aura/repo/outputs/truck-pts129k-manifest.json",
+  "maxFrames": 1,
+  "maxRegions": 2048,
+  "samplingPlan": {
+    "format": "AURA_CAPTURE_SAMPLING_PLAN",
+    "pixelStride": 64,
+    "tileSize": 128,
+    "maxTargetsPerFrame": 64,
+    "maxTargetsPerBatch": 256,
+    "sampleOrder": "row-major tiles, row-major pixels",
+    "maskRule": "sample mask values greater than 0; skip zero or negative mask values",
+    "deterministic": true,
+    "tileCount": 16,
+    "batchCount": 1,
+    "maxBatchTargetCount": 64,
+    "totalCandidatePixelCount": 64,
+    "totalSampledPixelCount": 64,
+    "totalMaskedPixelCount": 0,
+    "tiles": [
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 0,
+        "targetOffset": 0,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          0,
+          0
+        ],
+        "lastSampledPixel": [
+          64,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          128,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 1,
+        "targetOffset": 4,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          128,
+          0
+        ],
+        "lastSampledPixel": [
+          192,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          256,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 2,
+        "targetOffset": 8,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          256,
+          0
+        ],
+        "lastSampledPixel": [
+          320,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          384,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 3,
+        "targetOffset": 12,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          384,
+          0
+        ],
+        "lastSampledPixel": [
+          448,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          512,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 4,
+        "targetOffset": 16,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          512,
+          0
+        ],
+        "lastSampledPixel": [
+          576,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          640,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 5,
+        "targetOffset": 20,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          640,
+          0
+        ],
+        "lastSampledPixel": [
+          704,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          768,
+          0
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 6,
+        "targetOffset": 24,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          768,
+          0
+        ],
+        "lastSampledPixel": [
+          832,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          896,
+          0
+        ],
+        "size": [
+          83,
+          128
+        ],
+        "tileIndex": 7,
+        "targetOffset": 28,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          896,
+          0
+        ],
+        "lastSampledPixel": [
+          960,
+          64
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          0,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 8,
+        "targetOffset": 32,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          0,
+          128
+        ],
+        "lastSampledPixel": [
+          64,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          128,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 9,
+        "targetOffset": 36,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          128,
+          128
+        ],
+        "lastSampledPixel": [
+          192,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          256,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 10,
+        "targetOffset": 40,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          256,
+          128
+        ],
+        "lastSampledPixel": [
+          320,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          384,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 11,
+        "targetOffset": 44,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          384,
+          128
+        ],
+        "lastSampledPixel": [
+          448,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          512,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 12,
+        "targetOffset": 48,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          512,
+          128
+        ],
+        "lastSampledPixel": [
+          576,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          640,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 13,
+        "targetOffset": 52,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          640,
+          128
+        ],
+        "lastSampledPixel": [
+          704,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          768,
+          128
+        ],
+        "size": [
+          128,
+          128
+        ],
+        "tileIndex": 14,
+        "targetOffset": 56,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          768,
+          128
+        ],
+        "lastSampledPixel": [
+          832,
+          192
+        ]
+      },
+      {
+        "frameId": "colmap_image_1",
+        "origin": [
+          896,
+          128
+        ],
+        "size": [
+          83,
+          128
+        ],
+        "tileIndex": 15,
+        "targetOffset": 60,
+        "candidatePixelCount": 4,
+        "sampledPixelCount": 4,
+        "maskedPixelCount": 0,
+        "firstSampledPixel": [
+          896,
+          128
+        ],
+        "lastSampledPixel": [
+          960,
+          192
+        ]
+      }
+    ],
+    "batches": [
+      {
+        "batchIndex": 0,
+        "tileIndices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "targetOffset": 0,
+        "targetCount": 64,
+        "maxTargetCount": 256
+      }
+    ]
+  },
+  "cudaDeviceName": "NVIDIA GeForce RTX 5090",
+  "claimBoundary": "Validates real-capture asset loading, bounded packed targets, and torch CUDA render-summary execution; it is not a full-resolution training throughput benchmark."
+}

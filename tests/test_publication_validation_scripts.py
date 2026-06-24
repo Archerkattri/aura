@@ -169,3 +169,51 @@ def test_native_real_capture_validation_accepts_complete_audit():
     assert report["passed"] is True
     assert report["allLocalScenesComplete"] is True
     assert report["sceneCount"] == 2
+
+
+def test_torch_backend_validation_rejects_cpu_or_empty_payload():
+    sys.path.insert(0, "experiments")
+    from torch_backend_validation import summarize_torch_backend_gate
+
+    report = summarize_torch_backend_gate(
+        device="cpu",
+        manifest_frame_count=251,
+        manifest_region_count=129531,
+        loaded_frame_count=1,
+        scene_element_count=2048,
+        packed_batch_count=1,
+        packed_target_count=64,
+        max_batch_target_count=64,
+        finite_losses=True,
+        render_seconds=0.1,
+        max_allowed_batch_targets=256,
+        min_manifest_regions=1000,
+        min_packed_targets=32,
+    )
+
+    assert report["passed"] is False
+    assert "torch backend did not run on cuda" in report["failures"]
+
+
+def test_torch_backend_validation_accepts_cuda_real_capture_payload():
+    sys.path.insert(0, "experiments")
+    from torch_backend_validation import summarize_torch_backend_gate
+
+    report = summarize_torch_backend_gate(
+        device="cuda",
+        manifest_frame_count=251,
+        manifest_region_count=129531,
+        loaded_frame_count=1,
+        scene_element_count=2048,
+        packed_batch_count=1,
+        packed_target_count=64,
+        max_batch_target_count=64,
+        finite_losses=True,
+        render_seconds=0.1,
+        max_allowed_batch_targets=256,
+        min_manifest_regions=1000,
+        min_packed_targets=32,
+    )
+
+    assert report["passed"] is True
+    assert report["failures"] == []

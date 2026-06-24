@@ -196,3 +196,43 @@ def test_native_carrier_gate_accepts_complete_local_real_capture_artifact(tmp_pa
 
     assert native["productionReady"] is True
     assert any("8 local real captures" in item for item in native["evidence"])
+
+
+def test_torch_backend_gate_requires_cuda_real_capture_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    torch_backend = next(pillar for pillar in report["pillars"] if pillar["id"] == "torch_backend")
+
+    assert torch_backend["productionReady"] is False
+    assert "torch backend real-capture CUDA validation artifact is missing" in torch_backend["gaps"]
+
+
+def test_torch_backend_gate_accepts_cuda_real_capture_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    (tmp_path / "torch_backend_validation_2026-06-24.json").write_text(json.dumps({
+        "format": "AURA_TORCH_BACKEND_VALIDATION",
+        "passed": True,
+        "device": "cuda",
+        "manifestFrameCount": 251,
+        "manifestRegionCount": 129531,
+        "loadedFrameCount": 1,
+        "sceneElementCount": 2048,
+        "packedBatchCount": 1,
+        "packedTargetCount": 64,
+        "maxBatchTargetCount": 64,
+        "maxAllowedBatchTargets": 256,
+        "finiteLosses": True,
+        "renderSeconds": 0.1,
+        "failures": [],
+    }))
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    torch_backend = next(pillar for pillar in report["pillars"] if pillar["id"] == "torch_backend")
+
+    assert torch_backend["productionReady"] is True
+    assert any("real-capture packed CUDA render" in item for item in torch_backend["evidence"])
