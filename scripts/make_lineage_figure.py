@@ -23,7 +23,8 @@ def colmap_points_render(colmap_dir, frame, scale, device="cuda"):
     from aura.gsplat_renderer import manifest_frame_to_camera
     _, _, points, _ = load_colmap_model(colmap_dir)
     xyz = torch.tensor([list(p.xyz) for p in points], dtype=torch.float32, device=device)
-    rgb = torch.tensor([[c/255 for c in p.rgb] for p in points], dtype=torch.float32, device=device)
+    # COLMAP loader already returns rgb in [0,1] — do NOT divide by 255 again.
+    rgb = torch.tensor([list(p.rgb) for p in points], dtype=torch.float32, device=device).clamp(0, 1)
     view, k, w, h = manifest_frame_to_camera(frame, scale)
     R = torch.tensor(view, device=device)[:3, :3]; t = torch.tensor(view, device=device)[:3, 3]
     K = torch.tensor(k, device=device)

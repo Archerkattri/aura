@@ -47,13 +47,15 @@ python scripts/eval_psnr.py <out>.aura outputs/truck-pts129k-manifest.json --ren
 
 ## Results (Tanks & Temples — Truck, real data)
 
-Ground truth vs an executed **vanilla 3DGS (gsplat)** baseline vs **AURA**, on the
-same scene and eval frames (matched budget, 0.25× scale):
+The reconstruction lineage on the same scene, eval frames, and **the same correct
+COLMAP poses** (Photogrammetry → NeRF → 3DGS → AURA):
 
-![Ground truth vs vanilla 3DGS vs AURA — Truck](docs/aura_vs_3dgs_truck.png)
+![GT · COLMAP · NeRF · 3DGS · AURA — Truck](docs/lineage_truck.png)
 
-_Above: ground truth · executed vanilla 3DGS · AURA — all with the corrected
-poses (see below). AURA reconstructs the truck sharply, on par with vanilla 3DGS._
+_Ground truth · COLMAP SfM point cloud (photogrammetry) · NeRF (compact
+from-scratch) · executed vanilla 3DGS · AURA. AURA reconstructs the truck sharply,
+on par with vanilla 3DGS — its current quality path is the gsplat backend, so the
+two look alike (that's honest, not a coincidence)._
 
 ### The pose fix (the real story)
 
