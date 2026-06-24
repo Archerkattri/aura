@@ -12,10 +12,10 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
 
     assert isinstance(report, ProductionReadinessReport)
     assert payload["format"] == "AURA_PRODUCTION_READINESS_REPORT"
-    assert payload["productionReady"] is False
+    assert isinstance(payload["productionReady"], bool)
     assert payload["pillarCount"] == 6
     assert payload["implementedPillarCount"] >= 5
-    assert payload["productionReadyPillarCount"] < payload["pillarCount"]
+    assert payload["productionReadyPillarCount"] <= payload["pillarCount"]
     assert set(by_id) == {
         "native_carriers",
         "package_validation",
@@ -32,11 +32,15 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     else:
         assert "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready" in by_id["cuda_backend"]["gaps"]
         assert "callable cuda_renderer fallback is not CUDA acceleration" in by_id["cuda_backend"]["gaps"]
-    assert by_id["renderer_trainer"]["productionReady"] is False
-    assert "renderer real-time performance is not yet benchmarked at production resolution" in by_id["renderer_trainer"]["gaps"]
-    assert any("secondary-ray/reflection integration remains future work" in gap for gap in by_id["renderer_trainer"]["gaps"])
-    assert by_id["benchmarks"]["productionReady"] is False
-    assert any("official full-split baseline" in step for step in by_id["benchmarks"]["nextSteps"])
+    if by_id["renderer_trainer"]["productionReady"]:
+        assert any("PRISM additive extension contract" in item for item in by_id["renderer_trainer"]["evidence"])
+    else:
+        assert "renderer real-time performance is not yet benchmarked at production resolution" in by_id["renderer_trainer"]["gaps"]
+        assert any("secondary-ray/reflection integration remains future work" in gap for gap in by_id["renderer_trainer"]["gaps"])
+    if by_id["benchmarks"]["productionReady"]:
+        assert any("publication validation report passed" in item for item in by_id["benchmarks"]["evidence"])
+    else:
+        assert any("official full-split baseline" in step for step in by_id["benchmarks"]["nextSteps"])
     assert payload["torchCarrierKernels"]["productionReady"] is False
     assert payload["cudaKernelSources"]["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
     assert payload["legacyCudaRenderer"]["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
@@ -59,8 +63,8 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert payload["backendReadiness"]["sceneCarrierAutogradCoverageRate"] == 1.0
     assert payload["backendReadiness"]["productionCudaReady"] is False
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
-    assert "multi-scene Beta-vs-Gaussian evidence" in payload["summary"]
-    assert "same-split external-method smoke/protocol baselines" in payload["summary"]
+    assert "artifact-backed production-ready" in payload["summary"]
+    assert "same-split publication baselines" in payload["summary"]
 
 
 def test_readiness_pillar_serializes_json_safe_fields():
@@ -96,12 +100,17 @@ def test_readiness_report_cli_prints_json():
     payload = json.loads(result.stdout)
 
     assert payload["format"] == "AURA_PRODUCTION_READINESS_REPORT"
-    assert payload["productionReady"] is False
+    assert isinstance(payload["productionReady"], bool)
     assert payload["backendReadiness"]["requiresTorchImport"] is False
     assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
     assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     missing = {pillar["id"] for pillar in payload["missingOrIncomplete"]}
-    assert missing.issuperset({"renderer_trainer", "benchmarks"})
+    if "renderer_trainer" not in missing:
+        renderer = next(pillar for pillar in payload["pillars"] if pillar["id"] == "renderer_trainer")
+        assert any("PRISM additive extension contract" in item for item in renderer["evidence"])
+    if "benchmarks" not in missing:
+        benchmarks = next(pillar for pillar in payload["pillars"] if pillar["id"] == "benchmarks")
+        assert any("publication validation report passed" in item for item in benchmarks["evidence"])
     if "native_carriers" not in missing:
         native = next(pillar for pillar in payload["pillars"] if pillar["id"] == "native_carriers")
         assert any("local real captures" in item for item in native["evidence"])
@@ -236,3 +245,56 @@ def test_torch_backend_gate_accepts_cuda_real_capture_artifact(tmp_path, monkeyp
 
     assert torch_backend["productionReady"] is True
     assert any("real-capture packed CUDA render" in item for item in torch_backend["evidence"])
+
+
+def test_renderer_trainer_gate_accepts_publication_validation_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    (tmp_path / "publication_validation_2026-06-24.json").write_text(json.dumps({
+        "format": "AURA_PUBLICATION_VALIDATION_REPORT",
+        "publicationReady": True,
+        "passedGateCount": 4,
+        "gateCount": 4,
+        "gates": [
+            {"id": "prism_additive_contract", "passed": True},
+            {"id": "prism_cuda_fps", "passed": True},
+            {"id": "secondary_ray_reflection", "passed": True},
+            {"id": "inverse_materials", "passed": True},
+        ],
+        "claimBoundary": {"cannotClaim": ["full production-resolution FPS across all publication scenes"]},
+    }))
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    renderer = next(pillar for pillar in report["pillars"] if pillar["id"] == "renderer_trainer")
+
+    assert renderer["productionReady"] is True
+    assert any("PRISM additive extension contract" in item for item in renderer["evidence"])
+
+
+def test_benchmark_gate_accepts_publication_validation_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    (tmp_path / "publication_validation_2026-06-24.json").write_text(json.dumps({
+        "format": "AURA_PUBLICATION_VALIDATION_REPORT",
+        "publicationReady": True,
+        "passedGateCount": 8,
+        "gateCount": 8,
+        "remainingGateIds": [],
+        "gates": [
+            {"id": "local_multiscene_quality", "passed": True},
+            {"id": "dataset_audit", "passed": True},
+            {"id": "external_method_baselines", "passed": True},
+        ],
+        "claimBoundary": {
+            "canClaim": ["AURA has same-split external baseline metrics"],
+            "cannotClaim": ["official external-repo leaderboard superiority"],
+        },
+    }))
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    benchmarks = next(pillar for pillar in report["pillars"] if pillar["id"] == "benchmarks")
+
+    assert benchmarks["productionReady"] is True
+    assert any("publication validation report passed" in item for item in benchmarks["evidence"])
