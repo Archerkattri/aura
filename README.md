@@ -91,9 +91,10 @@ report is `experiments/results/publication_validation_2026-06-24.json`. External
 baseline sources/protocol targets are listed in
 `experiments/results/external_baseline_sources_2026-06-24.json`, and the partial
 executed 3DGS/gsplat-control baseline is recorded in
-`experiments/results/external_baselines_2026-06-24.json` with a fresh CUDA
-same-split 3DGS smoke summary in
-`experiments/results/baseline_3dgs_smoke_2026-06-24.txt`.
+`experiments/results/external_baselines_2026-06-24.json` with fresh CUDA
+same-split smoke summaries in
+`experiments/results/baseline_3dgs_smoke_2026-06-24.txt` and
+`experiments/results/external_baseline_smokes_2026-06-24.json`.
 
 ## Quality
 

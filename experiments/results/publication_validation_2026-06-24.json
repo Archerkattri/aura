@@ -92,10 +92,10 @@
     },
     {
       "evidence": [
-        "external baselines present: 3dgs, 3dgs_smoke"
+        "external baselines present: 3dgs, 3dgs_smoke, colmap, nerf"
       ],
       "gaps": [
-        "missing baselines: 2dgs, colmap, nerf, ray_traced_gs"
+        "missing baselines: 2dgs, ray_traced_gs"
       ],
       "id": "external_method_baselines",
       "nextSteps": [

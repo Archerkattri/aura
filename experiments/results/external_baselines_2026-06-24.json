@@ -25,11 +25,34 @@
       "ssim": 0.0051,
       "lpips": 1.0103,
       "notes": "Fresh CUDA smoke proves the runner executes on local COLMAP + held-out split. It is intentionally not a quality baseline because it used one training iteration."
+    },
+    "colmap": {
+      "label": "same-split COLMAP sparse SfM point smoke",
+      "scene": "truck",
+      "sourceArtifact": "experiments/results/external_baseline_smokes_2026-06-24.json",
+      "device": "cuda",
+      "frames": 1,
+      "scale": 0.25,
+      "psnr": 8.9961,
+      "ssim": 0.049045,
+      "lpips": 0.772041,
+      "notes": "Sparse COLMAP point rendering through AURA's held-out camera split; smoke/protocol evidence, not a dense MVS quality baseline."
+    },
+    "nerf": {
+      "label": "same-split compact NeRF smoke",
+      "scene": "truck",
+      "sourceArtifact": "experiments/results/external_baseline_smokes_2026-06-24.json",
+      "device": "cuda",
+      "frames": 1,
+      "scale": 0.25,
+      "psnr": 8.6726,
+      "ssim": 0.126395,
+      "lpips": 0.971559,
+      "iterations": 1,
+      "notes": "Compact local NeRF MLP trained on CUDA; smoke/protocol evidence, not an official nerfstudio/SOTA quality baseline."
     }
   },
   "missingBaselines": [
-    "colmap",
-    "nerf",
     "2dgs",
     "ray_traced_gs"
   ],

@@ -1,0 +1,23 @@
+{
+  "format": "AURA_EXTERNAL_BASELINE_SMOKES",
+  "scene": "truck",
+  "manifest": "outputs/truck-pts129k-manifest.json",
+  "colmap": {
+    "frames": 1,
+    "scale": 0.25,
+    "psnr": 8.9961,
+    "ssim": 0.049045,
+    "lpips": 0.772041
+  },
+  "nerf": {
+    "frames": 1,
+    "scale": 0.25,
+    "psnr": 8.6726,
+    "ssim": 0.126395,
+    "lpips": 0.971559,
+    "iterations": 1
+  },
+  "device": "cuda",
+  "seed": 0,
+  "notes": "Same-split CUDA smoke metrics. COLMAP is sparse SfM point rendering; NeRF is the repo's compact frequency-encoded MLP smoke, not an official nerfstudio/SOTA baseline."
+}
