@@ -658,17 +658,42 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
                 with torch.no_grad():
                     avg = grad_accum / max(accum_n, 1)
                     keep = torch.sigmoid(P["logit_opacities"]) > config.prune_opacity
-                    clone = keep & (avg > config.grad_threshold)
+                    highgrad = keep & (avg > config.grad_threshold)
                     if int(P["means"].shape[0]) >= config.max_carriers:
-                        clone = torch.zeros_like(clone)
-                    keep_idx = torch.nonzero(keep, as_tuple=False).squeeze(1)
+                        highgrad = torch.zeros_like(highgrad)
+                    scale_lin = torch.exp(P["log_scales"]).max(dim=1).values
+                    # 3DGS-style: SPLIT large high-grad carriers (into 2 smaller
+                    # children, positions sampled within the carrier), CLONE small
+                    # ones. Split fills detail; clone densifies under-reconstructed.
+                    hg_idx = torch.nonzero(highgrad, as_tuple=False).squeeze(1)
+                    if hg_idx.numel() > 0:
+                        thr = torch.quantile(scale_lin[hg_idx], config.split_scale_percentile)
+                    else:
+                        thr = scale_lin.new_tensor(float("inf"))
+                    split = highgrad & (scale_lin > thr)
+                    clone = highgrad & ~split
+                    base = keep & ~split           # survivors (split originals are replaced)
+                    base_idx = torch.nonzero(base, as_tuple=False).squeeze(1)
                     clone_idx = torch.nonzero(clone, as_tuple=False).squeeze(1)
-                    jitter = torch.zeros_like(P["means"][clone_idx]).normal_(0, 1e-3)
+                    split_idx = torch.nonzero(split, as_tuple=False).squeeze(1)
+                    cl_jit = torch.zeros_like(P["means"][clone_idx]).normal_(0, 1e-3)
+                    # two children per split carrier, jittered by the carrier's own scale
+                    s = torch.exp(P["log_scales"][split_idx])
+                    j1 = torch.randn_like(P["means"][split_idx]) * s
+                    j2 = torch.randn_like(P["means"][split_idx]) * s
+                    shrink = math.log(config.split_scale_shrink)
                     new = {}
                     for key in _LRS:
-                        cl = P[key][clone_idx] + (jitter if key == "means" else 0.0)
-                        new[key] = torch.cat([P[key][keep_idx], cl], dim=0)
-                    ft = torch.cat([ft[keep_idx], ft[clone_idx]], dim=0)
+                        parts = [P[key][base_idx], P[key][clone_idx] + (cl_jit if key == "means" else 0.0)]
+                        if split_idx.numel() > 0:
+                            c1, c2 = P[key][split_idx].clone(), P[key][split_idx].clone()
+                            if key == "means":
+                                c1 = c1 + j1; c2 = c2 + j2
+                            elif key == "log_scales":
+                                c1 = c1 - shrink; c2 = c2 - shrink
+                            parts += [c1, c2]
+                        new[key] = torch.cat(parts, dim=0)
+                    ft = torch.cat([ft[base_idx], ft[clone_idx], ft[split_idx], ft[split_idx]], dim=0)
                 P = _new_params(new)
                 opt = _build_opt(P)
                 grad_accum = torch.zeros(P["means"].shape[0], device=device)
@@ -732,6 +757,8 @@ class PrismTrainConfig:
     densify_stop: int = 15000
     grad_threshold: float = 2e-4
     prune_opacity: float = 0.05
+    split_scale_percentile: float = 0.5   # among high-grad carriers, split those above this scale pct (else clone)
+    split_scale_shrink: float = 1.6        # child scale = parent scale / this (3DGS uses 1.6)
     max_carriers: int = 2_000_000
     volumetric: bool = False  # EVER-style 1-exp(-opacity*w) alpha
     # 3DGS-style training stabilisers (default off → unchanged behaviour):

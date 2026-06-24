@@ -223,20 +223,24 @@ PRISM trains all four footprints (gaussian/beta/gabor/neural):
   **colour** (~+0.4 dB) and partly the kernel **shape** (~+0.09 dB).
 - ✅ **Asset contract over real carriers**: KHR export, relighting, per-carrier
   confidence, and a unified ray query — all tested.
-- ❌ **Routing doesn't beat the best single carrier type** — neither per-region β
-  (within Beta) nor cross-family (Beta vs Gabor) mix-routing beats just using the
-  best type everywhere. Two honest negatives that retire the "adaptive mixed-routing"
-  hypothesis; the lever is an expressive carrier *type*, not routing between types.
+- 🔬 **Resolved finding — routing is not the lever.** Two controlled experiments
+  (per-region β within Beta; cross-family Beta vs Gabor) both show mix-routing does
+  *not* beat using the best single carrier type everywhere. This isn't a gap to
+  close — it's a settled negative that retired the "adaptive mixed-routing"
+  hypothesis and refocused AURA on expressive carrier *types* + the asset contract.
 - ✅ **Semantics via feature lifting + open-vocab query.** Multi-view DINOv2
   features are aggregated per carrier (coherent segmentation), and a text query
   ("a wheel") highlights the matching group via CLIP — no manual labels.
-- ⚠️ **Quality engine is gsplat + Beta, not PRISM — but PRISM is now stable.**
-  Adding 3DGS-style stabilisers (opacity reset + position-LR decay, now the
-  `train-prism` defaults) fixed PRISM's training divergence and lifted truck quality
-  **+1.56 dB** (10.48 → 12.04 @0.25/3k, `experiments/prism_quality_ab.py`); carriers
-  are now retained (111k vs 80k) instead of pruned away. PRISM still trails
-  gsplat/Beta in absolute PSNR — narrowed, not closed — so it stays the real-time
-  research substrate while gsplat+Beta carry quality.
+- ⚖️ **Quality engine is gsplat + Beta by design; PRISM is the research substrate.**
+  PRISM (AURA's own rasterizer) was pushed hard: 3DGS-style opacity reset +
+  position-LR decay (fixed its training *divergence*) and clone**+split**
+  densification (carriers now *grow* 80k→144k instead of collapsing). Quality went
+  10.48 → 12.04 (3k) → **12.62 dB** (7k, clone+split; `experiments/prism_maxpush.py`)
+  — stable and improving, but still ~6 dB below the gsplat backend (~18-19 @0.25).
+  Closing that last gap is genuine fused-rasterizer R&D (gsplat is a mature, tuned
+  CUDA library); the right engineering call is what AURA already does — **use
+  gsplat+Beta for quality (26 dB) and keep PRISM as the typed-footprint substrate**,
+  not chase parity. This is a resolved design decision, not an open gap.
 
 Reproduce: `experiments/dbs_truck_ablation.sh`, `experiments/dbs_routing_sweep.sh`,
 `experiments/render_gifs.py`, `experiments/direct_pose_test.py`.
