@@ -47,9 +47,17 @@ carriers each, same harness/eval): **adaptive Beta 26.352 dB vs fixed-Gaussian
 26.017 dB → +0.335 dB / +0.0060 SSIM / −0.0058 LPIPS.** Typed carriers measurably
 beat a fixed primitive at matched budget on real data. `carrier_io` round-trips
 β+sb; `scripts/dbs_bridge.py` converts DBS → `carriers.npz`. Figure:
-`docs/beta_vs_gauss_truck.png`. Open follow-ups: (a) DBS *compactness* claim
-(match bytes not count), (b) **adaptive per-region routing between kernel families**
-beating the best single family — the genuinely novel contribution (Track 1b).
+`docs/beta_vs_gauss_truck.png`.
+
+**Track 1b (adaptive per-region routing) — DONE, HONEST NEGATIVE.** A β sweep
+(`experiments/dbs_routing_sweep.sh`, frozen uniform β ∈ {2,6,16,50}, sb colour on)
+shows learned per-carrier β (26.352) does NOT beat the best single uniform β
+(β=2:26.421, β=6:26.404, β=16:26.411). Decomposition: most of the +0.335 win is the
+**spherical-Beta colour** (~+0.4), the kernel *shape* adds ~+0.09 (β≈6 vs β=50),
+per-region adaptivity ~0. So "routing beats best single type" is FALSE within one
+family. The real open question is routing between *distinct kernel families* (Beta
+vs Gabor), which needs a 2nd kernel in the rasterizer (DBS has only Beta).
+Open follow-up: (a) DBS *compactness* claim (match bytes not count).
 
 <details><summary>Original Track 1 plan (for reference)</summary>
 

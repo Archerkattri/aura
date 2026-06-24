@@ -96,20 +96,39 @@ carriers per arm** — varying only the carrier's type degrees of freedom:
 | fixed (Gaussian-style) | frozen kernel + SH colour | 26.017 | 0.8904 | 0.1277 |
 | **adaptive Beta** | deformable Beta kernel + spherical-Beta colour | **26.352** | **0.8964** | **0.1219** |
 
-**+0.335 dB / +0.0060 SSIM / −0.0058 LPIPS** from making the carrier type adaptive,
-at matched carrier count. The learned shapes are genuinely non-degenerate (β median
-2.75, range 0.02–51.85 — carriers specialise per region).
+**+0.335 dB / +0.0060 SSIM / −0.0058 LPIPS** for the Beta carrier over a
+Gaussian-style one, at matched carrier count.
 
 ![GT · fixed Gaussian · deformable Beta — Truck held-out view](docs/beta_vs_gauss_truck.png)
 
 _Held-out test view, with a zoom crop. Top: full frame; bottom: detail crop._
 
-Honest scope: the fixed arm is a frozen-β bounded kernel (a conservative stand-in
-for a literal Gaussian), and the comparison matches *carrier count*, not *bytes*
-(Beta stores extra params). DBS's separate *compactness* claim (fewer carriers for
-equal quality) is a tracked follow-up. The Beta backend runs in an isolated venv
-(`.dbs_venv`); `scripts/dbs_bridge.py` converts its output into AURA's
-`carriers.npz` (typed params and all).
+**Where the win actually comes from (honest decomposition).** A controlled β sweep
+(`experiments/dbs_routing_sweep.sh`, frozen uniform β ∈ {2,6,16,50} with
+spherical-Beta colour held on) decomposes the +0.335 dB:
+
+| arm (sb colour on) | PSNR | SSIM | LPIPS |
+|---|---|---|---|
+| learned-β (adaptive per-region) | 26.352 | 0.8964 | 0.1219 |
+| uniform β=2 | 26.421 | 0.8961 | 0.1229 |
+| uniform β=6 | 26.404 | 0.8965 | 0.1220 |
+| uniform β=16 | 26.411 | 0.8963 | 0.1224 |
+| uniform β=50 (≈Gaussian) | 26.314 | 0.8945 | 0.1266 |
+
+- The **spherical-Beta colour model** carries most of the win (~+0.4 dB: the
+  fixed-Gaussian arm above used SH colour at 26.017; matched-β with sb colour is
+  ~26.4).
+- The **Beta kernel shape** adds a smaller ~+0.09 dB (β≈6 vs near-Gaussian β=50).
+- **Adaptive per-region β routing does *not* beat the best single global β** — the
+  learned-β arm (26.352) sits *below* uniform β=2/6/16. A clean negative result:
+  within one kernel family, picking a good global shape is as good as learning it
+  per carrier. The open novel question is routing between *distinct families*
+  (Beta vs Gabor), not β within Beta.
+
+The comparison matches *carrier count*, not *bytes* (Beta stores extra params);
+DBS's separate *compactness* claim is a tracked follow-up. The Beta backend runs in
+an isolated venv (`.dbs_venv`); `scripts/dbs_bridge.py` converts its output into
+AURA's `carriers.npz` (typed params and all).
 
 ### Standards-compliant asset export (`KHR_gaussian_splatting`)
 
