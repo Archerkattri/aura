@@ -61,20 +61,44 @@ def main():
         beta = bmb.render(cam_b)["render"]
     gt = cam.original_image[:3].cuda()
 
-    cols = [("Ground truth", gt), ("frozen Gaussian (26.02 dB)", gauss), ("deformable Beta (26.35 dB)", beta)]
+    from PIL import ImageFont
+
+    def _font(px):
+        for p in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+            try:
+                return ImageFont.truetype(p, px)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    cols = [("Ground truth", gt), ("fixed Gaussian — 26.02 dB", gauss),
+            ("adaptive Beta — 26.35 dB", beta)]
     ims = [to_img(t) for _, t in cols]
     w, h = ims[0].size
-    # zoom crop (centre-ish detail region)
     cx, cy, cw = int(w * 0.55), int(h * 0.45), w // 4
-    crops = [im.crop((cx, cy, cx + cw, cy + cw)).resize((w // 2, w // 2), Image.NEAREST) for im in ims]
+    cs = w // 2  # crop display size
+    crops = [im.crop((cx, cy, cx + cw, cy + cw)).resize((cs, cs), Image.NEAREST) for im in ims]
 
-    hdr = 22
-    grid = Image.new("RGB", (w * 3, hdr + h + w // 2), (18, 18, 18))
+    big = _font(max(15, w // 26)); small = _font(max(12, w // 34))
+    hdr = big.size + 10                 # title band above the full frames
+    cap = small.size + 8                # caption band between rows
+    crow_h = cs + small.size + 10       # crop image + its label
+    grid = Image.new("RGB", (w * 3, hdr + h + cap + crow_h), (16, 16, 16))
     d = ImageDraw.Draw(grid)
+
+    def _ctext(x_centre, y, text, font, fill=(240, 240, 240)):
+        tw = d.textlength(text, font=font)
+        d.text((x_centre - tw / 2, y), text, font=font, fill=fill)
+
     for j, (lab, _) in enumerate(cols):
-        d.text((j * w + 6, 5), lab, fill=(240, 240, 240))
+        _ctext(j * w + w / 2, 6, lab, big)
         grid.paste(ims[j], (j * w, hdr))
-        grid.paste(crops[j], (j * w + (w - w // 2) // 2, hdr + h))
+    _ctext(w * 1.5, hdr + h + 4, "↓ zoom-in on the same detail region (nearest-neighbour, no smoothing) ↓", small, (170, 170, 170))
+    cy0 = hdr + h + cap
+    for j, (lab, _) in enumerate(cols):
+        grid.paste(crops[j], (j * w + (w - cs) // 2, cy0))
+        _ctext(j * w + w / 2, cy0 + cs + 3, lab.split(" — ")[0] + " (detail)", small)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     grid.save(a.out)
     print(f"wrote {a.out} ({grid.size[0]}x{grid.size[1]})")
