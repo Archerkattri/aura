@@ -118,3 +118,54 @@ def test_cuda_production_validation_accepts_compiled_payload():
 
     assert report["passed"] is True
     assert report["failures"] == []
+
+
+def test_native_real_capture_validation_rejects_incomplete_audit():
+    sys.path.insert(0, "experiments")
+    from native_real_capture_validation import summarize_native_gate
+
+    report = summarize_native_gate(
+        audit={
+            "local_scene_count": 2,
+            "complete": False,
+            "missing": ["room"],
+            "scenes": [
+                {"scene": "truck", "has_beta": True, "has_gaussian": True, "delta_psnr": 0.1},
+                {"scene": "room", "has_beta": True, "has_gaussian": False, "delta_psnr": None},
+            ],
+        },
+        multiscene={"scenes": [{"scene": "truck", "delta_psnr": 0.1}], "mean_delta_psnr": 0.1},
+        min_scene_count=2,
+    )
+
+    assert report["passed"] is False
+    assert "not all locally downloaded scenes have complete Beta/Gaussian metrics" in report["failures"]
+
+
+def test_native_real_capture_validation_accepts_complete_audit():
+    sys.path.insert(0, "experiments")
+    from native_real_capture_validation import summarize_native_gate
+
+    report = summarize_native_gate(
+        audit={
+            "local_scene_count": 2,
+            "complete": True,
+            "missing": [],
+            "scenes": [
+                {"scene": "truck", "has_beta": True, "has_gaussian": True, "delta_psnr": 0.1},
+                {"scene": "room", "has_beta": True, "has_gaussian": True, "delta_psnr": 0.2},
+            ],
+        },
+        multiscene={
+            "scenes": [
+                {"scene": "truck", "delta_psnr": 0.1},
+                {"scene": "room", "delta_psnr": 0.2},
+            ],
+            "mean_delta_psnr": 0.15,
+        },
+        min_scene_count=2,
+    )
+
+    assert report["passed"] is True
+    assert report["allLocalScenesComplete"] is True
+    assert report["sceneCount"] == 2

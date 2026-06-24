@@ -96,25 +96,28 @@ def production_readiness_report() -> ProductionReadinessReport:
     cuda_callable_boundary = cuda_renderer_callable_boundary_report(readiness_scene)
     backend_readiness = evaluate_backend_readiness(readiness_scene)
     cuda_production = _cuda_production_artifact()
+    native_real_capture = _native_real_capture_artifact()
     pillars = (
         ReadinessPillar(
             id="native_carriers",
             title="Native adaptive carriers",
             implemented=True,
-            production_ready=False,
+            production_ready=bool(native_real_capture.get("passed")),
             evidence=(
                 "surface, volume, beta, gabor, neural residual, semantic, and gaussian fallback carrier contracts exist",
                 "native demo and decomposition paths produce typed AuraElement payloads",
                 "ray-query behavior is exercised by reference package and benchmark tests",
+                *_native_real_capture_evidence(native_real_capture),
             ),
-            gaps=(
+            gaps=() if native_real_capture.get("passed") else (
                 "adaptive split/merge/promote/demote is validated at fixture scale, not full real captures",
                 "native carrier behavior is not yet validated on full real capture datasets",
                 "3DGS remains an ingest evidence source and fallback, not a production native carrier replacement",
+                *_native_real_capture_gaps(native_real_capture),
             ),
             next_steps=(
-                "validate mixed-carrier reconstruction on real capture manifests",
-                "add larger adaptive carrier evolution tests and scene-behavior benchmarks",
+                "extend real-capture validation whenever new local scenes are downloaded",
+                "add larger adaptive carrier evolution stress tests and scene-behavior benchmarks",
             ),
         ),
         ReadinessPillar(
@@ -292,6 +295,48 @@ def _cuda_production_gaps(payload: dict) -> tuple[str, ...]:
     if payload.get("reason") == "missing":
         return ("production CUDA validation artifact is missing",)
     return ("compiled CUDA dispatch artifact did not pass",)
+
+
+def _native_real_capture_artifact() -> dict:
+    payload = _latest_json(RESULTS, "native_real_capture_validation*.json")
+    if not payload:
+        return {"passed": False, "reason": "missing"}
+    scene_count = int(payload.get("sceneCount", 0))
+    required_scene_count = int(payload.get("requiredSceneCount", 0))
+    mean_delta = float(payload.get("meanDeltaPsnr", 0.0))
+    families = tuple(payload.get("validatedCarrierFamilies") or ())
+    passed = (
+        bool(payload.get("passed"))
+        and bool(payload.get("allLocalScenesComplete"))
+        and scene_count >= required_scene_count
+        and mean_delta > 0.0
+        and {"beta", "gaussian"}.issubset(set(families))
+        and not payload.get("missing")
+    )
+    return {
+        **payload,
+        "passed": passed,
+        "sceneCount": scene_count,
+        "requiredSceneCount": required_scene_count,
+        "meanDeltaPsnr": mean_delta,
+        "validatedCarrierFamilies": families,
+    }
+
+
+def _native_real_capture_evidence(payload: dict) -> tuple[str, ...]:
+    if not payload.get("passed"):
+        return ()
+    return (
+        f"{payload['sceneCount']} local real captures validated with complete Beta and Gaussian metrics",
+        f"typed Beta carriers beat fixed Gaussian fallback by mean {payload['meanDeltaPsnr']:.2f} dB PSNR",
+        "native real-capture validation artifact covers all locally downloaded scenes",
+    )
+
+
+def _native_real_capture_gaps(payload: dict) -> tuple[str, ...]:
+    if payload.get("reason") == "missing":
+        return ("native real-capture validation artifact is missing",)
+    return ("native real-capture validation artifact did not pass",)
 
 
 def _summary(pillars: tuple[ReadinessPillar, ...]) -> str:

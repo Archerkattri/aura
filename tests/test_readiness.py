@@ -101,7 +101,10 @@ def test_readiness_report_cli_prints_json():
     assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
     assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
     missing = {pillar["id"] for pillar in payload["missingOrIncomplete"]}
-    assert missing.issuperset({"native_carriers", "renderer_trainer", "benchmarks"})
+    assert missing.issuperset({"renderer_trainer", "benchmarks"})
+    if "native_carriers" not in missing:
+        native = next(pillar for pillar in payload["pillars"] if pillar["id"] == "native_carriers")
+        assert any("local real captures" in item for item in native["evidence"])
     if "cuda_backend" not in missing:
         cuda = next(pillar for pillar in payload["pillars"] if pillar["id"] == "cuda_backend")
         assert any("compiled CUDA dispatch artifact passed without fallback" in item for item in cuda["evidence"])
@@ -159,3 +162,37 @@ def test_cuda_production_gate_accepts_compiled_cuda_artifact(tmp_path, monkeypat
 
     assert cuda["productionReady"] is True
     assert any("compiled CUDA dispatch" in item for item in cuda["evidence"])
+
+
+def test_native_carrier_gate_requires_real_capture_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    native = next(pillar for pillar in report["pillars"] if pillar["id"] == "native_carriers")
+
+    assert native["productionReady"] is False
+    assert "native real-capture validation artifact is missing" in native["gaps"]
+
+
+def test_native_carrier_gate_accepts_complete_local_real_capture_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    (tmp_path / "native_real_capture_validation_2026-06-24.json").write_text(json.dumps({
+        "format": "AURA_NATIVE_REAL_CAPTURE_VALIDATION",
+        "passed": True,
+        "allLocalScenesComplete": True,
+        "sceneCount": 8,
+        "requiredSceneCount": 8,
+        "meanDeltaPsnr": 0.8,
+        "validatedCarrierFamilies": ["beta", "gaussian"],
+        "missing": [],
+    }))
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    native = next(pillar for pillar in report["pillars"] if pillar["id"] == "native_carriers")
+
+    assert native["productionReady"] is True
+    assert any("8 local real captures" in item for item in native["evidence"])
