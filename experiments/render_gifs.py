@@ -55,6 +55,10 @@ def main():
     scene, bm = load(a.source, a.model, a.sb_number)
     cams = list(scene.getTrainCameras())
 
+    if a.mode == "flythrough":
+        # capture order = a smooth handheld trajectory; sort by image name so
+        # consecutive GIF frames are spatially adjacent (no jump/chop).
+        cams = sorted(cams, key=lambda c: getattr(c, "image_name", str(getattr(c, "uid", 0))))
     if a.mode == "orbit":
         centre = bm.get_xyz.mean(dim=0).detach().cpu().numpy()
         def az(c):
