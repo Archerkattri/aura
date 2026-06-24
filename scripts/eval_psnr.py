@@ -323,10 +323,20 @@ def main():
     args = parser.parse_args()
 
     from aura.package import load_package
-    print(f"Loading {args.package_dir}...")
-    pkg = load_package(args.package_dir)
-    scene = pkg.scene
-    print(f"Scene: {len(scene.elements)} elements")
+    # Fast path: a binary carriers.npz sidecar (avoids the slow per-element JSON
+    # package load — minutes for millions of carriers). Used for the gsplat path.
+    from aura.carrier_io import has_carriers, load_carriers, render_carriers_gsplat
+    fast_carriers = None
+    if args.renderer == "gsplat" and has_carriers(args.package_dir):
+        print(f"Loading {args.package_dir} (fast binary sidecar)...")
+        fast_carriers = load_carriers(args.package_dir, device=args.device)
+        print(f"Scene: {fast_carriers['means'].shape[0]} carriers (sidecar)")
+        scene = None
+    else:
+        print(f"Loading {args.package_dir}...")
+        pkg = load_package(args.package_dir)
+        scene = pkg.scene
+        print(f"Scene: {len(scene.elements)} elements")
     if args.scale != 1.0:
         print(f"Scale: {args.scale:.2f}x  (ray-batch: {args.ray_batch}, renderer: {args.renderer})")
 
@@ -355,6 +365,10 @@ def main():
             from aura.prism import render_scene_prism
             render_W, render_H, render_pixels = render_scene_prism(
                 scene, frame, scale=args.scale, device=args.device
+            )
+        elif args.renderer == "gsplat" and fast_carriers is not None:
+            render_W, render_H, render_pixels = render_carriers_gsplat(
+                fast_carriers, frame, scale=args.scale, device=args.device
             )
         elif args.renderer == "gsplat":
             # Primary-view path: the tiled differentiable rasterizer (full

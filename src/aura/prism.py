@@ -685,6 +685,8 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         else:
             tagged.append(e)
     scene = dataclasses.replace(scene, elements=tuple(tagged))
+    from .carrier_io import carriers_from_params
+    history["carrier_save"] = carriers_from_params(trained, sh_degree=0, ftypes=ft, freq=P["freq"], phase=P["phase"])
     history["final_gaussian_count"] = int(P["means"].shape[0])
     history["footprint_counts"] = {FOOTPRINT_NAMES[c]: counts[c] for c in counts if counts[c]}
     return scene, history

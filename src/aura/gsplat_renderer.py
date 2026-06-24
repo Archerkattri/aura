@@ -631,6 +631,8 @@ def train_scene_gsplat(
     }
     ctx = {**ctx, "sh_degree": sh_degree}
     trained_scene = gaussian_params_to_scene(trained, ctx)
+    from .carrier_io import carriers_from_params
+    history["carrier_save"] = carriers_from_params(trained, sh_degree=sh_degree)
     history["final_gaussian_count"] = int(splats["means"].shape[0])
     history["seed_gaussian_count"] = len(ctx["gaussian_elements"])
     return trained_scene, history

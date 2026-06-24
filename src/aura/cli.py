@@ -1270,6 +1270,9 @@ def _train_gsplat_command(args: argparse.Namespace) -> Path:
     package_dir = package_scene(
         trained_scene, fallbacks={"mesh": "fallback/aura-gsplat-train-preview.glb"}
     ).write(args.output)
+    if history.get("carrier_save"):
+        from aura.carrier_io import save_carriers
+        save_carriers(package_dir, **history["carrier_save"])  # fast binary sidecar
     report = {
         "format": "AURA_GSPLAT_TRAINING_REPORT",
         "name": trained_scene.name,
@@ -1326,6 +1329,9 @@ def _train_prism_command(args: argparse.Namespace) -> Path:
     package_dir = package_scene(
         trained_scene, fallbacks={"mesh": "fallback/aura-prism-train-preview.glb"}
     ).write(args.output)
+    if history.get("carrier_save"):
+        from aura.carrier_io import save_carriers
+        save_carriers(package_dir, **history["carrier_save"])  # fast binary sidecar
     report = {
         "format": "AURA_PRISM_TRAINING_REPORT",
         "renderBackend": "prism-native-differentiable-rasterizer",

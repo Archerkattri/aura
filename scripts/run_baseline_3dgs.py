@@ -113,47 +113,13 @@ def _cross(a, b):
 def manifest_frame_to_camera(frame: dict, scale: float):
     """Convert one AURA manifest frame to (world-to-camera 4x4, K 3x3, W, H).
 
-    This is the exact inverse of the camera basis built in
-    ``eval_psnr.render_frame_torch``: forward = normalize(look_at - origin),
-    right = normalize(forward x up), up_actual = right x forward. gsplat's
-    convention is a world-to-camera view matrix with +Z forward (camera looks
-    down +Z), +X right, +Y down. The AURA ray basis uses +X right, the rendered
-    image y-axis as up_actual, and forward as the view direction, so the camera
-    rotation rows are [right, up_actual, forward] (camera-from-world).
+    Delegates to the canonical conversion in ``aura.gsplat_renderer`` so the
+    baseline uses the SAME (roll-preserving, view_rotation-aware) poses as AURA —
+    otherwise the baseline would be hobbled by the look_at/up convention that
+    drops camera roll, making the comparison unfair.
     """
-    intr = frame["intrinsics"]
-    full_w, full_h = int(intr["width"]), int(intr["height"])
-    w = max(1, int(full_w * scale))
-    h = max(1, int(full_h * scale))
-    fx = float(intr["fx"]) * scale
-    fy = float(intr["fy"]) * scale
-    cx = float(intr["cx"]) * scale
-    cy = float(intr["cy"]) * scale
-
-    origin = [float(c) for c in frame["camera_origin"]]
-    look_at = [float(c) for c in frame["look_at"]]
-    up = [float(c) for c in frame.get("up", [0.0, -1.0, 0.0])]
-
-    fwd = _normalize([look_at[i] - origin[i] for i in range(3)])
-    right = _normalize(_cross(fwd, up))
-    up_actual = _cross(right, fwd)
-
-    # camera-from-world rotation rows; translation t = -R @ origin
-    rows = [right, up_actual, fwd]
-    t = [-sum(rows[r][c] * origin[c] for c in range(3)) for r in range(3)]
-
-    view = [
-        [rows[0][0], rows[0][1], rows[0][2], t[0]],
-        [rows[1][0], rows[1][1], rows[1][2], t[1]],
-        [rows[2][0], rows[2][1], rows[2][2], t[2]],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-    k = [
-        [fx, 0.0, cx],
-        [0.0, fy, cy],
-        [0.0, 0.0, 1.0],
-    ]
-    return view, k, w, h
+    from aura.gsplat_renderer import manifest_frame_to_camera as _canonical
+    return _canonical(frame, scale)
 
 
 def load_colmap_seed(colmap_dir: Path):
