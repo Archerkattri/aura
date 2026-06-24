@@ -23,10 +23,13 @@ SCENES=(
   "data/mipnerf360/stump images_4"
 )
 
+done_arm() { [ -f "$OUT/$1/point_cloud/iteration_best/metrics.json" ]; }
 beta()  { local g=$1 s=$2 img=$3 name=$4
+  done_arm "${name}_beta" && { echo "  skip ${name}_beta (done)"; return; }
   CUDA_VISIBLE_DEVICES=$g "$DBS_PY" /tmp/dbs/train.py -s "$REPO/$s" --images "$img" --eval \
     --iterations "$ITERS" --disable_viewer --model_path "$OUT/${name}_beta" > "$OUT/${name}_beta.log" 2>&1; }
 gauss() { local g=$1 s=$2 img=$3 name=$4
+  done_arm "${name}_gauss" && { echo "  skip ${name}_gauss (done)"; return; }
   UNIFORM_BETA=4 CUDA_VISIBLE_DEVICES=$g "$DBS_PY" experiments/dbs_uniform_beta.py -s "$REPO/$s" --images "$img" --eval \
     --iterations "$ITERS" --sb_number 0 --beta_lr 0 --disable_viewer --model_path "$OUT/${name}_gauss" > "$OUT/${name}_gauss.log" 2>&1; }
 
