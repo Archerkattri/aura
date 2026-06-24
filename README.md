@@ -12,6 +12,11 @@ semantics and confidence, relighting, ray queries, and a standards-compliant exp
   <em>AURA reconstruction of Tanks &amp; Temples — Truck (26.4 dB).</em>
 </p>
 
+<p align="center">
+  <img src="docs/aura_capability_reel.gif" width="70%" alt="AURA capability reel showing reconstruction, depth, relighting, confidence, semantics, and text query"><br>
+  <em>Current AURA asset operations: render, depth, relight, confidence, semantics, and open-vocabulary query.</em>
+</p>
+
 ![Ground truth · COLMAP · NeRF · 3DGS · AURA](docs/lineage_truck.png)
 
 ### How each method works — and where AURA goes further
@@ -26,6 +31,7 @@ relightable, exportable asset contract — building on the gsplat engine, not re
 ## Contents
 
 - [What you get](#what-you-get)
+- [Status](#status)
 - [Quality](#quality)
 - [Capabilities](#capabilities)
 - [How it's built](#how-its-built)
@@ -50,6 +56,29 @@ relightable, exportable asset contract — building on the gsplat engine, not re
 - **Engine-ready export** — standards-compliant `KHR_gaussian_splatting` glTF/GLB
   that loads in three.js / PlayCanvas / Babylon.
 
+![AURA + PRISM capability board](docs/capability_board.png)
+
+## Status
+
+The current AURA objective is complete: typed Beta carriers beat fixed Gaussians on
+every local benchmark scene, the Truck compactness result holds at half the carrier
+count, and the asset contract exposes export, relighting, confidence, semantics,
+open-vocabulary query, and unified ray-query payloads.
+
+The local dataset is fully audited for the scenes present on disk: Tanks & Temples
+Truck plus all 7 roots in the local Mip-NeRF 360 `360_v2.zip`. `audit_multiscene.py`
+reports complete coverage for both Beta and Gaussian arms across all 8 scenes.
+
+PRISM is complete for its intended role in AURA: an additive typed-footprint
+extension layer over the primary gsplat/DBS-Beta quality paths. It is **not** a
+replacement for gsplat or the Beta backend, and the README/results do not claim it
+is a quality alternative.
+
+Remaining work is research polish rather than a blocker for the current AURA
+objective: deeper secondary-ray/reflection integration, external baseline tables
+against other systems, production FPS sweeps, learned LPIPS evaluation, and richer
+inverse-material estimation.
+
 ## Quality
 
 Across **8 real scenes** (Tanks & Temples Truck + every scene present in the local
@@ -68,6 +97,8 @@ AURA's Beta carriers beat the fixed-Gaussian control on every scene:
 | truck | 26.39 | 25.96 | +0.43 |
 
 **Mean gain: +0.80 dB PSNR.**
+
+![AURA benchmark scene grid](docs/dataset_scene_grid.png)
 
 ![AURA Beta vs fixed Gaussian across 8 scenes](docs/multiscene.png)
 
@@ -165,6 +196,10 @@ AURA is an **engine + contract layer**:
 | gabor | oscillatory envelope (high-frequency texture) |
 | neural | bounded MLP over Fourier features |
 
+![PRISM footprint families](docs/prism_footprints.png)
+
+![AURA rendering stack: PRISM adds to gsplat/Beta](docs/prism_extension_stack.png)
+
 - **Asset contract.** Carriers live in a schema-validated `.aura` package (typed
   registry, chunks/LOD, semantic graph, confidence) plus a fast binary
   `carriers.npz` sidecar, and export to `KHR_gaussian_splatting`.
@@ -233,6 +268,9 @@ All on Tanks & Temples — Truck, rendered through the trained carriers.
 | **Semantic segmentation**<br>![semantics](docs/semantic_distill_truck.png) | **Open-vocab query** ("a wheel")<br>![query](docs/semantic_query_truck.png) |
 | **Typed vs fixed**<br>![beta vs gauss](docs/beta_vs_gauss_truck.png) | **Compactness**<br>![compactness](docs/compactness_curve.png) |
 | **8-scene quality**<br>![multi-scene](docs/multiscene.png) | **Per-scene gains**<br>![multi-scene delta](docs/multiscene_delta.png) |
+| **AURA capability reel**<br>![capability reel](docs/aura_capability_reel.gif) | **AURA + PRISM status**<br>![capability board](docs/capability_board.png) |
+| **All local benchmark scenes**<br>![scene grid](docs/dataset_scene_grid.png) | **PRISM extension stack**<br>![PRISM stack](docs/prism_extension_stack.png) |
+| **PRISM footprints**<br>![PRISM footprints](docs/prism_footprints.png) | |
 
 ## Repository map
 
