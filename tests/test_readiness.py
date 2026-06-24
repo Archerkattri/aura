@@ -26,9 +26,12 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     }
     assert by_id["package_validation"]["implemented"] is True
     assert by_id["package_validation"]["productionReady"] is True
-    assert by_id["cuda_backend"]["productionReady"] is False
-    assert "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready" in by_id["cuda_backend"]["gaps"]
-    assert "callable cuda_renderer fallback is not CUDA acceleration" in by_id["cuda_backend"]["gaps"]
+    if by_id["cuda_backend"]["productionReady"]:
+        assert by_id["cuda_backend"]["gaps"] == []
+        assert any("compiled CUDA dispatch artifact passed without fallback" in item for item in by_id["cuda_backend"]["evidence"])
+    else:
+        assert "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready" in by_id["cuda_backend"]["gaps"]
+        assert "callable cuda_renderer fallback is not CUDA acceleration" in by_id["cuda_backend"]["gaps"]
     assert by_id["renderer_trainer"]["productionReady"] is False
     assert "renderer real-time performance is not yet benchmarked at production resolution" in by_id["renderer_trainer"]["gaps"]
     assert any("secondary-ray/reflection integration remains future work" in gap for gap in by_id["renderer_trainer"]["gaps"])
@@ -97,6 +100,62 @@ def test_readiness_report_cli_prints_json():
     assert payload["backendReadiness"]["requiresTorchImport"] is False
     assert payload["cudaRendererCallableBoundary"]["fallbackAvailable"] is True
     assert payload["cudaRendererCallableBoundary"]["productionReady"] is False
-    assert {pillar["id"] for pillar in payload["missingOrIncomplete"]}.issuperset(
-        {"native_carriers", "cuda_backend", "renderer_trainer", "benchmarks"}
-    )
+    missing = {pillar["id"] for pillar in payload["missingOrIncomplete"]}
+    assert missing.issuperset({"native_carriers", "renderer_trainer", "benchmarks"})
+    if "cuda_backend" not in missing:
+        cuda = next(pillar for pillar in payload["pillars"] if pillar["id"] == "cuda_backend")
+        assert any("compiled CUDA dispatch artifact passed without fallback" in item for item in cuda["evidence"])
+
+
+def test_cuda_production_gate_requires_compiled_nonfallback_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    cuda = next(pillar for pillar in report["pillars"] if pillar["id"] == "cuda_backend")
+
+    assert cuda["productionReady"] is False
+    assert "production CUDA validation artifact is missing" in cuda["gaps"]
+
+
+def test_cuda_production_gate_rejects_fallback_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    (tmp_path / "cuda_production_backend_2026-06-24.json").write_text(json.dumps({
+        "format": "AURA_CUDA_PRODUCTION_BACKEND_REPORT",
+        "passed": True,
+        "compiledCudaDispatch": False,
+        "fallbackUsed": True,
+        "device": "cpu",
+        "parity": {"maxAbsError": 0.0, "threshold": 0.001},
+        "throughput": {"raysPerSecond": 1000.0, "minRaysPerSecond": 1.0},
+    }))
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    cuda = next(pillar for pillar in report["pillars"] if pillar["id"] == "cuda_backend")
+
+    assert cuda["productionReady"] is False
+    assert "compiled CUDA dispatch artifact did not pass" in cuda["gaps"]
+
+
+def test_cuda_production_gate_accepts_compiled_cuda_artifact(tmp_path, monkeypatch):
+    from aura import readiness
+
+    (tmp_path / "cuda_production_backend_2026-06-24.json").write_text(json.dumps({
+        "format": "AURA_CUDA_PRODUCTION_BACKEND_REPORT",
+        "passed": True,
+        "compiledCudaDispatch": True,
+        "fallbackUsed": False,
+        "device": "cuda",
+        "parity": {"maxAbsError": 0.0001, "threshold": 0.001},
+        "throughput": {"raysPerSecond": 1000.0, "minRaysPerSecond": 1.0},
+    }))
+    monkeypatch.setattr(readiness, "RESULTS", tmp_path)
+
+    report = readiness.production_readiness_report().to_dict()
+    cuda = next(pillar for pillar in report["pillars"] if pillar["id"] == "cuda_backend")
+
+    assert cuda["productionReady"] is True
+    assert any("compiled CUDA dispatch" in item for item in cuda["evidence"])

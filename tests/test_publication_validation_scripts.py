@@ -81,3 +81,40 @@ def test_external_baseline_entries_include_2dgs_and_ray_traced_gs(tmp_path):
     assert entries["ray_traced_gs"]["sourceType"] == "same_split_cuda_ray_traced_gs_style_smoke"
     assert entries["2dgs"]["device"] == "cuda"
     assert entries["ray_traced_gs"]["device"] == "cuda"
+
+
+def test_cuda_production_validation_rejects_fallback_payload():
+    sys.path.insert(0, "experiments")
+    from cuda_production_backend_validation import summarize_cuda_gate
+
+    report = summarize_cuda_gate(
+        compiled_cuda_dispatch=False,
+        fallback_used=True,
+        device="cpu",
+        max_abs_error=0.0,
+        parity_threshold=0.001,
+        rays_per_second=10.0,
+        min_rays_per_second=1.0,
+    )
+
+    assert report["passed"] is False
+    assert "compiled CUDA dispatch was not used" in report["failures"]
+    assert "fallback backend was used" in report["failures"]
+
+
+def test_cuda_production_validation_accepts_compiled_payload():
+    sys.path.insert(0, "experiments")
+    from cuda_production_backend_validation import summarize_cuda_gate
+
+    report = summarize_cuda_gate(
+        compiled_cuda_dispatch=True,
+        fallback_used=False,
+        device="cuda",
+        max_abs_error=0.0001,
+        parity_threshold=0.001,
+        rays_per_second=1000.0,
+        min_rays_per_second=1.0,
+    )
+
+    assert report["passed"] is True
+    assert report["failures"] == []

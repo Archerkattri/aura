@@ -1,0 +1,25 @@
+{
+  "format": "AURA_CUDA_PRODUCTION_BACKEND_REPORT",
+  "passed": true,
+  "compiledCudaDispatch": true,
+  "fallbackUsed": false,
+  "device": "cuda",
+  "parity": {
+    "maxAbsError": 6.794929504394531e-06,
+    "threshold": 0.001,
+    "passed": true
+  },
+  "throughput": {
+    "raysPerSecond": 208594.73853101532,
+    "minRaysPerSecond": 1.0,
+    "passed": true
+  },
+  "failures": [],
+  "scene": "cuda_production_validation",
+  "rayCount": 512,
+  "iterations": 20,
+  "warmup": 3,
+  "maxHits": 8,
+  "claimBoundary": "Passes only for compiled CUDA renderer dispatch without CPU/torch fallback; fixture-scale parity and throughput are not a full real-dataset FPS claim.",
+  "cudaDeviceName": "NVIDIA GeForce RTX 5090"
+}

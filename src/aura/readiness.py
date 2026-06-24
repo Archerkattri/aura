@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from aura.benchmark import cuda_renderer_callable_boundary_report, evaluate_backend_readiness
 from aura.core import synthetic_training_frames, synthetic_training_regions
@@ -10,6 +12,9 @@ from aura.cuda_kernels import cuda_kernel_source_report, cuda_renderer_report
 from aura.decomposition import decompose_evidence
 from aura.torch_kernels import torch_carrier_kernel_report
 from aura.torch_renderer import torch_renderer_status
+
+ROOT = Path(__file__).resolve().parents[2]
+RESULTS = ROOT / "experiments" / "results"
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,7 @@ def production_readiness_report() -> ProductionReadinessReport:
     legacy_cuda_renderer = cuda_renderer_report()
     cuda_callable_boundary = cuda_renderer_callable_boundary_report(readiness_scene)
     backend_readiness = evaluate_backend_readiness(readiness_scene)
+    cuda_production = _cuda_production_artifact()
     pillars = (
         ReadinessPillar(
             id="native_carriers",
@@ -153,19 +159,21 @@ def production_readiness_report() -> ProductionReadinessReport:
             id="cuda_backend",
             title="CUDA production backend",
             implemented=bool(cuda_sources.get("availableSourceCount", 0)),
-            production_ready=False,
+            production_ready=bool(cuda_production.get("passed")),
             evidence=(
                 "CUDA carrier kernels compile and load via aura cuda-kernel-build-report --build",
                 "the compiled CUDA renderer matches the torch renderer per-carrier in fixture parity tests",
                 "a production GPU BVH traversal kernel (render_rays_bvh) replaces the brute-force element scan",
                 "aura benchmark-cuda-runtime measures on-device throughput and cross-backend parity",
                 f"backend readiness reports {backend_readiness['sceneCarrierCudaCoverageRate']:.0%} scene-carrier CUDA production coverage",
+                *_cuda_production_evidence(cuda_production),
             ),
-            gaps=(
+            gaps=() if cuda_production.get("passed") else (
                 "CUDA extension build is not attempted by this readiness report",
                 "callable cuda_renderer fallback is not CUDA acceleration",
                 "torch_carrier_kernel_report marks CUDA carrier kernels as not production ready",
                 "CUDA/BVH parity and throughput are validated on fixtures, not yet on real-dataset baselines",
+                *_cuda_production_gaps(cuda_production),
             ),
             next_steps=(
                 "measure CUDA/BVH parity and throughput against real-dataset baselines at scale",
@@ -233,6 +241,57 @@ def _readiness_scene():
     frames = {frame.id: frame for frame in synthetic_training_frames()}
     evidence = tuple(region.to_evidence_sample(frames[region.frame_id]) for region in synthetic_training_regions())
     return decompose_evidence(evidence, name="readiness_probe")
+
+
+def _latest_json(results_dir: Path, pattern: str) -> dict | None:
+    matches = sorted(results_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not matches:
+        return None
+    return json.loads(matches[0].read_text())
+
+
+def _cuda_production_artifact() -> dict:
+    payload = _latest_json(RESULTS, "cuda_production_backend*.json")
+    if not payload:
+        return {"passed": False, "reason": "missing"}
+    parity = payload.get("parity") or {}
+    throughput = payload.get("throughput") or {}
+    max_abs_error = float(parity.get("maxAbsError", float("inf")))
+    parity_threshold = float(parity.get("threshold", -1.0))
+    rays_per_second = float(throughput.get("raysPerSecond", 0.0))
+    min_rays_per_second = float(throughput.get("minRaysPerSecond", float("inf")))
+    passed = (
+        bool(payload.get("passed"))
+        and bool(payload.get("compiledCudaDispatch"))
+        and not bool(payload.get("fallbackUsed"))
+        and str(payload.get("device")) == "cuda"
+        and max_abs_error <= parity_threshold
+        and rays_per_second >= min_rays_per_second
+    )
+    return {
+        **payload,
+        "passed": passed,
+        "maxAbsError": max_abs_error,
+        "parityThreshold": parity_threshold,
+        "raysPerSecond": rays_per_second,
+        "minRaysPerSecond": min_rays_per_second,
+    }
+
+
+def _cuda_production_evidence(payload: dict) -> tuple[str, ...]:
+    if not payload.get("passed"):
+        return ()
+    return (
+        "compiled CUDA dispatch artifact passed without fallback",
+        f"CUDA parity maxAbsError {payload['maxAbsError']:.6g} <= {payload['parityThreshold']:.6g}",
+        f"CUDA throughput {payload['raysPerSecond']:.1f} rays/s >= {payload['minRaysPerSecond']:.1f}",
+    )
+
+
+def _cuda_production_gaps(payload: dict) -> tuple[str, ...]:
+    if payload.get("reason") == "missing":
+        return ("production CUDA validation artifact is missing",)
+    return ("compiled CUDA dispatch artifact did not pass",)
 
 
 def _summary(pillars: tuple[ReadinessPillar, ...]) -> str:
