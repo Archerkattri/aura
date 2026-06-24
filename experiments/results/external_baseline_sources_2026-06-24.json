@@ -1,0 +1,33 @@
+{
+  "format": "AURA_EXTERNAL_BASELINE_SOURCE_PLAN",
+  "date": "2026-06-24",
+  "purpose": "Primary-source baseline candidates for AURA publication validation. This is source/protocol provenance only, not completed metric evidence.",
+  "baselines": {
+    "3dgs": {
+      "source": "https://github.com/graphdeco-inria/gaussian-splatting",
+      "notes": "Official authors implementation for 3D Gaussian Splatting for Real-Time Radiance Field Rendering."
+    },
+    "2dgs": {
+      "source": "https://github.com/hbb1/2d-gaussian-splatting",
+      "notes": "Official implementation for 2D Gaussian Splatting for Geometrically Accurate Radiance Fields."
+    },
+    "nerf": {
+      "source": "https://github.com/nerfstudio-project/nerfstudio",
+      "notes": "Nerfstudio provides train/eval workflows for NeRF-family baselines such as nerfacto/mipnerf."
+    },
+    "ray_traced_gs": {
+      "source": "https://github.com/nv-tlabs/3dgrut",
+      "notes": "Official implementations of 3DGRT and 3DGUT for ray-traced and hybrid Gaussian rendering."
+    },
+    "nerf_benchmark_framework": {
+      "source": "https://nerfbaselines.github.io/",
+      "notes": "Framework for evaluating and comparing existing NeRF methods; candidate harness if it supports the selected scene/data format."
+    }
+  },
+  "nextSteps": [
+    "choose scenes and resolution shared with AURA local benchmark splits",
+    "run or import each baseline's renders on the same held-out views",
+    "write experiments/results/external_baselines_YYYY-MM-DD.json with PSNR/SSIM/learned-LPIPS/FPS per method",
+    "rerun aura publication-validation-report and require the external_method_baselines gate to pass"
+  ]
+}

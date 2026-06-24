@@ -141,6 +141,7 @@ from aura.optimize import (
     precondition_color_gradient,
 )
 from aura.package import AuraPackage, load_package, package_scene, validate_package, validate_package_documents
+from aura.publication import PublicationGate, PublicationValidationReport, publication_validation_report
 from aura.proposals import (
     CaptureProposalFeatures,
     CaptureProposalModel,
@@ -388,9 +389,12 @@ __all__ = [
     "package_scene",
     "precondition_color_gradient",
     "production_readiness_report",
+    "publication_validation_report",
     "package_3dgs_export",
     "propose_training_regions_from_tensors",
     "MemoryStabilityReport",
+    "PublicationGate",
+    "PublicationValidationReport",
     "run_memory_stability_probe",
     "read_ppm",
     "read_pfm_image",

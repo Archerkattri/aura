@@ -83,7 +83,10 @@ CUDA FPS sweeps (`experiments/results/prism_fps_2026-06-24.json`, 138-581 FPS ov
 (`experiments/results/learned_lpips_smoke_2026-06-24.json`). Remaining paper gates:
 external baseline tables against other systems, full production-resolution FPS
 sweeps, deeper secondary-ray/reflection integration, and richer inverse-material
-estimation.
+estimation. Run `aura publication-validation-report` for the current gate status;
+the latest report is `experiments/results/publication_validation_2026-06-24.json`.
+External baseline sources/protocol targets are listed in
+`experiments/results/external_baseline_sources_2026-06-24.json`.
 
 ## Quality
 
@@ -261,6 +264,7 @@ python experiments/prism_additive_validation.py        # prove PRISM additive ro
 python experiments/prism_benchmark.py                  # PRISM CUDA/torch/gsplat FPS sweep
 python scripts/eval_psnr.py outputs/truck-sidecar.aura outputs/truck-pts129k-manifest.json \
   --renderer gsplat --device cuda --scale 0.25 --json-out experiments/results/learned_lpips_smoke.json
+aura publication-validation-report --output experiments/results/publication_validation.json
 python experiments/render_turntable.py                 # reconstruction GIF
 python experiments/relight_fork_gif.py                 # relighting GIF
 python experiments/semantic_distill.py                 # semantic segmentation

@@ -42,6 +42,7 @@ from aura.migration import migration_report
 from aura.carrier_payloads import SurfaceCellPayload
 from aura.package import load_package, package_scene
 from aura.optimize import TrainingLossWeights
+from aura.publication import publication_validation_report
 from aura.ray import Ray
 from aura.readiness import production_readiness_report
 from aura.imaging import write_radiance_image, write_video
@@ -390,6 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     relight_preview.add_argument("--device", default="cuda")
 
     sub.add_parser("readiness-report", help="Print AURA production-readiness audit as JSON")
+    publication_report = sub.add_parser(
+        "publication-validation-report",
+        help="Print artifact-backed publication validation status as JSON",
+    )
+    publication_report.add_argument("--results-dir", type=Path, default=None)
+    publication_report.add_argument("--output", type=Path, default=None)
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
     render.add_argument("package_dir", type=Path)
@@ -769,6 +776,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "readiness-report":
         print(json.dumps(production_readiness_report().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "publication-validation-report":
+        payload = publication_validation_report(args.results_dir).to_dict()
+        text = json.dumps(payload, indent=2, sort_keys=True)
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(text + "\n")
+        print(text)
         return 0
     if args.command in {"render-package", "render"}:
         package = load_package(args.package_dir)
