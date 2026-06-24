@@ -110,8 +110,8 @@ def _render_sparse_depth(scene_root: Path, n: int, fps: int, out: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene-root", type=Path, default=Path("/tmp/tandt_db/tandt/train"))
-    ap.add_argument("--n", type=int, default=48)
-    ap.add_argument("--fps", type=int, default=8)
+    ap.add_argument("--n", type=int, default=301)
+    ap.add_argument("--fps", type=int, default=16)
     ap.add_argument("--rgb-out", type=Path, default=ROOT / "docs/train_orbit.gif")
     ap.add_argument("--depth-out", type=Path, default=ROOT / "docs/train_depth_orbit.gif")
     args = ap.parse_args()

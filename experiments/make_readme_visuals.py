@@ -109,7 +109,7 @@ def first_gif_frame(path: Path) -> Image.Image:
     return Image.open(path).convert("RGB")
 
 
-def normalize_readme_gifs(target_width: int = 979, max_frames: int = 96) -> list[Path]:
+def normalize_readme_gifs(target_width: int = 979, max_frames: int | None = None) -> list[Path]:
     """Normalize GIF assets without dropping below the source Truck resolution."""
     outputs: list[Path] = []
     for path in (
@@ -128,7 +128,7 @@ def normalize_readme_gifs(target_width: int = 979, max_frames: int = 96) -> list
             scale = target_width / img.width
             target = (target_width, max(1, int(round(img.height * scale))))
         total = getattr(img, "n_frames", 1)
-        step = max(1, int(np.ceil(total / max_frames)))
+        step = 1 if max_frames is None else max(1, int(np.ceil(total / max_frames)))
         frames = []
         durations = []
         for i, frame in enumerate(ImageSequence.Iterator(img)):
@@ -200,62 +200,53 @@ def dataset_scene_grid():
 
 
 def prism_extension_diagram():
-    W, H = 1800, 980
+    W, H = 1800, 1080
     canvas = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(canvas)
-    text(d, (60, 44), "AURA rendering stack: PRISM adds to gsplat/Beta", 42, bold=True)
-    text(d, (60, 96), "Production path keeps quality renderers primary; PRISM only contributes extension footprints.", 22, MUTED)
+    text(d, (60, 44), "PRISM is an additive extension lane", 44, bold=True)
+    text(d, (60, 98), "Gaussian/Beta quality stays on gsplat and DBS-Beta. PRISM contributes only the extra Gabor/neural footprints, then AURA composites the layers.", 22, MUTED)
 
-    # Inputs
-    round_rect(d, (70, 190, 410, 810), radius=22, fill="#151b23", outline=EDGE)
-    text(d, (95, 220), "typed carriers", 30, bold=True)
-    carriers = [
-        ("Gaussian", BLUE, "quality path"),
-        ("Beta", GREEN, "DBS/Beta quality"),
-        ("Gabor", YELLOW, "PRISM extension"),
-        ("Neural", PURPLE, "PRISM extension"),
+    def arrow(a, b, color, width=7):
+        d.line((a[0], a[1], b[0], b[1]), fill=color, width=width)
+        d.polygon([(b[0], b[1]), (b[0] - 22, b[1] - 13), (b[0] - 22, b[1] + 13)], fill=color)
+
+    def lane(y, title, sub, color, output):
+        round_rect(d, (70, y, 360, y + 122), radius=20, fill="#151b23", outline=color, width=4)
+        text(d, (100, y + 24), title, 31, color, bold=True)
+        text(d, (100, y + 70), sub, 19, MUTED)
+        arrow((360, y + 61), (510, y + 61), color)
+        round_rect(d, (525, y - 8, 930, y + 130), radius=20, fill="#1d2430", outline=color, width=4)
+        text(d, (555, y + 24), output, 28, FG, bold=True)
+        text(d, (555, y + 68), "renders RGB + depth contribution", 20, MUTED)
+        arrow((930, y + 61), (1095, 405), color)
+
+    lane(205, "Gaussian", "primary carrier", BLUE, "gsplat rasterizer")
+    lane(390, "Beta", "primary typed quality", GREEN, "DBS-Beta rasterizer")
+    lane(575, "Gabor / neural", "extension footprints", YELLOW, "PRISM rasterizer")
+
+    round_rect(d, (1088, 300, 1690, 535), radius=26, fill="#132016", outline=GREEN, width=5)
+    text(d, (1130, 338), "AURA compositor", 38, GREEN, bold=True)
+    text(d, (1130, 398), "merge primary layer + extension layer by depth", 24, FG)
+    text(d, (1130, 440), "PRISM adds detail.", 23, YELLOW, bold=True)
+    text(d, (1130, 474), "It does not replace gsplat or DBS-Beta.", 23, YELLOW, bold=True)
+
+    round_rect(d, (1088, 620, 1690, 880), radius=26, fill="#1e1b2b", outline=PURPLE, width=5)
+    text(d, (1130, 658), "asset contract", 38, PURPLE, bold=True)
+    ops = [
+        ("render", "RGB/depth/normal"),
+        ("ray query", "color/depth/normal/confidence/semantic"),
+        ("relight", "surface/material preview"),
+        ("export", "KHR splat GLB + USD bridge"),
     ]
-    for i, (name, color, note) in enumerate(carriers):
-        y = 292 + i * 110
-        d.ellipse((105, y, 165, y + 60), fill=color)
-        text(d, (190, y + 4), name, 27, bold=True)
-        text(d, (190, y + 40), note, 18, MUTED)
+    for i, (name, body) in enumerate(ops):
+        y = 720 + i * 36
+        text(d, (1130, y), name, 23, FG, bold=True)
+        text(d, (1275, y), body, 20, MUTED)
 
-    # Backends
-    boxes = [
-        (570, 215, 1010, 365, "gsplat", "Gaussian rasterization", BLUE),
-        (570, 415, 1010, 565, "DBS / Beta", "high-quality Beta carriers", GREEN),
-        (570, 635, 1010, 785, "PRISM", "Gabor / neural extensions only", YELLOW),
-    ]
-    for x0, y0, x1, y1, title, sub, color in boxes:
-        round_rect(d, (x0, y0, x1, y1), radius=22, fill="#1d2430", outline=color, width=4)
-        text(d, (x0 + 28, y0 + 30), title, 34, color, bold=True)
-        text(d, (x0 + 28, y0 + 82), sub, 22, FG)
-
-    # Arrows
-    def line(a, b, color):
-        d.line((a[0], a[1], b[0], b[1]), fill=color, width=7)
-        d.polygon([(b[0], b[1]), (b[0] - 20, b[1] - 12), (b[0] - 20, b[1] + 12)], fill=color)
-
-    line((410, 325), (570, 290), BLUE)
-    line((410, 435), (570, 490), GREEN)
-    line((410, 545), (570, 705), YELLOW)
-    line((410, 655), (570, 725), PURPLE)
-
-    # Composite + contract
-    round_rect(d, (1160, 320, 1700, 515), radius=24, fill="#14231a", outline=GREEN, width=4)
-    text(d, (1190, 356), "depth-composited image", 34, GREEN, bold=True)
-    text(d, (1190, 412), "primary quality layer + PRISM extension layer", 23, FG)
-    line((1010, 292), (1160, 380), BLUE)
-    line((1010, 490), (1160, 420), GREEN)
-    line((1010, 705), (1160, 470), YELLOW)
-
-    round_rect(d, (1160, 600, 1700, 805), radius=24, fill="#1e1b2b", outline=PURPLE, width=4)
-    text(d, (1190, 636), "asset contract", 34, PURPLE, bold=True)
-    text(d, (1190, 692), "KHR export  |  ray query  |  relight", 23, FG)
-    text(d, (1190, 730), "confidence  |  semantics  |  USD bridge", 23, FG)
-
-    text(d, (70, 890), "Key rule: Beta does not default to PRISM. Beta stays in the DBS/Beta quality path; PRISM is additive.", 24, FG, bold=True)
+    round_rect(d, (70, 805, 930, 968), radius=22, fill="#1b1515", outline=RED, width=4)
+    text(d, (105, 835), "routing invariant", 32, RED, bold=True)
+    text(d, (105, 884), "Beta never falls through to PRISM.", 23, FG)
+    text(d, (105, 918), "Gaussian and Beta stay on the primary quality path.", 23, FG)
     out = DOCS / "prism_extension_stack.png"
     canvas.save(out)
     return out

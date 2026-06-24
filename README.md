@@ -82,6 +82,15 @@ control.
 The rendered scene media in this README is limited to the local Truck and Train
 assets currently present in the workspace.
 
+### Local Train Evidence
+
+Train is included as local image-sequence and COLMAP-sparse evidence rather than
+as a trained DBS-Beta AURA checkpoint.
+
+| Train image sweep | Train sparse depth |
+|---|---|
+| ![Train orbit](docs/train_orbit.gif) | ![Train sparse depth](docs/train_depth_orbit.gif) |
+
 ### Truck Compactness
 
 | Representation | PSNR | SSIM | LPIPS | Carriers |
@@ -308,10 +317,9 @@ aura publication-validation-report \
 
 | AURA | PRISM / Evidence |
 |---|---|
-| **Reconstruction**<br>![Truck orbit](docs/truck_orbit.gif) | **Capability board**<br>![Capability board](docs/capability_board.png) |
+| **Reconstruction**<br>![Truck orbit](docs/truck_orbit.gif) | **Method map**<br>![Method map](docs/how_it_works.png) |
 | **Depth query**<br>![Depth orbit](docs/truck_depth_orbit.gif) | **PRISM stack**<br>![PRISM stack](docs/prism_extension_stack.png) |
 | **Relighting**<br>![Relighting](docs/relight_sweep.gif) | **PRISM footprints**<br>![PRISM footprints](docs/prism_footprints.png) |
-| **Train image sweep**<br>![Train orbit](docs/train_orbit.gif) | **Train sparse depth**<br>![Train sparse depth](docs/train_depth_orbit.gif) |
 | **Confidence**<br>![Confidence](docs/confidence_truck.png) | **Benchmark scene grid**<br>![Dataset grid](docs/dataset_scene_grid.png) |
 | **Semantics**<br>![Semantics](docs/semantic_distill_truck.png) | **8-scene quality**<br>![Multiscene quality](docs/multiscene.png) |
 | **Open-vocabulary query**<br>![Query](docs/semantic_query_truck.png) | **Per-scene gains**<br>![Multiscene delta](docs/multiscene_delta.png) |

@@ -40,23 +40,26 @@ def test_primary_readme_gifs_keep_source_width():
         assert img.height >= 500, path
 
 
-def test_readme_gifs_play_at_normal_speed():
+def _gif_total_duration_ms(img: Image.Image) -> int:
+    return int(img.info.get("duration", 0)) * int(getattr(img, "n_frames", 1))
+
+
+def test_orbit_readme_gifs_are_smooth_without_low_fps_slowdown():
     for path in (
-        ROOT / "docs" / "relight_sweep.gif",
+        ROOT / "docs" / "truck_orbit.gif",
+        ROOT / "docs" / "truck_depth_orbit.gif",
         ROOT / "docs" / "train_orbit.gif",
         ROOT / "docs" / "train_depth_orbit.gif",
     ):
         img = Image.open(path)
-        assert img.info.get("duration", 0) >= 100, path
+        assert getattr(img, "n_frames", 1) >= 240, path
+        assert img.info.get("duration", 0) <= 80, path
+        assert _gif_total_duration_ms(img) >= 15000, path
 
 
-def test_truck_readme_gifs_play_slow_enough_to_inspect():
-    for path in (
-        ROOT / "docs" / "truck_orbit.gif",
-        ROOT / "docs" / "truck_depth_orbit.gif",
-    ):
-        img = Image.open(path)
-        assert img.info.get("duration", 0) >= 200, path
+def test_relight_readme_gif_play_at_inspectable_speed():
+    img = Image.open(ROOT / "docs" / "relight_sweep.gif")
+    assert img.info.get("duration", 0) >= 100
 
 
 def test_readme_includes_local_truck_and_train_media_only():
@@ -64,6 +67,10 @@ def test_readme_includes_local_truck_and_train_media_only():
     assert "docs/truck_orbit.gif" in readme
     assert "docs/train_orbit.gif" in readme
     assert "docs/train_depth_orbit.gif" in readme
+    assert "docs/capability_board.png" not in readme
+    gallery = readme.split("## Gallery", 1)[1]
+    assert "docs/train_orbit.gif" not in gallery
+    assert "docs/train_depth_orbit.gif" not in gallery
     assert "Tanks and Temples" not in readme
     assert "Temple scene" not in readme
     assert "docs/temple" not in readme.lower()

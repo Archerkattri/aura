@@ -1,175 +1,226 @@
 #!/usr/bin/env python3
-"""Detailed vertical schematic: how COLMAP / NeRF / 3DGS / AURA represent a scene.
-Four tall stacked rows (readable without zooming). Pure matplotlib. -> docs/how_it_works.png"""
+"""Generate a README method map: how COLMAP, NeRF, 3DGS, and AURA build a scene."""
+
+from __future__ import annotations
+
 from pathlib import Path
+
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import (Ellipse, Polygon, FancyBboxPatch, Circle,
-                                FancyArrowPatch, Rectangle, RegularPolygon)
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-BG = "#0f1115"; PANEL = "#171a21"; EDGE = "#2b303b"; FG = "#e9ecef"; SUB = "#aab2bd"
-GREEN = "#a3be8c"; RED = "#bf616a"; BLUE = "#88c0d0"; YEL = "#ebcb8b"; PUR = "#b48ead"; ORA = "#d08770"
-rng = np.random.default_rng(5)
+DOCS = ROOT / "docs"
+BG = "#0f1218"
+PANEL = "#171c24"
+PANEL2 = "#1d2430"
+EDGE = "#303847"
+FG = "#f2f4f8"
+MUTED = "#a7b0bd"
+BLUE = "#58a6ff"
+GREEN = "#3fb950"
+YELLOW = "#d29922"
+PURPLE = "#bc8cff"
+ORANGE = "#f0883e"
+RED = "#f85149"
 
 
-def cam(ax, x, y, ang=0, s=0.55, c=BLUE, label=None):
-    """Camera as a small pyramid + image plane, apex at (x,y), looking +x rotated by ang(deg)."""
-    th = np.radians(ang)
-    R = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
-    pts = np.array([[0, 0], [1.4 * s, 0.9 * s], [1.4 * s, -0.9 * s]])
-    pts = pts @ R.T + [x, y]
-    ax.add_patch(Polygon(pts, closed=True, fc=c, ec="white", lw=0.6, alpha=0.92, zorder=5))
-    plane = np.array([[1.4 * s, 0.9 * s], [1.4 * s, -0.9 * s]]) @ R.T + [x, y]
-    ax.plot(plane[:, 0], plane[:, 1], color="white", lw=1.4, zorder=6)
-    if label:
-        ax.text(x - 0.2, y - 0.55, label, color=SUB, fontsize=9, ha="right")
+def font(size: int, bold: bool = False):
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    ]
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            pass
+    return ImageFont.load_default()
 
 
-def box(ax, x, y, w, h, text, ec=BLUE, fs=11, fc="#222833"):
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05", fc=fc, ec=ec, lw=1.4, zorder=4))
-    ax.text(x + w / 2, y + h / 2, text, color=FG, fontsize=fs, ha="center", va="center", zorder=5)
+def text(draw: ImageDraw.ImageDraw, xy, value: str, size=24, fill=FG, bold=False, anchor=None):
+    draw.text(xy, value, font=font(size, bold), fill=fill, anchor=anchor)
 
 
-def arrow(ax, x0, y0, x1, y1, c=SUB, lw=1.6, style="-|>"):
-    ax.add_patch(FancyArrowPatch((x0, y0), (x1, y1), arrowstyle=style, mutation_scale=14,
-                                 color=c, lw=lw, zorder=4))
+def wrapped(draw: ImageDraw.ImageDraw, xy, value: str, max_width: int, size=22, fill=MUTED, bold=False, gap=7):
+    words = value.split()
+    active = font(size, bold)
+    lines: list[str] = []
+    line = ""
+    for word in words:
+        trial = word if not line else f"{line} {word}"
+        if draw.textlength(trial, font=active) <= max_width:
+            line = trial
+        else:
+            if line:
+                lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+    x, y = xy
+    for i, line in enumerate(lines):
+        draw.text((x, y + i * (size + gap)), line, font=active, fill=fill)
+    return y + len(lines) * (size + gap)
 
 
-def header(ax, n, title, color):
-    ax.add_patch(Rectangle((0.25, 8.7), 0.12, 1.0, fc=color, ec="none"))
-    ax.text(0.6, 9.2, f"{n}  {title}", color=FG, fontsize=20, fontweight="bold", va="center")
+def box(draw, xy, fill=PANEL2, outline=EDGE, width=2, radius=14):
+    draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
 
 
-def steps(ax, x, lines, y0=7.9, dy=0.62, fs=12.5):
-    for i, ln in enumerate(lines):
-        ax.text(x, y0 - i * dy, ln, color=SUB, fontsize=fs, va="top")
+def arrow(draw, a, b, color=MUTED, width=5):
+    draw.line((a, b), fill=color, width=width)
+    ax, ay = a
+    bx, by = b
+    v = np.array([bx - ax, by - ay], dtype=float)
+    n = np.linalg.norm(v)
+    if n <= 1e-6:
+        return
+    v = v / n
+    p = np.array([-v[1], v[0]])
+    tip = np.array([bx, by])
+    tail = tip - v * 18
+    draw.polygon([tuple(tip), tuple(tail + p * 9), tuple(tail - p * 9)], fill=color)
 
 
-def verdict(ax, x, y, gives, lacks):
-    ax.text(x, y, "✓ gives  ", color=GREEN, fontsize=11.5, fontweight="bold", va="top")
-    ax.text(x + 1.5, y, gives, color=FG, fontsize=11.5, va="top")
-    ax.text(x, y - 0.6, "✗ lacks  ", color=RED, fontsize=11.5, fontweight="bold", va="top")
-    ax.text(x + 1.5, y - 0.6, lacks, color=FG, fontsize=11.5, va="top")
+def image_tile(path: Path, size: tuple[int, int]) -> Image.Image:
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    tw, th = size
+    s = max(tw / w, th / h)
+    img = img.resize((int(w * s), int(h * s)), Image.Resampling.LANCZOS)
+    x = (img.width - tw) // 2
+    y = (img.height - th) // 2
+    return img.crop((x, y, x + tw, y + th))
 
 
-def setup(ax, color):
-    ax.set_xlim(0, 20); ax.set_ylim(0, 10); ax.axis("off")
-    ax.add_patch(FancyBboxPatch((0.1, 0.15), 19.8, 9.7, boxstyle="round,pad=0.05",
-                                fc=PANEL, ec=EDGE, lw=1.6))
-    ax.axvline(9.6, 0.06, 0.9, color=EDGE, lw=1)  # divider: schematic | text
+def camera(draw, x, y, color=BLUE):
+    draw.polygon([(x, y), (x + 55, y - 28), (x + 55, y + 28)], fill=color, outline=FG)
+    draw.line((x + 55, y - 28, x + 55, y + 28), fill=FG, width=3)
 
 
-# ---------------------------------------------------------------- rows
-def row_colmap(ax):
-    setup(ax, BLUE); header(ax, "①", "COLMAP — Structure-from-Motion (photogrammetry)", BLUE)
-    # scene points (right region) + 3 cameras around it
-    P = rng.uniform([6.3, 3.0], [8.7, 7.4], size=(45, 2))
-    cams = [(1.4, 6.6, -18), (1.6, 3.0, 12), (4.6, 1.4, 38)]
-    for (cx, cy, a) in cams:
-        cam(ax, cx, cy, a, 0.5)
-        for p in P[rng.choice(len(P), 7, replace=False)]:
-            ax.plot([cx, p[0]], [cy, p[1]], color="#3b4252", lw=0.4, alpha=0.7, zorder=1)
-    ax.scatter(P[:, 0], P[:, 1], s=12, c="#d8dee9", zorder=3)
-    # feature-match hint between two image planes
-    ax.text(3.0, 8.2, "feature matches + triangulation", color=BLUE, fontsize=10, ha="center")
-    steps(ax, 10.0, [
-        "1.  detect & match keypoints (SIFT) across overlapping photos",
-        "2.  bundle-adjust → camera poses + a sparse 3D point cloud",
-        "3.  optional dense MVS for a denser point set",
-        "",
-        "the geometric scaffold every later method builds on",
-    ])
-    verdict(ax, 10.0, 2.6, "calibrated camera poses, sparse/dense 3D points",
-            "no view-dependent radiance — not photoreal, not renderable")
+def point_cloud(draw, x0, y0, w, h, color=FG, seed=2, count=80):
+    rng = np.random.default_rng(seed)
+    pts = rng.normal(size=(count, 2))
+    pts[:, 0] = x0 + w * (0.5 + 0.22 * pts[:, 0])
+    pts[:, 1] = y0 + h * (0.5 + 0.28 * pts[:, 1])
+    for x, y in pts:
+        if x0 < x < x0 + w and y0 < y < y0 + h:
+            draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=color)
+    return pts
 
 
-def row_nerf(ax):
-    setup(ax, PUR); header(ax, "②", "NeRF — neural volumetric field", PUR)
-    cam(ax, 1.0, 5.0, 0, 0.5)
-    ray = np.array([[1.6, 5.0], [8.9, 6.2]])
-    ax.add_patch(Ellipse((6.2, 5.6), 4.6, 4.0, fc="#2e3440", ec="none", alpha=0.5))
-    ax.plot(ray[:, 0], ray[:, 1], color=PUR, lw=1.6, zorder=3)
-    ts = np.linspace(0.1, 0.95, 11)
-    pp = ray[0] + ts[:, None] * (ray[1] - ray[0])
-    sig = np.exp(-((ts - 0.62) ** 2) / 0.01) + 0.15      # density profile (a surface)
-    ax.scatter(pp[:, 0], pp[:, 1], s=20 + 130 * sig / sig.max(), c=YEL, zorder=4, edgecolors="none")
-    ax.text(4.2, 7.9, "samples along the ray (size ∝ density σ)", color=PUR, fontsize=10)
-    box(ax, 3.2, 1.2, 3.2, 1.1, "MLP\nγ(x),γ(d) → (σ, c)", ec=PUR, fs=11)
-    arrow(ax, 5.0, 3.0, 4.8, 2.35, c=PUR)
-    steps(ax, 10.0, [
-        "1.  cast a ray through each pixel; pick sample points along it",
-        "2.  an MLP maps (encoded position, view-dir) → (density σ, colour c)",
-        "3.  integrate front-to-back:  C = Σ Tᵢ(1−e^(−σᵢδᵢ)) cᵢ",
-        "",
-        "a continuous, view-dependent radiance field",
-    ])
-    verdict(ax, 10.0, 2.6, "photoreal, continuous, view-dependent colour",
-            "slow (an MLP per sample), implicit — hard to edit / export")
+def row_header(draw, x, y, color, title, subtitle):
+    draw.rectangle((x, y + 10, x + 10, y + 76), fill=color)
+    text(draw, (x + 28, y + 4), title, 32, FG, True)
+    wrapped(draw, (x + 28, y + 45), subtitle, 1420, 18, MUTED)
 
 
-def row_3dgs(ax):
-    setup(ax, ORA); header(ax, "③", "3D Gaussian Splatting — explicit real-time splats", ORA)
-    cam(ax, 1.0, 5.0, 0, 0.5)
-    for _ in range(20):
-        x, y = rng.uniform([3.0, 2.3], [6.6, 7.6])
-        ax.add_patch(Ellipse((x, y), rng.uniform(0.55, 1.25), rng.uniform(0.28, 0.6),
-                     angle=rng.uniform(0, 180), fc=plt.cm.twilight(rng.random()), ec="none", alpha=0.7, zorder=2))
-    arrow(ax, 6.9, 5.0, 7.7, 5.0, c=ORA)
-    ax.add_patch(Rectangle((7.9, 2.6), 1.4, 4.8, fc="#222833", ec=ORA, lw=1.2))
-    for gy in np.linspace(3.1, 6.9, 6):                  # 2D splats on the image plane
-        ax.add_patch(Ellipse((8.6, gy), rng.uniform(0.5, 0.9), 0.32, angle=rng.uniform(0, 180),
-                     fc=plt.cm.twilight(rng.random()), ec="none", alpha=0.8))
-    ax.text(3.0, 8.2, "3D anisotropic Gaussians  μ, Σ=RSSᵀRᵀ, α, SH", color=ORA, fontsize=10)
-    ax.text(8.6, 2.2, "image", color=SUB, fontsize=9, ha="center")
-    steps(ax, 10.0, [
-        "1.  scene = millions of identical anisotropic Gaussians",
-        "2.  project each to a 2D splat (EWA), sort by depth per tile",
-        "3.  alpha-blend front-to-back:  C = Σ cᵢαᵢ Π(1−αⱼ)",
-        "",
-        "explicit, differentiable, real-time rasterization",
-    ])
-    verdict(ax, 10.0, 2.6, "explicit geometry, real-time, trainable",
-            "one primitive type; baked lighting; no semantics / confidence")
+def stage(draw, xy, wh, label, body, color):
+    x, y = xy
+    w, h = wh
+    box(draw, (x, y, x + w, y + h), fill=PANEL2, outline=color, width=3)
+    text(draw, (x + 18, y + 14), label, 22, color, True)
+    wrapped(draw, (x + 18, y + 50), body, w - 36, 17, FG)
 
 
-def row_aura(ax):
-    setup(ax, GREEN); header(ax, "④", "AURA — adaptive typed carriers + asset contract", GREEN)
-    cam(ax, 1.0, 5.0, 0, 0.5)
-    # mixed carrier TYPES placed by region
-    ax.add_patch(Ellipse((3.2, 6.6), 1.2, 0.6, angle=15, fc="#81a1c1", ec="white", lw=0.5, alpha=0.9, zorder=3))
-    ax.text(3.2, 7.25, "Gaussian", color="#81a1c1", fontsize=8, ha="center")
-    ax.add_patch(Polygon([[5.0, 7.0], [5.7, 6.4], [5.0, 5.8], [4.3, 6.4]], fc=GREEN, ec="white", lw=0.5, alpha=0.92, zorder=3))
-    ax.text(5.0, 7.3, "Beta (sharp)", color=GREEN, fontsize=8, ha="center")
-    xx = np.linspace(6.2, 7.8, 30); ax.plot(xx, 6.4 + 0.22 * np.sin((xx - 6.2) * 13), color=YEL, lw=2.6, zorder=3)
-    ax.text(7.0, 6.95, "Gabor (texture)", color=YEL, fontsize=8, ha="center")
-    ax.add_patch(RegularPolygon((4.0, 4.4), 6, radius=0.45, fc=PUR, ec="white", lw=0.5, alpha=0.9, zorder=3))
-    ax.text(4.0, 3.75, "neural", color=PUR, fontsize=8, ha="center")
-    # per-carrier payload chip
-    box(ax, 5.7, 3.7, 3.3, 1.0, "payload:  rgb · normal · semantic · confidence", ec=GREEN, fs=9.5)
-    # dual engine
-    ax.text(2.0, 2.6, "Gaussians → gsplat", color="#81a1c1", fontsize=9.5)
-    ax.text(2.0, 2.0, "typed → PRISM", color=YEL, fontsize=9.5)
-    ax.text(2.0, 1.4, "→ depth-composited", color=SUB, fontsize=9.5)
-    steps(ax, 10.0, [
-        "1.  each region gets the carrier TYPE that fits it (Beta/Gabor/neural/Gaussian)",
-        "2.  Gaussians render via gsplat (engine); typed carriers via PRISM — composited",
-        "3.  every carrier carries colour + normal + semantic + confidence",
-        "4.  one contract:  rayQuery → {color,depth,normal,sem,conf} · relight · glTF export",
-    ], y0=8.0, dy=0.62)
-    verdict(ax, 10.0, 2.6, "typed + compact, queryable, relightable, semantic, exportable",
-            "(extends the gsplat engine — uses it for Gaussians, adds the rest)")
+def draw_colmap(canvas, y, thumb):
+    d = ImageDraw.Draw(canvas)
+    row_header(d, 46, y, BLUE, "1. COLMAP: photos become calibrated sparse geometry", "Feature matches triangulate camera poses and 3D points. This is geometry scaffolding, not a renderable radiance asset.")
+    panel = (46, y + 100, 1754, y + 315)
+    box(d, panel, fill=PANEL, outline=EDGE, width=2)
+    for i, x in enumerate((82, 206, 330)):
+        tile = thumb.resize((110, 62), Image.Resampling.LANCZOS)
+        canvas.paste(tile, (x, y + 142 + i * 8))
+        d.rectangle((x, y + 142 + i * 8, x + 110, y + 204 + i * 8), outline=FG, width=2)
+    arrow(d, (460, y + 175), (565, y + 175), BLUE)
+    stage(d, (575, y + 125), (250, 122), "match", "SIFT/keypoint tracks across overlapping photos", BLUE)
+    arrow(d, (835, y + 185), (940, y + 185), BLUE)
+    camera(d, 958, y + 148, BLUE)
+    camera(d, 960, y + 232, BLUE)
+    pts = point_cloud(d, 1110, y + 120, 250, 155, seed=4)
+    for cx, cy in ((958, y + 148), (960, y + 232)):
+        for px, py in pts[::14]:
+            d.line((cx, cy, px, py), fill="#2f4258", width=1)
+    stage(d, (1420, y + 125), (285, 122), "output", "poses + sparse points; optional MVS dense points", BLUE)
 
 
-fig, axes = plt.subplots(4, 1, figsize=(15, 21)); fig.patch.set_facecolor(BG)
-for ax in axes:
-    ax.set_facecolor(BG)
-row_colmap(axes[0]); row_nerf(axes[1]); row_3dgs(axes[2]); row_aura(axes[3])
-fig.suptitle("Photogrammetry → NeRF → 3D Gaussian Splatting → AURA",
-             color=FG, fontsize=24, fontweight="bold", y=0.995)
-plt.subplots_adjust(hspace=0.12, top=0.965, bottom=0.01, left=0.01, right=0.99)
-out = ROOT / "docs/how_it_works.png"
-plt.savefig(out, dpi=120, facecolor=BG)
-print(f"wrote {out}")
+def draw_nerf(canvas, y):
+    d = ImageDraw.Draw(canvas)
+    row_header(d, 46, y, PURPLE, "2. NeRF: posed rays train a neural volume", "COLMAP poses define rays. An MLP predicts density and color at many samples along every ray; rendering integrates those samples.")
+    panel = (46, y + 100, 1754, y + 315)
+    box(d, panel, fill=PANEL, outline=EDGE, width=2)
+    camera(d, 96, y + 205, PURPLE)
+    d.ellipse((360, y + 132, 760, y + 282), fill="#252b36", outline="#394251", width=2)
+    for offset, color in ((0, YELLOW), (-34, "#c690ff"), (34, "#c690ff")):
+        d.line((154, y + 205, 820, y + 190 + offset), fill=color, width=3)
+        for t in np.linspace(0.25, 0.86, 9):
+            x = 154 + (820 - 154) * t
+            yy = y + 205 + ((y + 190 + offset) - (y + 205)) * t
+            r = 4 + 8 * np.exp(-((t - 0.62) ** 2) / 0.012)
+            d.ellipse((x - r, yy - r, x + r, yy + r), fill=YELLOW)
+    arrow(d, (840, y + 195), (950, y + 195), PURPLE)
+    stage(d, (965, y + 132), (275, 140), "MLP", "(x, view dir) -> density sigma + RGB", PURPLE)
+    arrow(d, (1255, y + 200), (1360, y + 200), PURPLE)
+    stage(d, (1372, y + 132), (310, 140), "integrate", "front-to-back alpha accumulation produces one pixel color", PURPLE)
+
+
+def draw_3dgs(canvas, y):
+    d = ImageDraw.Draw(canvas)
+    row_header(d, 46, y, ORANGE, "3. 3DGS: sparse seed points become optimized splats", "A COLMAP point cloud is densified into anisotropic 3D Gaussians. Each Gaussian projects to a 2D ellipse and alpha-composites in tiles.")
+    panel = (46, y + 100, 1754, y + 315)
+    box(d, panel, fill=PANEL, outline=EDGE, width=2)
+    point_cloud(d, 100, y + 130, 230, 150, seed=8, color="#d8dee9", count=42)
+    stage(d, (360, y + 130), (225, 135), "seed", "COLMAP points initialize splat centers", ORANGE)
+    arrow(d, (600, y + 195), (705, y + 195), ORANGE)
+    rng = np.random.default_rng(9)
+    for _ in range(42):
+        x = rng.uniform(735, 1040)
+        yy = rng.uniform(y + 125, y + 280)
+        rx = rng.uniform(18, 46)
+        ry = rng.uniform(8, 22)
+        c = rng.choice([BLUE, GREEN, PURPLE, ORANGE, "#c9d1d9"])
+        d.ellipse((x - rx, yy - ry, x + rx, yy + ry), fill=c, outline=None)
+    text(d, (720, y + 284), "optimized 3D ellipsoids", 16, MUTED)
+    arrow(d, (1085, y + 195), (1190, y + 195), ORANGE)
+    box(d, (1210, y + 120, 1360, y + 282), fill="#11161f", outline=ORANGE, width=3)
+    for i in range(7):
+        yy = y + 135 + i * 20
+        d.ellipse((1242, yy, 1328, yy + 16), fill=rng.choice([BLUE, GREEN, PURPLE, "#c9d1d9"]))
+    stage(d, (1410, y + 130), (285, 135), "rasterize", "project -> sort/tile -> alpha blend for real-time views", ORANGE)
+
+
+def draw_aura(canvas, y):
+    d = ImageDraw.Draw(canvas)
+    row_header(d, 46, y, GREEN, "4. AURA: a radiance field becomes a typed asset", "AURA keeps gsplat/DBS-Beta as primary quality paths, adds PRISM extension footprints, and attaches queryable asset metadata.")
+    panel = (46, y + 100, 1754, y + 330)
+    box(d, panel, fill=PANEL, outline=EDGE, width=2)
+    stage(d, (82, y + 135), (255, 140), "inputs", "capture manifest, COLMAP poses, trained gsplat / DBS-Beta carriers", GREEN)
+    arrow(d, (352, y + 205), (450, y + 205), GREEN)
+    stage(d, (462, y + 118), (330, 174), "typed carriers", "Gaussian and Beta remain primary; Gabor/neural are PRISM extensions", GREEN)
+    for i, (label, color) in enumerate((("G", BLUE), ("B", GREEN), ("Ga", YELLOW), ("N", PURPLE))):
+        x = 502 + i * 62
+        d.ellipse((x, y + 222, x + 42, y + 264), fill=color)
+        text(d, (x + 21, y + 233), label, 13, BG, True, anchor="mm")
+    arrow(d, (807, y + 205), (905, y + 205), GREEN)
+    stage(d, (918, y + 118), (350, 174), "payload", "color, opacity, normal, material, semantic label, confidence, footprint type", GREEN)
+    arrow(d, (1284, y + 205), (1382, y + 205), GREEN)
+    stage(d, (1395, y + 118), (300, 174), "asset API", "render, ray query, depth, relight, confidence, semantics, GLB/USD export", GREEN)
+
+
+def main():
+    DOCS.mkdir(exist_ok=True)
+    thumb = image_tile(ROOT / "data/tanks/truck/images/000001.jpg", (260, 146))
+    canvas = Image.new("RGB", (1800, 1680), BG)
+    d = ImageDraw.Draw(canvas)
+    text(d, (54, 36), "How a capture becomes a scene representation", 48, FG, True)
+    wrapped(d, (58, 94), "Same posed photos, different construction targets: sparse geometry, neural volume, optimized splats, or a typed AURA asset.", 1600, 22, MUTED)
+    draw_colmap(canvas, 150, thumb)
+    draw_nerf(canvas, 535)
+    draw_3dgs(canvas, 920)
+    draw_aura(canvas, 1305)
+    out = DOCS / "how_it_works.png"
+    canvas.save(out)
+    print(f"wrote {out}")
+
+
+if __name__ == "__main__":
+    main()
