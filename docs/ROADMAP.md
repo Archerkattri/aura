@@ -45,7 +45,12 @@ Do **not** try to fix PRISM's compositor. Instead adopt **Deformable Beta
 Splatting** (`github.com/RongLiu-Leo/beta-splatting`) — a *gsplat-derived* CUDA
 rasterizer (installs as `beta_splatting`, no conflict with gsplat) with a
 learnable per-primitive Beta shape. Steps:
-1. Build `beta_splatting` (done/attempted in the `.gpu_venv`).
+1. **Build status (2026-06-24):** DBS's CUDA *compiles successfully on sm_120*
+   (the `compute_sb` spherical-Beta fwd/bwd kernels built). **Caveat:** DBS's fork
+   installs under the `gsplat` package name (namespace collision with the real
+   gsplat 1.5.3 AURA uses), so it must live in an **isolated venv** (`.dbs_venv`)
+   and be driven via a subprocess bridge. The `.aura` carrier sidecar
+   (`carrier_io`) is format-agnostic, so DBS-trained carriers write back cleanly.
 2. Add a `train-beta` backend mirroring `train-gsplat` but using DBS rasterization
    (means/scales/quats/opacity/SH + learnable Beta `sb` params). Seed from the
    same COLMAP carriers.
