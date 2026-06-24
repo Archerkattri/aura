@@ -1,0 +1,64 @@
+{
+  "benchmark": [
+    {
+      "carriers": 50000,
+      "width": 512,
+      "height": 512,
+      "prism_cuda_ms": 1.72,
+      "prism_cuda_fps": 581.4,
+      "prism_torch_ms": 36.97,
+      "gsplat_ms": 0.23,
+      "gsplat_fps": 4347.8
+    },
+    {
+      "carriers": 50000,
+      "width": 979,
+      "height": 546,
+      "prism_cuda_ms": 2.09,
+      "prism_cuda_fps": 478.5,
+      "prism_torch_ms": 47.96,
+      "gsplat_ms": 0.34,
+      "gsplat_fps": 2941.2
+    },
+    {
+      "carriers": 100000,
+      "width": 512,
+      "height": 512,
+      "prism_cuda_ms": 2.01,
+      "prism_cuda_fps": 497.5,
+      "prism_torch_ms": 35.18,
+      "gsplat_ms": 0.28,
+      "gsplat_fps": 3571.4
+    },
+    {
+      "carriers": 100000,
+      "width": 979,
+      "height": 546,
+      "prism_cuda_ms": 3.62,
+      "prism_cuda_fps": 276.2,
+      "prism_torch_ms": 50.23,
+      "gsplat_ms": 0.51,
+      "gsplat_fps": 1960.8
+    },
+    {
+      "carriers": 200000,
+      "width": 512,
+      "height": 512,
+      "prism_cuda_ms": 3.31,
+      "prism_cuda_fps": 302.1,
+      "prism_torch_ms": 37.33,
+      "gsplat_ms": 0.41,
+      "gsplat_fps": 2439.0
+    },
+    {
+      "carriers": 200000,
+      "width": 979,
+      "height": 546,
+      "prism_cuda_ms": 7.21,
+      "prism_cuda_fps": 138.7,
+      "prism_torch_ms": 53.07,
+      "gsplat_ms": 1.24,
+      "gsplat_fps": 806.5
+    }
+  ]
+}

@@ -72,12 +72,18 @@ reports complete coverage for both Beta and Gaussian arms across all 8 scenes.
 PRISM is complete for its intended role in AURA: an additive typed-footprint
 extension layer over the primary gsplat/DBS-Beta quality paths. It is **not** a
 replacement for gsplat or the Beta backend, and the README/results do not claim it
-is a quality alternative.
+is a quality alternative. A CUDA validation artifact proves the default routing:
+Gaussian/Beta stay on the primary path, Gabor/neural route to PRISM, and the PRISM
+extension layer changes the rendered image
+(`experiments/results/prism_additive_validation_2026-06-24.json`).
 
-Remaining work is research polish rather than a blocker for the current AURA
-objective: deeper secondary-ray/reflection integration, external baseline tables
-against other systems, production FPS sweeps, learned LPIPS evaluation, and richer
-inverse-material estimation.
+Publication validation is now in progress on GPU. Current artifacts include PRISM
+CUDA FPS sweeps (`experiments/results/prism_fps_2026-06-24.json`, 138-581 FPS over
+50k-200k carriers at tested resolutions) and a learned-LPIPS CUDA smoke report
+(`experiments/results/learned_lpips_smoke_2026-06-24.json`). Remaining paper gates:
+external baseline tables against other systems, full production-resolution FPS
+sweeps, deeper secondary-ray/reflection integration, and richer inverse-material
+estimation.
 
 ## Quality
 
@@ -251,6 +257,10 @@ bash experiments/dbs_compactness_sweep.sh              # compactness (½ the car
 bash experiments/run_multiscene.sh 7000 1              # 8-scene Beta-vs-Gaussian sweep on GPU1
 python experiments/collect_multiscene.py               # multi-scene table + charts
 python experiments/audit_multiscene.py                 # prove every local scene has both arms
+python experiments/prism_additive_validation.py        # prove PRISM additive routing on CUDA
+python experiments/prism_benchmark.py                  # PRISM CUDA/torch/gsplat FPS sweep
+python scripts/eval_psnr.py outputs/truck-sidecar.aura outputs/truck-pts129k-manifest.json \
+  --renderer gsplat --device cuda --scale 0.25 --json-out experiments/results/learned_lpips_smoke.json
 python experiments/render_turntable.py                 # reconstruction GIF
 python experiments/relight_fork_gif.py                 # relighting GIF
 python experiments/semantic_distill.py                 # semantic segmentation

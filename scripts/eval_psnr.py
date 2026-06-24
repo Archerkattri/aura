@@ -24,7 +24,7 @@ def load_jpg_as_rgb(path: str) -> tuple[int, int, list[float]]:
     return w, h, flat
 
 
-def lpips(pred: list[float], gt: list[float], width: int, height: int) -> float | None:
+def lpips(pred: list[float], gt: list[float], width: int, height: int, *, device: str | None = None) -> float | None:
     """Compute LPIPS using the lpips package if available; return None otherwise.
 
     pred, gt: flat list of floats in [0,1], length = width * height * 3
@@ -36,12 +36,13 @@ def lpips(pred: list[float], gt: list[float], width: int, height: int) -> float 
     except ImportError:
         return None
 
-    fn = lpips_lib.LPIPS(net="alex", verbose=False)
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    fn = lpips_lib.LPIPS(net="alex", verbose=False).to(device)
     fn.eval()
 
     # Build CHW tensors in [-1, 1] (lpips convention)
-    pred_t = torch.tensor(pred, dtype=torch.float32).reshape(height, width, 3).permute(2, 0, 1)
-    gt_t   = torch.tensor(gt,   dtype=torch.float32).reshape(height, width, 3).permute(2, 0, 1)
+    pred_t = torch.tensor(pred, dtype=torch.float32, device=device).reshape(height, width, 3).permute(2, 0, 1)
+    gt_t   = torch.tensor(gt,   dtype=torch.float32, device=device).reshape(height, width, 3).permute(2, 0, 1)
     pred_t = pred_t * 2.0 - 1.0
     gt_t   = gt_t   * 2.0 - 1.0
 
@@ -320,6 +321,8 @@ def main():
                         "rasterizer), 'gsplat' (tiled rasterizer, AURA's "
                         "high-fidelity primary-view path), 'torch' (default, batched) or 'cuda' "
                              "(compiled CUDA extension, faster for large scenes).")
+    parser.add_argument("--json-out", type=Path, default=None,
+                        help="Optional path for a machine-readable metrics report.")
     args = parser.parse_args()
 
     from aura.package import load_package
@@ -353,6 +356,7 @@ def main():
     psnr_values = []
     ssim_values = []
     lpips_values = []
+    per_frame = []
     for i, frame in enumerate(eval_frames):
         img_path = Path(root) / frame["image_path"]
         if not img_path.exists():
@@ -401,11 +405,21 @@ def main():
         mse_val = mse(render_pixels, gt_pixels)
         psnr_val = psnr_from_mse(mse_val)
         ssim_val = ssim(render_pixels, gt_pixels, render_W, render_H)
-        lpips_val = lpips(render_pixels, gt_pixels, render_W, render_H)
+        lpips_val = lpips(render_pixels, gt_pixels, render_W, render_H, device=args.device)
         psnr_values.append(psnr_val)
         ssim_values.append(ssim_val)
         if lpips_val is not None:
             lpips_values.append(lpips_val)
+        per_frame.append({
+            "frame": frame.get("id", i),
+            "imagePath": str(img_path),
+            "width": render_W,
+            "height": render_H,
+            "psnr": psnr_val,
+            "ssim": ssim_val,
+            "lpips": lpips_val,
+            "mse": mse_val,
+        })
         lpips_str = f"  LPIPS={lpips_val:.4f}" if lpips_val is not None else ""
         print(f"    PSNR={psnr_val:.2f} dB  SSIM={ssim_val:.4f}{lpips_str}  MSE={mse_val:.4f}")
 
@@ -419,6 +433,23 @@ def main():
         res_note = f" at {args.scale:.2f}x scale" if args.scale != 1.0 else " (full resolution)"
         print(f"\nAverage PSNR: {avg_psnr:.2f} dB  SSIM: {avg_ssim:.4f}{lpips_str}{res_note}")
         print("(3DGS reference: PSNR ~25.19 dB, SSIM ~0.879, LPIPS ~0.148 at full resolution)")
+        if args.json_out is not None:
+            args.json_out.parent.mkdir(parents=True, exist_ok=True)
+            args.json_out.write_text(json.dumps({
+                "format": "AURA_EVAL_PSNR_REPORT",
+                "package": str(args.package_dir),
+                "manifest": str(args.manifest),
+                "renderer": args.renderer,
+                "device": args.device,
+                "scale": args.scale,
+                "frameCount": len(per_frame),
+                "meanPsnr": avg_psnr,
+                "meanSsim": avg_ssim,
+                "meanLpips": (sum(lpips_values) / len(lpips_values)) if lpips_values else None,
+                "lpipsBackend": "learned_lpips_alex" if lpips_values else "unavailable",
+                "frames": per_frame,
+            }, indent=2) + "\n")
+            print(f"Wrote {args.json_out}")
     else:
         print("No frames evaluated.")
 

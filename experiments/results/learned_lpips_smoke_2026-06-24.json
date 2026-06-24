@@ -1,0 +1,35 @@
+{
+  "format": "AURA_EVAL_PSNR_REPORT",
+  "package": "outputs/truck-sidecar.aura",
+  "manifest": "outputs/truck-pts129k-manifest.json",
+  "renderer": "gsplat",
+  "device": "cuda",
+  "scale": 0.25,
+  "frameCount": 2,
+  "meanPsnr": 14.979032403693106,
+  "meanSsim": 0.35801181197166443,
+  "meanLpips": 0.724102258682251,
+  "lpipsBackend": "learned_lpips_alex",
+  "frames": [
+    {
+      "frame": "colmap_image_1",
+      "imagePath": "data/tanks/truck/images/000001.jpg",
+      "width": 244,
+      "height": 136,
+      "psnr": 14.75646688562064,
+      "ssim": 0.35083913803100586,
+      "lpips": 0.7375797033309937,
+      "mse": 0.03344670282203465
+    },
+    {
+      "frame": "colmap_image_126",
+      "imagePath": "data/tanks/truck/images/000126.jpg",
+      "width": 244,
+      "height": 136,
+      "psnr": 15.201597921765572,
+      "ssim": 0.365184485912323,
+      "lpips": 0.7106248140335083,
+      "mse": 0.030188407786027112
+    }
+  ]
+}

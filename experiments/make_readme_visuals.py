@@ -242,7 +242,7 @@ def capability_board():
         ("Semantics", "DINOv2 carrier features + CLIP query", "open-vocab wheel query", BLUE),
         ("Ray query", "color/depth/normal/confidence/semantic payload", "carrier_query", BLUE),
         ("PRISM", "Gabor/neural extension layer over gsplat/Beta", "not an alternative", YELLOW),
-        ("Still research", "external baselines, FPS, learned LPIPS, deeper materials", "publication gates", RED),
+        ("Validation", "FPS and learned LPIPS started; external baselines remain", "publication gates", RED),
     ]
     cols = 3
     card_w, card_h = 515, 230
