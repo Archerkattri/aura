@@ -52,6 +52,27 @@ relightable, exportable asset contract — building on the gsplat engine, not re
 
 ## Quality
 
+Across **8 real scenes** (Tanks & Temples Truck + Mip-NeRF 360 bicycle/bonsai/
+counter/garden/kitchen/room/stump), AURA's Beta carriers beat the fixed-Gaussian
+control on every scene:
+
+| Scene | AURA Beta PSNR ↑ | Fixed Gaussian PSNR ↑ | Δ PSNR |
+|---|---:|---:|---:|
+| bicycle | 25.15 | 24.84 | +0.30 |
+| bonsai | 34.03 | 32.27 | +1.76 |
+| counter | 30.32 | 28.81 | +1.51 |
+| garden | 27.27 | 26.64 | +0.63 |
+| kitchen | 32.37 | 31.29 | +1.09 |
+| room | 32.78 | 32.29 | +0.49 |
+| stump | 26.64 | 26.46 | +0.19 |
+| truck | 26.39 | 25.96 | +0.43 |
+
+**Mean gain: +0.80 dB PSNR.**
+
+![AURA Beta vs fixed Gaussian across 8 scenes](docs/multiscene.png)
+
+![Per-scene typed-carrier PSNR gains](docs/multiscene_delta.png)
+
 Tanks & Temples — Truck, held-out views:
 
 | Representation | PSNR ↑ | SSIM ↑ | LPIPS ↓ | Carriers |
@@ -188,6 +209,8 @@ environment; figures and GIFs are produced by the scripts in `experiments/`:
 bash scripts/fetch_scene.sh truck data/tanks/truck     # data
 bash experiments/dbs_truck_ablation.sh                 # typed Beta vs fixed Gaussian
 bash experiments/dbs_compactness_sweep.sh              # compactness (½ the carriers)
+bash experiments/run_multiscene.sh 7000 1              # 8-scene Beta-vs-Gaussian sweep on GPU1
+python experiments/collect_multiscene.py               # multi-scene table + charts
 python experiments/render_turntable.py                 # reconstruction GIF
 python experiments/relight_fork_gif.py                 # relighting GIF
 python experiments/semantic_distill.py                 # semantic segmentation
@@ -204,6 +227,7 @@ All on Tanks & Temples — Truck, rendered through the trained carriers.
 | **Relighting**<br>![relight](docs/relight_sweep.gif) | **Confidence**<br>![confidence](docs/confidence_truck.png) |
 | **Semantic segmentation**<br>![semantics](docs/semantic_distill_truck.png) | **Open-vocab query** ("a wheel")<br>![query](docs/semantic_query_truck.png) |
 | **Typed vs fixed**<br>![beta vs gauss](docs/beta_vs_gauss_truck.png) | **Compactness**<br>![compactness](docs/compactness_curve.png) |
+| **8-scene quality**<br>![multi-scene](docs/multiscene.png) | **Per-scene gains**<br>![multi-scene delta](docs/multiscene_delta.png) |
 
 ## Repository map
 

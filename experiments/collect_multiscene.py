@@ -63,9 +63,10 @@ def main():
     # per-scene delta
     fig2, ax2 = plt.subplots(figsize=(max(7, 1.2 * len(scenes)), 3.6))
     deltas = [r["delta_psnr"] for r in rows]
-    ax2.bar(scenes, deltas, color=["#1f9d55" if d >= 0 else "#bf616a" for d in deltas])
+    ax2.bar(x, deltas, color=["#1f9d55" if d >= 0 else "#bf616a" for d in deltas])
     ax2.axhline(0, color="#bbb", lw=1); ax2.axhline(mean_d, color="#1f9d55", ls=":", lw=1, label=f"mean +{mean_d:.2f}")
-    ax2.set_ylabel("Δ PSNR (Beta − Gaussian)"); ax2.set_xticklabels(scenes, rotation=30, ha="right")
+    ax2.set_xticks(x); ax2.set_xticklabels(scenes, rotation=30, ha="right")
+    ax2.set_ylabel("Δ PSNR (Beta − Gaussian)")
     ax2.set_title("Per-scene quality gain from typed carriers"); ax2.legend(); plt.tight_layout()
     plt.savefig(ROOT / "docs/multiscene_delta.png", dpi=130)
     print("wrote docs/multiscene.png, docs/multiscene_delta.png, experiments/results/multiscene.json")
