@@ -34,6 +34,7 @@ def save_carriers(
     phase=None,       # [N]   gabor phase (optional)
     beta=None,        # [N]   Beta-kernel shape (Deformable Beta Splatting; optional)
     sb=None,          # [N,L,6] spherical-Beta view-dependent colour lobes (optional)
+    confidence=None,  # [N]   per-carrier confidence in [0,1] (optional)
 ):
     """Write carrier tensors to ``<path>/carriers.npz`` (path may be a package
     dir or a file path). Accepts torch tensors or numpy arrays."""
@@ -67,6 +68,8 @@ def save_carriers(
         data["beta"] = _np(beta)
     if sb is not None:
         data["sb"] = _np(sb)
+    if confidence is not None:
+        data["confidence"] = _np(confidence)
     np.savez(target, **data)
     return target
 
@@ -107,6 +110,8 @@ def load_carriers(path, *, device="cuda"):
         out["beta"] = t("beta")
     if "sb" in z:
         out["sb"] = t("sb")
+    if "confidence" in z:
+        out["confidence"] = t("confidence")
     return out
 
 

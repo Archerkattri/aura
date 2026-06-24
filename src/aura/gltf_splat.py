@@ -78,6 +78,10 @@ def build_splat_gltf(carriers, *, buffer_uri=None):
     blocks.append((f"{_EXT}:ROTATION", rot, "VEC4"))
     blocks.append((f"{_EXT}:SCALE", scales, "VEC3"))
     blocks.append((f"{_EXT}:OPACITY", opacity, "SCALAR"))
+    # AURA extension: per-carrier confidence (custom vendor attribute).
+    conf = _np(carriers.get("confidence"))
+    if conf is not None:
+        blocks.append(("_AURA_CONFIDENCE", conf.reshape(-1, 1), "SCALAR"))
     if sh is not None:
         # sh is [N, K, 3], K=(deg+1)^2, index 0 = DC (already in COLOR_0).
         for l in range(1, sh_degree + 1):
