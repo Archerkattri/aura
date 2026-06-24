@@ -95,11 +95,16 @@ learnable per-primitive Beta shape. Steps:
 - ✅ **Per-carrier confidence** (`aura.confidence`): multi-view observation support
   (in-frustum/in-front view counts → [0,1]), stored in `carriers.npz`, exported as
   the `_AURA_CONFIDENCE` glTF attribute. The contract's confidence axis (3 tests).
-- ⬜ **Semantics** (`semantic.py` exists) coupled to confidence, and a single
-  `rayQuery(r) -> {color,depth,normal,material,semantic_id,confidence}` over the
-  large *trained* carriers (today `scene.AuraScene.ray_query` returns the full
-  payload but on native/demo scenes — wire it over `carriers.npz`).
-- ⬜ Ray-query / secondary rays (3DGRT-style). Unchanged from below.
+- ✅ **Unified `rayQuery` over trained carriers** (`aura.carrier_query`): answers a
+  ray over `carriers.npz` (1M+) returning the full `RayQueryResult` payload
+  (color/depth/normal/confidence/semantic_id/transmittance) via front-to-back
+  opacity accumulation, with the confidence field wired in as a floater filter
+  (4 tests). Caveat: geometric first-surface queries over raw MCMC clouds are
+  floater-sensitive (the full integral is the rasterizer's job).
+- ⬜ **Semantics** (`semantic.py` exists) coupled to confidence — needs LangSplat-
+  style feature supervision per carrier (a larger effort; DBS/gsplat carriers carry
+  no labels yet). The `semantic_id` slot in the query payload is ready for it.
+- ⬜ Secondary rays / 3DGRT-style ray tracing. Unchanged from below.
 
 ### Track 2 — the unified asset contract (the other make-or-break claim)
 
