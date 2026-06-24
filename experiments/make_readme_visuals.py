@@ -330,11 +330,10 @@ def capability_reel():
     frames = []
     for title, path in sources:
         img = first_gif_frame(path) if path.suffix == ".gif" else Image.open(path).convert("RGB")
-        frame = Image.new("RGB", (W, H), BG)
+        frame = fit_media_frame(img, (W, H), mode="cover")
         d = ImageDraw.Draw(frame)
-        text(d, (34, 22), f"AURA can do: {title}", 36, bold=True)
-        view = fit_media_frame(img, (W - 68, H - 110), mode="cover")
-        frame.paste(view, (34, 86))
+        d.rectangle((0, 0, W, 74), fill=(6, 8, 12))
+        text(d, (30, 20), f"AURA can do: {title}", 34, bold=True)
         frames.extend([frame] * 10)
     out = DOCS / "aura_capability_reel.gif"
     imageio.mimsave(out, [np.asarray(f) for f in frames], fps=10, loop=0)
