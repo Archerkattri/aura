@@ -622,6 +622,12 @@ def train_carriers_prism(seed_params, ctx, manifest, *, config, device="cuda", c
         loss = (1 - config.ssim_weight) * l1 + config.ssim_weight * (1 - _ssim(img, gt, torch))
         opt.zero_grad(set_to_none=True)
         loss.backward()
+        # Stabilise: zero non-finite grads and clip — the dense tile-composite can
+        # produce large/ NaN gradients on near-degenerate carriers at high caps.
+        for t in P.values():
+            if t.grad is not None:
+                torch.nan_to_num_(t.grad, nan=0.0, posinf=0.0, neginf=0.0)
+        torch.nn.utils.clip_grad_norm_(list(P.values()), 10.0)
         opt.step()
 
         # Adaptive densification: clone high-positional-gradient carriers and
