@@ -53,6 +53,7 @@ def main():
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent / "docs/relight_sweep.gif"))
     ap.add_argument("--view", type=int, default=20)
     ap.add_argument("--n", type=int, default=48)
+    ap.add_argument("--fps", type=int, default=8)
     ap.add_argument("--downscale", type=int, default=1)
     a = ap.parse_args()
 
@@ -84,7 +85,7 @@ def main():
         frames.append(arr[::a.downscale, ::a.downscale])
     frames += frames[::-1]
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    imageio.mimsave(a.out, frames, fps=18, loop=0)
+    imageio.mimsave(a.out, frames, fps=a.fps, loop=0)
     print(f"wrote {a.out} ({len(frames)} frames, {frames[0].shape[1]}x{frames[0].shape[0]})")
 
 

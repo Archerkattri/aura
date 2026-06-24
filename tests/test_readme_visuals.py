@@ -32,7 +32,32 @@ def test_primary_readme_gifs_keep_source_width():
         ROOT / "docs" / "truck_orbit.gif",
         ROOT / "docs" / "truck_depth_orbit.gif",
         ROOT / "docs" / "relight_sweep.gif",
+        ROOT / "docs" / "train_orbit.gif",
+        ROOT / "docs" / "train_depth_orbit.gif",
     ):
         img = Image.open(path)
         assert img.width >= 900, path
         assert img.height >= 500, path
+
+
+def test_readme_gifs_play_at_normal_speed():
+    for path in (
+        ROOT / "docs" / "truck_orbit.gif",
+        ROOT / "docs" / "truck_depth_orbit.gif",
+        ROOT / "docs" / "relight_sweep.gif",
+        ROOT / "docs" / "train_orbit.gif",
+        ROOT / "docs" / "train_depth_orbit.gif",
+    ):
+        img = Image.open(path)
+        assert img.info.get("duration", 0) >= 100, path
+
+
+def test_readme_includes_local_truck_and_train_media_only():
+    readme = (ROOT / "README.md").read_text()
+    assert "docs/truck_orbit.gif" in readme
+    assert "docs/train_orbit.gif" in readme
+    assert "docs/train_depth_orbit.gif" in readme
+    assert "Temple scene" not in readme
+    assert "docs/temple" not in readme.lower()
+    assert "M60" not in readme
+    assert "tank scene" not in readme.lower()

@@ -79,6 +79,9 @@ control.
 
 ![Per-scene PSNR gains](docs/multiscene_delta.png)
 
+The rendered Tanks and Temples media in this README is limited to the local
+Truck and Train assets currently present in the workspace.
+
 ### Truck Compactness
 
 | Representation | PSNR | SSIM | LPIPS | Carriers |
@@ -290,6 +293,7 @@ python experiments/prism_benchmark.py
 python experiments/secondary_reflection_validation.py
 python experiments/inverse_material_validation.py
 python experiments/external_baseline_smokes.py --device cuda
+python experiments/render_tandt_scene_gifs.py
 python experiments/make_readme_visuals.py
 ```
 
@@ -307,7 +311,8 @@ aura publication-validation-report \
 | **Reconstruction**<br>![Truck orbit](docs/truck_orbit.gif) | **Capability board**<br>![Capability board](docs/capability_board.png) |
 | **Depth query**<br>![Depth orbit](docs/truck_depth_orbit.gif) | **PRISM stack**<br>![PRISM stack](docs/prism_extension_stack.png) |
 | **Relighting**<br>![Relighting](docs/relight_sweep.gif) | **PRISM footprints**<br>![PRISM footprints](docs/prism_footprints.png) |
-| **Confidence**<br>![Confidence](docs/confidence_truck.png) | **All local scenes**<br>![Dataset grid](docs/dataset_scene_grid.png) |
+| **Train image sweep**<br>![Train orbit](docs/train_orbit.gif) | **Train sparse depth**<br>![Train sparse depth](docs/train_depth_orbit.gif) |
+| **Confidence**<br>![Confidence](docs/confidence_truck.png) | **Benchmark scene grid**<br>![Dataset grid](docs/dataset_scene_grid.png) |
 | **Semantics**<br>![Semantics](docs/semantic_distill_truck.png) | **8-scene quality**<br>![Multiscene quality](docs/multiscene.png) |
 | **Open-vocabulary query**<br>![Query](docs/semantic_query_truck.png) | **Per-scene gains**<br>![Multiscene delta](docs/multiscene_delta.png) |
 
