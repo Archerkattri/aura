@@ -7,6 +7,7 @@ set -e
 REPO="$(cd "$(dirname "$0")/.." && pwd)"; cd "$REPO"
 OUT="/tmp/dbs_multiscene"; mkdir -p "$OUT"
 ITERS="${1:-7000}"
+GPU="${2:-1}"          # which GPU to run on (default GPU1 — keep GPU0 free for other jobs)
 DBS_PY="$REPO/.dbs_venv/bin/python"
 export OMP_NUM_THREADS=4
 
@@ -29,14 +30,13 @@ gauss() { local g=$1 s=$2 img=$3 name=$4
   UNIFORM_BETA=4 CUDA_VISIBLE_DEVICES=$g "$DBS_PY" experiments/dbs_uniform_beta.py -s "$REPO/$s" --images "$img" --eval \
     --iterations "$ITERS" --sb_number 0 --beta_lr 0 --disable_viewer --model_path "$OUT/${name}_gauss" > "$OUT/${name}_gauss.log" 2>&1; }
 
-i=0
 for entry in "${SCENES[@]}"; do
   set -- $entry; sdir=$1; img=$2; name=$(basename "$sdir")
-  gpu=$((i % 2))            # alternate GPUs
-  ( beta $gpu "$sdir" "$img" "$name"; gauss $gpu "$sdir" "$img" "$name"; echo "done $name" ) &
-  i=$((i + 1))
-  [ $((i % 2)) -eq 0 ] && wait    # 2 scenes (1 per GPU) at a time
+  [ -d "$REPO/$sdir/sparse" ] || { echo "skip $name (no COLMAP model)"; continue; }
+  echo ">>> $name (GPU$GPU)"
+  beta  "$GPU" "$sdir" "$img" "$name"
+  gauss "$GPU" "$sdir" "$img" "$name"
+  echo "done $name"
 done
-wait
 echo "=== multi-scene done ==="
 "$REPO/.gpu_venv/bin/python" experiments/collect_multiscene.py --out "$OUT"
