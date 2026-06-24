@@ -104,13 +104,13 @@ carrier as a surface element — **normal** = the Gaussian's short axis, **albed
 the diffuse colour — and applies `shading.py`'s Lambertian / Cook-Torrance BRDFs to
 produce a *relit* colour under arbitrary lights, then rasterizes
 (`aura.relight.render_relit`, `experiments/relight_demo.py`, 5 tests). The scene
-responds to light direction, so the same carriers are relightable:
-
-![albedo · lit from left · lit from right](docs/relight_truck.png)
+responds to light direction (verified in tests), so the same carriers are
+relightable.
 
 Honest scope: covariance normals are unsigned/noisy and the albedo still holds
-residual baked shading — this is an editable relighting *layer*, not a full
-inverse-rendering material decomposition.
+residual baked shading, so the current render is rough — this is an editable
+relighting *layer*, not a full inverse-rendering material decomposition. (A clean
+relight render needs gsplat-native carriers; tracked.)
 
 ### Per-carrier confidence
 
