@@ -3,14 +3,14 @@
   "carrier": "auto",
   "volumetric": true,
   "densify": false,
-  "iterations": 1500,
+  "iterations": 2000,
   "scale": 0.25,
-  "psnr": 12.056,
-  "ssim": 0.244,
-  "train_seconds": 22.3,
+  "psnr": 11.957,
+  "ssim": 0.2482,
+  "train_seconds": 28.6,
   "final_carriers": 129531,
   "footprint_counts": {
-    "gaussian": 90680,
-    "gabor": 38851
+    "gaussian": 90672,
+    "gabor": 38859
   }
 }

@@ -70,7 +70,7 @@ def main():
     hdr = 22
     grid = Image.new("RGB", (tile_w * 3, hdr + tile_h * len(cols)), (20, 20, 20))
     draw = ImageDraw.Draw(grid)
-    for j, label in enumerate(["Ground truth", "vanilla 3DGS (gsplat)", "AURA (15.5 dB)"]):
+    for j, label in enumerate(["Ground truth", "vanilla 3DGS (gsplat)", "AURA"]):
         draw.text((j * tile_w + 6, 5), label, fill=(240, 240, 240))
     for i, (g, b, a) in enumerate(cols):
         y = hdr + i * tile_h

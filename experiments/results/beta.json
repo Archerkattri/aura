@@ -3,11 +3,11 @@
   "carrier": "beta",
   "volumetric": false,
   "densify": false,
-  "iterations": 1500,
+  "iterations": 2000,
   "scale": 0.25,
-  "psnr": 12.097,
-  "ssim": 0.2479,
-  "train_seconds": 20.3,
+  "psnr": 11.879,
+  "ssim": 0.2475,
+  "train_seconds": 25.5,
   "final_carriers": 129531,
   "footprint_counts": {
     "beta": 129531

@@ -3,11 +3,11 @@
   "carrier": "gabor",
   "volumetric": false,
   "densify": false,
-  "iterations": 1500,
+  "iterations": 2000,
   "scale": 0.25,
-  "psnr": 11.935,
-  "ssim": 0.2474,
-  "train_seconds": 21.4,
+  "psnr": 11.722,
+  "ssim": 0.245,
+  "train_seconds": 26.6,
   "final_carriers": 129531,
   "footprint_counts": {
     "gabor": 129531

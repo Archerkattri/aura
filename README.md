@@ -52,39 +52,39 @@ same scene and eval frames (matched budget, 0.25× scale):
 
 ![Ground truth vs vanilla 3DGS vs AURA — Truck](docs/aura_vs_3dgs_truck.png)
 
-**Convergence vs an executed 3DGS baseline** (same scene, same eval split, AURA's
-own pipeline):
+_Above: ground truth · executed vanilla 3DGS · AURA — all with the corrected
+poses (see below). AURA reconstructs the truck sharply, on par with vanilla 3DGS._
 
-| Run | Iters | PSNR | SSIM | Notes |
-|---|---|---|---|---|
-| executed gsplat 3DGS baseline | 7,000 | 14.04 dB | 0.207 | matched scene/split @0.125 |
-| AURA (gsplat backend) | 15,000 | **15.50 dB** | 0.354 | @0.5 train, @0.25 eval |
-| 3DGS (Kerbl 2023, published) | 30,000 | ~25.19 dB | ~0.879 | full-res reference |
+### The pose fix (the real story)
 
-> Reproduces 3DGS-class quality through AURA's own pipeline. The gap to the
-> published ~25 dB is a shared harness/scale artifact — the executed gsplat
-> baseline hits the same ~14 dB ceiling at this scale/protocol.
+AURA (and the executed baseline) initially plateaued at ~14–16 dB while published
+3DGS reaches ~25. The cause was **not** the representation — it was a bug: the
+COLMAP→manifest conversion stored only `camera_origin` + `look_at` (forward
+direction) and reconstructed the view from a fixed `up=(0,-1,0)`, **dropping
+camera roll**. Handheld captures have roll, so every pose was wrong and
+reconstruction was capped regardless of iterations/SH/densification.
 
-**Carrier-type ablation (PRISM, matched: 129,531 carriers, 1,500 iters, @0.25
-eval).** Typed and adaptively-mixed carriers consistently beat plain Gaussian:
+Smoking gun (`experiments/direct_pose_test.py`): training gsplat with the **full
+COLMAP poses** (quaternion+translation) directly gives **20.6 dB** @0.25 (7k
+iters) vs ~14 dB through the manifest path — **+6.6 dB from correct poses alone**.
+The fix carries the full world-to-camera rotation (`view_rotation`) through the
+pipeline. After it:
 
-| Config | PSNR | SSIM | Carriers | Δ vs gaussian |
-|---|---|---|---|---|
-| gaussian | 11.37 | 0.249 | 129,531 | — |
-| gaussian + densify | 11.76 | 0.248 | 111,710 | +0.39 |
-| gabor | 11.94 | 0.247 | 129,531 | +0.57 |
-| gaussian + volumetric | 12.06 | 0.246 | 129,531 | +0.69 |
-| beta | 12.10 | 0.248 | 129,531 | +0.73 |
-| **auto (gaussian+gabor mix)** | **12.14** | 0.247 | 90,680 g + 38,851 gabor | **+0.77** |
+| Run (correct poses) | Scale | Iters | PSNR | SSIM | N |
+|---|---|---|---|---|---|
+| AURA (gsplat backend) | 0.25 | 7,000 | 18.44 dB | 0.580 | 129,531 |
+| AURA (gsplat backend, full-res, SH, densify) | 1.0 | 30,000 | **19.44 dB** | 0.689 | 3,428,171 |
+| direct COLMAP-pose gsplat (reference) | 0.25 | 7,000 | 20.60 dB | — | 129,531 |
+| 3DGS (Kerbl 2023, published, original repo) | 1.0 | 30,000 | ~25.19 dB | ~0.879 | — |
 
-Controlled tests confirm the mechanism: Gabor carriers beat Gaussian on
-high-frequency stripes, and a single neural carrier beats a Gaussian on a ring
-(`tests/test_prism.py`).
+AURA is now genuinely competitive with 3DGS view synthesis. The remaining gap to
+the published ~25 dB reflects densification/LR tuning and harness/eval-protocol
+differences, not the representation.
 
-**Rasterizer speed (PRISM forward, RTX 5090, ms/frame · FPS).** PRISM's CUDA
-kernel is real-time; ~18–25× its own torch tiled path. gsplat (a mature fused
-library) is faster still — closing that gap (a full CUDA tile-sort) is the
-remaining performance work.
+### Rasterizer speed (PRISM forward, RTX 5090, ms/frame · FPS)
+
+PRISM's CUDA kernel is real-time; ~18–25× its own torch tiled path. gsplat (a
+mature fused library) is faster still.
 
 | Carriers | Res | PRISM CUDA | PRISM torch | gsplat |
 |---|---|---|---|---|
@@ -92,17 +92,24 @@ remaining performance work.
 | 100k | 512² | 1.99 ms / 503 fps | 36.4 ms | 0.29 ms |
 | 200k | 979×546 | 7.23 ms / 138 fps | 54.5 ms | 1.26 ms |
 
-Reproduce: `python experiments/prism_ablation.py --configs auto,beta,gaussian ...`
-and `python experiments/prism_benchmark.py` (results in `experiments/results/`).
+### Honest status of PRISM and typed carriers
 
-> **On the two render paths:** the 15.5 dB convergence figure (and the image
-> above) use AURA's *gsplat-backed* path, which currently has the highest
-> fidelity on dense (100k+ carrier) scenes. The carrier ablation uses **PRISM**
-> (AURA's own kernel) for both training and rendering, so it is internally
-> consistent but a few dB lower in absolute terms — PRISM trails the gsplat
-> backend by ~4 dB on dense scenes today (the EWA dilation / opacity-compensation
-> match is being closed). PRISM is what makes the *typed-carrier* engine possible
-> and is real-time; the gsplat backend is the current quality reference.
+PRISM (AURA's own typed-carrier rasterizer) is real-time and trains all four
+carrier footprints (gaussian/beta/gabor/neural), but it is **not yet at parity
+with the gsplat backend on quality**: PRISM-native training trails by several dB
+on dense real scenes, and showed instability at very large per-tile caps. An
+earlier carrier-type ablation suggested typed/mixed carriers beat plain Gaussian
+(+0.8 dB) — but that result **did not survive the pose fix**: at correct poses,
+Gaussian (12.08) ≈ adaptive-mix (11.98) at the same budget. Typed carriers still
+demonstrably help on *controlled* signals (Gabor beats Gaussian on stripes, a
+neural carrier beats a Gaussian on a ring — `tests/test_prism.py`), but a
+real-scene advantage at matched poses/budget is **not yet established**. Closing
+the PRISM-vs-gsplat quality gap, and a learned (vs heuristic) carrier assignment,
+are the open problems. The convergence numbers above use the gsplat backend,
+which is AURA's current quality reference.
+
+Reproduce: `python experiments/prism_ablation.py ...`, `prism_benchmark.py`,
+`direct_pose_test.py` (results in `experiments/results/`).
 
 ## Features
 
