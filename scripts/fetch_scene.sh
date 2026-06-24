@@ -10,7 +10,7 @@
 #   bash scripts/fetch_scene.sh truck [DEST]
 #   bash scripts/fetch_scene.sh --list
 #
-# Default DEST for truck is data/tanks/truck (matches configs/truck_run6.json).
+# Default DEST for truck is data/tanks/truck.
 #
 # Expected layout after fetching the truck scene:
 #   data/tanks/truck/
@@ -19,7 +19,6 @@
 #                             # (or the .txt equivalents)
 #
 # Once fetched, ingest + train + eval with the commands in
-# configs/truck_run6.json.
 set -euo pipefail
 
 SCENE="${1:-}"
@@ -53,7 +52,6 @@ from the Tanks & Temples project (registration required):
 After fetching, verify the layout:
   bash scripts/fetch_scene.sh truck "${dest}"   # re-run to verify
 
-Then reproduce run6 per configs/truck_run6.json:
   python -m aura.cli colmap-to-capture-manifest "${dest}/sparse/0" \\
       --root "${dest}" --image-dir "${dest}/images" \\
       --output outputs/truck-pts129k-manifest.json --point-seeded
@@ -79,7 +77,6 @@ verify_layout() {
     echo "MISSING: ${dest}/sparse/0 COLMAP model (cameras/images .bin or .txt)"; ok=0
   fi
   if [[ "${ok}" -eq 1 ]]; then
-    echo "Layout verified — ready to ingest (see configs/truck_run6.json)."
     return 0
   fi
   echo "Layout incomplete — follow the download instructions above."
@@ -89,7 +86,6 @@ verify_layout() {
 case "${SCENE}" in
   --list|"")
     echo "Available scenes:"
-    echo "  truck   Tanks & Temples Truck (used by configs/truck_run6.json)"
     echo
     echo "Usage: bash scripts/fetch_scene.sh truck [DEST]"
     exit 0

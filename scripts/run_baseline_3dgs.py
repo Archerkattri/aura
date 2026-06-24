@@ -11,7 +11,7 @@ actionable message if any is missing. It does NOT download datasets or weights.
 
 Why this is an honest baseline
 ------------------------------
-``scripts/run_aura_vs_3dgs.py`` historically printed 3DGS numbers copied from
+3DGS baseline numbers were historically copied from
 Kerbl et al. 2023 Table 1 (the ``REFERENCE_3DGS`` dict). Those are *published*
 numbers, NOT something this repo executed, and they were measured at a different
 resolution / eval protocol than AURA's ``eval_psnr.py``. To compare fairly we
@@ -34,7 +34,7 @@ This runner therefore:
    ``--scale``.
 5. Prints a summary line in the SAME format as ``eval_psnr.py``
    ("Average PSNR: X dB  SSIM: Y  LPIPS: Z ...") and writes it to
-   ``--out`` so ``scripts/run_aura_vs_3dgs.py`` can parse the baseline exactly
+   ``--out`` in a parseable summary format
    like an AURA eval and tabulate executed-vs-executed.
 
 The camera conversion below is the exact inverse of the ray construction in
@@ -264,7 +264,7 @@ def main() -> None:
         "--out",
         type=Path,
         default=None,
-        help="Write the eval summary here so run_aura_vs_3dgs.py can parse it "
+        help="Write the eval summary here so downstream tooling can parse it "
         "(e.g. outputs/eval_<scene>_baseline3dgs.txt)",
     )
     args = ap.parse_args()
@@ -328,7 +328,7 @@ def main() -> None:
         avg_lpips = sum(lpips_values) / len(lpips_values)
         lpips_summary = f"  LPIPS={avg_lpips:.4f}"
     res_note = f" at {args.scale:.2f}x scale" if args.scale != 1.0 else " (full resolution)"
-    # SAME format as eval_psnr.py so run_aura_vs_3dgs.py parses it identically.
+    # SAME format as eval_psnr.py for identical parsing.
     summary = (
         f"\nAverage PSNR: {avg_psnr:.2f} dB  SSIM: {avg_ssim:.4f}{lpips_summary}{res_note}\n"
         f"(real gsplat 3DGS baseline, {args.iterations} iters, "
