@@ -1,0 +1,27 @@
+{
+  "format": "AURA_INVERSE_MATERIAL_VALIDATION",
+  "passed": true,
+  "device": "cuda",
+  "cudaDevice": "NVIDIA GeForce RTX 5090",
+  "scene": "inverse_material_validation",
+  "materialId": "mat_pbr_probe",
+  "albedoSource": "explicit_payload",
+  "roughnessSource": "explicit_payload",
+  "metallicSource": "explicit_payload",
+  "albedo": [
+    0.8,
+    0.45,
+    0.25
+  ],
+  "roughness": 0.28,
+  "metallic": 0.15,
+  "differentLightingMeanAbsDelta": 2.8621737957000732,
+  "differentLightingChangesOutput": true,
+  "finiteOutput": true,
+  "nonnegativeOutput": true,
+  "evidence": [
+    "PBR shading consumed explicit albedo/roughness/metallic payload fields",
+    "changing lights changed output while geometry stayed fixed"
+  ],
+  "claimBoundary": "Validates material-field consumption and relighting response; not full inverse-material recovery from unconstrained captures."
+}

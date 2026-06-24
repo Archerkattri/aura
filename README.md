@@ -81,12 +81,17 @@ Publication validation is now in progress on GPU. Current artifacts include PRIS
 CUDA FPS sweeps (`experiments/results/prism_fps_2026-06-24.json`, 138-581 FPS over
 50k-200k carriers at tested resolutions) and a learned-LPIPS CUDA smoke report
 (`experiments/results/learned_lpips_smoke_2026-06-24.json`). Remaining paper gates:
-external baseline tables against other systems, full production-resolution FPS
-sweeps, deeper secondary-ray/reflection integration, and richer inverse-material
-estimation. Run `aura publication-validation-report` for the current gate status;
-the latest report is `experiments/results/publication_validation_2026-06-24.json`.
-External baseline sources/protocol targets are listed in
-`experiments/results/external_baseline_sources_2026-06-24.json`.
+external baseline tables against other systems and full production-resolution FPS
+sweeps. Secondary shadow/reflection query readiness and explicit PBR material-field
+consumption now have validation artifacts
+(`experiments/results/secondary_ray_reflection_2026-06-24.json`,
+`experiments/results/inverse_materials_2026-06-24.json`). Run
+`aura publication-validation-report` for the current gate status; the latest
+report is `experiments/results/publication_validation_2026-06-24.json`. External
+baseline sources/protocol targets are listed in
+`experiments/results/external_baseline_sources_2026-06-24.json`, and the partial
+executed 3DGS/gsplat-control baseline is recorded in
+`experiments/results/external_baselines_2026-06-24.json`.
 
 ## Quality
 
@@ -265,6 +270,8 @@ python experiments/prism_benchmark.py                  # PRISM CUDA/torch/gsplat
 python scripts/eval_psnr.py outputs/truck-sidecar.aura outputs/truck-pts129k-manifest.json \
   --renderer gsplat --device cuda --scale 0.25 --json-out experiments/results/learned_lpips_smoke.json
 aura publication-validation-report --output experiments/results/publication_validation.json
+python experiments/secondary_reflection_validation.py # secondary shadow/reflection query artifact
+python experiments/inverse_material_validation.py     # PBR material-field validation artifact
 python experiments/render_turntable.py                 # reconstruction GIF
 python experiments/relight_fork_gif.py                 # relighting GIF
 python experiments/semantic_distill.py                 # semantic segmentation

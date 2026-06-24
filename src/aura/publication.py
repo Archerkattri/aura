@@ -66,12 +66,14 @@ class PublicationValidationReport:
                     "PRISM is validated as an additive Gabor/neural extension layer over gsplat/DBS-Beta",
                     "PRISM CUDA throughput has measured FPS artifacts on RTX 5090",
                     "learned LPIPS runs on CUDA and can be emitted into JSON reports",
+                    "secondary shadow/reflection ray-query readiness is validated on live probes",
+                    "explicit albedo/roughness/metallic material fields are consumed by PBR relighting",
                 ],
                 "cannotClaim": [
                     "superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines",
                     "full production-resolution FPS across all publication scenes",
-                    "integrated secondary-ray/reflection rendering quality",
-                    "rich inverse-material recovery",
+                    "photorealistic reflected-image benchmark quality",
+                    "full inverse-material recovery from unconstrained captures",
                 ],
             },
         }

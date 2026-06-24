@@ -17,11 +17,11 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert gates["prism_cuda_fps"]["passed"] is True
     assert gates["learned_lpips_cuda"]["passed"] is True
     assert gates["external_method_baselines"]["passed"] is False
-    assert gates["secondary_ray_reflection"]["passed"] is False
-    assert gates["inverse_materials"]["passed"] is False
+    assert gates["secondary_ray_reflection"]["passed"] is True
+    assert gates["inverse_materials"]["passed"] is True
     assert "external_method_baselines" in payload["remainingGateIds"]
-    assert "secondary_ray_reflection" in payload["remainingGateIds"]
-    assert "inverse_materials" in payload["remainingGateIds"]
+    assert "secondary_ray_reflection" not in payload["remainingGateIds"]
+    assert "inverse_materials" not in payload["remainingGateIds"]
     assert payload["claimBoundary"]["canClaim"]
     assert "superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines" in payload["claimBoundary"]["cannotClaim"]
 

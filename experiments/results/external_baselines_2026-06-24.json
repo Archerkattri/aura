@@ -1,0 +1,29 @@
+{
+  "format": "AURA_EXTERNAL_BASELINE_METRICS",
+  "date": "2026-06-24",
+  "complete": false,
+  "claimBoundary": "Partial executed baseline metrics only. This does not close the external-method baseline gate until COLMAP/NeRF/2DGS/ray-traced-GS metrics are added on the same split.",
+  "baselines": {
+    "3dgs": {
+      "label": "executed fixed-Gaussian / gsplat-control arm",
+      "scene": "truck",
+      "sourceArtifact": "/tmp/dbs_out/truck_gauss/point_cloud/iteration_best/metrics.json",
+      "psnr": 26.017240524291992,
+      "ssim": 0.8904199004173279,
+      "lpips": 0.1277429461479187,
+      "notes": "Local executed Gaussian-control metric; broader official 3DGS and cross-method table still required for paper claim."
+    }
+  },
+  "missingBaselines": [
+    "colmap",
+    "nerf",
+    "2dgs",
+    "ray_traced_gs"
+  ],
+  "nextSteps": [
+    "run/import COLMAP textured-mesh renders on the same held-out views",
+    "run/import nerfstudio NeRF-family renders on the same held-out views",
+    "run/import official 2DGS renders on the same held-out views",
+    "run/import NVIDIA 3DGRT/3DGUT renders on the same held-out views"
+  ]
+}
