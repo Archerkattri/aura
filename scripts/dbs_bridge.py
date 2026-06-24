@@ -65,12 +65,11 @@ def cmd_convert(args):
         opacity = m.get_opacity.detach().squeeze(-1)     # [N]
         beta = m.get_beta.detach().reshape(-1)           # [N] activated 4*exp(beta)
         sb = m.get_sb_params.detach()                    # [N,L,6]
-        # SH: DBS keeps DC (_sh0 [N,3,1]) + higher (_shN [N,3,K-1]); AURA wants
-        # [N,K,3]. Concatenate along the coeff axis then move colour axis last.
-        sh0 = m._sh0.detach()                            # [N,3,1]
+        # SH: DBS stores _sh0 [N,1,3] (DC) and _shN [N,K-1,3] (higher), already
+        # [N, coeffs, channels]. AURA wants [N,K,3] — just concat on the coeff axis.
+        sh0 = m._sh0.detach()                            # [N,1,3]
         shN = m._shN.detach() if args.sh_degree else None
-        sh_full = sh0 if shN is None else torch.cat([sh0, shN], dim=2)   # [N,3,K]
-        sh = sh_full.permute(0, 2, 1).contiguous()       # [N,K,3]
+        sh = sh0 if shN is None else torch.cat([sh0, shN], dim=1)   # [N,K,3]
     target = save_carriers(
         args.out, means=means, scales=scales, quats=quats, opacity=opacity,
         sh=sh, sh_degree=args.sh_degree, beta=beta, sb=sb,
