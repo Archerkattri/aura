@@ -1,0 +1,3 @@
+
+Average PSNR: 5.26 dB  SSIM: 0.0051  LPIPS=1.0103 at 0.25x scale
+(real gsplat 3DGS baseline, 1 iters, executed on AURA's scene + eval split)

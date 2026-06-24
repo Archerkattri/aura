@@ -12,6 +12,19 @@
       "ssim": 0.8904199004173279,
       "lpips": 0.1277429461479187,
       "notes": "Local executed Gaussian-control metric; broader official 3DGS and cross-method table still required for paper claim."
+    },
+    "3dgs_smoke": {
+      "label": "fresh same-split gsplat 3DGS smoke",
+      "scene": "truck",
+      "sourceArtifact": "experiments/results/baseline_3dgs_smoke_2026-06-24.txt",
+      "iterations": 1,
+      "frames": 1,
+      "scale": 0.25,
+      "device": "cuda",
+      "psnr": 5.26,
+      "ssim": 0.0051,
+      "lpips": 1.0103,
+      "notes": "Fresh CUDA smoke proves the runner executes on local COLMAP + held-out split. It is intentionally not a quality baseline because it used one training iteration."
     }
   },
   "missingBaselines": [
