@@ -1257,7 +1257,7 @@ def test_packed_buffer_metadata_returns_dict_for_values():
 
 
 # ---------------------------------------------------------------------------
-# sampling_coverage_report — convergence diagnostic (docs/CONVERGENCE_TODO.md)
+# sampling_coverage_report — convergence diagnostic (the README (carrier-gradient/convergence notes))
 # ---------------------------------------------------------------------------
 
 
@@ -1308,7 +1308,7 @@ def test_sampling_coverage_report_quantifies_per_frame_cap_starvation():
     assert report["coverageFraction"] < 1.0
 
     # And it is strictly worse than the uncapped plan on the same frame —
-    # the property the fix in docs/CONVERGENCE_TODO.md must improve.
+    # the property the fix in the README (carrier-gradient/convergence notes) must improve.
     uncapped = plan_capture_tensor_sampling(
         (frame,), (tensors,), tile_size=4, max_targets_per_batch=8
     )

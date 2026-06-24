@@ -2,7 +2,7 @@
 # Real on-GPU AURA-Core training of the Tanks&Temples truck scene with the
 # carrier-coverage rotation fix (full-frame supervision + rotating batch
 # window), then held-out PSNR/SSIM eval. This is the run that supersedes the
-# starved run6 (~6.9 dB floor) documented in docs/CONVERGENCE_TODO.md.
+# starved run6 (~6.9 dB floor) documented in the README (carrier-gradient/convergence notes).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source .gpu_venv/bin/activate
@@ -20,7 +20,8 @@ python -m aura.cli train "$MANIFEST" \
   --batches-per-iteration 64 \
   --skip-validation --disable-evolution \
   --position-lr 1.6e-4 --position-lr-final 1.6e-6 --lr-decay-steps 425 \
-  --opacity-reset-interval 150 --device cuda
+  --opacity-reset-interval 150 --device cuda \
+  --checkpoint-dir outputs/truck-coverage-ckpts --checkpoint-interval 70
 echo "[train] done $(date)"
 
 echo "[eval] AURA held-out PSNR/SSIM"

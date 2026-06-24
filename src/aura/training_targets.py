@@ -562,7 +562,7 @@ def sampling_coverage_report(plan: CaptureSamplingPlan) -> dict:
     Motivation: with a tight ``max_targets_per_frame`` cap the planner stops
     after the first N valid pixels of each frame (raster order, top-left), so
     most of the frame — and most carriers — are never supervised, and the same
-    subset is reused every iteration (see docs/CONVERGENCE_TODO.md). This report
+    subset is reused every iteration (see the README (carrier-gradient/convergence notes)). This report
     surfaces that starvation as a number so a GPU run can measure it before and
     after applying a coverage fix.
 

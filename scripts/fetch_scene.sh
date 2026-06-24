@@ -19,7 +19,7 @@
 #                             # (or the .txt equivalents)
 #
 # Once fetched, ingest + train + eval with the commands in
-# configs/truck_run6.json (or REPRODUCE.md).
+# configs/truck_run6.json.
 set -euo pipefail
 
 SCENE="${1:-}"

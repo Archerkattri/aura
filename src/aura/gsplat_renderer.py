@@ -3,7 +3,7 @@
 The native torch training renderer (``torch_render_capture_training_objective``)
 is a dense ``O(rays x carriers)`` ray-Gaussian evaluator: correct but far too
 slow to converge a real scene (one full-coverage epoch over 129k carriers ~25
-min, see ``docs/CONVERGENCE_TODO.md``), and AURA's CUDA renderer is forward-only
+min, see ``the README (carrier-gradient/convergence notes)``), and AURA's CUDA renderer is forward-only
 (no backward). This module gives AURA-Core a *fast differentiable CUDA
 rasterizer* for the training step by using ``gsplat`` (a tiled, sorted,
 ``O(pixels)`` differentiable Gaussian rasterizer with analytic gradients).

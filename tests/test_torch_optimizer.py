@@ -4839,7 +4839,7 @@ def test_batched_grad_accumulation_sgd_path():
 
 class TestRotatingBatchWindow:
     """Carrier-coverage rotation: _rotating_batch_window_indices (see
-    docs/CONVERGENCE_TODO.md, carrier gradient starvation)."""
+    the README (carrier-gradient/convergence notes), carrier gradient starvation)."""
 
     _fn = staticmethod(torch_optimizer_module._rotating_batch_window_indices)
 

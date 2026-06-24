@@ -17,10 +17,25 @@ The lineage AURA extends, all rendered through the **same correct COLMAP poses**
 ![Ground truth · COLMAP SfM points · NeRF · vanilla 3DGS · AURA](docs/lineage_truck.png)
 
 _Ground truth · COLMAP SfM point cloud · NeRF (compact, from scratch) · vanilla
-3DGS · AURA. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design,
-and [docs/GALLERY.md](docs/GALLERY.md) for all figures & GIFs._
+3DGS · AURA. See [Architecture](#architecture) for the full design and
+[Gallery](#gallery) for all figures & GIFs._
 
-## Does it work? — typed carriers beat fixed Gaussians
+## Contents
+
+- [Results: typed carriers beat fixed Gaussians](#results-typed-carriers-beat-fixed-gaussians)
+- [Capabilities (what a raw 3DGS cloud can't do)](#capabilities)
+- [Speed](#speed)
+- [Status: proven vs open](#status-proven-vs-open)
+- [Architecture](#architecture)
+- [What's inside](#whats-inside)
+- [Install](#install)
+- [Reproduce](#reproduce)
+- [Quickstart & usage](#quickstart--usage)
+- [Repository map](#repository-map)
+- [Gallery](#gallery)
+- [License](#license)
+
+## Results: typed carriers beat fixed Gaussians
 
 The point of a post-3DGS engine is that **adaptive typed carriers reconstruct
 better than one fixed primitive**. AURA proves this with a controlled experiment
@@ -100,7 +115,9 @@ Beta backend reaches the 26 dB numbers above at full DBS settings.
 
 </details>
 
-## Post-3DGS capabilities (what a raw 3DGS cloud can't do)
+## Capabilities
+
+_What a raw 3DGS cloud can't do._
 
 These work over the **real trained carriers** (`carriers.npz`), not a toy scene,
 and are what make AURA an *asset contract* rather than a splat dump.
@@ -166,7 +183,9 @@ readout:
   <em>Expected-depth render (near = dark, far = light) — the geometry the ray query reads.</em>
 </p>
 
-## Speed (PRISM, RTX 5090, ms/frame · FPS)
+## Speed
+
+_PRISM forward rasterizer, RTX 5090, ms/frame · FPS._
 
 AURA also ships **PRISM** (`aura.prism` / `aura.prism_cuda`) — its *own* pluggable
 differentiable rasterizer that splats gaussian/beta/gabor/neural footprints (an
@@ -188,7 +207,7 @@ PRISM trains all four footprints (gaussian/beta/gabor/neural):
 | **gabor** | envelope × oscillation (high-freq texture) | CUDA fwd + diff. backward |
 | **neural** | bounded MLP over Fourier features (Splat-the-Net) | torch (autograd) |
 
-## What's proven vs open (honest status)
+## Status: proven vs open
 
 - ✅ **Typed beats fixed**, on real data, controlled: adaptive Beta +0.335 dB over a
   Gaussian-style carrier at matched budget. The win is mostly the spherical-Beta
@@ -205,6 +224,69 @@ PRISM trains all four footprints (gaussian/beta/gabor/neural):
 
 Reproduce: `experiments/dbs_truck_ablation.sh`, `experiments/dbs_routing_sweep.sh`,
 `experiments/render_gifs.py`, `experiments/direct_pose_test.py`.
+
+## Architecture
+
+A single primitive type is insufficient for every region of a scene. AURA trains a
+**mixed adaptive carrier** representation where each spatial region is assigned the
+most appropriate primitive type based on measured evidence, and wraps the result in
+a queryable/editable asset.
+
+### Carrier families
+
+| Carrier | Best for |
+|---|---|
+| Surface radiance cell | Stable opaque geometry, normals, collision, edit handles |
+| Volumetric density cell | Translucent, fuzzy, or uncertain regions |
+| Bounded beta kernel | Compact local support, fewer primitive hits per ray |
+| Gabor / frequency carrier | High-frequency texture and alias control |
+| Neural residual primitive | View-dependent effects simpler carriers can't explain |
+| Semantic / object carrier | Object grouping, language anchors, per-object confidence/LOD |
+| Gaussian fallback | Regions where structured evidence doesn't justify a stronger primitive |
+
+A Gaussian fallback is explicitly labelled; when evidence justifies a surface /
+volume / beta / gabor / neural / semantic carrier, those native types dominate, so
+the representation stays **auditable**.
+
+### Reconstruction pipeline
+
+```text
+posed images / depth / masks / normals
+  → capture manifest (JSON)
+  → packed capture tensors (PNG / PPM / COLMAP dense / imageio EXR)
+  → tiled PyTorch optimization (device-resident batching, mask-aware sampling,
+      ray construction, carrier response, front-to-back compositing, multi-loss)
+  → adaptive carrier evolution (split / promote / merge / demote, with hysteresis)
+  → optimized .aura package (ray-query, confidence, edit metadata, semantic graph,
+      JSON schemas, chunk/LOD layers) + fast carriers.npz sidecar
+```
+
+Carrier evolution is a **deterministic policy contract**: each iteration records one
+decision (split/promote/merge/demote/retain) + reason + element IDs per element, so
+runs are auditable. A compiled CUDA renderer (`aura cuda-kernel-build-report
+--build`) dispatches `render_rays` over packed tensors with a production BVH
+traversal kernel (`render_rays_bvh`), at measured parity with the torch renderer.
+
+### `.aura` package format
+
+A directory: `manifest.json` (metadata + schema version), `elements.json` (typed
+carrier registry), `chunks.json` (LOD/decomposition), `exchange.json` (ingest +
+decomposition audit), `semantic_graph.json`, `capture_manifest.json`,
+`training_dataset.json` — all JSON-schema-validated (`src/aura/schemas/`) on load —
+plus the binary `carriers.npz` tensor sidecar for fast render/eval. 3DGS exports
+ingest via `aura import-3dgs` as `EvidenceSample` records (Gaussian fallback only);
+all 3DGS-specific logic stays under `aura.ingest`.
+
+### Prior art
+
+[COLMAP](https://demuc.de/colmap/) (calibration/SfM/MVS) → [NeRF](https://arxiv.org/abs/2003.08934)
+(continuous field) → [3DGS](https://arxiv.org/abs/2308.04079) (explicit real-time
+splats). Single-axis successors patch individual 3DGS weaknesses —
+[2DGS](https://arxiv.org/abs/2403.17888), [SuGaR](https://arxiv.org/abs/2311.12775),
+[GOF](https://arxiv.org/abs/2404.10772), [Mip-Splatting](https://niujinshuchong.github.io/mip-splatting/),
+[StopThePop](https://arxiv.org/abs/2402.00525), [3DGRT](https://arxiv.org/abs/2407.07090),
+[EVER](https://arxiv.org/abs/2410.01804), and Deformable Beta Splatting. AURA's
+thesis is the typed-carrier *asset contract* over the best of these.
 
 ## What's inside
 
@@ -311,7 +393,47 @@ aura cuda-kernel-build-report --build
 `cuda-kernel-build-report` compiles and loads the pybind11 extension and
 reports `compiled: true, loadable: true` when the CUDA renderer is available.
 
-## Quickstart
+## Reproduce
+
+**Headline results** use the Deformable Beta Splatting backend in an isolated venv
+(it installs under the `gsplat` name, so it must not share AURA's env):
+
+```bash
+# 1. data: Tanks & Temples Truck COLMAP model at data/tanks/truck/{images,sparse/0}
+bash scripts/fetch_scene.sh truck data/tanks/truck
+
+# 2. isolated DBS venv (one-time): clone github.com/RongLiu-Leo/beta-splatting to /tmp/dbs,
+#    then build its fork on your GPU arch (sm_120 shown)
+uv venv --python 3.11 .dbs_venv && source .dbs_venv/bin/activate
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv pip install plyfile tqdm opencv-python-headless scipy matplotlib scikit-learn nerfview splines viser
+TORCH_CUDA_ARCH_LIST=12.0 python /tmp/dbs/submodules/setup.py develop      # the Beta gsplat fork
+
+# 3. experiments (write metrics.json per arm)
+bash experiments/dbs_truck_ablation.sh        # typed Beta vs fixed Gaussian  → +0.335 dB
+bash experiments/dbs_compactness_sweep.sh     # Beta vs Gaussian @ 250k/500k/1M → compactness
+bash experiments/dbs_routing_sweep.sh         # β-routing sweep → routing is not the lever
+python experiments/prism_crossfamily.py       # cross-family (Gabor vs Gaussian) on real crops
+
+# 4. figures & GIFs (docs/*.png, docs/*.gif)
+python experiments/render_turntable.py        # smooth reconstruction orbit GIF
+python experiments/relight_fork_gif.py        # relight sweep GIF
+python experiments/confidence_viz.py          # confidence heatmap
+python experiments/semantic_viz.py            # semantic grouping
+```
+
+**Asset contract** (main AURA env — `carriers.npz` from `scripts/dbs_bridge.py convert`):
+
+```bash
+aura export-splat path/to/carriers.npz --output scene.glb              # KHR_gaussian_splatting
+aura confidence  path/to/carriers.npz manifest.json                    # writes _confidence field
+aura ray-query   path/to/carriers.npz --origin 0 0 0 --direction 0 0 1 # full payload as JSON
+```
+
+Runs are deterministic (carrier seeding from the COLMAP model; fixed iteration order;
+no random eval sampling).
+
+## Quickstart & usage
 
 ### 1. Verify the installation
 
@@ -441,10 +563,17 @@ src/aura/
   ingest/              Capture, COLMAP, 3DGS, depth, and semantic adapters
   package.py           .aura package IO and validation
   scene.py             Ray-query traversal and response assembly
+  carrier_io.py        Binary carriers.npz sidecar (means/scales/quats/opacity/SH/beta/sb/confidence)
+  gltf_splat.py        KHR_gaussian_splatting glTF/GLB export
+  relight.py           Per-carrier relighting (normals + albedo + shading)
+  confidence.py        Multi-view per-carrier confidence
+  carrier_query.py     Unified rayQuery over trained carriers
+  prism.py / prism_cuda.py   PRISM differentiable rasterizer (gaussian/beta/gabor/neural)
   schemas/             JSON Schema files for runtime validation
 tests/                 Deterministic contract, optimizer, renderer, CLI tests
-docs/
-  ARCHITECTURE.md      Design rationale, carrier families, pipeline overview
+scripts/               eval, dataset fetch, baselines, DBS<->AURA bridge
+experiments/           reproduction scripts for every headline result + figure/GIF renderers
+docs/                  figures & GIFs embedded above (this README is the single source of truth)
 ```
 
 `src/aura/ingest/` is an adapter boundary. 3DGS exports become `EvidenceSample`
@@ -490,6 +619,21 @@ python -m pytest -q
   inputs, not native representation elements.
 - New ingest sources must produce `EvidenceSample` records before
   decomposition.
+
+## Gallery
+
+All on Tanks & Temples — **Truck**, rendered through the trained carriers
+(scripts in `experiments/`).
+
+| | |
+|---|---|
+| **Reconstruction** (26.4 dB Beta)<br>![orbit](docs/truck_orbit.gif) | **Expected depth** (ray-query geometry)<br>![depth](docs/truck_depth_orbit.gif) |
+| **Relighting** (light orbit)<br>![relight](docs/relight_sweep.gif) | **Confidence** (green=trusted, red=floaters)<br>![confidence](docs/confidence_truck.png) |
+| **Semantic grouping** (label-free scaffold)<br>![semantics](docs/semantic_truck.png) | **Typed vs fixed** (GT·Gaussian·Beta)<br>![beta vs gauss](docs/beta_vs_gauss_truck.png) |
+| **Compactness** (½ the carriers)<br>![compactness](docs/compactness_curve.png) | **Cross-family fit** (routing ≠ lever)<br>![cross-family](docs/crossfamily.png) |
+
+The full lineage figure (GT · COLMAP · NeRF · 3DGS · AURA) is at the
+[top](#aura--adaptive-unified-radiance-asset).
 
 ## License
 

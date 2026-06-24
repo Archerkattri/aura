@@ -16,7 +16,7 @@ footprint is a differentiable function of its parameters trains end-to-end with
 no custom CUDA. Two compositors: :func:`composite` (dense, reference) and
 :func:`composite_tiled` (tile-binned, scales to tens of thousands of carriers at
 interactive speed — ~30 ms for 20k carriers at 256x256). A custom-CUDA PRISM is
-the documented perf-future (see docs/STATUS_AND_ROADMAP.md). Pipeline mirrors
+the documented perf-future (see the README). Pipeline mirrors
 gsplat's stages:
 
     project (3D -> 2D conic/footprint + depth) -> depth sort -> alpha composite

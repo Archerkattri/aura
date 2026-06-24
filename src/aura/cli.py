@@ -345,6 +345,22 @@ def main(argv: list[str] | None = None) -> int:
     export_splat.add_argument("source", type=Path, help="package dir containing carriers.npz, or a carriers.npz file")
     export_splat.add_argument("--output", type=Path, default=Path("outputs/splat.glb"))
 
+    confidence = sub.add_parser(
+        "confidence", help="Compute per-carrier multi-view confidence and write it into carriers.npz")
+    confidence.add_argument("source", type=Path, help="package dir or carriers.npz")
+    confidence.add_argument("manifest", type=Path, help="capture/posed-frame manifest JSON")
+    confidence.add_argument("--scale", type=float, default=1.0)
+    confidence.add_argument("--saturate", type=float, default=12.0)
+    confidence.add_argument("--device", default="cuda")
+
+    ray_query = sub.add_parser(
+        "ray-query", help="Answer one ray over trained carriers (full RayQueryResult payload as JSON)")
+    ray_query.add_argument("source", type=Path, help="package dir or carriers.npz")
+    ray_query.add_argument("--origin", type=float, nargs=3, required=True)
+    ray_query.add_argument("--direction", type=float, nargs=3, required=True)
+    ray_query.add_argument("--min-confidence", type=float, default=0.0)
+    ray_query.add_argument("--device", default="cuda")
+
     sub.add_parser("readiness-report", help="Print AURA production-readiness audit as JSON")
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
@@ -649,6 +665,13 @@ def main(argv: list[str] | None = None) -> int:
         from .carrier_io import load_carriers
         out = _export_splat_command(args, load_carriers)
         print(out)
+        return 0
+    if args.command == "confidence":
+        out = _confidence_command(args)
+        print(out)
+        return 0
+    if args.command == "ray-query":
+        print(_ray_query_command(args))
         return 0
     if args.command == "inspect-capture-assets":
         manifest = load_capture_manifest(args.manifest)
@@ -1222,6 +1245,42 @@ def _train_capture_manifest_command(args: argparse.Namespace) -> Path:
     report_path = package_dir / "training_report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return package_dir
+
+
+def _confidence_command(args: argparse.Namespace) -> Path:
+    """Compute multi-view confidence and persist it into carriers.npz."""
+    import json
+    from .carrier_io import load_carriers, save_carriers
+    from .confidence import multiview_confidence
+
+    carriers = load_carriers(args.source, device=args.device)
+    if carriers is None:
+        raise SystemExit(f"no carriers.npz found at {args.source}")
+    manifest = json.loads(Path(args.manifest).read_text())
+    conf = multiview_confidence(carriers, manifest, scale=args.scale,
+                                device=args.device, saturate=args.saturate)
+    kw = {k: carriers[k] for k in ("means", "scales", "quats", "opacity", "beta", "sb") if k in carriers}
+    kw["sh_degree"] = int(carriers.get("sh_degree", 0))
+    if "sh" in carriers:
+        kw["sh"] = carriers["sh"]
+    if "colors" in carriers:
+        kw["colors"] = carriers["colors"]
+    return save_carriers(args.source, confidence=conf, **kw)
+
+
+def _ray_query_command(args: argparse.Namespace) -> str:
+    """Answer one ray and print the full RayQueryResult payload as JSON."""
+    import json
+    from dataclasses import asdict
+    from .carrier_io import load_carriers
+    from .carrier_query import carrier_ray_query
+
+    carriers = load_carriers(args.source, device=args.device)
+    if carriers is None:
+        raise SystemExit(f"no carriers.npz found at {args.source}")
+    result = carrier_ray_query(carriers, args.origin, args.direction,
+                               min_confidence=args.min_confidence, device=args.device)
+    return json.dumps(asdict(result))
 
 
 def _export_splat_command(args: argparse.Namespace, load_carriers) -> Path:
