@@ -17,7 +17,8 @@ The lineage AURA extends, all rendered through the **same correct COLMAP poses**
 ![Ground truth · COLMAP SfM points · NeRF · vanilla 3DGS · AURA](docs/lineage_truck.png)
 
 _Ground truth · COLMAP SfM point cloud · NeRF (compact, from scratch) · vanilla
-3DGS · AURA. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design._
+3DGS · AURA. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design,
+and [docs/GALLERY.md](docs/GALLERY.md) for all figures & GIFs._
 
 ## Does it work? — typed carriers beat fixed Gaussians
 
@@ -71,8 +72,20 @@ fixed-Gaussian at matched `cap_max`):
 | 1M | 26.35 | 26.02 |
 
 **Beta@500k (26.07 dB) beats Gaussian@1M (26.02 dB)** — equal quality at *half* the
-carriers. The Beta backend runs in an isolated venv (`.dbs_venv`);
-`scripts/dbs_bridge.py` converts its output into AURA's `carriers.npz`.
+carriers.
+
+![compactness curve](docs/compactness_curve.png)
+
+The Beta backend runs in an isolated venv (`.dbs_venv`); `scripts/dbs_bridge.py`
+converts its output into AURA's `carriers.npz`.
+
+**Does per-region *routing* between carrier families help?** Tested
+(`experiments/prism_crossfamily.py`): the more-expressive **Gabor** footprint beats
+Gaussian on every crop, but **mix-routing never beats the best single family** —
+so per-region routing is *not* the lever; an expressive carrier *type* is. An honest
+negative that focuses the thesis.
+
+![cross-family](docs/crossfamily.png)
 
 <details>
 <summary><strong>Footnote: the pose fix that unblocked all of this (+6.6 dB)</strong></summary>
@@ -111,14 +124,13 @@ aura export-splat path/to/package_or_carriers.npz --output scene.glb
 carrier as a surface element — **normal** = the Gaussian's short axis, **albedo** =
 the diffuse colour — and applies `shading.py`'s Lambertian / Cook-Torrance BRDFs to
 produce a *relit* colour under arbitrary lights, then rasterizes
-(`aura.relight.render_relit`, `experiments/relight_demo.py`, 5 tests). The scene
-responds to light direction (verified in tests), so the same carriers are
-relightable.
+(`aura.relight.render_relit`, 5 tests). A directional light orbiting the scene,
+rendered sharply through the Beta rasterizer (`experiments/relight_fork_gif.py`):
 
-Honest scope: covariance normals are unsigned/noisy and the albedo still holds
-residual baked shading, so the current render is rough — this is an editable
-relighting *layer*, not a full inverse-rendering material decomposition. (A clean
-relight render needs gsplat-native carriers; tracked.)
+![relight sweep](docs/relight_sweep.gif)
+
+Honest scope: covariance normals are unsigned/noisy, so this is an editable
+relighting *layer*, not a full inverse-rendering material decomposition.
 
 ### Per-carrier confidence
 
@@ -126,8 +138,20 @@ Every carrier gets a **confidence** in `[0,1]` from *multi-view observation
 support* — how many posed views actually see it (`aura.confidence`,
 `multiview_confidence`). Speculative floaters seen by few views score low; the
 field is stored in `carriers.npz` and exported as the `_AURA_CONFIDENCE` glTF
-attribute. On Truck: median 1.0, with the low tail flagging the ~0.04% floaters.
-No mainstream 3DGS pipeline exposes a per-primitive confidence.
+attribute. No mainstream 3DGS pipeline exposes a per-primitive confidence.
+
+![confidence heatmap](docs/confidence_truck.png)
+
+_Carriers coloured by confidence: green = well-observed, red = speculative._
+
+### Semantic grouping
+
+The contract reserves a per-carrier `semantic_id` (the ray query already returns
+it). As a label-free first step, carriers cluster in (position+colour) space into
+groups — wheel / bed / ground / background separate (`experiments/semantic_viz.py`);
+LangSplat-style features upgrade this slot to open-vocabulary semantics later.
+
+![semantic grouping](docs/semantic_truck.png)
 
 ### Unified ray query
 
@@ -171,12 +195,13 @@ PRISM trains all four footprints (gaussian/beta/gabor/neural):
   **colour** (~+0.4 dB) and partly the kernel **shape** (~+0.09 dB).
 - ✅ **Asset contract over real carriers**: KHR export, relighting, per-carrier
   confidence, and a unified ray query — all tested.
-- ❌ **Adaptive per-region β routing does *not* beat a good global β** (honest
-  negative). The genuinely-open novel claim is routing between *distinct kernel
-  families* (Beta vs Gabor), which needs a second kernel in a quality rasterizer.
+- ❌ **Routing doesn't beat the best single carrier type** — neither per-region β
+  (within Beta) nor cross-family (Beta vs Gabor) mix-routing beats just using the
+  best type everywhere. Two honest negatives that retire the "adaptive mixed-routing"
+  hypothesis; the lever is an expressive carrier *type*, not routing between types.
 - ⚠️ **Quality engine is gsplat + Beta, not PRISM.** PRISM-native training still
   trails by several dB on dense scenes; it stays a real-time research substrate.
-  Open: cross-family routing, DBS-style compactness, semantic supervision.
+  Genuinely open: semantic supervision (LangSplat features), closing PRISM's gap.
 
 Reproduce: `experiments/dbs_truck_ablation.sh`, `experiments/dbs_routing_sweep.sh`,
 `experiments/render_gifs.py`, `experiments/direct_pose_test.py`.
