@@ -161,14 +161,23 @@ attribute. No mainstream 3DGS pipeline exposes a per-primitive confidence.
 
 _Carriers coloured by confidence: green = well-observed, red = speculative._
 
-### Semantic grouping
+### Semantics + open-vocabulary query
 
-The contract reserves a per-carrier `semantic_id` (the ray query already returns
-it). As a label-free first step, carriers cluster in (position+colour) space into
-groups — wheel / bed / ground / background separate (`experiments/semantic_viz.py`);
-LangSplat-style features upgrade this slot to open-vocabulary semantics later.
+The contract reserves a per-carrier `semantic_id` / feature (the ray query returns
+it). AURA fills it by **multi-view DINOv2 feature lifting**: each carrier is
+projected into many training views, dense DINOv2 patch features are sampled and
+aggregated per carrier (`experiments/semantic_distill.py`). Clustering the result
+gives a coherent segmentation that respects object boundaries — truck bed, cab,
+wheel, ground, and background separate:
 
-![semantic grouping](docs/semantic_truck.png)
+![distilled semantic segmentation](docs/semantic_distill_truck.png)
+
+On top of that, **open-vocabulary text query** (`experiments/semantic_query.py`):
+each group is CLIP-image-embedded and matched against the CLIP text embedding of a
+query. Typing **"a wheel"** highlights the wheel; "a truck" / "the ground" /
+"a building" each select their distinct region:
+
+![open-vocab query: "a wheel"](docs/semantic_query_truck.png)
 
 ### Unified ray query
 
@@ -218,9 +227,12 @@ PRISM trains all four footprints (gaussian/beta/gabor/neural):
   (within Beta) nor cross-family (Beta vs Gabor) mix-routing beats just using the
   best type everywhere. Two honest negatives that retire the "adaptive mixed-routing"
   hypothesis; the lever is an expressive carrier *type*, not routing between types.
+- ✅ **Semantics via feature lifting + open-vocab query.** Multi-view DINOv2
+  features are aggregated per carrier (coherent segmentation), and a text query
+  ("a wheel") highlights the matching group via CLIP — no manual labels.
 - ⚠️ **Quality engine is gsplat + Beta, not PRISM.** PRISM-native training still
   trails by several dB on dense scenes; it stays a real-time research substrate.
-  Genuinely open: semantic supervision (LangSplat features), closing PRISM's gap.
+  Closing that gap is the main remaining open item.
 
 Reproduce: `experiments/dbs_truck_ablation.sh`, `experiments/dbs_routing_sweep.sh`,
 `experiments/render_gifs.py`, `experiments/direct_pose_test.py`.
@@ -629,7 +641,8 @@ All on Tanks & Temples — **Truck**, rendered through the trained carriers
 |---|---|
 | **Reconstruction** (26.4 dB Beta)<br>![orbit](docs/truck_orbit.gif) | **Expected depth** (ray-query geometry)<br>![depth](docs/truck_depth_orbit.gif) |
 | **Relighting** (light orbit)<br>![relight](docs/relight_sweep.gif) | **Confidence** (green=trusted, red=floaters)<br>![confidence](docs/confidence_truck.png) |
-| **Semantic grouping** (label-free scaffold)<br>![semantics](docs/semantic_truck.png) | **Typed vs fixed** (GT·Gaussian·Beta)<br>![beta vs gauss](docs/beta_vs_gauss_truck.png) |
+| **Distilled semantics** (DINOv2 lifting)<br>![semantics](docs/semantic_distill_truck.png) | **Open-vocab query** ("a wheel")<br>![query](docs/semantic_query_truck.png) |
+| **Typed vs fixed** (GT·Gaussian·Beta)<br>![beta vs gauss](docs/beta_vs_gauss_truck.png) | **Lineage** (GT·COLMAP·NeRF·3DGS·AURA)<br>![lineage](docs/lineage_truck.png) |
 | **Compactness** (½ the carriers)<br>![compactness](docs/compactness_curve.png) | **Cross-family fit** (routing ≠ lever)<br>![cross-family](docs/crossfamily.png) |
 
 The full lineage figure (GT · COLMAP · NeRF · 3DGS · AURA) is at the
