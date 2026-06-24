@@ -143,6 +143,18 @@ carriers → `carriers.npz` → a 52 MB engine-loadable GLB.
 aura export-splat path/to/package_or_carriers.npz --output scene.glb
 ```
 
+### Relightable carriers (a capability vanilla 3DGS lacks)
+
+3DGS bakes lighting into view-dependent colour and cannot be relit. AURA treats a
+carrier as a surface element — **normal** = the Gaussian's short axis, **albedo** =
+the diffuse colour — and applies `shading.py`'s Lambertian / Cook-Torrance BRDFs to
+produce a *relit* colour under arbitrary lights, then rasterizes
+(`aura.relight.render_relit`, `experiments/relight_demo.py`, 5 tests). The scene
+responds to light direction, so the same carriers are relightable. Honest scope:
+covariance normals are unsigned/noisy and the albedo still holds residual baked
+shading — this is an editable relighting *layer*, not a full inverse-rendering
+material decomposition.
+
 ### Rasterizer speed (PRISM forward, RTX 5090, ms/frame · FPS)
 
 PRISM's CUDA kernel is real-time; ~18–25× its own torch tiled path. gsplat (a
