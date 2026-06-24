@@ -14,6 +14,15 @@ semantics and confidence, relighting, ray queries, and a standards-compliant exp
 
 ![Ground truth · COLMAP · NeRF · 3DGS · AURA](docs/lineage_truck.png)
 
+### How each method works — and where AURA goes further
+
+![How COLMAP, NeRF, 3DGS and AURA represent a scene](docs/how_it_works.png)
+
+COLMAP recovers camera poses + sparse points; NeRF fits a continuous volumetric MLP;
+3DGS rasterizes millions of *identical* Gaussians; **AURA** reconstructs with adaptive
+*typed* carriers (Beta / Gabor / neural / Gaussian) and wraps them in a queryable,
+relightable, exportable asset contract — building on the gsplat engine, not replacing it.
+
 ## Contents
 
 - [What you get](#what-you-get)
