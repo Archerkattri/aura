@@ -46,12 +46,13 @@ output closer to a usable scene asset:
 | Compactness | **Beta reaches Gaussian quality with about half the carriers on Truck** | 500k Beta > 1M fixed Gaussian |
 | PRISM | **Complete for its intended additive role** | Gaussian/Beta stay primary; Gabor/neural route to PRISM |
 | External baselines | **Local same-split smoke/protocol table complete** | COLMAP, NeRF, 3DGS, 2DGS-style, ray-traced-GS-style |
+| SOTA A/B upgrades | **Real provider evidence added; full SOTA claim still gated** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
 
 **Claim boundary:** the external baseline gate is closed for local
-artifact-backed validation. The 2DGS and ray-traced-GS rows are smoke/protocol
-evidence, not official external-repo leaderboard results. Replace them with
-full-split official 2DGS and 3DGRUT runs before making official superiority
-claims.
+artifact-backed validation. Official 2DGS and 3DGUT have now been built and run
+as short same-split GPU validation rows, but they are not full-convergence
+leaderboard results. AURA does not claim broad SOTA superiority until those rows
+are rerun at full quality and every promoted provider passes its A/B gate.
 
 ## Results
 
@@ -174,11 +175,19 @@ aura confidence scene.aura scene/manifest.json
 ### Semantics And Open-Vocabulary Search
 
 AURA lifts multi-view DINOv2 features onto carriers and uses CLIP-style text
-queries for group-level retrieval.
+queries for group-level retrieval. A same-split DINOv3 A/B pass is tracked in
+the SOTA report; DINOv3 improved aggregate query margin in the current run but
+was not promoted because it merged wheel and ground groups while DINOv2 kept all
+four query groups distinct.
 
 ![Semantic carrier segmentation](docs/semantic_distill_truck.png)
 
 ![Open-vocabulary query for a wheel](docs/semantic_query_truck.png)
+
+| Stronger semantic A/B | DINOv2 | DINOv3 |
+|---|---|---|
+| 14-view carrier groups | ![DINOv2 stride-16 semantic groups](docs/semantic_distill_dinov2_stride16_ab.png) | ![DINOv3 stride-16 semantic groups](docs/semantic_distill_dinov3_stride16_ab.png) |
+| Wheel query highlight | ![DINOv2 stride-16 query](docs/semantic_query_dinov2_stride16_ab.png) | ![DINOv3 stride-16 query](docs/semantic_query_dinov3_stride16_ab.png) |
 
 ### Export
 
@@ -242,11 +251,22 @@ experiments/results/external_baselines_2026-06-24.json
 | 3DGS / gsplat-control | 26.0172 | 0.890420 | 0.127743 | executed fixed-Gaussian control |
 | 2DGS-style surfel | 10.7072 | 0.177134 | 0.645361 | local smoke/protocol row |
 | ray-traced-GS-style | 6.7688 | 0.066934 | 0.822136 | local smoke/protocol row |
+| official 2DGS short run | 17.0843 | 0.614292 | 0.388030 | official repo, 100 steps, 32 held-out Truck views, `-r 4` |
+| official 3DGUT short run | 11.1872 | 0.394917 | 0.644361 | official repo, 100 steps, 32 validation Truck views |
 
 Official replacement sources are recorded in:
 
 ```text
 experiments/results/external_baseline_sources_2026-06-24.json
+```
+
+The current SOTA A/B artifact is:
+
+```text
+experiments/results/sota_ab_validation_2026-06-25.json
+sotaReady: false
+promotedProviderIds: 3dgrut_3dgut_official, official_2dgs
+remaining blocker: DINOv3 semantic diversity parity
 ```
 
 ## Install
