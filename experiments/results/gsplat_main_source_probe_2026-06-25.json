@@ -1,0 +1,36 @@
+{
+  "format": "AURA_GSPLAT_MAIN_SOURCE_PROBE",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "submodulesInitialized": true,
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "sourceFeaturesObserved": [
+    "MCMCStrategy in gsplat/strategy/mcmc.py",
+    "native MCMC perturb source in gsplat/cuda/csrc/MCMCPerturbCUDA.cu",
+    "HiGS experimental inference package in gsplat/experimental/render",
+    "AccuTile comments/source in gsplat/cuda/csrc/IntersectTile.cu",
+    "PPISP hooks in examples/simple_trainer.py",
+    "3DGUT/eval3d support in docs/3dgut.md and rasterization source"
+  ],
+  "probeCommand": "PYTHONPATH=/tmp/aura_sota_repos/gsplat-main .gpu_venv/bin/python -",
+  "status": "build_interrupted",
+  "buildAttempted": true,
+  "buildResult": {
+    "initialFailure": "missing glm submodule before git submodule update --init --recursive",
+    "afterSubmoduleInit": "source import triggered full gsplat CUDA JIT build for sm_120",
+    "interruptionReason": "JIT build remained in long 3DGUT eval3d CUDA compiler units for several minutes during interactive probe",
+    "lastObservedCompilerUnits": [
+      "RasterizeToPixelsFromWorld3DGSSerialBatchFwd.cu",
+      "RasterizeToPixelsFromWorld3DGSParallelBatchFwd.cu",
+      "RasterizeToPixelsFromWorld3DGSParallelBatchBwd.cu"
+    ]
+  },
+  "leaderboardImpact": "No gsplat-main quality/FPS row was produced. This artifact only records build readiness and source feature availability; it cannot support promotion or leaderboard SOTA claims.",
+  "nextSteps": [
+    "run a dedicated non-interactive source build with a longer timeout and captured log",
+    "consider a narrower build configuration if only MCMC or HiGS is needed first",
+    "only add gsplat_main_mcmc or higs_inference rows after measured train/render artifacts exist"
+  ]
+}
