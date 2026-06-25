@@ -1,0 +1,79 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_TRUCK_ABLATION",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "scene": "truck",
+  "dataset": "Tanks and Temples Truck",
+  "split": "llffhold8",
+  "imageScale": "native",
+  "source": "data/tanks/truck",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m",
+  "checkpoint": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/ckpts/ckpt_29999_rank0.pt",
+  "ply": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/ply/point_cloud_29999.ply",
+  "renderSample": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/renders/val_step29999_0000.png",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/tanks/truck --data-factor 1 --result-dir /tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m --max-steps 30000 --eval-steps 30000 --save-steps 30000 --disable-video --strategy.cap-max 1000000 --strategy.refine-stop-iter 25000 --test-every 8 --save-ply --ply-steps 30000",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "train": {
+    "maxSteps": 30000,
+    "finalStep": 29999,
+    "strategy": "MCMCStrategy",
+    "capMax": 1000000,
+    "refineStopIter": 25000,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trainSeconds": 241.5669708251953,
+    "peakGpuMemoryGiB": 1.3123035430908203,
+    "numGaussians": 1000000
+  },
+  "metrics": {
+    "psnr": 25.998857498168945,
+    "ssim": 0.8907945156097412,
+    "lpips": 0.08697080612182617,
+    "secondsPerImage": 0.0031649917364120483,
+    "numGaussians": 1000000
+  },
+  "sameSceneComparisons": {
+    "auraBeta": {
+      "psnr": 26.39360237121582,
+      "ssim": 0.8957456350326538,
+      "lpips": 0.12278576195240021
+    },
+    "fixedGaussianControl": {
+      "psnr": 25.961856842041016,
+      "ssim": 0.889708936214447,
+      "lpips": 0.1281273066997528
+    },
+    "official2dgs": {
+      "iterations": 30000,
+      "psnr": 25.122329711914062,
+      "ssim": 0.873086154460907,
+      "lpips": 0.1735249161720276
+    },
+    "official3dgut": {
+      "iterations": 30000,
+      "psnr": 25.31978416442871,
+      "ssim": 0.8780446648597717,
+      "lpips": 0.18375778663903475,
+      "meanInferenceMs": 2.28
+    }
+  },
+  "visualInspection": "Checked /tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/renders/val_step29999_0000.png; side-by-side validation render is nonblank and aligned, with expected residual blur/smoothing.",
+  "promoted": false,
+  "leaderboardImpact": "Measured full-length CUDA Truck ablation. It is not promoted for the primary PSNR leaderboard objective because AURA Beta remains higher on Truck PSNR and SSIM. It is retained as a useful perceptual/FPS candidate because it improves Truck LPIPS over AURA Beta, fixed-Gaussian control, official 2DGS, and official 3DGUT.",
+  "nextSteps": [
+    "benchmark the saved PLY with HiGS inference because the quality row is now competitive enough for a speed/perceptual sidecar test",
+    "do not expand gsplat-main MCMC to all 8 scenes unless the HiGS sidecar gives a documented speed/quality tradeoff or a follow-up quality setting beats AURA Beta PSNR",
+    "test one quality-oriented follow-up, such as higher cap or adjusted MCMC refinement, before moving to the next upgrade family"
+  ]
+}

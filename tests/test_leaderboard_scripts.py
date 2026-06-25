@@ -22,6 +22,11 @@ def test_leaderboard_ablation_report_uses_current_artifacts_without_sota_claim(t
     assert payload["runs"]
     assert any(run["methodId"] == "gsplat_main_mcmc" for run in payload["runs"])
     assert "gsplat_main_mcmc" not in payload["promotedMethodIds"]
+    assert all(
+        "gsplat_main_mcmc_truck_smoke" not in artifact
+        for run in payload["runs"]
+        for artifact in run["artifacts"]
+    )
 
 
 def test_leaderboard_ablation_cli_writes_json(tmp_path):

@@ -109,31 +109,35 @@ def _official_runs() -> list[LeaderboardRun]:
 
 
 def _gsplat_main_mcmc_runs() -> list[LeaderboardRun]:
-    artifact = RESULTS / "gsplat_main_mcmc_truck_7000_2026-06-25.json"
-    payload = _read_json(artifact) or {}
-    if not payload:
-        return []
-    metrics = payload.get("metrics", {})
-    notes = [str(payload.get("leaderboardImpact", ""))]
-    output = payload.get("output")
-    if output:
-        notes.append(str(output))
-    return [
-        LeaderboardRun(
-            scene_id=str(payload["scene"]),
-            method_id="gsplat_main_mcmc",
-            metrics=(
-                _metric("psnr", float(metrics["psnr"]), higher=True),
-                _metric("ssim", float(metrics["ssim"]), higher=True),
-                _metric("lpips", float(metrics["lpips"]), higher=False),
-                _metric("render_ms", float(metrics["secondsPerImage"]) * 1000.0, higher=False),
-                _metric("num_gaussians", float(metrics["numGaussians"]), higher=False),
-            ),
-            artifacts=("experiments/results/gsplat_main_mcmc_truck_7000_2026-06-25.json",),
-            measured=True,
-            notes=tuple(note for note in notes if note),
+    runs: list[LeaderboardRun] = []
+    for artifact in sorted(RESULTS.glob("gsplat_main_mcmc_truck_*_2026-06-25.json")):
+        payload = _read_json(artifact) or {}
+        if not payload:
+            continue
+        if payload.get("format") != "AURA_GSPLAT_MAIN_MCMC_TRUCK_ABLATION":
+            continue
+        metrics = payload.get("metrics", {})
+        notes = [str(payload.get("leaderboardImpact", ""))]
+        output = payload.get("output")
+        if output:
+            notes.append(str(output))
+        runs.append(
+            LeaderboardRun(
+                scene_id=str(payload["scene"]),
+                method_id="gsplat_main_mcmc",
+                metrics=(
+                    _metric("psnr", float(metrics["psnr"]), higher=True),
+                    _metric("ssim", float(metrics["ssim"]), higher=True),
+                    _metric("lpips", float(metrics["lpips"]), higher=False),
+                    _metric("render_ms", float(metrics["secondsPerImage"]) * 1000.0, higher=False),
+                    _metric("num_gaussians", float(metrics["numGaussians"]), higher=False),
+                ),
+                artifacts=(str(artifact.relative_to(ROOT)),),
+                measured=True,
+                notes=tuple(note for note in notes if note),
+            )
         )
-    ]
+    return runs
 
 
 def leaderboard_ablation_report(out: Path) -> dict[str, Any]:
