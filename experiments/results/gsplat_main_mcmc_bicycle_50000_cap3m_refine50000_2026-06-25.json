@@ -1,0 +1,83 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_SCENE_ABLATION",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "scene": "bicycle",
+  "dataset": "Mip-NeRF 360 Bicycle",
+  "split": "llffhold8",
+  "imageScale": "images_2/downsample_factor=2",
+  "source": "data/mipnerf360/bicycle",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000",
+  "checkpoint": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000/ckpts/ckpt_49999_rank0.pt",
+  "ply": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000/ply/point_cloud_49999.ply",
+  "renderSample": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000/renders/val_step49999_0000.png",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/mipnerf360/bicycle --data-factor 2 --result-dir /tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000 --max-steps 50000 --eval-steps 50000 --save-steps 50000 --disable-video --strategy.cap-max 3000000 --strategy.refine-stop-iter 50000 --test-every 8 --save-ply --ply-steps 50000",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "train": {
+    "maxSteps": 50000,
+    "finalStep": 49999,
+    "strategy": "MCMCStrategy",
+    "capMax": 3000000,
+    "refineStopIter": 50000,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trainSeconds": 1794.914221048355,
+    "peakGpuMemoryGiB": 4.13831090927124,
+    "numGaussians": 3000000
+  },
+  "metrics": {
+    "psnr": 25.070646286010742,
+    "ssim": 0.7528002262115479,
+    "lpips": 0.1880279928445816,
+    "secondsPerImage": 0.005502691268920898,
+    "numGaussians": 3000000
+  },
+  "sameSceneComparisons": {
+    "auraBeta": {
+      "psnr": 25.148128509521484,
+      "ssim": 0.7576749920845032,
+      "lpips": 0.24038246273994446
+    },
+    "fixedGaussianControl": {
+      "psnr": 24.843175888061523,
+      "ssim": 0.7521011233329773,
+      "lpips": 0.23069265484809875
+    },
+    "previousBicycleMcmc40kCap2m": {
+      "psnr": 25.088529586791992,
+      "ssim": 0.7485905289649963,
+      "lpips": 0.21164970099925995
+    },
+    "official2dgs": {
+      "iterations": 30000,
+      "psnr": 24.592092514038086,
+      "ssim": 0.7117696404457092,
+      "lpips": 0.3068859279155731
+    },
+    "official3dgut": {
+      "iterations": 30000,
+      "psnr": 24.306759185791016,
+      "ssim": 0.6960554504394532,
+      "lpips": 0.3598767554759979
+    }
+  },
+  "visualInspection": "Checked /tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000/renders/val_step49999_0000.png; side-by-side validation target and render are nonblank and camera-aligned, with no obvious scale or camera failure.",
+  "promoted": false,
+  "leaderboardImpact": "Measured same-split CUDA Mip-NeRF 360 Bicycle A/B with a 3M Gaussian cap and refinement through 50k steps. It misses AURA Beta on Bicycle PSNR by 0.07748222351074219 dB and SSIM by 0.004874765872955322, so it is not promoted. Compared with the 40k cap2m MCMC Bicycle row, it improves SSIM by 0.004209697246551514 and LPIPS by 0.023621708154678345 but loses PSNR by 0.01788330078125; the larger cap helps perceptual metrics but hurts the primary leaderboard gate.",
+  "nextSteps": [
+    "reject the 50k cap3m recipe for Bicycle primary-PSNR promotion",
+    "try a smaller or PSNR-biased Bicycle recipe before spending more compute on larger caps",
+    "continue room, garden, kitchen, counter, and bonsai only after the current Bicycle recipe evidence is committed"
+  ]
+}

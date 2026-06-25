@@ -929,6 +929,46 @@
       ]
     },
     {
+      "sceneId": "bicycle",
+      "methodId": "gsplat_main_mcmc",
+      "metrics": [
+        {
+          "name": "psnr",
+          "value": 25.070646286010742,
+          "higherIsBetter": true
+        },
+        {
+          "name": "ssim",
+          "value": 0.7528002262115479,
+          "higherIsBetter": true
+        },
+        {
+          "name": "lpips",
+          "value": 0.1880279928445816,
+          "higherIsBetter": false
+        },
+        {
+          "name": "render_ms",
+          "value": 5.502691268920898,
+          "higherIsBetter": false
+        },
+        {
+          "name": "num_gaussians",
+          "value": 3000000.0,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_mcmc_bicycle_50000_cap3m_refine50000_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "Measured same-split CUDA Mip-NeRF 360 Bicycle A/B with a 3M Gaussian cap and refinement through 50k steps. It misses AURA Beta on Bicycle PSNR by 0.07748222351074219 dB and SSIM by 0.004874765872955322, so it is not promoted. Compared with the 40k cap2m MCMC Bicycle row, it improves SSIM by 0.004209697246551514 and LPIPS by 0.023621708154678345 but loses PSNR by 0.01788330078125; the larger cap helps perceptual metrics but hurts the primary leaderboard gate.",
+        "/tmp/aura_gsplat_main_mcmc_runs/bicycle_50000_cap3m_refine50000"
+      ]
+    },
+    {
       "sceneId": "stump",
       "methodId": "gsplat_main_mcmc",
       "metrics": [
@@ -1209,6 +1249,7 @@
         "fixed_gaussian_control",
         "official_2dgs",
         "official_3dgut",
+        "gsplat_main_mcmc",
         "gsplat_main_mcmc"
       ],
       "promoted": false,
