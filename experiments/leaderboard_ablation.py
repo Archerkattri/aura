@@ -108,6 +108,34 @@ def _official_runs() -> list[LeaderboardRun]:
     return runs
 
 
+def _gsplat_main_mcmc_runs() -> list[LeaderboardRun]:
+    artifact = RESULTS / "gsplat_main_mcmc_truck_7000_2026-06-25.json"
+    payload = _read_json(artifact) or {}
+    if not payload:
+        return []
+    metrics = payload.get("metrics", {})
+    notes = [str(payload.get("leaderboardImpact", ""))]
+    output = payload.get("output")
+    if output:
+        notes.append(str(output))
+    return [
+        LeaderboardRun(
+            scene_id=str(payload["scene"]),
+            method_id="gsplat_main_mcmc",
+            metrics=(
+                _metric("psnr", float(metrics["psnr"]), higher=True),
+                _metric("ssim", float(metrics["ssim"]), higher=True),
+                _metric("lpips", float(metrics["lpips"]), higher=False),
+                _metric("render_ms", float(metrics["secondsPerImage"]) * 1000.0, higher=False),
+                _metric("num_gaussians", float(metrics["numGaussians"]), higher=False),
+            ),
+            artifacts=("experiments/results/gsplat_main_mcmc_truck_7000_2026-06-25.json",),
+            measured=True,
+            notes=tuple(note for note in notes if note),
+        )
+    ]
+
+
 def leaderboard_ablation_report(out: Path) -> dict[str, Any]:
     methods = (
         MethodSpec(method_id="aura_beta", role="baseline", backend="dbs-beta", command="experiments/run_multiscene.sh"),
@@ -123,7 +151,7 @@ def leaderboard_ablation_report(out: Path) -> dict[str, Any]:
         task="novel_view_synthesis",
         scenes=_scene_specs(),
         methods=methods,
-        runs=tuple(_multiscene_runs() + _official_runs()),
+        runs=tuple(_multiscene_runs() + _official_runs() + _gsplat_main_mcmc_runs()),
         primary_metric="psnr",
     )
     payload = report.to_dict()

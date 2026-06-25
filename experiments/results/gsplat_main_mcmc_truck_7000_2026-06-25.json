@@ -1,0 +1,75 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_TRUCK_ABLATION",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "scene": "truck",
+  "dataset": "Tanks and Temples Truck",
+  "split": "llffhold8",
+  "imageScale": "native",
+  "source": "data/tanks/truck",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/truck_7000_cap1m",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/tanks/truck --data-factor 1 --result-dir /tmp/aura_gsplat_main_mcmc_runs/truck_7000_cap1m --max-steps 7000 --eval-steps 7000 --save-steps 7000 --disable-video --strategy.cap-max 1000000 --strategy.refine-stop-iter 7000 --test-every 8",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "train": {
+    "maxSteps": 7000,
+    "finalStep": 6999,
+    "strategy": "MCMCStrategy",
+    "capMax": 1000000,
+    "refineStopIter": 7000,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trainSeconds": 46.09373760223389,
+    "peakGpuMemoryGiB": 1.3166112899780273,
+    "numGaussians": 1000000
+  },
+  "metrics": {
+    "psnr": 24.347393035888672,
+    "ssim": 0.857230007648468,
+    "lpips": 0.13806824386119843,
+    "secondsPerImage": 0.0033458322286605835,
+    "numGaussians": 1000000
+  },
+  "sameSceneComparisons": {
+    "auraBeta": {
+      "psnr": 26.39360237121582,
+      "ssim": 0.8957456350326538,
+      "lpips": 0.12278576195240021
+    },
+    "fixedGaussianControl": {
+      "psnr": 25.961856842041016,
+      "ssim": 0.889708936214447,
+      "lpips": 0.1281273066997528
+    },
+    "official2dgs": {
+      "iterations": 30000,
+      "psnr": 25.122329711914062,
+      "ssim": 0.873086154460907,
+      "lpips": 0.1735249161720276
+    },
+    "official3dgut": {
+      "iterations": 30000,
+      "psnr": 25.31978416442871,
+      "ssim": 0.8780446648597717,
+      "lpips": 0.18375778663903475,
+      "meanInferenceMs": 2.28
+    }
+  },
+  "promoted": false,
+  "leaderboardImpact": "Measured CUDA Truck ablation, but not promoted: 7000-step gsplat-main MCMC underperforms AURA Beta, fixed-Gaussian control, official 2DGS, and official 3DGUT on Truck PSNR.",
+  "nextSteps": [
+    "run a full-length 30000-step MCMC candidate before discarding the family",
+    "save a trained PLY for HiGS inference benchmarking if the full-length row is competitive",
+    "expand only candidates that beat Truck quality or provide a clearly documented speed/size tradeoff"
+  ]
+}

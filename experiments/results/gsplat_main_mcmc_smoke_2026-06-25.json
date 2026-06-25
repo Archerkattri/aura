@@ -1,0 +1,17 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_SMOKE",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "smoke": {
+    "strategy": "MCMCStrategy",
+    "device": "NVIDIA GeForce RTX 5090",
+    "gaussianCount": 67,
+    "capMax": 96,
+    "finiteMeans": true,
+    "finiteScales": true
+  },
+  "passed": true,
+  "leaderboardImpact": "CUDA strategy smoke only; not a quality benchmark or promotion row."
+}

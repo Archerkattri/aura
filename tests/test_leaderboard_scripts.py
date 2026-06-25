@@ -20,6 +20,8 @@ def test_leaderboard_ablation_report_uses_current_artifacts_without_sota_claim(t
     assert payload["leaderboardReady"] is False
     assert "leaderboard SOTA" in " ".join(payload["claimBoundary"]["cannotClaim"])
     assert payload["runs"]
+    assert any(run["methodId"] == "gsplat_main_mcmc" for run in payload["runs"])
+    assert "gsplat_main_mcmc" not in payload["promotedMethodIds"]
 
 
 def test_leaderboard_ablation_cli_writes_json(tmp_path):

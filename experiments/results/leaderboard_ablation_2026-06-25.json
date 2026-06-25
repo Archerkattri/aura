@@ -885,6 +885,46 @@
       "notes": [
         "/tmp/aura_sota_3dgrut_runs/stump_3dgut_full30000_ds2_eval/stump_3dgut_full30000_ds2/stump-2506_062515"
       ]
+    },
+    {
+      "sceneId": "truck",
+      "methodId": "gsplat_main_mcmc",
+      "metrics": [
+        {
+          "name": "psnr",
+          "value": 24.347393035888672,
+          "higherIsBetter": true
+        },
+        {
+          "name": "ssim",
+          "value": 0.857230007648468,
+          "higherIsBetter": true
+        },
+        {
+          "name": "lpips",
+          "value": 0.13806824386119843,
+          "higherIsBetter": false
+        },
+        {
+          "name": "render_ms",
+          "value": 3.3458322286605835,
+          "higherIsBetter": false
+        },
+        {
+          "name": "num_gaussians",
+          "value": 1000000.0,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_mcmc_truck_7000_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "Measured CUDA Truck ablation, but not promoted: 7000-step gsplat-main MCMC underperforms AURA Beta, fixed-Gaussian control, official 2DGS, and official 3DGUT on Truck PSNR.",
+        "/tmp/aura_gsplat_main_mcmc_runs/truck_7000_cap1m"
+      ]
     }
   ],
   "comparisons": [
@@ -895,7 +935,8 @@
       "candidateMethodIds": [
         "fixed_gaussian_control",
         "official_2dgs",
-        "official_3dgut"
+        "official_3dgut",
+        "gsplat_main_mcmc"
       ],
       "promoted": false,
       "ready": true,

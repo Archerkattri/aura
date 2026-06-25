@@ -1,0 +1,37 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_TRUCK_SMOKE",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "source": "data/tanks/truck",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/truck_smoke_1000",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/tanks/truck --data-factor 1 --result-dir /tmp/aura_gsplat_main_mcmc_runs/truck_smoke_1000 --max-steps 1000 --eval-steps 1000 --save-steps 1000 --disable-video --strategy.cap-max 200000 --strategy.refine-stop-iter 1000 --test-every 8",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "CUDA_VISIBLE_DEVICES": "0",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1"
+  },
+  "metrics": {
+    "steps": 1000,
+    "psnr": 19.017086029052734,
+    "ssim": 0.6933431625366211,
+    "lpips": 0.3669445812702179,
+    "secondsPerImage": 0.0012749508023262024,
+    "numGaussians": 165342,
+    "trainMemoryGb": 0.2752714157104492
+  },
+  "passed": true,
+  "leaderboardImpact": "Truck 1000-step smoke only. It verifies gsplat-main MCMC can train/evaluate on AURA's Truck data, but PSNR is below AURA Beta and the run is too short for promotion.",
+  "nextSteps": [
+    "run 7000-step Truck gsplat-main MCMC at the same split",
+    "compare 7000-step metrics with AURA Beta and fixed-Gaussian rows",
+    "only expand to all 8 scenes if Truck improves or provides a speed/size tradeoff worth tracking"
+  ]
+}

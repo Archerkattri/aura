@@ -1,0 +1,35 @@
+{
+  "format": "AURA_GSPLAT_MAIN_BUILD_PROBE",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "torchExtensionsDir": "/tmp/aura_gsplat_main_3dgs_ext",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "MAX_JOBS": "2",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1"
+  },
+  "buildReady": true,
+  "buildSeconds": 217.68,
+  "featuresVerified": {
+    "DefaultStrategy": true,
+    "MCMCStrategy": true,
+    "rasterization": true
+  },
+  "excludedFeatures": [
+    "3DGUT/eval3d source kernels were intentionally excluded from this narrow build because the full build remained in long world-space compiler units during the interactive probe"
+  ],
+  "leaderboardImpact": "This proves gsplat-main source can build for the immediate 3DGS/MCMC ablation path. It is not a quality/FPS benchmark row and cannot support leaderboard SOTA claims by itself.",
+  "nextSteps": [
+    "run a CUDA MCMC strategy smoke",
+    "run Truck-only gsplat-main MCMC train/eval",
+    "compare measured Truck metrics against current AURA Beta and fixed-Gaussian rows before expanding to all 8 scenes"
+  ]
+}
