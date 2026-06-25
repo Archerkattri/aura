@@ -5,6 +5,8 @@ Date: 2026-06-25
 This bundle is the paper/package starting point for the current AURA evidence
 state. It separates claims that are backed by durable local artifacts from claims
 that remain out of scope until third-party or leaderboard-grade checks are run.
+The current submission-readiness memo is `docs/submission_readiness_2026-06-25.md`;
+the paper outline is `docs/paper_outline_2026-06-25.md`.
 
 ## Abstract Draft
 
@@ -44,6 +46,15 @@ baseline coverage.
 - No claim of full inverse-material recovery from unconstrained captures.
 - No claim that PRISM replaces gsplat or DBS-Beta for Gaussian/Beta primary
   quality.
+
+## Submission Verdict
+
+AURA/PRISM is ready to package as a paper artifact and internal preprint draft.
+It should be framed as a typed radiance-asset system with local artifact-backed
+SOTA A/B readiness, not as an official leaderboard SOTA claim. The strongest
+current statement is that all local publication-validation gates pass and the
+official 2DGS/3DGUT same-split replacement table is complete for the 8 audited
+scenes.
 
 ## Method Figure Set
 

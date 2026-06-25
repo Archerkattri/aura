@@ -312,7 +312,13 @@ The publication bundle draft and claim table are in:
 
 ```text
 docs/publication_bundle_2026-06-25.md
+docs/submission_readiness_2026-06-25.md
+docs/paper_outline_2026-06-25.md
 ```
+
+Submission verdict: AURA/PRISM is ready to package as a paper artifact and
+internal preprint draft with local artifact-backed SOTA A/B readiness. It is not
+an official leaderboard SOTA claim.
 
 ## Install
 
