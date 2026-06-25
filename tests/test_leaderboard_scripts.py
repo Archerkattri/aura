@@ -37,9 +37,21 @@ def test_leaderboard_ablation_report_uses_current_artifacts_without_sota_claim(t
         for row in payload["comparisons"]
     )
     assert any(
+        row["sceneId"] == "bicycle"
+        and row["winnerMethodId"] == "aura_beta"
+        and row["promoted"] is False
+        for row in payload["comparisons"]
+    )
+    assert any(
         run["sceneId"] == "stump"
         and run["methodId"] == "gsplat_main_mcmc"
         and "experiments/results/gsplat_main_mcmc_stump_40000_cap2m_refine40000_2026-06-25.json" in run["artifacts"]
+        for run in payload["runs"]
+    )
+    assert any(
+        run["sceneId"] == "bicycle"
+        and run["methodId"] == "gsplat_main_mcmc"
+        and "experiments/results/gsplat_main_mcmc_bicycle_40000_cap2m_refine40000_2026-06-25.json" in run["artifacts"]
         for run in payload["runs"]
     )
     assert any(

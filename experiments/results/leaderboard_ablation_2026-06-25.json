@@ -889,6 +889,46 @@
       ]
     },
     {
+      "sceneId": "bicycle",
+      "methodId": "gsplat_main_mcmc",
+      "metrics": [
+        {
+          "name": "psnr",
+          "value": 25.088529586791992,
+          "higherIsBetter": true
+        },
+        {
+          "name": "ssim",
+          "value": 0.7485905289649963,
+          "higherIsBetter": true
+        },
+        {
+          "name": "lpips",
+          "value": 0.21164970099925995,
+          "higherIsBetter": false
+        },
+        {
+          "name": "render_ms",
+          "value": 4.132833480834961,
+          "higherIsBetter": false
+        },
+        {
+          "name": "num_gaussians",
+          "value": 2000000.0,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_mcmc_bicycle_40000_cap2m_refine40000_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "Measured same-split CUDA Mip-NeRF 360 Bicycle ablation with a 2M Gaussian cap and refinement through 40k steps. It misses AURA Beta on Bicycle PSNR by 0.05959892272949219 dB and SSIM by 0.009084463119506836, so it is not promoted. It improves LPIPS versus AURA Beta by 0.02873276174068451 and beats the fixed-Gaussian control on PSNR and LPIPS, which makes it useful evidence for the next Bicycle A/B recipe but not a leaderboard-SOTA row.",
+        "/tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000"
+      ]
+    },
+    {
       "sceneId": "stump",
       "methodId": "gsplat_main_mcmc",
       "metrics": [
@@ -1168,7 +1208,8 @@
       "candidateMethodIds": [
         "fixed_gaussian_control",
         "official_2dgs",
-        "official_3dgut"
+        "official_3dgut",
+        "gsplat_main_mcmc"
       ],
       "promoted": false,
       "ready": true,

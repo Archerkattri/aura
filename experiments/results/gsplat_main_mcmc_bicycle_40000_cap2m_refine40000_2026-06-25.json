@@ -1,0 +1,78 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_SCENE_ABLATION",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "scene": "bicycle",
+  "dataset": "Mip-NeRF 360 Bicycle",
+  "split": "llffhold8",
+  "imageScale": "images_2/downsample_factor=2",
+  "source": "data/mipnerf360/bicycle",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000",
+  "checkpoint": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000/ckpts/ckpt_39999_rank0.pt",
+  "ply": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000/ply/point_cloud_39999.ply",
+  "renderSample": "/tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000/renders/val_step39999_0000.png",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/mipnerf360/bicycle --data-factor 2 --result-dir /tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000 --max-steps 40000 --eval-steps 40000 --save-steps 40000 --disable-video --strategy.cap-max 2000000 --strategy.refine-stop-iter 40000 --test-every 8 --save-ply --ply-steps 40000",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "train": {
+    "maxSteps": 40000,
+    "finalStep": 39999,
+    "strategy": "MCMCStrategy",
+    "capMax": 2000000,
+    "refineStopIter": 40000,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trainSeconds": 1300.2991404533386,
+    "peakGpuMemoryGiB": 2.8594307899475098,
+    "numGaussians": 2000000
+  },
+  "metrics": {
+    "psnr": 25.088529586791992,
+    "ssim": 0.7485905289649963,
+    "lpips": 0.21164970099925995,
+    "secondsPerImage": 0.004132833480834961,
+    "numGaussians": 2000000
+  },
+  "sameSceneComparisons": {
+    "auraBeta": {
+      "psnr": 25.148128509521484,
+      "ssim": 0.7576749920845032,
+      "lpips": 0.24038246273994446
+    },
+    "fixedGaussianControl": {
+      "psnr": 24.843175888061523,
+      "ssim": 0.7521011233329773,
+      "lpips": 0.23069265484809875
+    },
+    "official2dgs": {
+      "iterations": 30000,
+      "psnr": 24.592092514038086,
+      "ssim": 0.7117696404457092,
+      "lpips": 0.3068859279155731
+    },
+    "official3dgut": {
+      "iterations": 30000,
+      "psnr": 24.306759185791016,
+      "ssim": 0.6960554504394532,
+      "lpips": 0.3598767554759979
+    }
+  },
+  "visualInspection": "Checked /tmp/aura_gsplat_main_mcmc_runs/bicycle_40000_cap2m_refine40000/renders/val_step39999_0000.png; side-by-side validation target and render are nonblank and camera-aligned, with no obvious scale or camera failure.",
+  "promoted": false,
+  "leaderboardImpact": "Measured same-split CUDA Mip-NeRF 360 Bicycle ablation with a 2M Gaussian cap and refinement through 40k steps. It misses AURA Beta on Bicycle PSNR by 0.05959892272949219 dB and SSIM by 0.009084463119506836, so it is not promoted. It improves LPIPS versus AURA Beta by 0.02873276174068451 and beats the fixed-Gaussian control on PSNR and LPIPS, which makes it useful evidence for the next Bicycle A/B recipe but not a leaderboard-SOTA row.",
+  "nextSteps": [
+    "rerun Bicycle with a longer refine-to-end schedule or a larger Gaussian cap because the PSNR miss is only 0.05959892272949219 dB",
+    "do not promote gsplat-main MCMC for Bicycle until it beats AURA Beta on same-split PSNR",
+    "continue scene-by-scene CUDA ablations for room, garden, kitchen, counter, and bonsai"
+  ]
+}
