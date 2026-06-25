@@ -140,6 +140,35 @@ def _gsplat_main_mcmc_runs() -> list[LeaderboardRun]:
     return runs
 
 
+def _higs_inference_runs() -> list[LeaderboardRun]:
+    artifact = RESULTS / "gsplat_main_higs_truck_30000_2026-06-25.json"
+    payload = _read_json(artifact) or {}
+    if payload.get("format") != "AURA_GSPLAT_MAIN_HIGS_TRUCK_BENCHMARK":
+        return []
+    inference = payload["statefulInferenceRenderer"]
+    reference = payload["referenceRasterization"]
+    quality = payload["qualityVsReference"]
+    return [
+        LeaderboardRun(
+            scene_id=str(payload["scene"]),
+            method_id="higs_inference",
+            metrics=(
+                _metric("render_ms", float(inference["medianMs"]), higher=False),
+                _metric("reference_render_ms", float(reference["medianMs"]), higher=False),
+                _metric("speedup_vs_reference", float(payload["speedupVsReference"]), higher=True),
+                _metric("reference_psnr", float(quality["psnrMean"]), higher=True),
+                _metric("reference_lpips", float(quality["lpipsAlexMean"]), higher=False),
+            ),
+            artifacts=("experiments/results/gsplat_main_higs_truck_30000_2026-06-25.json",),
+            measured=True,
+            notes=(
+                str(payload.get("leaderboardImpact", "")),
+                str(payload.get("promotionScope", "")),
+            ),
+        )
+    ]
+
+
 def leaderboard_ablation_report(out: Path) -> dict[str, Any]:
     methods = (
         MethodSpec(method_id="aura_beta", role="baseline", backend="dbs-beta", command="experiments/run_multiscene.sh"),
@@ -155,7 +184,7 @@ def leaderboard_ablation_report(out: Path) -> dict[str, Any]:
         task="novel_view_synthesis",
         scenes=_scene_specs(),
         methods=methods,
-        runs=tuple(_multiscene_runs() + _official_runs() + _gsplat_main_mcmc_runs()),
+        runs=tuple(_multiscene_runs() + _official_runs() + _gsplat_main_mcmc_runs() + _higs_inference_runs()),
         primary_metric="psnr",
     )
     payload = report.to_dict()

@@ -965,6 +965,46 @@
         "Measured CUDA Truck ablation, but not promoted: 7000-step gsplat-main MCMC underperforms AURA Beta, fixed-Gaussian control, official 2DGS, and official 3DGUT on Truck PSNR.",
         "/tmp/aura_gsplat_main_mcmc_runs/truck_7000_cap1m"
       ]
+    },
+    {
+      "sceneId": "truck",
+      "methodId": "higs_inference",
+      "metrics": [
+        {
+          "name": "render_ms",
+          "value": 0.3,
+          "higherIsBetter": false
+        },
+        {
+          "name": "reference_render_ms",
+          "value": 1.725,
+          "higherIsBetter": false
+        },
+        {
+          "name": "speedup_vs_reference",
+          "value": 5.75,
+          "higherIsBetter": true
+        },
+        {
+          "name": "reference_psnr",
+          "value": 60.609,
+          "higherIsBetter": true
+        },
+        {
+          "name": "reference_lpips",
+          "value": 0.00085,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_higs_truck_30000_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "HiGS/InferenceRenderer is a measured speed sidecar for the 30k gsplat-main Truck PLY: 0.300 ms median at 1280x720 versus 1.725 ms reference rasterization, 5.75x faster with near-identical inference-vs-reference quality. It does not change the primary leaderboard PSNR decision because AURA Beta still wins Truck PSNR/SSIM.",
+        "render-speed sidecar only"
+      ]
     }
   ],
   "comparisons": [
@@ -977,7 +1017,8 @@
         "official_2dgs",
         "official_3dgut",
         "gsplat_main_mcmc",
-        "gsplat_main_mcmc"
+        "gsplat_main_mcmc",
+        "higs_inference"
       ],
       "promoted": false,
       "ready": true,

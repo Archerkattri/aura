@@ -1,0 +1,80 @@
+{
+  "format": "AURA_GSPLAT_MAIN_HIGS_TRUCK_BENCHMARK",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "sourceArtifact": "experiments/results/gsplat_main_mcmc_truck_30000_2026-06-25.json",
+  "scene": "truck",
+  "dataset": "Tanks and Temples Truck",
+  "inputPly": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/ply/point_cloud_29999.ply",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m",
+  "preview": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/higs_preview.png",
+  "referencePreview": "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/higs_preview_ref.png",
+  "command": "gaussian_render_inference_scene_bench.py --ply-path /tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/ply/point_cloud_29999.ply --width 1280 --height 720 --num-frames 60 --warmup-frames 10 --quality-frames 3 --reference-tile-size 16 --inference-tile-size 8 --save-image /tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap1m/higs_preview.png",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "sceneDetails": {
+    "numGaussians": 1000000,
+    "shDegree": 3,
+    "resolution": {
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "statefulInferenceRenderer": {
+    "frames": 60,
+    "meanMs": 0.299,
+    "medianMs": 0.300,
+    "minMs": 0.266,
+    "maxMs": 0.569,
+    "stdMs": 0.038,
+    "p5Ms": 0.269,
+    "p95Ms": 0.314,
+    "fpsFromMedian": 3332.6,
+    "scenePackingMs": 3.438,
+    "rendererSetupMs": 0.075,
+    "peakAllocatedMiB": 1084.7,
+    "allocationGrew": true,
+    "perFrameDeltaKiB": 652.5
+  },
+  "referenceRasterization": {
+    "frames": 60,
+    "meanMs": 1.832,
+    "medianMs": 1.725,
+    "minMs": 1.305,
+    "maxMs": 2.727,
+    "stdMs": 0.362,
+    "p5Ms": 1.351,
+    "p95Ms": 2.592,
+    "fpsFromMedian": 579.6,
+    "peakAllocatedMiB": 550.4
+  },
+  "qualityVsReference": {
+    "frames": 3,
+    "psnrMean": 60.609,
+    "psnrMin": 56.111,
+    "psnrMax": 63.779,
+    "lpipsAlexMean": 0.00085,
+    "lpipsAlexMin": 0.00008,
+    "lpipsAlexMax": 0.00231
+  },
+  "speedupVsReference": 5.75,
+  "visualInspection": "Checked higs_preview.png and higs_preview_ref.png; both are nonblank and visually matched. The benchmark orbit is rotated relative to dataset validation cameras, so this artifact supports inference-side speed and path fidelity, not scene-quality PSNR against ground truth.",
+  "promoted": true,
+  "promotionScope": "render-speed sidecar only",
+  "leaderboardImpact": "HiGS/InferenceRenderer is a measured speed sidecar for the 30k gsplat-main Truck PLY: 0.300 ms median at 1280x720 versus 1.725 ms reference rasterization, 5.75x faster with near-identical inference-vs-reference quality. It does not change the primary leaderboard PSNR decision because AURA Beta still wins Truck PSNR/SSIM.",
+  "nextSteps": [
+    "add this as an auxiliary speed/FPS evidence row, not as a primary quality promotion",
+    "test one quality-oriented MCMC follow-up if pursuing Truck PSNR",
+    "otherwise move to the next upgrade family that can improve primary PSNR or all-scene quality"
+  ]
+}
