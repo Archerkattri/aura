@@ -76,3 +76,12 @@ def test_readme_includes_local_truck_and_train_media_only():
     assert "docs/temple" not in readme.lower()
     assert "M60" not in readme
     assert "tank scene" not in readme.lower()
+
+
+def test_readme_sota_claim_boundary_matches_current_artifact():
+    readme = (ROOT / "README.md").read_text()
+
+    assert "sotaReady: true" in readme
+    assert "full SOTA claim still gated" not in readme
+    assert "short same-split GPU validation rows" not in readme
+    assert "official leaderboard claims remain out of scope" in readme

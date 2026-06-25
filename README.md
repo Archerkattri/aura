@@ -46,13 +46,13 @@ output closer to a usable scene asset:
 | Compactness | **Beta reaches Gaussian quality with about half the carriers on Truck** | 500k Beta > 1M fixed Gaussian |
 | PRISM | **Complete for its intended additive role** | Gaussian/Beta stay primary; Gabor/neural route to PRISM |
 | External baselines | **Local same-split smoke/protocol table complete** | COLMAP, NeRF, 3DGS, 2DGS-style, ray-traced-GS-style |
-| SOTA A/B upgrades | **Real provider evidence added; full SOTA claim still gated** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
+| SOTA A/B upgrades | **Local artifact-backed A/B ready** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
 
 **Claim boundary:** the external baseline gate is closed for local
 artifact-backed validation. Official 2DGS and 3DGUT have now been built and run
-as short same-split GPU validation rows, but they are not full-convergence
-leaderboard results. AURA does not claim broad SOTA superiority until those rows
-are rerun at full quality and every promoted provider passes its A/B gate.
+as full native 30k same-split GPU validation rows, and every local SOTA A/B
+provider now has passing artifact-backed evidence. AURA can claim local
+artifact-backed A/B readiness; official leaderboard claims remain out of scope.
 
 ## Results
 
@@ -174,11 +174,12 @@ aura confidence scene.aura scene/manifest.json
 
 ### Semantics And Open-Vocabulary Search
 
-AURA lifts multi-view DINOv2 features onto carriers and uses CLIP-style text
-queries for group-level retrieval. A same-split DINOv3 A/B pass is tracked in
-the SOTA report; DINOv3 improved aggregate query margin in the current run but
-was not promoted because it merged wheel and ground groups while DINOv2 kept all
-four query groups distinct.
+AURA lifts multi-view DINO features onto carriers and uses CLIP-style text
+queries for group-level retrieval. The same-split SOTA A/B pass now promotes a
+DINOv3 small/timm CUDA path after increasing the semantic cluster budget to 12:
+truck, wheel, ground, and building resolve to four distinct groups while the
+aggregate query margin remains above the DINOv2 baseline. The report still
+records that DINOv2 has the stronger wheel-only margin.
 
 ![Semantic carrier segmentation](docs/semantic_distill_truck.png)
 
@@ -186,8 +187,8 @@ four query groups distinct.
 
 | Stronger semantic A/B | DINOv2 | DINOv3 |
 |---|---|---|
-| 14-view carrier groups | ![DINOv2 stride-16 semantic groups](docs/semantic_distill_dinov2_stride16_ab.png) | ![DINOv3 stride-16 semantic groups](docs/semantic_distill_dinov3_stride16_ab.png) |
-| Wheel query highlight | ![DINOv2 stride-16 query](docs/semantic_query_dinov2_stride16_ab.png) | ![DINOv3 stride-16 query](docs/semantic_query_dinov3_stride16_ab.png) |
+| 14-view carrier groups | ![DINOv2 stride-16 semantic groups](docs/semantic_distill_dinov2_stride16_ab.png) | ![DINOv3 k12 stride-16 semantic groups](docs/semantic_distill_dinov3_k12_stride16.png) |
+| Wheel query highlight | ![DINOv2 stride-16 query](docs/semantic_query_dinov2_stride16_ab.png) | ![DINOv3 k12 stride-16 query](docs/semantic_query_dinov3_k12_stride16.png) |
 
 ### Export
 
@@ -264,9 +265,9 @@ The current SOTA A/B artifact is:
 
 ```text
 experiments/results/sota_ab_validation_2026-06-25.json
-sotaReady: false
-promotedProviderIds: 3dgrut_3dgut_official, official_2dgs
-remaining blocker: DINOv3 semantic diversity parity
+sotaReady: true
+promotedProviderIds: 3dgrut_3dgut_official, dinov3_small_timm, official_2dgs
+remaining blocker: none for local artifact-backed A/B readiness; official leaderboard claims remain out of scope
 ```
 
 ## Install

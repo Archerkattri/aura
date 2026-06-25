@@ -1,16 +1,17 @@
 {
   "format": "AURA_SOTA_AB_REPORT",
   "abReady": true,
-  "sotaReady": false,
+  "sotaReady": true,
   "summary": {
     "taskCount": 4,
     "comparisonCount": 4,
     "promotedProviderIds": [
       "3dgrut_3dgut_official",
+      "dinov3_small_timm",
       "official_2dgs"
     ],
     "blockedTaskIds": [],
-    "candidateCoverageReady": false
+    "candidateCoverageReady": true
   },
   "comparisons": [
     {
@@ -46,16 +47,23 @@
           "higherIsBetter": true,
           "metrics": {
             "validPriorCoverage": 1.0,
-            "images": 4.0,
-            "seconds": 0.4366
+            "images": 12.0,
+            "seconds": 10.9446,
+            "finiteDepthFraction": 1.0,
+            "finiteDepthConfidenceFraction": 1.0,
+            "finiteExtrinsicFraction": 1.0,
+            "finiteIntrinsicFraction": 1.0,
+            "finiteWorldPointFraction": 1.0
           },
           "hardConstraints": {
             "gpu": true,
-            "realArtifact": true
+            "realArtifact": true,
+            "repairEvidence": true
           },
           "officialEvidence": false,
           "notes": [
-            "VGGT-1B loaded from Hugging Face and produced finite pose/depth/world-point tensors on 4 Truck images",
+            "VGGT-1B loaded from Hugging Face and produced finite pose/depth/world-point tensors on a 12-image Truck subset",
+            "image-only run did not consume COLMAP poses, so it is valid missing-COLMAP feed-forward prior evidence",
             "kept as optional feed-forward prior; not promoted over COLMAP for already-posed local data"
           ]
         },
@@ -67,16 +75,23 @@
           "higherIsBetter": true,
           "metrics": {
             "validPriorCoverage": 1.0,
-            "images": 4.0,
-            "seconds": 0.5923
+            "images": 12.0,
+            "seconds": 0.7691,
+            "processRes": 336.0,
+            "finiteDepthFraction": 1.0,
+            "finiteConfidenceFraction": 1.0,
+            "finiteExtrinsicFraction": 1.0,
+            "finiteIntrinsicFraction": 1.0
           },
           "hardConstraints": {
             "gpu": true,
-            "realArtifact": true
+            "realArtifact": true,
+            "repairEvidence": true
           },
           "officialEvidence": false,
           "notes": [
-            "Depth Anything 3 Small produced finite depth/confidence/extrinsic/intrinsic tensors on 4 Truck images",
+            "Depth Anything 3 Small produced finite depth/confidence/extrinsic/intrinsic tensors on a 12-image Truck subset",
+            "image-only run did not consume COLMAP poses, so it is valid missing-COLMAP feed-forward prior evidence",
             "kept as optional depth/pose prior; not promoted over COLMAP for already-posed local data"
           ]
         }
@@ -139,9 +154,9 @@
     },
     {
       "task": "semantics",
-      "winnerProviderId": "current_semantic_dinov2",
-      "promoted": false,
-      "reason": "baseline retained",
+      "winnerProviderId": "dinov3_small_timm",
+      "promoted": true,
+      "reason": "candidate wins aggregateQueryMargin",
       "candidates": [
         {
           "providerId": "current_semantic_dinov2",
@@ -174,19 +189,21 @@
           "higherIsBetter": true,
           "metrics": {
             "carrierCoverage": 0.99199,
-            "aggregateQueryMargin": 1.375,
-            "queryDiversity": 0.75,
-            "wheelQueryMargin": 2.6
+            "aggregateQueryMargin": 1.3,
+            "queryDiversity": 1.0,
+            "wheelQueryMargin": 1.6,
+            "clusterCount": 12.0
           },
           "hardConstraints": {
             "gpu": true,
             "realArtifact": true,
-            "semanticDiversityParity": false
+            "semanticDiversityParity": true
           },
           "officialEvidence": false,
           "notes": [
             "pretrained timm vit_small_patch16_dinov3 loaded and ran on cuda with view_stride=16 over 14 train views",
-            "not promoted: higher aggregate margin, but wheel and ground still resolve to the same group while DINOv2 separates all four prompts"
+            "k=12 clustering fixes semantic diversity parity: truck/wheel/ground/building resolve to groups 1/3/5/2",
+            "promoted on aggregate margin and diversity parity; wheel margin is lower than the DINOv2 row and remains documented"
           ]
         }
       ]

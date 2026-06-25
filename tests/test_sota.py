@@ -147,3 +147,31 @@ def test_fixture_sota_report_does_not_promote_unmeasured_upgrades():
         "local_ray_query",
         "local_2dgs_style_smoke",
     }
+
+
+def test_measured_sota_report_promotes_dinov3_after_diversity_parity_fix():
+    from experiments.sota_ab_validation import measured_candidates_2026_06_25
+
+    report = sota_ab_report(measured_candidates_2026_06_25())
+
+    semantic = next(item for item in report["comparisons"] if item["task"] == "semantics")
+    dinov3 = next(item for item in semantic["candidates"] if item["providerId"] == "dinov3_small_timm")
+    assert semantic["winnerProviderId"] == "dinov3_small_timm"
+    assert semantic["promoted"] is True
+    assert dinov3["hardConstraints"]["semanticDiversityParity"] is True
+    assert dinov3["metrics"]["queryDiversity"] == 1.0
+
+
+def test_measured_geometry_priors_are_larger_than_smoke_and_keep_colmap_default():
+    from experiments.sota_ab_validation import measured_candidates_2026_06_25
+
+    report = sota_ab_report(measured_candidates_2026_06_25())
+
+    geometry = next(item for item in report["comparisons"] if item["task"] == "geometry_priors")
+    assert geometry["winnerProviderId"] == "current_colmap_capture"
+    assert geometry["promoted"] is False
+    for provider_id in ("vggt_1b", "depth_anything_3_small"):
+        candidate = next(item for item in geometry["candidates"] if item["providerId"] == provider_id)
+        assert candidate["metrics"]["images"] >= 12.0
+        assert candidate["metrics"]["validPriorCoverage"] == 1.0
+        assert candidate["hardConstraints"]["repairEvidence"] is True

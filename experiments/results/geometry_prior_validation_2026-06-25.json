@@ -1,0 +1,88 @@
+{
+  "format": "AURA_GEOMETRY_PRIOR_VALIDATION",
+  "scene": "tanks_truck",
+  "imageCount": 12.0,
+  "imagePaths": [
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000001.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000023.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000045.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000067.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000089.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000111.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000133.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000155.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000177.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000199.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000221.jpg",
+    "/home/krishi/workspace/brain/workspace/projects/aura/repo/data/tanks/truck/images/000243.jpg"
+  ],
+  "providers": [
+    {
+      "providerId": "vggt_1b",
+      "model": "facebook/VGGT-1B",
+      "images": 12.0,
+      "seconds": 10.9446,
+      "device": "cuda",
+      "validPriorCoverage": 1.0,
+      "finiteDepthFraction": 1.0,
+      "finiteDepthConfidenceFraction": 1.0,
+      "finiteExtrinsicFraction": 1.0,
+      "finiteIntrinsicFraction": 1.0,
+      "finiteWorldPointFraction": 1.0,
+      "depthShape": [
+        1,
+        12,
+        294,
+        518,
+        1
+      ],
+      "extrinsicShape": [
+        1,
+        12,
+        3,
+        4
+      ],
+      "intrinsicShape": [
+        1,
+        12,
+        3,
+        3
+      ],
+      "worldPointShape": [
+        12,
+        294,
+        518,
+        3
+      ]
+    },
+    {
+      "providerId": "depth_anything_3_small",
+      "model": "depth-anything/DA3-SMALL",
+      "images": 12.0,
+      "seconds": 0.7691,
+      "device": "cuda",
+      "processRes": 336.0,
+      "validPriorCoverage": 1.0,
+      "finiteDepthFraction": 1.0,
+      "finiteConfidenceFraction": 1.0,
+      "finiteExtrinsicFraction": 1.0,
+      "finiteIntrinsicFraction": 1.0,
+      "depthShape": [
+        12,
+        182,
+        336
+      ],
+      "extrinsicShape": [
+        12,
+        3,
+        4
+      ],
+      "intrinsicShape": [
+        12,
+        3,
+        3
+      ]
+    }
+  ],
+  "claimBoundary": "VGGT and Depth Anything 3 are optional feed-forward geometry priors. For already-posed Truck data, COLMAP remains the default unless a missing-or-weak-COLMAP repair split is validated."
+}
