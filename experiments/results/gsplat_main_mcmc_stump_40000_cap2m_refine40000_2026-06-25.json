@@ -1,0 +1,78 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_SCENE_ABLATION",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "scene": "stump",
+  "dataset": "Mip-NeRF 360 Stump",
+  "split": "llffhold8",
+  "imageScale": "images_2/downsample_factor=2",
+  "source": "data/mipnerf360/stump",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000",
+  "checkpoint": "/tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000/ckpts/ckpt_39999_rank0.pt",
+  "ply": "/tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000/ply/point_cloud_39999.ply",
+  "renderSample": "/tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000/renders/val_step39999_0000.png",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/mipnerf360/stump --data-factor 2 --result-dir /tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000 --max-steps 40000 --eval-steps 40000 --save-steps 40000 --disable-video --strategy.cap-max 2000000 --strategy.refine-stop-iter 40000 --test-every 8 --save-ply --ply-steps 40000",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "train": {
+    "maxSteps": 40000,
+    "finalStep": 39999,
+    "strategy": "MCMCStrategy",
+    "capMax": 2000000,
+    "refineStopIter": 40000,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trainSeconds": 1360.7421264648438,
+    "peakGpuMemoryGiB": 2.833164691925049,
+    "numGaussians": 2000000
+  },
+  "metrics": {
+    "psnr": 27.016326904296875,
+    "ssim": 0.7904926538467407,
+    "lpips": 0.20717522501945496,
+    "secondsPerImage": 0.004490792751312256,
+    "numGaussians": 2000000
+  },
+  "sameSceneComparisons": {
+    "auraBeta": {
+      "psnr": 26.64301109313965,
+      "ssim": 0.7773892879486084,
+      "lpips": 0.22955839335918427
+    },
+    "fixedGaussianControl": {
+      "psnr": 26.455883026123047,
+      "ssim": 0.7709895372390747,
+      "lpips": 0.23000243306159973
+    },
+    "official2dgs": {
+      "iterations": 30000,
+      "psnr": 26.051288604736328,
+      "ssim": 0.7494604587554932,
+      "lpips": 0.2937217950820923
+    },
+    "official3dgut": {
+      "iterations": 30000,
+      "psnr": 26.347398042678833,
+      "ssim": 0.7584297023713589,
+      "lpips": 0.36099292524158955
+    }
+  },
+  "visualInspection": "Checked /tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000/renders/val_step39999_0000.png; side-by-side validation target and render are nonblank and camera-aligned, with no obvious scale or camera failure.",
+  "promoted": true,
+  "leaderboardImpact": "Measured same-split CUDA Mip-NeRF 360 Stump ablation with a 2M Gaussian cap and refinement through 40k steps. It beats AURA Beta on Stump PSNR by 0.37331581115722656 dB, SSIM by 0.013103365898132324, and LPIPS by 0.02238316833972931. This is promoted for the Stump scene only; it is not a multiscene leaderboard-SOTA claim until repeated across every required scene.",
+  "nextSteps": [
+    "repeat the 40k cap2m refine-to-end schedule on room, bicycle, bonsai, counter, garden, and kitchen before any multiscene SOTA claim",
+    "benchmark the saved Stump 40k PLY with HiGS inference for an updated speed sidecar",
+    "prioritize bicycle and room next because their AURA Beta margins are smaller than garden, kitchen, counter, and bonsai"
+  ]
+}

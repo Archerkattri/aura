@@ -889,6 +889,46 @@
       ]
     },
     {
+      "sceneId": "stump",
+      "methodId": "gsplat_main_mcmc",
+      "metrics": [
+        {
+          "name": "psnr",
+          "value": 27.016326904296875,
+          "higherIsBetter": true
+        },
+        {
+          "name": "ssim",
+          "value": 0.7904926538467407,
+          "higherIsBetter": true
+        },
+        {
+          "name": "lpips",
+          "value": 0.20717522501945496,
+          "higherIsBetter": false
+        },
+        {
+          "name": "render_ms",
+          "value": 4.490792751312256,
+          "higherIsBetter": false
+        },
+        {
+          "name": "num_gaussians",
+          "value": 2000000.0,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_mcmc_stump_40000_cap2m_refine40000_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "Measured same-split CUDA Mip-NeRF 360 Stump ablation with a 2M Gaussian cap and refinement through 40k steps. It beats AURA Beta on Stump PSNR by 0.37331581115722656 dB, SSIM by 0.013103365898132324, and LPIPS by 0.02238316833972931. This is promoted for the Stump scene only; it is not a multiscene leaderboard-SOTA claim until repeated across every required scene.",
+        "/tmp/aura_gsplat_main_mcmc_runs/stump_40000_cap2m_refine40000"
+      ]
+    },
+    {
       "sceneId": "truck",
       "methodId": "gsplat_main_mcmc",
       "metrics": [
@@ -1189,15 +1229,16 @@
     {
       "sceneId": "stump",
       "baselineMethodId": "aura_beta",
-      "winnerMethodId": "aura_beta",
+      "winnerMethodId": "gsplat_main_mcmc",
       "candidateMethodIds": [
         "fixed_gaussian_control",
         "official_2dgs",
-        "official_3dgut"
+        "official_3dgut",
+        "gsplat_main_mcmc"
       ],
-      "promoted": false,
+      "promoted": true,
       "ready": true,
-      "reason": "baseline retained"
+      "reason": "candidate wins psnr"
     }
   ],
   "claimBoundary": {

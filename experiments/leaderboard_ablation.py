@@ -110,11 +110,15 @@ def _official_runs() -> list[LeaderboardRun]:
 
 def _gsplat_main_mcmc_runs() -> list[LeaderboardRun]:
     runs: list[LeaderboardRun] = []
-    for artifact in sorted(RESULTS.glob("gsplat_main_mcmc_truck_*_2026-06-25.json")):
+    accepted_formats = {
+        "AURA_GSPLAT_MAIN_MCMC_TRUCK_ABLATION",
+        "AURA_GSPLAT_MAIN_MCMC_SCENE_ABLATION",
+    }
+    for artifact in sorted(RESULTS.glob("gsplat_main_mcmc_*_2026-06-25.json")):
         payload = _read_json(artifact) or {}
         if not payload:
             continue
-        if payload.get("format") != "AURA_GSPLAT_MAIN_MCMC_TRUCK_ABLATION":
+        if payload.get("format") not in accepted_formats:
             continue
         metrics = payload.get("metrics", {})
         notes = [str(payload.get("leaderboardImpact", ""))]

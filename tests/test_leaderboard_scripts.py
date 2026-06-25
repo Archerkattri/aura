@@ -30,7 +30,22 @@ def test_leaderboard_ablation_report_uses_current_artifacts_without_sota_claim(t
         and row["promoted"] is True
         for row in payload["comparisons"]
     )
-    assert any(row["sceneId"] != "truck" and row["promoted"] is False for row in payload["comparisons"])
+    assert any(
+        row["sceneId"] == "stump"
+        and row["winnerMethodId"] == "gsplat_main_mcmc"
+        and row["promoted"] is True
+        for row in payload["comparisons"]
+    )
+    assert any(
+        run["sceneId"] == "stump"
+        and run["methodId"] == "gsplat_main_mcmc"
+        and "experiments/results/gsplat_main_mcmc_stump_40000_cap2m_refine40000_2026-06-25.json" in run["artifacts"]
+        for run in payload["runs"]
+    )
+    assert any(
+        row["sceneId"] not in {"truck", "stump"} and row["promoted"] is False
+        for row in payload["comparisons"]
+    )
     assert all(
         "gsplat_main_mcmc_truck_smoke" not in artifact
         for run in payload["runs"]
