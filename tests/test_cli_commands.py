@@ -95,6 +95,16 @@ def _make_train_mocks(tmp_path: pathlib.Path):
     }
 
 
+def test_cli_sota_ab_report_writes_json(tmp_path):
+    output = tmp_path / "sota.json"
+
+    rc = main(["sota-ab-report", "--output", str(output)])
+
+    assert rc == 0
+    payload = json.loads(output.read_text())
+    assert payload["format"] == "AURA_SOTA_AB_REPORT"
+
+
 # ---------------------------------------------------------------------------
 # write-native-demo-package / build-native-demo
 # ---------------------------------------------------------------------------

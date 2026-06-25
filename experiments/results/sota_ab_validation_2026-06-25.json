@@ -1,0 +1,193 @@
+{
+  "format": "AURA_SOTA_AB_REPORT",
+  "abReady": true,
+  "sotaReady": false,
+  "summary": {
+    "taskCount": 4,
+    "comparisonCount": 4,
+    "promotedProviderIds": [],
+    "blockedTaskIds": [],
+    "candidateCoverageReady": false
+  },
+  "comparisons": [
+    {
+      "task": "geometry_priors",
+      "winnerProviderId": "current_colmap_capture",
+      "promoted": false,
+      "reason": "baseline retained",
+      "candidates": [
+        {
+          "providerId": "current_colmap_capture",
+          "task": "geometry_priors",
+          "role": "baseline",
+          "primaryMetric": "validPriorCoverage",
+          "higherIsBetter": true,
+          "metrics": {
+            "validPriorCoverage": 0.8,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": true
+          },
+          "officialEvidence": false,
+          "notes": []
+        },
+        {
+          "providerId": "vggt_or_depth_anything_3",
+          "task": "geometry_priors",
+          "role": "candidate",
+          "primaryMetric": "validPriorCoverage",
+          "higherIsBetter": true,
+          "metrics": {
+            "validPriorCoverage": 0.9,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": false
+          },
+          "officialEvidence": false,
+          "notes": [
+            "fixture score; replace with real VGGT/DA3 artifact when installed"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "secondary_rays",
+      "winnerProviderId": "local_ray_query",
+      "promoted": false,
+      "reason": "baseline retained",
+      "candidates": [
+        {
+          "providerId": "local_ray_query",
+          "task": "secondary_rays",
+          "role": "baseline",
+          "primaryMetric": "officialEvidenceScore",
+          "higherIsBetter": true,
+          "metrics": {
+            "officialEvidenceScore": 0.0,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": true
+          },
+          "officialEvidence": false,
+          "notes": []
+        },
+        {
+          "providerId": "3dgrut",
+          "task": "secondary_rays",
+          "role": "candidate",
+          "primaryMetric": "officialEvidenceScore",
+          "higherIsBetter": true,
+          "metrics": {
+            "officialEvidenceScore": 1.0,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": false
+          },
+          "officialEvidence": true,
+          "notes": [
+            "official replacement evidence required for leaderboard-grade ray claims"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "semantics",
+      "winnerProviderId": "current_semantic",
+      "promoted": false,
+      "reason": "baseline retained",
+      "candidates": [
+        {
+          "providerId": "current_semantic",
+          "task": "semantics",
+          "role": "baseline",
+          "primaryMetric": "queryConsistency",
+          "higherIsBetter": true,
+          "metrics": {
+            "queryConsistency": 0.62,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": true
+          },
+          "officialEvidence": false,
+          "notes": [
+            "current semantic distillation baseline"
+          ]
+        },
+        {
+          "providerId": "dinov3",
+          "task": "semantics",
+          "role": "candidate",
+          "primaryMetric": "queryConsistency",
+          "higherIsBetter": true,
+          "metrics": {
+            "queryConsistency": 0.73,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": false
+          },
+          "officialEvidence": false,
+          "notes": [
+            "fixture score; replace with real DINOv3 artifact when weights are available"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "surface_baseline",
+      "winnerProviderId": "local_2dgs_style_smoke",
+      "promoted": false,
+      "reason": "baseline retained",
+      "candidates": [
+        {
+          "providerId": "local_2dgs_style_smoke",
+          "task": "surface_baseline",
+          "role": "baseline",
+          "primaryMetric": "officialEvidenceScore",
+          "higherIsBetter": true,
+          "metrics": {
+            "officialEvidenceScore": 0.0,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": true
+          },
+          "officialEvidence": false,
+          "notes": []
+        },
+        {
+          "providerId": "official_2dgs",
+          "task": "surface_baseline",
+          "role": "candidate",
+          "primaryMetric": "officialEvidenceScore",
+          "higherIsBetter": true,
+          "metrics": {
+            "officialEvidenceScore": 1.0,
+            "gpu": 1.0
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": false
+          },
+          "officialEvidence": true,
+          "notes": [
+            "official replacement evidence required before claiming against 2DGS"
+          ]
+        }
+      ]
+    }
+  ],
+  "claimBoundary": "SOTA readiness is limited to providers with passing A/B artifacts; blocked optional providers cannot support leaderboard claims."
+}

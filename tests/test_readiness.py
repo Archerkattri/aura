@@ -13,7 +13,7 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert isinstance(report, ProductionReadinessReport)
     assert payload["format"] == "AURA_PRODUCTION_READINESS_REPORT"
     assert isinstance(payload["productionReady"], bool)
-    assert payload["pillarCount"] == 6
+    assert payload["pillarCount"] == 7
     assert payload["implementedPillarCount"] >= 5
     assert payload["productionReadyPillarCount"] <= payload["pillarCount"]
     assert set(by_id) == {
@@ -23,6 +23,7 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
         "cuda_backend",
         "renderer_trainer",
         "benchmarks",
+        "sota_ab_upgrades",
     }
     assert by_id["package_validation"]["implemented"] is True
     assert by_id["package_validation"]["productionReady"] is True
@@ -41,6 +42,7 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
         assert any("publication validation report passed" in item for item in by_id["benchmarks"]["evidence"])
     else:
         assert any("official full-split baseline" in step for step in by_id["benchmarks"]["nextSteps"])
+    assert any("SOTA A/B validation" in item for item in by_id["sota_ab_upgrades"]["evidence"])
     assert payload["torchCarrierKernels"]["productionReady"] is False
     assert payload["cudaKernelSources"]["format"] == "AURA_CUDA_KERNEL_SOURCE_REPORT"
     assert payload["legacyCudaRenderer"]["format"] == "AURA_CUDA_RENDERER_LAUNCH_REPORT"
@@ -65,6 +67,14 @@ def test_production_readiness_report_lists_implemented_and_missing_pillars():
     assert "carrier_cuda_kernels_not_production_ready" in payload["backendReadiness"]["productionBlockers"]
     assert "artifact-backed production-ready" in payload["summary"]
     assert "same-split publication baselines" in payload["summary"]
+
+
+def test_readiness_includes_sota_ab_pillar():
+    report = production_readiness_report().to_dict()
+    sota = next(pillar for pillar in report["pillars"] if pillar["id"] == "sota_ab_upgrades")
+
+    assert sota["implemented"] is True
+    assert any("SOTA A/B validation" in item for item in sota["evidence"])
 
 
 def test_readiness_pillar_serializes_json_safe_fields():

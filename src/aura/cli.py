@@ -58,6 +58,7 @@ from aura.render import (
 from aura.runtime_export import runtime_export_report
 from aura.scene import AuraScene
 from aura.semantic import SemanticEdge, SemanticGraph, SemanticNode
+from aura.sota import latest_sota_ab_artifact
 from aura.torch_optimizer import DensificationConfig, TorchOptimizationConfig, torch_optimize_capture_batches
 from aura.torch_renderer import torch_renderer_status
 from aura.torch_kernels import torch_carrier_kernel_report
@@ -397,6 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     publication_report.add_argument("--results-dir", type=Path, default=None)
     publication_report.add_argument("--output", type=Path, default=None)
+    sota_report = sub.add_parser(
+        "sota-ab-report",
+        help="Write the latest SOTA method/library A/B validation report as JSON",
+    )
+    sota_report.add_argument("--output", type=Path, required=True)
 
     render = sub.add_parser("render-package", help="Render a deterministic orthographic PPM preview from a .aura package")
     render.add_argument("package_dir", type=Path)
@@ -783,6 +789,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.output is not None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(text + "\n")
+        print(text)
+        return 0
+    if args.command == "sota-ab-report":
+        payload = latest_sota_ab_artifact()
+        text = json.dumps(payload, indent=2, sort_keys=True)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text + "\n")
         print(text)
         return 0
     if args.command in {"render-package", "render"}:

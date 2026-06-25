@@ -10,6 +10,7 @@ from aura.benchmark import cuda_renderer_callable_boundary_report, evaluate_back
 from aura.core import synthetic_training_frames, synthetic_training_regions
 from aura.cuda_kernels import cuda_kernel_source_report, cuda_renderer_report
 from aura.decomposition import decompose_evidence
+from aura.sota import latest_sota_ab_artifact
 from aura.torch_kernels import torch_carrier_kernel_report
 from aura.torch_renderer import torch_renderer_status
 
@@ -99,6 +100,7 @@ def production_readiness_report() -> ProductionReadinessReport:
     native_real_capture = _native_real_capture_artifact()
     torch_backend_validation = _torch_backend_validation_artifact()
     publication_validation = _publication_validation_artifact()
+    sota_ab = latest_sota_ab_artifact()
     pillars = (
         ReadinessPillar(
             id="native_carriers",
@@ -246,6 +248,25 @@ def production_readiness_report() -> ProductionReadinessReport:
             next_steps=(
                 "keep official-leaderboard claims out of the paper unless optional official full-split baselines are added",
                 "limit published claims to implemented-and-tested capabilities and the completed local validation evidence",
+            ),
+        ),
+        ReadinessPillar(
+            id="sota_ab_upgrades",
+            title="SOTA method/library A/B upgrades",
+            implemented=bool(sota_ab.get("comparisons")),
+            production_ready=bool(sota_ab.get("abReady")),
+            evidence=(
+                "SOTA A/B validation compares upgrades against current AURA baselines before promotion",
+                f"{sota_ab.get('summary', {}).get('comparisonCount', 0)} upgrade comparisons are recorded",
+                f"promoted providers: {', '.join(sota_ab.get('summary', {}).get('promotedProviderIds', ())) or 'none'}",
+                f"real SOTA candidate coverage ready: {bool(sota_ab.get('sotaReady'))}",
+            ),
+            gaps=() if sota_ab.get("abReady") else (
+                "SOTA A/B validation artifact is missing or has blocked tasks",
+            ),
+            next_steps=(
+                "replace fixture SOTA scores with real DINOv3, VGGT, Depth Anything 3, 3DGRUT, and official 2DGS artifacts",
+                "keep local publication claims separate from official leaderboard-grade claims",
             ),
         ),
     )
