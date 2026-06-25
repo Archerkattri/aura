@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, "/tmp/dbs")
 import numpy as np
 import torch
-import imageio.v2 as imageio
+from PIL import Image
 from argparse import Namespace
 from scene import Scene, BetaModel
 
@@ -39,6 +39,23 @@ def frame_to_img(t, downscale=2):
     return a
 
 
+def write_gif(path: str, frames: list[np.ndarray], fps: int) -> None:
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    duration_ms = max(1, round(1000 / fps))
+    images = [Image.fromarray(frame) for frame in frames]
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=duration_ms,
+        loop=0,
+        optimize=False,
+        disposal=2,
+    )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default=str(Path(__file__).resolve().parent.parent / "data/tanks/truck"))
@@ -46,7 +63,8 @@ def main():
     ap.add_argument("--sb-number", type=int, default=2)
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent / "docs/truck_flythrough.gif"))
     ap.add_argument("--n", type=int, default=251)
-    ap.add_argument("--fps", type=int, default=16)
+    ap.add_argument("--all-frames", action="store_true", help="render every camera frame instead of selecting an evenly spaced subset")
+    ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--downscale", type=int, default=1)
     ap.add_argument("--mode", choices=["flythrough", "orbit"], default="orbit")
     ap.add_argument("--render-mode", default="RGB", help="RGB | Normal | EDepth | Depth")
@@ -54,6 +72,8 @@ def main():
 
     scene, bm = load(a.source, a.model, a.sb_number)
     cams = list(scene.getTrainCameras())
+    if a.all_frames:
+        cams = [*cams, *list(scene.getTestCameras())]
 
     if a.mode == "flythrough":
         # capture order = a smooth handheld trajectory; sort by image name so
@@ -67,8 +87,11 @@ def main():
             return float(np.arctan2(d[1], d[0]))
         cams = sorted(cams, key=az)
 
-    step = max(1, len(cams) // a.n)
-    sel = cams[::step][: a.n]
+    if a.all_frames:
+        sel = cams
+    else:
+        step = max(1, len(cams) // a.n)
+        sel = cams[::step][: a.n]
     frames = []
     with torch.no_grad():
         for c in sel:
@@ -80,10 +103,10 @@ def main():
             elif a.render_mode == "Normal":
                 out = (out * 0.5 + 0.5)  # [-1,1] -> [0,1]
             frames.append(frame_to_img(out, a.downscale))
-    frames += frames[::-1]  # ping-pong for a seamless loop
-    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    imageio.mimsave(a.out, frames, fps=a.fps, loop=0)
-    print(f"wrote {a.out} ({len(frames)} frames, {frames[0].shape[1]}x{frames[0].shape[0]})")
+    if len(frames) > 2:
+        frames += frames[-2:0:-1]  # ping-pong without duplicate endpoints, preserving uniform frame delays.
+    write_gif(a.out, frames, a.fps)
+    print(f"wrote {a.out} ({len(frames)} frames, {frames[0].shape[1]}x{frames[0].shape[0]}, {a.fps}fps target)")
 
 
 if __name__ == "__main__":
