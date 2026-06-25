@@ -106,7 +106,12 @@ class LeaderboardReport:
                 if row["promoted"] and row["winnerMethodId"] is not None
             }
         )
-        leaderboard_ready = not missing_scenes and bool(promoted) and all(row["ready"] for row in comparisons)
+        leaderboard_ready = (
+            not missing_scenes
+            and bool(comparisons)
+            and all(row["ready"] for row in comparisons)
+            and all(row["promoted"] for row in comparisons)
+        )
         return {
             "format": "AURA_LEADERBOARD_ABLATION_REPORT",
             "benchmarkId": self.benchmark_id,
@@ -123,6 +128,7 @@ class LeaderboardReport:
                 "canClaim": [
                     "fair same-split ablation rows for scenes with measured baseline and candidate artifacts",
                     "per-task candidate promotion when a measured candidate beats the measured baseline",
+                    "leaderboard readiness only when measured candidates beat the measured baseline on every required scene",
                 ],
                 "cannotClaim": [
                     "leaderboard SOTA when any required scene is missing",

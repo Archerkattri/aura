@@ -5,7 +5,9 @@
   "primaryMetric": "psnr",
   "leaderboardReady": false,
   "missingScenes": [],
-  "promotedMethodIds": [],
+  "promotedMethodIds": [
+    "gsplat_main_mcmc"
+  ],
   "scenes": [
     {
       "sceneId": "truck",
@@ -972,6 +974,46 @@
       "metrics": [
         {
           "name": "psnr",
+          "value": 26.435239791870117,
+          "higherIsBetter": true
+        },
+        {
+          "name": "ssim",
+          "value": 0.8977252244949341,
+          "higherIsBetter": true
+        },
+        {
+          "name": "lpips",
+          "value": 0.07147780060768127,
+          "higherIsBetter": false
+        },
+        {
+          "name": "render_ms",
+          "value": 5.8309584856033325,
+          "higherIsBetter": false
+        },
+        {
+          "name": "num_gaussians",
+          "value": 2000000.0,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_mcmc_truck_40000_cap2m_refine40000_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "Measured same-split CUDA Truck ablation with a 2M Gaussian cap and refinement through 40k steps. It beats AURA Beta on Truck PSNR by 0.041637420654296875 dB, SSIM by 0.0019795894622802734, and LPIPS by 0.05130796134471893. This is promoted for the Truck scene only; it is not a multiscene leaderboard-SOTA claim until repeated across the required scenes.",
+        "/tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000"
+      ]
+    },
+    {
+      "sceneId": "truck",
+      "methodId": "gsplat_main_mcmc",
+      "metrics": [
+        {
+          "name": "psnr",
           "value": 24.347393035888672,
           "higherIsBetter": true
         },
@@ -1051,7 +1093,7 @@
     {
       "sceneId": "truck",
       "baselineMethodId": "aura_beta",
-      "winnerMethodId": "aura_beta",
+      "winnerMethodId": "gsplat_main_mcmc",
       "candidateMethodIds": [
         "fixed_gaussian_control",
         "official_2dgs",
@@ -1059,11 +1101,12 @@
         "gsplat_main_mcmc",
         "gsplat_main_mcmc",
         "gsplat_main_mcmc",
+        "gsplat_main_mcmc",
         "higs_inference"
       ],
-      "promoted": false,
+      "promoted": true,
       "ready": true,
-      "reason": "baseline retained"
+      "reason": "candidate wins psnr"
     },
     {
       "sceneId": "room",
@@ -1160,7 +1203,8 @@
   "claimBoundary": {
     "canClaim": [
       "fair same-split ablation rows for scenes with measured baseline and candidate artifacts",
-      "per-task candidate promotion when a measured candidate beats the measured baseline"
+      "per-task candidate promotion when a measured candidate beats the measured baseline",
+      "leaderboard readiness only when measured candidates beat the measured baseline on every required scene"
     ],
     "cannotClaim": [
       "leaderboard SOTA when any required scene is missing",

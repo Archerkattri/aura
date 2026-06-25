@@ -1,0 +1,79 @@
+{
+  "format": "AURA_GSPLAT_MAIN_MCMC_TRUCK_ABLATION",
+  "date": "2026-06-25",
+  "repository": "/tmp/aura_sota_repos/gsplat-main",
+  "commit": "d28ee0c42264a540b8b17388cf793ad31bc20b53",
+  "buildArtifact": "experiments/results/gsplat_main_build_probe_2026-06-25.json",
+  "scene": "truck",
+  "dataset": "Tanks and Temples Truck",
+  "split": "llffhold8",
+  "imageScale": "native",
+  "source": "data/tanks/truck",
+  "output": "/tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000",
+  "checkpoint": "/tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000/ckpts/ckpt_39999_rank0.pt",
+  "ply": "/tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000/ply/point_cloud_39999.ply",
+  "renderSample": "/tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000/renders/val_step39999_0000.png",
+  "command": "simple_trainer.py mcmc --disable-viewer --data-dir data/tanks/truck --data-factor 1 --result-dir /tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000 --max-steps 40000 --eval-steps 40000 --save-steps 40000 --disable-video --strategy.cap-max 2000000 --strategy.refine-stop-iter 40000 --test-every 8 --save-ply --ply-steps 40000",
+  "environment": {
+    "PYTHONPATH": "/tmp/aura_sota_repos/gsplat-main",
+    "TORCH_EXTENSIONS_DIR": "/tmp/aura_gsplat_main_3dgs_ext",
+    "BUILD_3DGS": "1",
+    "BUILD_3DGUT": "0",
+    "BUILD_2DGS": "0",
+    "BUILD_ADAM": "1",
+    "BUILD_RELOC": "1",
+    "BUILD_LOSSES": "1",
+    "CUDA_VISIBLE_DEVICES": "0"
+  },
+  "train": {
+    "maxSteps": 40000,
+    "finalStep": 39999,
+    "strategy": "MCMCStrategy",
+    "capMax": 2000000,
+    "refineStopIter": 40000,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trainSeconds": 532.0464379787445,
+    "peakGpuMemoryGiB": 2.576119899749756,
+    "numGaussians": 2000000
+  },
+  "metrics": {
+    "psnr": 26.435239791870117,
+    "ssim": 0.8977252244949341,
+    "lpips": 0.07147780060768127,
+    "secondsPerImage": 0.0058309584856033325,
+    "numGaussians": 2000000
+  },
+  "sameSceneComparisons": {
+    "auraBeta": {
+      "psnr": 26.39360237121582,
+      "ssim": 0.8957456350326538,
+      "lpips": 0.12278576195240021
+    },
+    "fixedGaussianControl": {
+      "psnr": 25.961856842041016,
+      "ssim": 0.889708936214447,
+      "lpips": 0.1281273066997528
+    },
+    "official2dgs": {
+      "iterations": 30000,
+      "psnr": 25.122329711914062,
+      "ssim": 0.873086154460907,
+      "lpips": 0.1735249161720276
+    },
+    "official3dgut": {
+      "iterations": 30000,
+      "psnr": 25.31978416442871,
+      "ssim": 0.8780446648597717,
+      "lpips": 0.18375778663903475,
+      "meanInferenceMs": 2.28
+    }
+  },
+  "visualInspection": "Checked /tmp/aura_gsplat_main_mcmc_runs/truck_40000_cap2m_refine40000/renders/val_step39999_0000.png; side-by-side validation target and render are nonblank and aligned, with no obvious camera or scale failure.",
+  "promoted": true,
+  "leaderboardImpact": "Measured same-split CUDA Truck ablation with a 2M Gaussian cap and refinement through 40k steps. It beats AURA Beta on Truck PSNR by 0.041637420654296875 dB, SSIM by 0.0019795894622802734, and LPIPS by 0.05130796134471893. This is promoted for the Truck scene only; it is not a multiscene leaderboard-SOTA claim until repeated across the required scenes.",
+  "nextSteps": [
+    "repeat the 40k cap2m refine-to-end schedule on the remaining leaderboard scenes before any multiscene SOTA claim",
+    "benchmark the saved 40k PLY with HiGS inference for an updated speed sidecar",
+    "if full-scene cost is too high, prioritize Mip-NeRF 360 room and bicycle next because the report gate now requires all required scenes to win before leaderboardReady can be true"
+  ]
+}

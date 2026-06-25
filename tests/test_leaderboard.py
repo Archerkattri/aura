@@ -87,3 +87,56 @@ def test_leaderboard_report_promotes_only_measured_candidate_with_artifact():
     assert payload["leaderboardReady"] is True
     assert payload["promotedMethodIds"] == ["candidate_real"]
     assert payload["comparisons"][0]["winnerMethodId"] == "candidate_real"
+
+
+def test_leaderboard_report_blocks_partial_scene_promotion_from_readiness():
+    scenes = (
+        SceneSpec(scene_id="truck", dataset="Tanks and Temples", split="llffhold8", image_scale="native"),
+        SceneSpec(scene_id="room", dataset="Mip-NeRF 360", split="llffhold8", image_scale="images_2"),
+    )
+    report = LeaderboardReport(
+        benchmark_id="aura_sota_v1",
+        task="novel_view_synthesis",
+        scenes=scenes,
+        methods=(
+            MethodSpec(method_id="aura_beta", role="baseline", backend="dbs", command="existing"),
+            MethodSpec(method_id="candidate_real", role="candidate", backend="gsplat-main", command="python train.py"),
+        ),
+        runs=(
+            LeaderboardRun(
+                scene_id="truck",
+                method_id="aura_beta",
+                metrics=(LeaderboardMetric("psnr", 26.0, higher_is_better=True),),
+                artifacts=("experiments/results/baseline_truck.json",),
+                measured=True,
+            ),
+            LeaderboardRun(
+                scene_id="truck",
+                method_id="candidate_real",
+                metrics=(LeaderboardMetric("psnr", 26.5, higher_is_better=True),),
+                artifacts=("experiments/results/candidate_truck.json",),
+                measured=True,
+            ),
+            LeaderboardRun(
+                scene_id="room",
+                method_id="aura_beta",
+                metrics=(LeaderboardMetric("psnr", 31.0, higher_is_better=True),),
+                artifacts=("experiments/results/baseline_room.json",),
+                measured=True,
+            ),
+            LeaderboardRun(
+                scene_id="room",
+                method_id="candidate_real",
+                metrics=(LeaderboardMetric("psnr", 30.5, higher_is_better=True),),
+                artifacts=("experiments/results/candidate_room.json",),
+                measured=True,
+            ),
+        ),
+        primary_metric="psnr",
+    )
+
+    payload = report.to_dict()
+
+    assert payload["leaderboardReady"] is False
+    assert payload["promotedMethodIds"] == ["candidate_real"]
+    assert [row["promoted"] for row in payload["comparisons"]] == [True, False]
