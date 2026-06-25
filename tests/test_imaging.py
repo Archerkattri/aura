@@ -688,10 +688,19 @@ def test_probe_imageio_ffmpeg_encode_failed_path(monkeypatch):
 
 def test_ffmpeg_binary_imageio_ffmpeg_fallback(monkeypatch):
     """Lines 180-185: when system ffmpeg absent, _ffmpeg_binary tries imageio_ffmpeg."""
+    import builtins
     import shutil
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "imageio_ffmpeg":
+            raise ImportError("simulated missing imageio_ffmpeg")
+        return real_import(name, *args, **kwargs)
+
     monkeypatch.setattr(shutil, "which", lambda _: None)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
     result = imaging._ffmpeg_binary()
-    # imageio_ffmpeg is not installed in this env → returns None (line 185)
     assert result is None
 
 

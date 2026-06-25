@@ -31,6 +31,37 @@ Issues = "https://github.com/Archerkattri/aura/issues"
 dev = ["pytest>=8"]
 gpu = ["torch>=2.3"]
 assets = ["imageio>=2.34"]
+sota = [
+    "torch>=2.3",
+    "torchvision",
+    "timm>=1.0.20",
+    "einops",
+    "safetensors",
+    "huggingface_hub",
+    "opencv-python",
+    "omegaconf",
+    "requests",
+    "pillow_heif",
+    "plyfile",
+    "moviepy==1.0.3",
+    "trimesh",
+    "e3nn",
+    "addict",
+    "pycolmap",
+    "evo",
+    "nvidia-ncore>=19.0.0",
+    "usd-core",
+    "torchmetrics",
+    "dataclasses_json",
+    "fire",
+    "hydra-core",
+    "kornia",
+    "msgpack",
+    "piexif",
+    "simplejpeg",
+    "scikit-learn",
+    "tensorboard",
+]
 
 [project.scripts]
 aura = "aura.cli:main"

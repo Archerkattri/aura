@@ -5,7 +5,9 @@
   "summary": {
     "taskCount": 4,
     "comparisonCount": 4,
-    "promotedProviderIds": [],
+    "promotedProviderIds": [
+      "3dgrut_3dgut_official"
+    ],
     "blockedTaskIds": [],
     "candidateCoverageReady": false
   },
@@ -23,42 +25,67 @@
           "primaryMetric": "validPriorCoverage",
           "higherIsBetter": true,
           "metrics": {
-            "validPriorCoverage": 0.8,
-            "gpu": 1.0
+            "validPriorCoverage": 1.0,
+            "images": 251.0
           },
           "hardConstraints": {
             "gpu": true,
             "realArtifact": true
           },
           "officialEvidence": false,
-          "notes": []
+          "notes": [
+            "COLMAP capture path remains the default for already-posed Truck data"
+          ]
         },
         {
-          "providerId": "vggt_or_depth_anything_3",
+          "providerId": "vggt_1b",
           "task": "geometry_priors",
           "role": "candidate",
           "primaryMetric": "validPriorCoverage",
           "higherIsBetter": true,
           "metrics": {
-            "validPriorCoverage": 0.9,
-            "gpu": 1.0
+            "validPriorCoverage": 1.0,
+            "images": 4.0,
+            "seconds": 0.4366
           },
           "hardConstraints": {
             "gpu": true,
-            "realArtifact": false
+            "realArtifact": true
           },
           "officialEvidence": false,
           "notes": [
-            "fixture score; replace with real VGGT/DA3 artifact when installed"
+            "VGGT-1B loaded from Hugging Face and produced finite pose/depth/world-point tensors on 4 Truck images",
+            "kept as optional feed-forward prior; not promoted over COLMAP for already-posed local data"
+          ]
+        },
+        {
+          "providerId": "depth_anything_3_small",
+          "task": "geometry_priors",
+          "role": "candidate",
+          "primaryMetric": "validPriorCoverage",
+          "higherIsBetter": true,
+          "metrics": {
+            "validPriorCoverage": 1.0,
+            "images": 4.0,
+            "seconds": 0.5923
+          },
+          "hardConstraints": {
+            "gpu": true,
+            "realArtifact": true
+          },
+          "officialEvidence": false,
+          "notes": [
+            "Depth Anything 3 Small produced finite depth/confidence/extrinsic/intrinsic tensors on 4 Truck images",
+            "kept as optional depth/pose prior; not promoted over COLMAP for already-posed local data"
           ]
         }
       ]
     },
     {
       "task": "secondary_rays",
-      "winnerProviderId": "local_ray_query",
-      "promoted": false,
-      "reason": "baseline retained",
+      "winnerProviderId": "3dgrut_3dgut_official",
+      "promoted": true,
+      "reason": "candidate provides official replacement evidence",
       "candidates": [
         {
           "providerId": "local_ray_query",
@@ -78,68 +105,78 @@
           "notes": []
         },
         {
-          "providerId": "3dgrut",
+          "providerId": "3dgrut_3dgut_official",
           "task": "secondary_rays",
           "role": "candidate",
           "primaryMetric": "officialEvidenceScore",
           "higherIsBetter": true,
           "metrics": {
             "officialEvidenceScore": 1.0,
-            "gpu": 1.0
+            "trainingSteps": 1.0,
+            "iterationSpeed": 5.5
           },
           "hardConstraints": {
             "gpu": true,
-            "realArtifact": false
+            "realArtifact": true
           },
           "officialEvidence": true,
           "notes": [
-            "official replacement evidence required for leaderboard-grade ray claims"
+            "official 3DGRUT repo cloned; 3DGUT CUDA/Slang extension compiled for sm_120",
+            "one-iteration Truck COLMAP smoke completed and wrote ckpt_last.pt"
           ]
         }
       ]
     },
     {
       "task": "semantics",
-      "winnerProviderId": "current_semantic",
+      "winnerProviderId": "current_semantic_dinov2",
       "promoted": false,
       "reason": "baseline retained",
       "candidates": [
         {
-          "providerId": "current_semantic",
+          "providerId": "current_semantic_dinov2",
           "task": "semantics",
           "role": "baseline",
-          "primaryMetric": "queryConsistency",
+          "primaryMetric": "aggregateQueryMargin",
           "higherIsBetter": true,
           "metrics": {
-            "queryConsistency": 0.62,
-            "gpu": 1.0
+            "carrierCoverage": 0.965416,
+            "aggregateQueryMargin": 1.125,
+            "queryDiversity": 0.75,
+            "wheelQueryMargin": 3.0
           },
           "hardConstraints": {
             "gpu": true,
-            "realArtifact": true
+            "realArtifact": true,
+            "semanticDiversity": true
           },
           "officialEvidence": false,
           "notes": [
-            "current semantic distillation baseline"
+            "DINOv2 distilled 965416/1000000 Truck carriers with view_stride=32",
+            "CLIP group-query best groups for truck/wheel/ground/building were 5/5/2/6"
           ]
         },
         {
-          "providerId": "dinov3",
+          "providerId": "dinov3_small_timm",
           "task": "semantics",
           "role": "candidate",
-          "primaryMetric": "queryConsistency",
+          "primaryMetric": "aggregateQueryMargin",
           "higherIsBetter": true,
           "metrics": {
-            "queryConsistency": 0.73,
-            "gpu": 1.0
+            "carrierCoverage": 0.965416,
+            "aggregateQueryMargin": 1.175,
+            "queryDiversity": 0.5,
+            "wheelQueryMargin": 3.1
           },
           "hardConstraints": {
             "gpu": true,
-            "realArtifact": false
+            "realArtifact": true,
+            "semanticDiversity": false
           },
           "officialEvidence": false,
           "notes": [
-            "fixture score; replace with real DINOv3 artifact when weights are available"
+            "pretrained timm vit_small_patch16_dinov3 loaded and ran on cuda",
+            "not promoted: quick run collapsed truck/wheel/ground to group 6 despite a slightly higher aggregate margin"
           ]
         }
       ]
@@ -174,8 +211,9 @@
           "primaryMetric": "officialEvidenceScore",
           "higherIsBetter": true,
           "metrics": {
-            "officialEvidenceScore": 1.0,
-            "gpu": 1.0
+            "officialEvidenceScore": 0.0,
+            "buildReady": 1.0,
+            "trainingSmokeCompleted": 0.0
           },
           "hardConstraints": {
             "gpu": true,
@@ -183,7 +221,8 @@
           },
           "officialEvidence": true,
           "notes": [
-            "official replacement evidence required before claiming against 2DGS"
+            "official 2DGS repo cloned and CUDA submodules built after adding cfloat include to simple-knn",
+            "not promoted: one-iteration Truck train smoke did not finish after roughly three minutes and was stopped"
           ]
         }
       ]

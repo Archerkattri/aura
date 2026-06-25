@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Feature-distilled semantics by multi-view DINOv2 lifting (runs in .dbs_venv).
+"""Feature-distilled semantics by multi-view DINO lifting (runs in .dbs_venv).
 
 Upgrades the naive position+colour clustering to real semantic features: project
-each carrier into many training views, sample dense DINOv2 patch features at the
+each carrier into many training views, sample dense DINO patch features at the
 projected pixel, aggregate per carrier (visibility-weighted), L2-normalise. The
 result is a per-carrier semantic descriptor that respects object boundaries.
 KMeans over it gives a coherent segmentation; the features are stored alongside the
@@ -48,16 +48,35 @@ def K_of(cam):
     return K
 
 
+def load_feature_provider(provider: str):
+    if provider == "dinov2":
+        model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14", verbose=False).cuda().eval()
+        return model, 14, 384
+    if provider == "dinov3":
+        import timm
+
+        model = timm.create_model("vit_small_patch16_dinov3", pretrained=True).cuda().eval()
+        return model, 16, 384
+    raise ValueError(f"unsupported feature provider: {provider}")
+
+
 @torch.no_grad()
-def dino_feature_map(dino, img_chw, patch=14, long_side=518):
+def dino_feature_map(dino, img_chw, *, provider: str, patch: int, long_side=518):
     """img_chw [3,H,W] in [0,1] -> (feat [hp,wp,D], (hp,wp))."""
     _, H, W = img_chw.shape
     scale = long_side / max(H, W)
     h = int(round(H * scale / patch)) * patch; w = int(round(W * scale / patch)) * patch
     x = F.interpolate(img_chw.unsqueeze(0), size=(h, w), mode="bilinear", align_corners=False)
     x = (x - _IMAGENET_MEAN.to(x)) / _IMAGENET_STD.to(x)
-    out = dino.forward_features(x)["x_norm_patchtokens"][0]   # [hp*wp, D]
     hp, wp = h // patch, w // patch
+    if provider == "dinov2":
+        out = dino.forward_features(x)["x_norm_patchtokens"][0]   # [hp*wp, D]
+    else:
+        out = dino.forward_features(x)[0]
+        if out.shape[0] == hp * wp + 1:
+            out = out[1:]
+        elif out.shape[0] != hp * wp:
+            out = out[-(hp * wp):]
     return out.reshape(hp, wp, -1), (hp, wp)
 
 
@@ -68,6 +87,7 @@ def main():
     ap.add_argument("--sb-number", type=int, default=2)
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent / "docs/semantic_distill_truck.png"))
     ap.add_argument("--feat-out", default="/tmp/dbs_out/truck_beta/carrier_features.npz")
+    ap.add_argument("--feature-provider", choices=["dinov2", "dinov3"], default="dinov2")
     ap.add_argument("--k", type=int, default=8)
     ap.add_argument("--view-stride", type=int, default=4)
     ap.add_argument("--render-view", type=int, default=20)
@@ -79,14 +99,18 @@ def main():
     N = means.shape[0]
     cams = sorted(sc.getTrainCameras(), key=lambda c: getattr(c, "image_name", "0"))
 
-    dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14", verbose=False).cuda().eval()
-    D = 384
+    dino, patch, D = load_feature_provider(a.feature_provider)
     feat_sum = torch.zeros(N, D, device="cuda"); cnt = torch.zeros(N, device="cuda")
     homog = torch.cat([means, torch.ones(N, 1, device="cuda")], 1)
 
     used = cams[::a.view_stride]
     for i, c in enumerate(used):
-        fmap, (hp, wp) = dino_feature_map(dino, c.original_image[:3].cuda())
+        fmap, (hp, wp) = dino_feature_map(
+            dino,
+            c.original_image[:3].cuda(),
+            provider=a.feature_provider,
+            patch=patch,
+        )
         K = K_of(c); W2C = c.world_view_transform.transpose(0, 1)
         cam_xyz = (homog @ W2C.T)[:, :3]; z = cam_xyz[:, 2]
         u = K[0, 0] * cam_xyz[:, 0] / z.clamp(min=1e-4) + K[0, 2]
@@ -103,12 +127,12 @@ def main():
     feat = feat_sum / cnt.clamp(min=1).unsqueeze(-1)
     feat = F.normalize(feat, dim=-1)
     seen = cnt > 0
-    print(f"distilled DINO features for {int(seen.sum())}/{N} carriers", flush=True)
+    print(f"distilled {a.feature_provider} features for {int(seen.sum())}/{N} carriers", flush=True)
 
     labels = np.full(N, -1)
     km = MiniBatchKMeans(n_clusters=a.k, random_state=0, n_init=3, batch_size=10000)
     labels[seen.cpu().numpy()] = km.fit_predict(feat[seen].cpu().numpy())
-    np.savez(a.feat_out, features=feat.cpu().numpy(), labels=labels)
+    np.savez(a.feat_out, features=feat.cpu().numpy(), labels=labels, provider=a.feature_provider)
     print(f"sizes={np.bincount(labels[labels>=0]).tolist()}  saved {a.feat_out}", flush=True)
 
     colors = torch.tensor(_PALETTE[np.where(labels >= 0, labels % len(_PALETTE), 0)], device="cuda")

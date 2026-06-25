@@ -265,7 +265,7 @@ def production_readiness_report() -> ProductionReadinessReport:
                 "SOTA A/B validation artifact is missing or has blocked tasks",
             ),
             next_steps=(
-                "replace fixture SOTA scores with real DINOv3, VGGT, Depth Anything 3, 3DGRUT, and official 2DGS artifacts",
+                "complete real full-quality A/B runs for DINOv3, VGGT, Depth Anything 3, and official 2DGS before SOTA-wide claims",
                 "keep local publication claims separate from official leaderboard-grade claims",
             ),
         ),
