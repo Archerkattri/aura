@@ -251,8 +251,8 @@ experiments/results/external_baselines_2026-06-24.json
 | 3DGS / gsplat-control | 26.0172 | 0.890420 | 0.127743 | executed fixed-Gaussian control |
 | 2DGS-style surfel | 10.7072 | 0.177134 | 0.645361 | local smoke/protocol row |
 | ray-traced-GS-style | 6.7688 | 0.066934 | 0.822136 | local smoke/protocol row |
-| official 2DGS short run | 17.0843 | 0.614292 | 0.388030 | official repo, 100 steps, 32 held-out Truck views, `-r 4` |
-| official 3DGUT short run | 11.1872 | 0.394917 | 0.644361 | official repo, 100 steps, 32 validation Truck views |
+| official 2DGS full native run | 25.1223 | 0.873086 | 0.173525 | official repo, 30k steps, 32 held-out Truck views |
+| official 3DGUT full native run | 25.3198 | 0.878045 | 0.183758 | official repo, 30k steps, 32 validation Truck views |
 
 Official replacement sources are recorded in:
 
