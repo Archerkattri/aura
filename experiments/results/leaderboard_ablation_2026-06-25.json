@@ -932,6 +932,46 @@
       "metrics": [
         {
           "name": "psnr",
+          "value": 26.346431732177734,
+          "higherIsBetter": true
+        },
+        {
+          "name": "ssim",
+          "value": 0.897047758102417,
+          "higherIsBetter": true
+        },
+        {
+          "name": "lpips",
+          "value": 0.07428373396396637,
+          "higherIsBetter": false
+        },
+        {
+          "name": "render_ms",
+          "value": 5.707480013370514,
+          "higherIsBetter": false
+        },
+        {
+          "name": "num_gaussians",
+          "value": 2000000.0,
+          "higherIsBetter": false
+        }
+      ],
+      "artifacts": [
+        "experiments/results/gsplat_main_mcmc_truck_30000_cap2m_2026-06-25.json"
+      ],
+      "measured": true,
+      "promotable": true,
+      "notes": [
+        "Measured full-length CUDA Truck ablation with a 2M Gaussian cap. It is not promoted for the primary PSNR leaderboard objective because AURA Beta remains higher on Truck PSNR by 0.04717063903808594 dB. It is retained as a strong perceptual/SSIM tradeoff row because it beats AURA Beta, fixed-Gaussian control, official 2DGS, and official 3DGUT on Truck LPIPS, and slightly beats AURA Beta on Truck SSIM.",
+        "/tmp/aura_gsplat_main_mcmc_runs/truck_30000_cap2m"
+      ]
+    },
+    {
+      "sceneId": "truck",
+      "methodId": "gsplat_main_mcmc",
+      "metrics": [
+        {
+          "name": "psnr",
           "value": 24.347393035888672,
           "higherIsBetter": true
         },
@@ -1016,6 +1056,7 @@
         "fixed_gaussian_control",
         "official_2dgs",
         "official_3dgut",
+        "gsplat_main_mcmc",
         "gsplat_main_mcmc",
         "gsplat_main_mcmc",
         "higs_inference"
