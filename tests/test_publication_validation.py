@@ -15,6 +15,7 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert gates["dataset_audit"]["passed"] is True
     assert gates["prism_additive_contract"]["passed"] is True
     assert gates["prism_cuda_fps"]["passed"] is True
+    assert gates["engine_integration_exports"]["passed"] is True
     assert gates["learned_lpips_cuda"]["passed"] is True
     assert gates["external_method_baselines"]["passed"] is True
     assert gates["secondary_ray_reflection"]["passed"] is True

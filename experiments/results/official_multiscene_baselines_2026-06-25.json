@@ -1,0 +1,88 @@
+{
+  "format": "AURA_OFFICIAL_MULTISCENE_BASELINES",
+  "date": "2026-06-25",
+  "claimBoundary": "Official external-repo replacement evidence for 2DGS/3DGUT covers Truck at native validation resolution and Room at 2x/downsample_factor=2; 3DGS row is the local gsplat-control arm over all downloaded local scenes, not an official graphdeco leaderboard row.",
+  "scenes": [
+    {
+      "scene": "truck",
+      "dataset": "Tanks and Temples Truck",
+      "split": "official repo eval split",
+      "imageScale": "native"
+    },
+    {
+      "scene": "room",
+      "dataset": "Mip-NeRF 360 Room",
+      "split": "official repo eval split",
+      "imageScale": "images_2 / downsample_factor=2"
+    }
+  ],
+  "methods": [
+    {
+      "method": "official_2dgs",
+      "repository": "/tmp/aura_sota_repos/2d-gaussian-splatting",
+      "sceneCount": 2,
+      "rows": [
+        {
+          "scene": "truck",
+          "iterations": 30000,
+          "psnr": 25.1223297,
+          "ssim": 0.8730862,
+          "lpips": 0.1735249,
+          "output": "/tmp/aura_sota_2dgs_runs/truck_2dgs_full30000_native"
+        },
+        {
+          "scene": "room",
+          "iterations": 30000,
+          "psnr": 30.535387,
+          "ssim": 0.9066174,
+          "lpips": 0.2434031,
+          "output": "/tmp/aura_sota_2dgs_runs/room_2dgs_full30000_images2"
+        }
+      ]
+    },
+    {
+      "method": "official_3dgut",
+      "repository": "/tmp/aura_sota_repos/3dgrut",
+      "sceneCount": 2,
+      "rows": [
+        {
+          "scene": "truck",
+          "iterations": 30000,
+          "psnr": 25.31978416442871,
+          "ssim": 0.8780446648597717,
+          "lpips": 0.18375778663903475,
+          "meanInferenceMs": 2.28,
+          "output": "/tmp/aura_sota_3dgrut_runs/truck_3dgut_full30000"
+        },
+        {
+          "scene": "room",
+          "iterations": 30000,
+          "psnr": 31.495813174125477,
+          "ssim": 0.9189649453529944,
+          "lpips": 0.29694501138650453,
+          "meanCcPsnr": 31.662460082616562,
+          "meanCcSsim": 0.91427053243686,
+          "meanCcLpips": 0.2971625538208546,
+          "meanInferenceMs": 2.47,
+          "output": "/tmp/aura_sota_3dgrut_runs/room_3dgut_full30000_ds2_eval/room_3dgut_full30000_ds2/room-2506_035308"
+        }
+      ]
+    },
+    {
+      "method": "local_gsplat_control_3dgs",
+      "repository": "AURA local DBS/gsplat control harness",
+      "sceneCount": 8,
+      "rows": [
+        {"scene": "bicycle", "psnr": 24.8431758881},
+        {"scene": "bonsai", "psnr": 32.2720489502},
+        {"scene": "counter", "psnr": 28.8087215424},
+        {"scene": "garden", "psnr": 26.6373348236},
+        {"scene": "kitchen", "psnr": 31.2871685028},
+        {"scene": "room", "psnr": 32.2946205139},
+        {"scene": "stump", "psnr": 26.4558830261},
+        {"scene": "truck", "psnr": 25.9618568420}
+      ],
+      "source": "experiments/results/multiscene.json"
+    }
+  ]
+}

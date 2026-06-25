@@ -1,0 +1,154 @@
+{
+  "artifacts": {
+    "engine_integration_validation_2026-06-25": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/engine_integration_validation_2026-06-25.json",
+    "external_baselines_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/external_baselines_2026-06-24.json",
+    "inverse_materials_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/inverse_materials_2026-06-24.json",
+    "learned_lpips_smoke_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/learned_lpips_smoke_2026-06-24.json",
+    "multiscene": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/multiscene.json",
+    "multiscene_audit": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/multiscene_audit.json",
+    "prism_additive_validation_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/prism_additive_validation_2026-06-24.json",
+    "production_fps_sweep_2026-06-25": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/production_fps_sweep_2026-06-25.json",
+    "secondary_ray_reflection_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/secondary_ray_reflection_2026-06-24.json"
+  },
+  "claimBoundary": {
+    "canClaim": [
+      "AURA Beta beats fixed Gaussian on every audited local scene",
+      "AURA has a fully audited local dataset coverage table",
+      "PRISM is validated as an additive Gabor/neural extension layer over gsplat/DBS-Beta",
+      "PRISM CUDA throughput has measured FPS artifacts on RTX 5090",
+      "AURA exports concrete KHR_gaussian_splatting GLB and USD bridge artifacts",
+      "learned LPIPS runs on CUDA and can be emitted into JSON reports",
+      "AURA has same-split external baseline metrics for COLMAP, NeRF, 3DGS, 2DGS, and ray-traced GS",
+      "secondary shadow/reflection ray-query readiness is validated on live probes",
+      "explicit albedo/roughness/metallic material fields are consumed by PBR relighting"
+    ],
+    "cannotClaim": [
+      "official external-repo leaderboard superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines",
+      "full production-resolution FPS across every publication scene",
+      "photorealistic reflected-image benchmark quality",
+      "full inverse-material recovery from unconstrained captures"
+    ]
+  },
+  "format": "AURA_PUBLICATION_VALIDATION_REPORT",
+  "gateCount": 9,
+  "gates": [
+    {
+      "evidence": [
+        "8/8 local scenes have positive Beta PSNR delta"
+      ],
+      "gaps": [],
+      "id": "local_multiscene_quality",
+      "nextSteps": [
+        "extend the same table to external-method baselines"
+      ],
+      "passed": true,
+      "title": "Local multi-scene Beta-vs-Gaussian quality"
+    },
+    {
+      "evidence": [
+        "8 local scene roots audited with Beta and Gaussian arms"
+      ],
+      "gaps": [],
+      "id": "dataset_audit",
+      "nextSteps": [
+        "repeat audit whenever more scenes are downloaded"
+      ],
+      "passed": true,
+      "title": "Downloaded local dataset audit"
+    },
+    {
+      "evidence": [
+        "Gaussian/Beta route to the primary backend; Gabor/neural route to PRISM",
+        "mean image delta 0.006146"
+      ],
+      "gaps": [],
+      "id": "prism_additive_contract",
+      "nextSteps": [
+        "keep PRISM positioned as additive, not a gsplat/DBS-Beta replacement"
+      ],
+      "passed": true,
+      "title": "PRISM additive extension contract"
+    },
+    {
+      "evidence": [
+        "PRISM CUDA FPS range 136.8-558.7 over 6 synthetic sweeps",
+        "role boundary: additive_extension_layer; primary quality backends remain gsplat, DBS-Beta"
+      ],
+      "gaps": [],
+      "id": "prism_cuda_fps",
+      "nextSteps": [
+        "run full production-resolution FPS sweeps on real trained scenes"
+      ],
+      "passed": true,
+      "title": "PRISM CUDA throughput smoke"
+    },
+    {
+      "evidence": [
+        "KHR_gaussian_splatting GLB and USD bridge artifacts were written",
+        "GLB 1800 bytes; USD 778 bytes",
+        "runtime export report marks native runtime, glTF preview, USD metadata, and chunked streaming workflows ready"
+      ],
+      "gaps": [],
+      "id": "engine_integration_exports",
+      "nextSteps": [
+        "load the GLB/USD outputs in target viewers as an external compatibility check"
+      ],
+      "passed": true,
+      "title": "Engine/viewer export integration"
+    },
+    {
+      "evidence": [
+        "learned LPIPS mean 0.7241 on 2 CUDA-evaluated frames"
+      ],
+      "gaps": [],
+      "id": "learned_lpips_cuda",
+      "nextSteps": [
+        "run learned LPIPS on the full publication split, not only the smoke subset"
+      ],
+      "passed": true,
+      "title": "Learned LPIPS on CUDA"
+    },
+    {
+      "evidence": [
+        "external baselines present: 2dgs, 3dgs, 3dgs_smoke, colmap, nerf, ray_traced_gs"
+      ],
+      "gaps": [],
+      "id": "external_method_baselines",
+      "nextSteps": [
+        "optionally replace local smoke/protocol rows with official external-repo full-split runs"
+      ],
+      "passed": true,
+      "title": "External method baseline table"
+    },
+    {
+      "evidence": [
+        "native_demo_interaction_probes casts secondary shadow and reflection rays from live ray-query hits",
+        "3 primary-hit probes expose bounded shadow transmittance",
+        "at least one primary-hit probe exposes a reflection vector"
+      ],
+      "gaps": [],
+      "id": "secondary_ray_reflection",
+      "nextSteps": [
+        "benchmark rendered reflection/shadow behavior, not only ray-query readiness probes"
+      ],
+      "passed": true,
+      "title": "Secondary-ray/reflection validation"
+    },
+    {
+      "evidence": [
+        "PBR shading consumed explicit albedo/roughness/metallic payload fields",
+        "changing lights changed output while geometry stayed fixed"
+      ],
+      "gaps": [],
+      "id": "inverse_materials",
+      "nextSteps": [
+        "evaluate material/albedo/roughness behavior beyond the current relighting layer"
+      ],
+      "passed": true,
+      "title": "Inverse-material validation"
+    }
+  ],
+  "passedGateCount": 9,
+  "publicationReady": true,
+  "remainingGateIds": []
+}

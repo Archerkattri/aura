@@ -1,0 +1,83 @@
+{
+  "format": "AURA_PRISM_PRODUCTION_FPS_SWEEP",
+  "device": "cuda",
+  "cudaDevice": "NVIDIA GeForce RTX 5090",
+  "roleBoundary": {
+    "prismRole": "additive_extension_layer",
+    "primaryQualityBackends": [
+      "gsplat",
+      "DBS-Beta"
+    ],
+    "primaryQualityFootprints": [
+      "gaussian",
+      "beta"
+    ],
+    "prismExtensionFootprints": [
+      "gabor",
+      "neural"
+    ],
+    "qualityReplacementForGsplatBeta": false
+  },
+  "benchmark": [
+    {
+      "carriers": 50000,
+      "width": 512,
+      "height": 512,
+      "prism_cuda_ms": 1.79,
+      "prism_cuda_fps": 558.7,
+      "prism_torch_ms": 37.7,
+      "gsplat_ms": 0.25,
+      "gsplat_fps": 4000.0
+    },
+    {
+      "carriers": 50000,
+      "width": 979,
+      "height": 546,
+      "prism_cuda_ms": 2.06,
+      "prism_cuda_fps": 485.4,
+      "prism_torch_ms": 50.07,
+      "gsplat_ms": 0.34,
+      "gsplat_fps": 2941.2
+    },
+    {
+      "carriers": 100000,
+      "width": 512,
+      "height": 512,
+      "prism_cuda_ms": 2.12,
+      "prism_cuda_fps": 471.7,
+      "prism_torch_ms": 38.47,
+      "gsplat_ms": 0.3,
+      "gsplat_fps": 3333.3
+    },
+    {
+      "carriers": 100000,
+      "width": 979,
+      "height": 546,
+      "prism_cuda_ms": 3.78,
+      "prism_cuda_fps": 264.6,
+      "prism_torch_ms": 51.73,
+      "gsplat_ms": 0.52,
+      "gsplat_fps": 1923.1
+    },
+    {
+      "carriers": 200000,
+      "width": 512,
+      "height": 512,
+      "prism_cuda_ms": 3.49,
+      "prism_cuda_fps": 286.5,
+      "prism_torch_ms": 38.58,
+      "gsplat_ms": 0.42,
+      "gsplat_fps": 2381.0
+    },
+    {
+      "carriers": 200000,
+      "width": 979,
+      "height": 546,
+      "prism_cuda_ms": 7.31,
+      "prism_cuda_fps": 136.8,
+      "prism_torch_ms": 56.98,
+      "gsplat_ms": 1.29,
+      "gsplat_fps": 775.2
+    }
+  ]
+}

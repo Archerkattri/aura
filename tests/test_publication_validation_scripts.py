@@ -120,6 +120,22 @@ def test_cuda_production_validation_accepts_compiled_payload():
     assert report["failures"] == []
 
 
+def test_engine_integration_validation_writes_engine_artifacts(tmp_path):
+    sys.path.insert(0, "experiments")
+    from engine_integration_validation import validate_engine_exports
+
+    out = tmp_path / "engine.json"
+    artifact_dir = tmp_path / "exports"
+    payload = validate_engine_exports(out, artifact_dir)
+
+    assert payload["format"] == "AURA_ENGINE_INTEGRATION_VALIDATION"
+    assert payload["passed"] is True
+    assert payload["gltf"]["glbMagicValid"] is True
+    assert payload["gltf"]["usesKHRGaussianSplatting"] is True
+    assert payload["usd"]["hasGaussianPointsPrim"] is True
+    assert payload["runtime"]["engineWorkflow"]["nativeRuntimeReady"] is True
+
+
 def test_native_real_capture_validation_rejects_incomplete_audit():
     sys.path.insert(0, "experiments")
     from native_real_capture_validation import summarize_native_gate

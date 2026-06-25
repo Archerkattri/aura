@@ -1,0 +1,39 @@
+{
+  "capabilities": {
+    "collisionProxy": true,
+    "directRelighting": true,
+    "neuralResidual": true,
+    "primaryRender": true,
+    "rayQuery": true,
+    "semanticQuery": true
+  },
+  "carrierIds": [
+    "beta",
+    "gabor",
+    "gaussian",
+    "neural",
+    "semantic",
+    "surface",
+    "volume"
+  ],
+  "chunks": [
+    "base_surface_lod0",
+    "base_volume_lod0",
+    "detail_gabor_lod1",
+    "residual_neural_lod1",
+    "semantic_object_lod0",
+    "detail_beta_lod1",
+    "fallback_gaussian_lod2"
+  ],
+  "coordinateSystem": "right-handed-y-up",
+  "exchange": "exchange.json",
+  "fallbacks": {
+    "splat": "aura_splat.glb",
+    "usd": "aura_scene.usda"
+  },
+  "format": "AURA",
+  "name": "native_demo",
+  "semanticGraph": "semantic_graph.json",
+  "units": "meters",
+  "version": "0.1"
+}

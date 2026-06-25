@@ -1,0 +1,386 @@
+{
+  "format": "AURA_ENGINE_INTEGRATION_VALIDATION",
+  "passed": true,
+  "artifacts": {
+    "package": "docs/engine_exports/native_demo_package",
+    "gltfSplatGlb": "docs/engine_exports/aura_splat.glb",
+    "usdBridge": "docs/engine_exports/aura_scene.usda"
+  },
+  "gltf": {
+    "glbMagicValid": true,
+    "usesKHRGaussianSplatting": true,
+    "bytes": 1800
+  },
+  "usd": {
+    "usdaMagicValid": true,
+    "hasGaussianPointsPrim": true,
+    "hasAuraCarrierMetadata": true,
+    "bytes": 778
+  },
+  "runtime": {
+    "format": "AURA_RUNTIME_EXPORT_REPORT",
+    "asset": "native_demo",
+    "nativeContract": {
+      "typedCarriers": true,
+      "rayQuery": true,
+      "confidenceMaps": true,
+      "editMetadata": true,
+      "semanticGraph": true,
+      "lodChunks": true,
+      "fallbacks": true
+    },
+    "fallbackTargets": {
+      "gltfFallback": {
+        "name": "glTF/KHR_gaussian_splatting fallback",
+        "supportsTypedCarriers": false,
+        "supportsRayQuery": false,
+        "availableFallbacks": {
+          "splat": "aura_splat.glb",
+          "usd": "aura_scene.usda"
+        },
+        "losses": [
+          "typed_carrier_semantics",
+          "runtime_ray_query",
+          "semantic_object_graph",
+          "adaptive_native_carriers"
+        ]
+      },
+      "usdBridge": {
+        "name": "OpenUSD bridge",
+        "supportsTypedCarriers": true,
+        "supportsRayQuery": false,
+        "availableFallbacks": {
+          "splat": "aura_splat.glb",
+          "usd": "aura_scene.usda"
+        },
+        "losses": [
+          "runtime_ray_query"
+        ]
+      }
+    },
+    "carrierExport": [
+      {
+        "carrierId": "beta",
+        "nativeAura": "full_contract",
+        "gltfFallback": "metadata_only_without_native_runtime",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      },
+      {
+        "carrierId": "gabor",
+        "nativeAura": "full_contract",
+        "gltfFallback": "texture_metadata_only_without_native_runtime",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      },
+      {
+        "carrierId": "gaussian",
+        "nativeAura": "full_contract",
+        "gltfFallback": "splat_fallback_possible",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      },
+      {
+        "carrierId": "neural",
+        "nativeAura": "full_contract",
+        "gltfFallback": "metadata_only_without_native_runtime",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      },
+      {
+        "carrierId": "semantic",
+        "nativeAura": "full_contract",
+        "gltfFallback": "object_metadata_bridge",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      },
+      {
+        "carrierId": "surface",
+        "nativeAura": "full_contract",
+        "gltfFallback": "mesh_or_metadata_proxy",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      },
+      {
+        "carrierId": "volume",
+        "nativeAura": "full_contract",
+        "gltfFallback": "metadata_only_without_native_runtime",
+        "usdBridge": "typed_metadata_no_native_ray_query",
+        "requiresNativeRuntimeForRayQuery": true
+      }
+    ],
+    "chunkExport": [
+      {
+        "chunkId": "base_surface_lod0",
+        "lod": 0,
+        "elementIds": [
+          "surface_wall"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "surface"
+        ],
+        "bounds": {
+          "min": [
+            -0.75,
+            -0.75,
+            0.0
+          ],
+          "max": [
+            -0.25,
+            -0.25,
+            0.1
+          ]
+        },
+        "requiresNativeRuntime": true
+      },
+      {
+        "chunkId": "base_volume_lod0",
+        "lod": 0,
+        "elementIds": [
+          "soft_volume"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "volume"
+        ],
+        "bounds": {
+          "min": [
+            -0.15,
+            -0.7,
+            0.0
+          ],
+          "max": [
+            0.35,
+            -0.2,
+            0.8
+          ]
+        },
+        "requiresNativeRuntime": true
+      },
+      {
+        "chunkId": "detail_gabor_lod1",
+        "lod": 1,
+        "elementIds": [
+          "woven_frequency"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "gabor"
+        ],
+        "bounds": {
+          "min": [
+            0.45,
+            -0.7,
+            0.0
+          ],
+          "max": [
+            0.95,
+            -0.2,
+            0.15
+          ]
+        },
+        "requiresNativeRuntime": true
+      },
+      {
+        "chunkId": "residual_neural_lod1",
+        "lod": 1,
+        "elementIds": [
+          "view_residual"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "neural"
+        ],
+        "bounds": {
+          "min": [
+            -0.75,
+            0.05,
+            0.0
+          ],
+          "max": [
+            -0.25,
+            0.55,
+            0.2
+          ]
+        },
+        "requiresNativeRuntime": true
+      },
+      {
+        "chunkId": "semantic_object_lod0",
+        "lod": 0,
+        "elementIds": [
+          "semantic_object"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "semantic"
+        ],
+        "bounds": {
+          "min": [
+            -0.1,
+            0.05,
+            0.0
+          ],
+          "max": [
+            0.35,
+            0.5,
+            0.2
+          ]
+        },
+        "requiresNativeRuntime": true
+      },
+      {
+        "chunkId": "detail_beta_lod1",
+        "lod": 1,
+        "elementIds": [
+          "compact_detail"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "beta"
+        ],
+        "bounds": {
+          "min": [
+            0.5,
+            0.05,
+            0.0
+          ],
+          "max": [
+            0.8,
+            0.35,
+            0.15
+          ]
+        },
+        "requiresNativeRuntime": true
+      },
+      {
+        "chunkId": "fallback_gaussian_lod2",
+        "lod": 2,
+        "elementIds": [
+          "gaussian_fallback"
+        ],
+        "elementCount": 1,
+        "carrierIds": [
+          "gaussian"
+        ],
+        "bounds": {
+          "min": [
+            0.85,
+            0.3,
+            0.0
+          ],
+          "max": [
+            1.05,
+            0.5,
+            0.2
+          ]
+        },
+        "requiresNativeRuntime": true
+      }
+    ],
+    "rayQueryContract": {
+      "fields": [
+        "firstHit",
+        "depth",
+        "normal",
+        "transmittance",
+        "opacity",
+        "semanticId",
+        "materialId",
+        "confidence",
+        "residual",
+        "provenance",
+        "orderedHits"
+      ],
+      "supportsFirstHit": true,
+      "supportsOrderedHitTrace": true,
+      "supportsCompositing": true,
+      "requiresNativeAuraRuntime": true
+    },
+    "accelerationContract": {
+      "elementCount": 7,
+      "chunkCount": 7,
+      "chunkedElementCount": 7,
+      "orphanElementCount": 0,
+      "chunkedElementCoverageRate": 1.0,
+      "bvhChunkThreshold": 3,
+      "activeTraversalMode": "bvh",
+      "supportedTraversalModes": [
+        "element_linear",
+        "chunk_linear",
+        "bvh"
+      ],
+      "supportsChunkCulling": true,
+      "supportsCachedBvh": true,
+      "supportsOrderedFrontToBackCandidates": true,
+      "supportsUnchunkedElementFallback": true,
+      "candidateOrdering": "front_to_back_chunks_then_unchunked_elements",
+      "bvhNodeCount": 13,
+      "bvhLeafCount": 7,
+      "bvhMaxDepth": 4,
+      "bvhLeafChunkCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "serializedAccelerationMetadataReady": true,
+      "productionGpuTraversalReady": false
+    },
+    "semanticObjectContract": {
+      "objectCount": 2,
+      "edgeCount": 1,
+      "ownedElementCount": 2,
+      "unownedElementCount": 5,
+      "supportsUniqueElementOwnership": true,
+      "supportsObjectRayQuery": true,
+      "supportsObjectEditGroups": true,
+      "supportsObjectExportMetadata": true,
+      "objects": [
+        {
+          "nodeId": "object:wall",
+          "label": "wall",
+          "elementIds": [
+            "surface_wall"
+          ],
+          "elementCount": 1,
+          "carrierIds": [
+            "surface"
+          ],
+          "editableElementIds": [
+            "surface_wall"
+          ],
+          "confidence": 1.0
+        },
+        {
+          "nodeId": "object:fixture_object",
+          "label": "fixture_object",
+          "elementIds": [
+            "semantic_object"
+          ],
+          "elementCount": 1,
+          "carrierIds": [
+            "semantic"
+          ],
+          "editableElementIds": [
+            "semantic_object"
+          ],
+          "confidence": 0.95
+        }
+      ]
+    },
+    "engineWorkflow": {
+      "nativeRuntimeReady": true,
+      "gltfPreviewReady": true,
+      "usdMetadataReady": true,
+      "chunkedStreamingReady": true,
+      "objectQueriesReady": true,
+      "objectEditGroupsReady": true,
+      "requiresNativeAuraForQueries": true
+    }
+  }
+}

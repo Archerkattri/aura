@@ -1,0 +1,32 @@
+#usda 1.0
+(
+    defaultPrim = "AURAScene"
+    doc = """AURA gaussian carrier scene exported by aura.usd_writer"""
+    metersPerUnit = 1.0
+    upAxis = "Y"
+)
+
+def Xform "AURAScene"
+{
+    def Points "GaussianCarriers"
+    {
+        int[] primvars:displayOpacity = []
+        point3f[] points = [
+            (0.950000, 0.400000, 0.100000)
+        ]
+
+        float[] widths = [
+            0.500000
+        ]
+        uniform token widths:interpolation = "vertex"
+
+        color3f[] primvars:displayColor = [
+            (0.650000, 0.650000, 0.650000)
+        ]
+        uniform token primvars:displayColor:interpolation = "vertex"
+
+        int custom:aura:carrierCount = 1
+        string custom:aura:carrierType = "gaussian"
+        string custom:aura:sceneName = "unknown"
+    }
+}

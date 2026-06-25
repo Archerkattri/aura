@@ -3,6 +3,10 @@
 (CUDA kernel vs the pure-torch tiled compositor) and gsplat, at several carrier
 counts and resolutions. Writes JSON.
 
+PRISM is an additive extension path in AURA: gsplat and DBS-Beta remain the
+primary quality backends for Gaussian/Beta carriers; PRISM covers extension
+footprints such as Gabor and neural carriers under the same scene contract.
+
 Usage: python experiments/prism_benchmark.py --out experiments/results/benchmark.json
 """
 import argparse, json, sys, time
@@ -69,8 +73,21 @@ def main():
                 row["gsplat_fps"] = round(1000.0 / row["gsplat_ms"], 1)
             rows.append(row)
             print(row, flush=True)
+    payload = {
+        "format": "AURA_PRISM_PRODUCTION_FPS_SWEEP",
+        "device": dev,
+        "cudaDevice": torch.cuda.get_device_name(0),
+        "roleBoundary": {
+            "prismRole": "additive_extension_layer",
+            "primaryQualityBackends": ["gsplat", "DBS-Beta"],
+            "primaryQualityFootprints": ["gaussian", "beta"],
+            "prismExtensionFootprints": ["gabor", "neural"],
+            "qualityReplacementForGsplatBeta": False,
+        },
+        "benchmark": rows,
+    }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps({"benchmark": rows}, indent=2) + "\n")
+    Path(args.out).write_text(json.dumps(payload, indent=2) + "\n")
 
 
 if __name__ == "__main__":

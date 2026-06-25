@@ -40,18 +40,19 @@ output closer to a usable scene asset:
 
 | Area | Status | Evidence |
 |---|---|---|
-| Local publication validation | **8/8 gates pass** | `experiments/results/publication_validation_2026-06-24.json` |
+| Local publication validation | **9/9 gates pass** | `experiments/results/publication_validation_2026-06-25.json` |
 | Dataset audit | **8/8 local scenes complete** | Truck + 7 extracted Mip-NeRF 360 roots |
 | Typed quality | **Beta beats fixed Gaussian on every audited scene** | mean +0.80 dB PSNR |
 | Compactness | **Beta reaches Gaussian quality with about half the carriers on Truck** | 500k Beta > 1M fixed Gaussian |
 | PRISM | **Complete for its intended additive role** | Gaussian/Beta stay primary; Gabor/neural route to PRISM |
+| Engine export | **GLB/USD bridge validated** | `KHR_gaussian_splatting` GLB + USD runtime report |
 | External baselines | **Local same-split smoke/protocol table complete** | COLMAP, NeRF, 3DGS, 2DGS-style, ray-traced-GS-style |
 | SOTA A/B upgrades | **Local artifact-backed A/B ready** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
 
 **Claim boundary:** the external baseline gate is closed for local
 artifact-backed validation. Official 2DGS and 3DGUT have now been built and run
-as full native 30k same-split GPU validation rows, and every local SOTA A/B
-provider now has passing artifact-backed evidence. AURA can claim local
+as 30k same-split GPU validation rows on Truck and Room, and every local SOTA
+A/B provider now has passing artifact-backed evidence. AURA can claim local
 artifact-backed A/B readiness; official leaderboard claims remain out of scope.
 
 ## Results
@@ -115,6 +116,7 @@ the carriers.
 | Downloaded dataset audit | pass |
 | PRISM additive contract | pass |
 | PRISM CUDA throughput smoke | pass |
+| Engine/viewer export integration | pass |
 | Learned LPIPS on CUDA | pass |
 | External method baseline table | pass |
 | Secondary-ray/reflection validation | pass |
@@ -129,9 +131,9 @@ aura publication-validation-report --output experiments/results/publication_vali
 Latest durable report:
 
 ```text
-experiments/results/publication_validation_2026-06-24.json
+experiments/results/publication_validation_2026-06-25.json
 publicationReady: true
-passedGateCount: 8
+passedGateCount: 9
 remainingGateIds: []
 ```
 
@@ -209,6 +211,14 @@ Supported export surfaces:
 - USD ASCII preview bridge for scene-graph and DCC workflows.
 - `.aura` package plus `carriers.npz` sidecar for fast local rendering/eval.
 
+Latest engine integration artifact:
+
+```text
+experiments/results/engine_integration_validation_2026-06-25.json
+docs/engine_exports/aura_splat.glb
+docs/engine_exports/aura_scene.usda
+```
+
 ## PRISM
 
 PRISM is the **Pluggable Radiance-prImitive Splatting Module**. Its job is to add
@@ -232,10 +242,13 @@ Validation artifact:
 
 ```text
 experiments/results/prism_additive_validation_2026-06-24.json
+experiments/results/production_fps_sweep_2026-06-25.json
 ```
 
 It verifies that Gaussian/Beta route to the primary backend, Gabor/neural route
-to PRISM, and the PRISM extension changes the rendered image.
+to PRISM, and the PRISM extension changes the rendered image. The FPS sweep keeps
+that role boundary machine-readable: PRISM is additive, while gsplat/DBS-Beta
+remain the primary quality backends.
 
 ## External Baselines
 
@@ -254,11 +267,14 @@ experiments/results/external_baselines_2026-06-24.json
 | ray-traced-GS-style | 6.7688 | 0.066934 | 0.822136 | local smoke/protocol row |
 | official 2DGS full native run | 25.1223 | 0.873086 | 0.173525 | official repo, 30k steps, 32 held-out Truck views |
 | official 3DGUT full native run | 25.3198 | 0.878045 | 0.183758 | official repo, 30k steps, 32 validation Truck views |
+| official 2DGS Room | 30.5354 | 0.906617 | 0.243403 | official repo, 30k steps, Mip-NeRF 360 Room images_2 |
+| official 3DGUT Room | 31.4958 | 0.918965 | 0.296945 | official repo, 30k steps, Mip-NeRF 360 Room downsample_factor=2 |
 
 Official replacement sources are recorded in:
 
 ```text
 experiments/results/external_baseline_sources_2026-06-24.json
+experiments/results/official_multiscene_baselines_2026-06-25.json
 ```
 
 The current SOTA A/B artifact is:
@@ -319,7 +335,8 @@ bash experiments/run_multiscene.sh 7000 1
 python experiments/collect_multiscene.py
 python experiments/audit_multiscene.py
 python experiments/prism_additive_validation.py
-python experiments/prism_benchmark.py
+python experiments/prism_benchmark.py --out experiments/results/production_fps_sweep_2026-06-25.json
+python experiments/engine_integration_validation.py
 python experiments/secondary_reflection_validation.py
 python experiments/inverse_material_validation.py
 python experiments/external_baseline_smokes.py --device cuda
@@ -331,7 +348,7 @@ Regenerate the publication report:
 
 ```bash
 aura publication-validation-report \
-  --output experiments/results/publication_validation_2026-06-24.json
+  --output experiments/results/publication_validation_2026-06-25.json
 ```
 
 ## Gallery

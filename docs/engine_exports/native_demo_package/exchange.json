@@ -1,0 +1,16 @@
+{
+  "asset": "native_demo",
+  "gltfFallback": {
+    "name": "glTF/KHR_gaussian_splatting fallback",
+    "notes": "Stores preview/fallback splats or mesh, not the full AURA contract.",
+    "supports_ray_query": false,
+    "supports_typed_carriers": false
+  },
+  "native": ".aura package preserves carrier registry, ray-query data, confidence maps, chunks, and residual metadata.",
+  "usdBridge": {
+    "name": "OpenUSD bridge",
+    "notes": "Carries scene graph, geometry proxies, materials, and metadata; runtime ray-query data remains native AURA.",
+    "supports_ray_query": false,
+    "supports_typed_carriers": true
+  }
+}

@@ -1,0 +1,454 @@
+[
+  {
+    "bounds": {
+      "max": [
+        -0.25,
+        -0.25,
+        0.1
+      ],
+      "min": [
+        -0.75,
+        -0.75,
+        0.0
+      ]
+    },
+    "carrier_id": "surface",
+    "chunk_id": "base_surface_lod0",
+    "color": [
+      0.8,
+      0.72,
+      0.62
+    ],
+    "confidence": 1.0,
+    "confidence_map": {
+      "assignment": 1.0,
+      "collision": 0.88,
+      "geometry": 0.9,
+      "material": 0.75,
+      "shadow": 0.82
+    },
+    "edit": {
+      "editable": true,
+      "group": "room_shell",
+      "operation": "insert_object_occlusion_probe",
+      "source": "adaptive-decomposition"
+    },
+    "id": "surface_wall",
+    "lod": 0,
+    "material_id": "mat_wall_plaster",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "native",
+      "demo_role": "opaque_surface_occluder",
+      "evidence_summary": "geometry_confidence=0.900;material_confidence=0.750;edit_need=0.700",
+      "export_proxy": "mesh",
+      "interaction_probe": "inserted_object_occlusion",
+      "query_contract": "first_hit_normal_material_collision",
+      "selected_carrier": "surface",
+      "selection_evidence": "geometry_confidence=0.900",
+      "selection_reason": "geometry_confidence>=0.75 and edit_need>=0.40"
+    },
+    "normal": [
+      0.0,
+      0.0,
+      -1.0
+    ],
+    "opacity": 0.9,
+    "payload": {
+      "normal": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "roughness": 0.25,
+      "thickness": 0.1,
+      "type": "surface_cell"
+    },
+    "residual": false,
+    "semantic_id": "wall"
+  },
+  {
+    "bounds": {
+      "max": [
+        0.35,
+        -0.2,
+        0.8
+      ],
+      "min": [
+        -0.15,
+        -0.7,
+        0.0
+      ]
+    },
+    "carrier_id": "volume",
+    "chunk_id": "base_volume_lod0",
+    "color": [
+      0.55,
+      0.68,
+      0.9
+    ],
+    "confidence": 0.72,
+    "confidence_map": {
+      "assignment": 0.72,
+      "density": 0.85,
+      "geometry": 0.25,
+      "transmittance": 0.78
+    },
+    "edit": {
+      "editable": true,
+      "group": "atmosphere",
+      "operation": "attenuation_tuning",
+      "source": "adaptive-decomposition"
+    },
+    "id": "soft_volume",
+    "lod": 0,
+    "material_id": "mat_soft_volume",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "native",
+      "demo_role": "translucent_volume",
+      "evidence_summary": "geometry_confidence=0.250;fuzzy_confidence=0.850",
+      "export_proxy": "usd_volume_metadata",
+      "interaction_probe": "shadow_transmittance",
+      "query_contract": "path_transmittance",
+      "selected_carrier": "volume",
+      "selection_evidence": "fuzzy_confidence=0.850",
+      "selection_reason": "fuzzy_confidence>=0.70 and geometry_confidence<0.60"
+    },
+    "normal": null,
+    "opacity": 0.35,
+    "payload": {
+      "density": 0.85,
+      "phase_anisotropy": 0.0,
+      "type": "volume_cell"
+    },
+    "residual": false,
+    "semantic_id": null
+  },
+  {
+    "bounds": {
+      "max": [
+        0.95,
+        -0.2,
+        0.15
+      ],
+      "min": [
+        0.45,
+        -0.7,
+        0.0
+      ]
+    },
+    "carrier_id": "gabor",
+    "chunk_id": "detail_gabor_lod1",
+    "color": [
+      0.95,
+      0.85,
+      0.35
+    ],
+    "confidence": 1.0,
+    "confidence_map": {
+      "alias_control": 0.74,
+      "assignment": 1.0,
+      "frequency": 0.92,
+      "geometry": 0.65
+    },
+    "edit": {
+      "editable": true,
+      "group": "surface_detail",
+      "operation": "texture_frequency_edit",
+      "source": "adaptive-decomposition"
+    },
+    "id": "woven_frequency",
+    "lod": 1,
+    "material_id": "mat_woven_detail",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "native",
+      "demo_role": "high_frequency_texture",
+      "evidence_summary": "geometry_confidence=0.650;high_frequency=0.920",
+      "export_proxy": "texture_metadata",
+      "interaction_probe": "ordered_detail_trace",
+      "query_contract": "carrier_color_modulation",
+      "selected_carrier": "gabor",
+      "selection_evidence": "high_frequency=0.920",
+      "selection_reason": "high_frequency>=0.80"
+    },
+    "normal": null,
+    "opacity": 0.75,
+    "payload": {
+      "bandwidth": 0.07999999999999996,
+      "frequency": [
+        0.92,
+        0.0,
+        0.0
+      ],
+      "phase": 0.0,
+      "type": "gabor_frequency"
+    },
+    "residual": false,
+    "semantic_id": null
+  },
+  {
+    "bounds": {
+      "max": [
+        -0.25,
+        0.55,
+        0.2
+      ],
+      "min": [
+        -0.75,
+        0.05,
+        0.0
+      ]
+    },
+    "carrier_id": "neural",
+    "chunk_id": "residual_neural_lod1",
+    "color": [
+      0.4,
+      0.75,
+      0.7
+    ],
+    "confidence": 0.68,
+    "confidence_map": {
+      "assignment": 0.68,
+      "material": 0.25,
+      "residual": 0.55,
+      "view": 0.88
+    },
+    "edit": {
+      "editable": false,
+      "group": "residuals",
+      "operation": "bake_or_keep_native",
+      "source": "adaptive-decomposition"
+    },
+    "id": "view_residual",
+    "lod": 1,
+    "material_id": "mat_view_dependent_glaze",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "native",
+      "demo_role": "view_dependent_residual",
+      "evidence_summary": "image_error=0.550;material_confidence=0.250;view_dependent=0.880",
+      "export_proxy": "native_residual_only",
+      "interaction_probe": "reflection_ready_surface",
+      "query_contract": "residual_flag_confidence",
+      "selected_carrier": "neural",
+      "selection_evidence": "view_dependent=0.880",
+      "selection_reason": "view_dependent>=0.75 and material_confidence<0.50"
+    },
+    "normal": null,
+    "opacity": 0.6,
+    "payload": {
+      "latent_dim": 16,
+      "model_ref": null,
+      "residual_scale": 0.88,
+      "type": "neural_residual"
+    },
+    "residual": true,
+    "semantic_id": null
+  },
+  {
+    "bounds": {
+      "max": [
+        0.35,
+        0.5,
+        0.2
+      ],
+      "min": [
+        -0.1,
+        0.05,
+        0.0
+      ]
+    },
+    "carrier_id": "semantic",
+    "chunk_id": "semantic_object_lod0",
+    "color": [
+      0.75,
+      0.55,
+      0.95
+    ],
+    "confidence": 0.95,
+    "confidence_map": {
+      "assignment": 0.95,
+      "edit": 0.9,
+      "object": 0.93,
+      "semantic": 0.95
+    },
+    "edit": {
+      "editable": true,
+      "group": "inserted_fixture",
+      "operation": "object_level_edit",
+      "selectable": true,
+      "source": "adaptive-decomposition"
+    },
+    "id": "semantic_object",
+    "lod": 0,
+    "material_id": "mat_fixture_marker",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "native",
+      "demo_role": "semantic_object_handle",
+      "evidence_summary": "semantic_confidence=0.950",
+      "export_proxy": "usd_object_metadata",
+      "interaction_probe": "semantic_object_query",
+      "query_contract": "semantic_id_object_selection",
+      "selected_carrier": "semantic",
+      "selection_evidence": "semantic_confidence=0.950",
+      "selection_reason": "semantic_confidence>=0.80"
+    },
+    "normal": null,
+    "opacity": 0.45,
+    "payload": {
+      "confidence": 0.95,
+      "feature_refs": [],
+      "label": "fixture_object",
+      "type": "semantic_feature"
+    },
+    "residual": false,
+    "semantic_id": "fixture_object"
+  },
+  {
+    "bounds": {
+      "max": [
+        0.8,
+        0.35,
+        0.15
+      ],
+      "min": [
+        0.5,
+        0.05,
+        0.0
+      ]
+    },
+    "carrier_id": "beta",
+    "chunk_id": "detail_beta_lod1",
+    "color": [
+      0.95,
+      0.45,
+      0.35
+    ],
+    "confidence": 0.81,
+    "confidence_map": {
+      "assignment": 0.81,
+      "compact_support": 0.9,
+      "image_residual": 0.2,
+      "lod": 0.8
+    },
+    "edit": {
+      "editable": true,
+      "group": "detail_kernels",
+      "operation": "local_support_move",
+      "source": "adaptive-decomposition"
+    },
+    "id": "compact_detail",
+    "lod": 1,
+    "material_id": "mat_compact_chip",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "native",
+      "demo_role": "compact_bounded_kernel",
+      "evidence_summary": "image_error=0.200;compact_detail=0.900",
+      "export_proxy": "native_kernel_metadata",
+      "interaction_probe": "local_detail_pick",
+      "query_contract": "bounded_support_opacity",
+      "selected_carrier": "beta",
+      "selection_evidence": "compact_detail=0.900",
+      "selection_reason": "compact_detail>=0.75"
+    },
+    "normal": null,
+    "opacity": 0.85,
+    "payload": {
+      "alpha": 4.6,
+      "beta": 4.2,
+      "support_radius": [
+        0.15000000000000002,
+        0.15,
+        0.075
+      ],
+      "type": "beta_kernel"
+    },
+    "residual": false,
+    "semantic_id": null
+  },
+  {
+    "bounds": {
+      "max": [
+        1.05,
+        0.5,
+        0.2
+      ],
+      "min": [
+        0.85,
+        0.3,
+        0.0
+      ]
+    },
+    "carrier_id": "gaussian",
+    "chunk_id": "fallback_gaussian_lod2",
+    "color": [
+      0.65,
+      0.65,
+      0.65
+    ],
+    "confidence": 0.6,
+    "confidence_map": {
+      "assignment": 0.6,
+      "fallback": 0.6,
+      "image_residual": 0.05,
+      "structure": 0.3
+    },
+    "edit": {
+      "editable": false,
+      "group": "fallbacks",
+      "operation": "promote_when_evidence_improves",
+      "source": "adaptive-decomposition"
+    },
+    "id": "gaussian_fallback",
+    "lod": 2,
+    "material_id": "mat_low_structure_fallback",
+    "metadata": {
+      "decomposition": "evidence-v1",
+      "decomposition_role": "fallback",
+      "demo_role": "explicit_gaussian_fallback",
+      "evidence_summary": "image_error=0.050;geometry_confidence=0.300;edit_need=0.100",
+      "export_proxy": "splat_fallback",
+      "fallback_label": "gaussian_fallback",
+      "fallback_reason": "no_structured_native_evidence",
+      "interaction_probe": "fallback_trace",
+      "query_contract": "covariance_weighted_fallback",
+      "selected_carrier": "gaussian",
+      "selection_evidence": "geometry_confidence=0.300",
+      "selection_reason": "no native carrier threshold met"
+    },
+    "normal": null,
+    "opacity": 0.5,
+    "payload": {
+      "covariance": [
+        [
+          0.0064,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0064,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0049
+        ]
+      ],
+      "mean": [
+        0.95,
+        0.4,
+        0.1
+      ],
+      "source": "native-demo-low-structure-evidence",
+      "type": "gaussian_fallback"
+    },
+    "residual": false,
+    "semantic_id": null
+  }
+]

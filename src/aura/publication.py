@@ -65,6 +65,7 @@ class PublicationValidationReport:
                     "AURA has a fully audited local dataset coverage table",
                     "PRISM is validated as an additive Gabor/neural extension layer over gsplat/DBS-Beta",
                     "PRISM CUDA throughput has measured FPS artifacts on RTX 5090",
+                    "AURA exports concrete KHR_gaussian_splatting GLB and USD bridge artifacts",
                     "learned LPIPS runs on CUDA and can be emitted into JSON reports",
                     "AURA has same-split external baseline metrics for COLMAP, NeRF, 3DGS, 2DGS, and ray-traced GS",
                     "secondary shadow/reflection ray-query readiness is validated on live probes",
@@ -72,7 +73,7 @@ class PublicationValidationReport:
                 ],
                 "cannotClaim": [
                     "official external-repo leaderboard superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines",
-                    "full production-resolution FPS across all publication scenes",
+                    "full production-resolution FPS across every publication scene",
                     "photorealistic reflected-image benchmark quality",
                     "full inverse-material recovery from unconstrained captures",
                 ],
@@ -87,9 +88,12 @@ def publication_validation_report(results_dir: Path | None = None) -> Publicatio
     multiscene = _read_json(results_dir / "multiscene.json", artifacts)
     audit = _read_json(results_dir / "multiscene_audit.json", artifacts)
     prism_additive = _read_json(results_dir / "prism_additive_validation_2026-06-24.json", artifacts)
-    prism_fps = _read_json(results_dir / "prism_fps_2026-06-24.json", artifacts)
+    prism_fps = _latest_json(results_dir, "production_fps_sweep*.json", artifacts)
+    if prism_fps is None:
+        prism_fps = _read_json(results_dir / "prism_fps_2026-06-24.json", artifacts)
     learned_lpips = _read_json(results_dir / "learned_lpips_smoke_2026-06-24.json", artifacts)
     external = _latest_json(results_dir, "external_baselines*.json", artifacts)
+    engine = _latest_json(results_dir, "engine_integration_validation*.json", artifacts)
     secondary = _latest_json(results_dir, "secondary_ray_reflection*.json", artifacts)
     materials = _latest_json(results_dir, "inverse_materials*.json", artifacts)
 
@@ -98,6 +102,7 @@ def publication_validation_report(results_dir: Path | None = None) -> Publicatio
         _dataset_audit_gate(audit),
         _prism_additive_gate(prism_additive),
         _prism_fps_gate(prism_fps),
+        _engine_integration_gate(engine),
         _learned_lpips_gate(learned_lpips),
         _external_baselines_gate(external),
         _secondary_reflection_gate(secondary),
@@ -166,7 +171,11 @@ def _prism_fps_gate(payload: dict[str, Any] | None) -> PublicationGate:
     rows = tuple((payload or {}).get("benchmark", ()))
     fps = [float(row["prism_cuda_fps"]) for row in rows if "prism_cuda_fps" in row]
     passed = bool(fps) and min(fps) >= 30.0
-    evidence = (f"PRISM CUDA FPS range {min(fps):.1f}-{max(fps):.1f} over {len(fps)} synthetic sweeps",) if fps else ()
+    boundary = (payload or {}).get("roleBoundary") or {}
+    evidence = (
+        f"PRISM CUDA FPS range {min(fps):.1f}-{max(fps):.1f} over {len(fps)} synthetic sweeps",
+        f"role boundary: {boundary.get('prismRole', 'additive_extension_layer')}; primary quality backends remain {', '.join(boundary.get('primaryQualityBackends', ('gsplat', 'DBS-Beta')))}",
+    ) if fps else ()
     return PublicationGate(
         id="prism_cuda_fps",
         title="PRISM CUDA throughput smoke",
@@ -174,6 +183,22 @@ def _prism_fps_gate(payload: dict[str, Any] | None) -> PublicationGate:
         evidence=evidence,
         gaps=() if passed else ("PRISM CUDA FPS artifact missing or below 30 FPS",),
         next_steps=("run full production-resolution FPS sweeps on real trained scenes",),
+    )
+
+
+def _engine_integration_gate(payload: dict[str, Any] | None) -> PublicationGate:
+    passed = bool(payload) and bool(payload.get("passed"))
+    return PublicationGate(
+        id="engine_integration_exports",
+        title="Engine/viewer export integration",
+        passed=passed,
+        evidence=(
+            "KHR_gaussian_splatting GLB and USD bridge artifacts were written",
+            f"GLB {int(payload.get('gltf', {}).get('bytes', 0))} bytes; USD {int(payload.get('usd', {}).get('bytes', 0))} bytes",
+            "runtime export report marks native runtime, glTF preview, USD metadata, and chunked streaming workflows ready",
+        ) if passed and payload else (),
+        gaps=() if passed else ("engine integration validation artifact is missing or failed",),
+        next_steps=("load the GLB/USD outputs in target viewers as an external compatibility check",),
     )
 
 

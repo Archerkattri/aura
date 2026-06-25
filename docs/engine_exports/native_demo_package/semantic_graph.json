@@ -1,0 +1,40 @@
+{
+  "edges": [
+    {
+      "confidence": 0.9,
+      "relation": "occluded_by",
+      "source": "object:fixture_object",
+      "target": "object:wall"
+    }
+  ],
+  "nodes": [
+    {
+      "attributes": {
+        "demoRole": "occluder_and_collision_proxy",
+        "editGroup": "room_shell",
+        "exportTarget": "mesh",
+        "source": "evidence"
+      },
+      "confidence": 1.0,
+      "element_ids": [
+        "surface_wall"
+      ],
+      "id": "object:wall",
+      "label": "wall"
+    },
+    {
+      "attributes": {
+        "demoRole": "selectable_inserted_object",
+        "editGroup": "inserted_fixture",
+        "exportTarget": "usd_object_metadata",
+        "source": "evidence"
+      },
+      "confidence": 0.95,
+      "element_ids": [
+        "semantic_object"
+      ],
+      "id": "object:fixture_object",
+      "label": "fixture_object"
+    }
+  ]
+}
