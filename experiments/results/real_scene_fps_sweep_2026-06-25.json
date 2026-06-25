@@ -1,0 +1,64 @@
+{
+  "format": "AURA_REAL_SCENE_FPS_SWEEP",
+  "device": "cuda",
+  "claimBoundary": "Trained-checkpoint render speed for local Truck DBS arms and official 3DGUT Truck/Room rows; not a full-scene leaderboard FPS claim.",
+  "rows": [
+    {
+      "scene": "truck",
+      "method": "DBS-Beta",
+      "source": "/tmp/dbs_out/truck_beta",
+      "renderer": "DBS fork BetaModel.render",
+      "frames": 32,
+      "seconds": 0.6910978388041258,
+      "msPerFrame": 21.59680746262893,
+      "fps": 46.30314002337604,
+      "width": 979,
+      "height": 546
+    },
+    {
+      "scene": "truck",
+      "method": "fixed Gaussian control",
+      "source": "/tmp/dbs_out/truck_gauss",
+      "renderer": "DBS fork BetaModel.render",
+      "frames": 32,
+      "seconds": 0.6478976008947939,
+      "msPerFrame": 20.24680002796231,
+      "fps": 49.39052090300329,
+      "width": 979,
+      "height": 546
+    },
+    {
+      "scene": "truck",
+      "method": "official 3DGUT",
+      "source": "/tmp/aura_sota_3dgrut_runs/truck_3dgut_full30000_eval/truck_3dgut_full30000/truck-2506_023310/metrics.json",
+      "renderer": "official 3DGRUT render.py",
+      "msPerFrame": 2.28,
+      "fps": 438.5964912280702,
+      "metrics": {
+        "mean_psnr": 25.31978416442871,
+        "mean_ssim": 0.8780446648597717,
+        "mean_lpips": 0.18375778663903475,
+        "mean_cc_psnr": 25.211687684059143,
+        "mean_cc_ssim": 0.8754577189683914,
+        "mean_cc_lpips": 0.18411854980513453
+      }
+    },
+    {
+      "scene": "room",
+      "method": "official 3DGUT",
+      "source": "/tmp/aura_sota_3dgrut_runs/room_3dgut_full30000_ds2_eval/room_3dgut_full30000_ds2/room-2506_035308/metrics.json",
+      "renderer": "official 3DGRUT render.py",
+      "msPerFrame": 2.47,
+      "fps": 404.85829959514166,
+      "metrics": {
+        "mean_psnr": 31.495813174125477,
+        "mean_ssim": 0.9189649453529944,
+        "mean_lpips": 0.29694501138650453,
+        "mean_cc_psnr": 31.662460082616562,
+        "mean_cc_ssim": 0.91427053243686,
+        "mean_cc_lpips": 0.2971625538208546
+      }
+    }
+  ],
+  "passed": true
+}

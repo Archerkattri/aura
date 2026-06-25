@@ -65,15 +65,19 @@ class PublicationValidationReport:
                     "AURA has a fully audited local dataset coverage table",
                     "PRISM is validated as an additive Gabor/neural extension layer over gsplat/DBS-Beta",
                     "PRISM CUDA throughput has measured FPS artifacts on RTX 5090",
+                    "trained local scene checkpoints have bounded real-scene FPS evidence",
                     "AURA exports concrete KHR_gaussian_splatting GLB and USD bridge artifacts",
+                    "AURA GLB/USD exports pass local structural viewer-compatibility checks",
                     "learned LPIPS runs on CUDA and can be emitted into JSON reports",
                     "AURA has same-split external baseline metrics for COLMAP, NeRF, 3DGS, 2DGS, and ray-traced GS",
+                    "AURA has completed official 2DGS and 3DGUT same-split rows for all 8 audited scenes",
                     "secondary shadow/reflection ray-query readiness is validated on live probes",
                     "explicit albedo/roughness/metallic material fields are consumed by PBR relighting",
                 ],
                 "cannotClaim": [
                     "official external-repo leaderboard superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines",
                     "full production-resolution FPS across every publication scene",
+                    "third-party GUI viewer render compatibility without an installed viewer/checker artifact",
                     "photorealistic reflected-image benchmark quality",
                     "full inverse-material recovery from unconstrained captures",
                 ],
@@ -93,7 +97,10 @@ def publication_validation_report(results_dir: Path | None = None) -> Publicatio
         prism_fps = _read_json(results_dir / "prism_fps_2026-06-24.json", artifacts)
     learned_lpips = _read_json(results_dir / "learned_lpips_smoke_2026-06-24.json", artifacts)
     external = _latest_json(results_dir, "external_baselines*.json", artifacts)
+    official_multiscene = _latest_json(results_dir, "official_multiscene_baselines*.json", artifacts)
     engine = _latest_json(results_dir, "engine_integration_validation*.json", artifacts)
+    viewer = _latest_json(results_dir, "viewer_compatibility_validation*.json", artifacts)
+    real_fps = _latest_json(results_dir, "real_scene_fps_sweep*.json", artifacts)
     secondary = _latest_json(results_dir, "secondary_ray_reflection*.json", artifacts)
     materials = _latest_json(results_dir, "inverse_materials*.json", artifacts)
 
@@ -102,9 +109,11 @@ def publication_validation_report(results_dir: Path | None = None) -> Publicatio
         _dataset_audit_gate(audit),
         _prism_additive_gate(prism_additive),
         _prism_fps_gate(prism_fps),
+        _real_scene_fps_gate(real_fps),
         _engine_integration_gate(engine),
+        _viewer_compatibility_gate(viewer),
         _learned_lpips_gate(learned_lpips),
-        _external_baselines_gate(external),
+        _external_baselines_gate(external, official_multiscene),
         _secondary_reflection_gate(secondary),
         _inverse_materials_gate(materials),
     )
@@ -202,6 +211,41 @@ def _engine_integration_gate(payload: dict[str, Any] | None) -> PublicationGate:
     )
 
 
+def _viewer_compatibility_gate(payload: dict[str, Any] | None) -> PublicationGate:
+    passed = bool(payload) and bool(payload.get("passed"))
+    tools = (payload or {}).get("externalTools") or {}
+    installed = sorted(name for name, path in tools.items() if path)
+    return PublicationGate(
+        id="viewer_compatibility_exports",
+        title="Viewer/export structural compatibility",
+        passed=passed,
+        evidence=(
+            "GLB declares KHR_gaussian_splatting POINTS primitive with required attributes",
+            "USD bridge has defaultPrim, GaussianCarriers Points prim, displayColor, and AURA carrier metadata",
+            f"installed checker tools recorded: {', '.join(installed) if installed else 'none'}",
+        ) if passed and payload else (),
+        gaps=() if passed else ("viewer compatibility validation artifact is missing or failed",),
+        next_steps=("run third-party viewer checks when Blender/USDView/browser viewer automation is installed",),
+    )
+
+
+def _real_scene_fps_gate(payload: dict[str, Any] | None) -> PublicationGate:
+    rows = tuple((payload or {}).get("rows") or ())
+    fps = [float(row.get("fps", 0.0)) for row in rows]
+    passed = bool(payload) and bool(payload.get("passed")) and fps and min(fps) >= 30.0
+    return PublicationGate(
+        id="real_scene_fps",
+        title="Real trained-scene FPS",
+        passed=passed,
+        evidence=(
+            f"trained-scene FPS range {min(fps):.1f}-{max(fps):.1f} over {len(rows)} rows",
+            "includes Truck DBS-Beta/fixed-Gaussian checkpoints and official 3DGUT Truck/Room render timings",
+        ) if passed else (),
+        gaps=() if passed else ("real trained-scene FPS artifact is missing or below 30 FPS",),
+        next_steps=("extend trained-scene FPS to every official-baseline scene as checkpoints finish",),
+    )
+
+
 def _learned_lpips_gate(payload: dict[str, Any] | None) -> PublicationGate:
     passed = bool(payload) and payload.get("lpipsBackend") == "learned_lpips_alex" and payload.get("meanLpips") is not None
     return PublicationGate(
@@ -216,17 +260,40 @@ def _learned_lpips_gate(payload: dict[str, Any] | None) -> PublicationGate:
     )
 
 
-def _external_baselines_gate(payload: dict[str, Any] | None) -> PublicationGate:
+def _external_baselines_gate(
+    payload: dict[str, Any] | None,
+    official_multiscene: dict[str, Any] | None = None,
+) -> PublicationGate:
     required = {"colmap", "nerf", "3dgs", "2dgs", "ray_traced_gs"}
     present = set((payload or {}).get("baselines", {}).keys())
-    passed = required.issubset(present)
+    counts = (official_multiscene or {}).get("completedSceneCounts", {})
+    official_complete = (
+        int(counts.get("official_2dgs", 0)) >= 8
+        and int(counts.get("official_3dgut", 0)) >= 8
+        and not (official_multiscene or {}).get("missing", {}).get("official_2dgs")
+        and not (official_multiscene or {}).get("missing", {}).get("official_3dgut")
+    )
+    evidence = []
+    if present:
+        evidence.append(f"external baselines present: {', '.join(sorted(present))}")
+    if official_multiscene:
+        evidence.append(
+            "official 2DGS/3DGUT same-split rows complete: "
+            f"{int(counts.get('official_2dgs', 0))}/8 and {int(counts.get('official_3dgut', 0))}/8"
+        )
+    gaps = []
+    if not required.issubset(present):
+        gaps.append(f"missing baselines: {', '.join(sorted(required - present))}")
+    if not official_complete:
+        gaps.append("official 2DGS/3DGUT multiscene rows are incomplete")
+    passed = not gaps
     return PublicationGate(
         id="external_method_baselines",
         title="External method baseline table",
         passed=passed,
-        evidence=(f"external baselines present: {', '.join(sorted(present))}",) if present else (),
-        gaps=() if passed else (f"missing baselines: {', '.join(sorted(required - present))}",),
-        next_steps=("optionally replace local smoke/protocol rows with official external-repo full-split runs",),
+        evidence=tuple(evidence),
+        gaps=tuple(gaps),
+        next_steps=("keep official rows regenerated when the audited scene set changes",),
     )
 
 

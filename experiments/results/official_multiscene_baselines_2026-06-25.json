@@ -1,49 +1,118 @@
 {
   "format": "AURA_OFFICIAL_MULTISCENE_BASELINES",
   "date": "2026-06-25",
-  "claimBoundary": "Official external-repo replacement evidence for 2DGS/3DGUT covers Truck at native validation resolution and Room at 2x/downsample_factor=2; 3DGS row is the local gsplat-control arm over all downloaded local scenes, not an official graphdeco leaderboard row.",
-  "scenes": [
-    {
-      "scene": "truck",
-      "dataset": "Tanks and Temples Truck",
-      "split": "official repo eval split",
-      "imageScale": "native"
-    },
-    {
-      "scene": "room",
-      "dataset": "Mip-NeRF 360 Room",
-      "split": "official repo eval split",
-      "imageScale": "images_2 / downsample_factor=2"
-    }
+  "claimBoundary": "Official external-repo replacement evidence is recorded for completed 30k same-split GPU rows. Mip-NeRF rows use images_2/downsample_factor=2. This is not an official leaderboard submission.",
+  "sceneUniverse": [
+    "truck",
+    "room",
+    "bicycle",
+    "bonsai",
+    "counter",
+    "garden",
+    "kitchen",
+    "stump"
   ],
+  "completedSceneCounts": {
+    "official_2dgs": 8,
+    "official_3dgut": 8,
+    "local_gsplat_control_3dgs": 8
+  },
+  "missing": {
+    "official_2dgs": [],
+    "official_3dgut": []
+  },
   "methods": [
     {
       "method": "official_2dgs",
       "repository": "/tmp/aura_sota_repos/2d-gaussian-splatting",
-      "sceneCount": 2,
+      "sceneCount": 8,
       "rows": [
         {
           "scene": "truck",
           "iterations": 30000,
-          "psnr": 25.1223297,
-          "ssim": 0.8730862,
-          "lpips": 0.1735249,
-          "output": "/tmp/aura_sota_2dgs_runs/truck_2dgs_full30000_native"
+          "psnr": 25.122329711914062,
+          "ssim": 0.873086154460907,
+          "lpips": 0.1735249161720276,
+          "output": "/tmp/aura_sota_2dgs_runs/truck_2dgs_full30000_native",
+          "dataset": "Tanks and Temples Truck",
+          "imageScale": "native"
         },
         {
           "scene": "room",
           "iterations": 30000,
-          "psnr": 30.535387,
-          "ssim": 0.9066174,
-          "lpips": 0.2434031,
-          "output": "/tmp/aura_sota_2dgs_runs/room_2dgs_full30000_images2"
+          "psnr": 30.53538703918457,
+          "ssim": 0.9066174030303955,
+          "lpips": 0.24340306222438812,
+          "output": "/tmp/aura_sota_2dgs_runs/room_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Room",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "bicycle",
+          "iterations": 30000,
+          "psnr": 24.592092514038086,
+          "ssim": 0.7117696404457092,
+          "lpips": 0.3068859279155731,
+          "output": "/tmp/aura_sota_2dgs_runs/bicycle_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Bicycle",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "bonsai",
+          "iterations": 30000,
+          "psnr": 31.29766273498535,
+          "ssim": 0.930999755859375,
+          "lpips": 0.22685648500919342,
+          "output": "/tmp/aura_sota_2dgs_runs/bonsai_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Bonsai",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "counter",
+          "iterations": 30000,
+          "psnr": 28.053300857543945,
+          "ssim": 0.8930284380912781,
+          "lpips": 0.22932781279087067,
+          "output": "/tmp/aura_sota_2dgs_runs/counter_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Counter",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "garden",
+          "iterations": 30000,
+          "psnr": 26.686094284057617,
+          "ssim": 0.8338908553123474,
+          "lpips": 0.16435737907886505,
+          "output": "/tmp/aura_sota_2dgs_runs/garden_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Garden",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "kitchen",
+          "iterations": 30000,
+          "psnr": 30.216381072998047,
+          "ssim": 0.9157040119171143,
+          "lpips": 0.1472267359495163,
+          "output": "/tmp/aura_sota_2dgs_runs/kitchen_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Kitchen",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "stump",
+          "iterations": 30000,
+          "psnr": 26.051288604736328,
+          "ssim": 0.7494604587554932,
+          "lpips": 0.2937217950820923,
+          "output": "/tmp/aura_sota_2dgs_runs/stump_2dgs_full30000_images2",
+          "dataset": "Mip-NeRF 360 Stump",
+          "imageScale": "images_2 / downsample_factor=2"
         }
       ]
     },
     {
       "method": "official_3dgut",
       "repository": "/tmp/aura_sota_repos/3dgrut",
-      "sceneCount": 2,
+      "sceneCount": 8,
       "rows": [
         {
           "scene": "truck",
@@ -51,8 +120,13 @@
           "psnr": 25.31978416442871,
           "ssim": 0.8780446648597717,
           "lpips": 0.18375778663903475,
-          "meanInferenceMs": 2.28,
-          "output": "/tmp/aura_sota_3dgrut_runs/truck_3dgut_full30000"
+          "meanCcPsnr": 25.211687684059143,
+          "meanCcSsim": 0.8754577189683914,
+          "meanCcLpips": 0.18411854980513453,
+          "output": "/tmp/aura_sota_3dgrut_runs/truck_3dgut_full30000_eval/truck_3dgut_full30000/truck-2506_023310",
+          "dataset": "Tanks and Temples Truck",
+          "imageScale": "native",
+          "meanInferenceMs": 2.28
         },
         {
           "scene": "room",
@@ -63,8 +137,88 @@
           "meanCcPsnr": 31.662460082616562,
           "meanCcSsim": 0.91427053243686,
           "meanCcLpips": 0.2971625538208546,
-          "meanInferenceMs": 2.47,
-          "output": "/tmp/aura_sota_3dgrut_runs/room_3dgut_full30000_ds2_eval/room_3dgut_full30000_ds2/room-2506_035308"
+          "output": "/tmp/aura_sota_3dgrut_runs/room_3dgut_full30000_ds2_eval/room_3dgut_full30000_ds2/room-2506_035308",
+          "dataset": "Mip-NeRF 360 Room",
+          "imageScale": "images_2 / downsample_factor=2",
+          "meanInferenceMs": 2.47
+        },
+        {
+          "scene": "bicycle",
+          "iterations": 30000,
+          "psnr": 24.306759185791016,
+          "ssim": 0.6960554504394532,
+          "lpips": 0.3598767554759979,
+          "meanCcPsnr": 24.081645050048827,
+          "meanCcSsim": 0.6754068613052369,
+          "meanCcLpips": 0.360443651676178,
+          "output": "/tmp/aura_sota_3dgrut_runs/bicycle_3dgut_full30000_ds2_eval/bicycle_3dgut_full30000_ds2/bicycle-2506_043652",
+          "dataset": "Mip-NeRF 360 Bicycle",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "bonsai",
+          "iterations": 30000,
+          "psnr": 32.42764967841071,
+          "ssim": 0.9445402912191443,
+          "lpips": 0.251687042213775,
+          "meanCcPsnr": 32.58881238988928,
+          "meanCcSsim": 0.9408043349111402,
+          "meanCcLpips": 0.2518112437950598,
+          "output": "/tmp/aura_sota_3dgrut_runs/bonsai_3dgut_full30000_ds2_eval/bonsai_3dgut_full30000_ds2/bonsai-2506_045043",
+          "dataset": "Mip-NeRF 360 Bonsai",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "counter",
+          "iterations": 30000,
+          "psnr": 29.139711252848308,
+          "ssim": 0.9107287645339965,
+          "lpips": 0.25786024729410806,
+          "meanCcPsnr": 29.088105964660645,
+          "meanCcSsim": 0.906521326303482,
+          "meanCcLpips": 0.25796238084634143,
+          "output": "/tmp/aura_sota_3dgrut_runs/counter_3dgut_full30000_ds2_eval/counter_3dgut_full30000_ds2/counter-2506_050417",
+          "dataset": "Mip-NeRF 360 Counter",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "garden",
+          "iterations": 30000,
+          "psnr": 26.382360855738323,
+          "ssim": 0.8011391585071882,
+          "lpips": 0.24182813738783202,
+          "meanCcPsnr": 26.2121266523997,
+          "meanCcSsim": 0.7957911466558775,
+          "meanCcLpips": 0.24223968697090945,
+          "output": "/tmp/aura_sota_3dgrut_runs/garden_3dgut_full30000_ds2_eval/garden_3dgut_full30000_ds2/garden-2506_054038",
+          "dataset": "Mip-NeRF 360 Garden",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "kitchen",
+          "iterations": 30000,
+          "psnr": 30.84911390032087,
+          "ssim": 0.9260384202003479,
+          "lpips": 0.15949949643441608,
+          "meanCcPsnr": 31.005146844046457,
+          "meanCcSsim": 0.9226615122386388,
+          "meanCcLpips": 0.15977332677159992,
+          "output": "/tmp/aura_sota_3dgrut_runs/kitchen_3dgut_full30000_ds2_eval/kitchen_3dgut_full30000_ds2/kitchen-2506_055801",
+          "dataset": "Mip-NeRF 360 Kitchen",
+          "imageScale": "images_2 / downsample_factor=2"
+        },
+        {
+          "scene": "stump",
+          "iterations": 30000,
+          "psnr": 26.347398042678833,
+          "ssim": 0.7584297023713589,
+          "lpips": 0.36099292524158955,
+          "meanCcPsnr": 25.870876669883728,
+          "meanCcSsim": 0.7358089834451675,
+          "meanCcLpips": 0.36209685169160366,
+          "output": "/tmp/aura_sota_3dgrut_runs/stump_3dgut_full30000_ds2_eval/stump_3dgut_full30000_ds2/stump-2506_062515",
+          "dataset": "Mip-NeRF 360 Stump",
+          "imageScale": "images_2 / downsample_factor=2"
         }
       ]
     },
@@ -73,14 +227,38 @@
       "repository": "AURA local DBS/gsplat control harness",
       "sceneCount": 8,
       "rows": [
-        {"scene": "bicycle", "psnr": 24.8431758881},
-        {"scene": "bonsai", "psnr": 32.2720489502},
-        {"scene": "counter", "psnr": 28.8087215424},
-        {"scene": "garden", "psnr": 26.6373348236},
-        {"scene": "kitchen", "psnr": 31.2871685028},
-        {"scene": "room", "psnr": 32.2946205139},
-        {"scene": "stump", "psnr": 26.4558830261},
-        {"scene": "truck", "psnr": 25.9618568420}
+        {
+          "scene": "bicycle",
+          "psnr": 24.843175888061523
+        },
+        {
+          "scene": "bonsai",
+          "psnr": 32.27204895019531
+        },
+        {
+          "scene": "counter",
+          "psnr": 28.8087215423584
+        },
+        {
+          "scene": "garden",
+          "psnr": 26.6373348236084
+        },
+        {
+          "scene": "kitchen",
+          "psnr": 31.287168502807617
+        },
+        {
+          "scene": "room",
+          "psnr": 32.294620513916016
+        },
+        {
+          "scene": "stump",
+          "psnr": 26.455883026123047
+        },
+        {
+          "scene": "truck",
+          "psnr": 25.961856842041016
+        }
       ],
       "source": "experiments/results/multiscene.json"
     }

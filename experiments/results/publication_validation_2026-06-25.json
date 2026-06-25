@@ -6,9 +6,12 @@
     "learned_lpips_smoke_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/learned_lpips_smoke_2026-06-24.json",
     "multiscene": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/multiscene.json",
     "multiscene_audit": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/multiscene_audit.json",
+    "official_multiscene_baselines_2026-06-25": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/official_multiscene_baselines_2026-06-25.json",
     "prism_additive_validation_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/prism_additive_validation_2026-06-24.json",
     "production_fps_sweep_2026-06-25": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/production_fps_sweep_2026-06-25.json",
-    "secondary_ray_reflection_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/secondary_ray_reflection_2026-06-24.json"
+    "real_scene_fps_sweep_2026-06-25": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/real_scene_fps_sweep_2026-06-25.json",
+    "secondary_ray_reflection_2026-06-24": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/secondary_ray_reflection_2026-06-24.json",
+    "viewer_compatibility_validation_2026-06-25": "/home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/results/viewer_compatibility_validation_2026-06-25.json"
   },
   "claimBoundary": {
     "canClaim": [
@@ -16,21 +19,25 @@
       "AURA has a fully audited local dataset coverage table",
       "PRISM is validated as an additive Gabor/neural extension layer over gsplat/DBS-Beta",
       "PRISM CUDA throughput has measured FPS artifacts on RTX 5090",
+      "trained local scene checkpoints have bounded real-scene FPS evidence",
       "AURA exports concrete KHR_gaussian_splatting GLB and USD bridge artifacts",
+      "AURA GLB/USD exports pass local structural viewer-compatibility checks",
       "learned LPIPS runs on CUDA and can be emitted into JSON reports",
       "AURA has same-split external baseline metrics for COLMAP, NeRF, 3DGS, 2DGS, and ray-traced GS",
+      "AURA has completed official 2DGS and 3DGUT same-split rows for all 8 audited scenes",
       "secondary shadow/reflection ray-query readiness is validated on live probes",
       "explicit albedo/roughness/metallic material fields are consumed by PBR relighting"
     ],
     "cannotClaim": [
       "official external-repo leaderboard superiority over COLMAP/NeRF/2DGS/ray-traced-GS baselines",
       "full production-resolution FPS across every publication scene",
+      "third-party GUI viewer render compatibility without an installed viewer/checker artifact",
       "photorealistic reflected-image benchmark quality",
       "full inverse-material recovery from unconstrained captures"
     ]
   },
   "format": "AURA_PUBLICATION_VALIDATION_REPORT",
-  "gateCount": 9,
+  "gateCount": 11,
   "gates": [
     {
       "evidence": [
@@ -84,6 +91,19 @@
     },
     {
       "evidence": [
+        "trained-scene FPS range 46.3-438.6 over 4 rows",
+        "includes Truck DBS-Beta/fixed-Gaussian checkpoints and official 3DGUT Truck/Room render timings"
+      ],
+      "gaps": [],
+      "id": "real_scene_fps",
+      "nextSteps": [
+        "extend trained-scene FPS to every official-baseline scene as checkpoints finish"
+      ],
+      "passed": true,
+      "title": "Real trained-scene FPS"
+    },
+    {
+      "evidence": [
         "KHR_gaussian_splatting GLB and USD bridge artifacts were written",
         "GLB 1800 bytes; USD 778 bytes",
         "runtime export report marks native runtime, glTF preview, USD metadata, and chunked streaming workflows ready"
@@ -95,6 +115,20 @@
       ],
       "passed": true,
       "title": "Engine/viewer export integration"
+    },
+    {
+      "evidence": [
+        "GLB declares KHR_gaussian_splatting POINTS primitive with required attributes",
+        "USD bridge has defaultPrim, GaussianCarriers Points prim, displayColor, and AURA carrier metadata",
+        "installed checker tools recorded: node, npx"
+      ],
+      "gaps": [],
+      "id": "viewer_compatibility_exports",
+      "nextSteps": [
+        "run third-party viewer checks when Blender/USDView/browser viewer automation is installed"
+      ],
+      "passed": true,
+      "title": "Viewer/export structural compatibility"
     },
     {
       "evidence": [
@@ -110,12 +144,13 @@
     },
     {
       "evidence": [
-        "external baselines present: 2dgs, 3dgs, 3dgs_smoke, colmap, nerf, ray_traced_gs"
+        "external baselines present: 2dgs, 3dgs, 3dgs_smoke, colmap, nerf, ray_traced_gs",
+        "official 2DGS/3DGUT same-split rows complete: 8/8 and 8/8"
       ],
       "gaps": [],
       "id": "external_method_baselines",
       "nextSteps": [
-        "optionally replace local smoke/protocol rows with official external-repo full-split runs"
+        "keep official rows regenerated when the audited scene set changes"
       ],
       "passed": true,
       "title": "External method baseline table"
@@ -148,7 +183,7 @@
       "title": "Inverse-material validation"
     }
   ],
-  "passedGateCount": 9,
+  "passedGateCount": 11,
   "publicationReady": true,
   "remainingGateIds": []
 }

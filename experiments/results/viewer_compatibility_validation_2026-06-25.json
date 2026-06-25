@@ -1,0 +1,41 @@
+{
+  "format": "AURA_VIEWER_COMPATIBILITY_VALIDATION",
+  "passed": true,
+  "claimBoundary": "Local structural compatibility only; no third-party GUI viewer render is claimed unless an external tool is installed and recorded here.",
+  "artifacts": {
+    "gltfSplatGlb": "/home/krishi/workspace/brain/workspace/projects/aura/repo/docs/engine_exports/aura_splat.glb",
+    "usdBridge": "/home/krishi/workspace/brain/workspace/projects/aura/repo/docs/engine_exports/aura_scene.usda"
+  },
+  "gltf": {
+    "assetVersion": "2.0",
+    "usesKHRGaussianSplatting": true,
+    "primitiveMode": 0,
+    "requiredAttributesPresent": true,
+    "accessorTypes": {
+      "POSITION": "VEC3",
+      "COLOR_0": "VEC4",
+      "KHR_gaussian_splatting:ROTATION": "VEC4",
+      "KHR_gaussian_splatting:SCALE": "VEC3",
+      "KHR_gaussian_splatting:OPACITY": "SCALAR",
+      "_AURA_CONFIDENCE": "SCALAR"
+    },
+    "bufferBytes": 256
+  },
+  "usd": {
+    "startsWithUsdaMagic": true,
+    "hasDefaultPrim": true,
+    "hasPointsPrim": true,
+    "hasDisplayColorPrimvar": true,
+    "hasAuraCarrierMetadata": true,
+    "balancedBraces": true,
+    "balancedBrackets": true
+  },
+  "externalTools": {
+    "node": "/home/krishi/.nvm/versions/node/v22.22.2/bin/node",
+    "npx": "/home/krishi/.nvm/versions/node/v22.22.2/bin/npx",
+    "blender": null,
+    "usdchecker": null,
+    "usdcat": null
+  },
+  "errors": []
+}

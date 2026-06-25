@@ -136,6 +136,44 @@ def test_engine_integration_validation_writes_engine_artifacts(tmp_path):
     assert payload["runtime"]["engineWorkflow"]["nativeRuntimeReady"] is True
 
 
+def test_viewer_compatibility_validation_accepts_engine_exports(tmp_path):
+    sys.path.insert(0, "experiments")
+    from engine_integration_validation import validate_engine_exports
+    from viewer_compatibility_validation import validate_viewer_compatibility
+
+    validate_engine_exports(tmp_path / "engine.json", tmp_path / "exports")
+    payload = validate_viewer_compatibility(
+        tmp_path / "exports/aura_splat.glb",
+        tmp_path / "exports/aura_scene.usda",
+        tmp_path / "viewer.json",
+    )
+
+    assert payload["format"] == "AURA_VIEWER_COMPATIBILITY_VALIDATION"
+    assert payload["passed"] is True
+    assert payload["gltf"]["usesKHRGaussianSplatting"] is True
+    assert payload["gltf"]["requiredAttributesPresent"] is True
+    assert payload["usd"]["balancedBraces"] is True
+
+
+def test_real_scene_fps_sweep_fps_helper():
+    sys.path.insert(0, "experiments")
+    from real_scene_fps_sweep import _fps
+
+    assert _fps(2.0) == 500.0
+    assert _fps(0.0) == 0.0
+
+
+def test_collect_official_multiscene_baselines_writes_missing_rows(tmp_path):
+    sys.path.insert(0, "experiments")
+    from collect_official_multiscene_baselines import collect_official_multiscene_baselines
+
+    payload = collect_official_multiscene_baselines(tmp_path / "official.json")
+
+    assert payload["format"] == "AURA_OFFICIAL_MULTISCENE_BASELINES"
+    assert "official_2dgs" in payload["completedSceneCounts"]
+    assert "official_3dgut" in payload["missing"]
+
+
 def test_native_real_capture_validation_rejects_incomplete_audit():
     sys.path.insert(0, "experiments")
     from native_real_capture_validation import summarize_native_gate

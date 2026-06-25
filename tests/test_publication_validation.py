@@ -15,7 +15,9 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert gates["dataset_audit"]["passed"] is True
     assert gates["prism_additive_contract"]["passed"] is True
     assert gates["prism_cuda_fps"]["passed"] is True
+    assert gates["real_scene_fps"]["passed"] is True
     assert gates["engine_integration_exports"]["passed"] is True
+    assert gates["viewer_compatibility_exports"]["passed"] is True
     assert gates["learned_lpips_cuda"]["passed"] is True
     assert gates["external_method_baselines"]["passed"] is True
     assert gates["secondary_ray_reflection"]["passed"] is True
@@ -25,6 +27,8 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert "inverse_materials" not in payload["remainingGateIds"]
     assert payload["claimBoundary"]["canClaim"]
     assert "AURA has same-split external baseline metrics for COLMAP, NeRF, 3DGS, 2DGS, and ray-traced GS" in payload["claimBoundary"]["canClaim"]
+    assert "AURA has completed official 2DGS and 3DGUT same-split rows for all 8 audited scenes" in payload["claimBoundary"]["canClaim"]
+    assert any("official 2DGS/3DGUT same-split rows complete: 8/8 and 8/8" in line for line in gates["external_method_baselines"]["evidence"])
 
 
 def test_publication_validation_report_cli_prints_json():
