@@ -49,6 +49,7 @@ output closer to a usable scene asset:
 | Real-scene FPS | **Trained checkpoints exceed 30 FPS** | Truck DBS-Beta/fixed-Gaussian + 3DGUT Truck/Room |
 | External baselines | **Local + official same-split table complete** | COLMAP, NeRF, 3DGS, 2DGS-style, ray-traced-GS-style, official 2DGS, official 3DGUT |
 | SOTA A/B upgrades | **Local artifact-backed A/B ready** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
+| Calibrated confidence (P0) | **Certified per-carrier confidence, validated on 2 real scenes** | `docs/P0_CALIBRATED_CONFIDENCE.md` |
 
 **Claim boundary:** the external baseline gate is closed for local
 artifact-backed validation. Official 2DGS and 3DGUT have now been built and run
@@ -165,17 +166,49 @@ aura relight-preview scene.aura scene/manifest.json --output relit.ppm
 
 ![Relighting sweep](docs/relight_sweep.gif)
 
-### Confidence
+### Calibrated Confidence (P0 Killer Property)
 
-Each carrier stores a confidence value derived from multi-view support. This is
-useful for inspection, filtering, and downstream tools that need to distinguish
-well-observed geometry from speculative structure.
+Each carrier stores a confidence value derived from multi-view support, useful for
+inspection, filtering, and downstream tools that need to distinguish well-observed
+geometry from speculative structure.
 
 ```bash
 aura confidence scene.aura scene/manifest.json
 ```
 
 ![Confidence heatmap](docs/confidence_truck.png)
+
+Beyond the raw heuristic, AURA now ships **calibrated, certified per-carrier
+confidence** — the property a bare 3DGS/DBS splat does not have. Isotonic
+calibration maps the multi-view signal to a reliability an engine can trust, a
+distribution-free **conformal pruning certificate** bounds the reliability lost by
+dropping carriers below a threshold, and the calibrated value travels with the
+asset as `_AURA_CONFIDENCE` in the `KHR_gaussian_splatting` export. Authoritative
+write-up: [`docs/P0_CALIBRATED_CONFIDENCE.md`](docs/P0_CALIBRATED_CONFIDENCE.md).
+
+```bash
+aura calibrate-confidence <package> <reliability.npz>
+```
+
+Validated end-to-end on two real scenes — Truck (129k carriers) and Garden
+(Mip-NeRF 360 outdoor, 120k carriers):
+
+| signal | Truck | Garden |
+|---|---:|---:|
+| export-time train-view color agreement vs held-out reliability (corr) | **0.94** | **0.95** |
+| view-count heuristic (shipped) vs reliability (corr) | 0.27 | 0.31 |
+| opacity vs reliability (corr) | −0.19 | −0.18 |
+| calibration ECE (raw → calibrated) | 0.68 → 0.0017 | 0.81 → 0.0048 |
+
+Opacity — the usual engine pruning default — is *negatively* correlated with
+reliability, so opacity-pruning removes reliable carriers. Confidence-guided
+pruning retains about **2× the reliability of opacity-guided pruning** at matched
+budgets, within 2–3% of the oracle ceiling on both scenes.
+
+**Caveat:** the reliability label is held-out color agreement, so a carrier
+occluded across held-out views can score low (mitigated by a robust median and a
+min-observation gate). Reproduce with `experiments/per_carrier_reliability.py`
+followed by `experiments/calibrate_confidence.py`.
 
 ### Semantics And Open-Vocabulary Search
 
