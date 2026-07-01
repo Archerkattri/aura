@@ -1,0 +1,63 @@
+{
+  "scene": "truck",
+  "carriers_labeled": 113180,
+  "feature": "train_agree",
+  "calibration": {
+    "ece_raw_heuristic": 0.8134,
+    "ece_feature_uncalibrated": 0.0119,
+    "ece_calibrated": 0.0048
+  },
+  "pruning_certificate": {
+    "tau": 0.0772,
+    "epsilon": 0.6,
+    "alpha": 0.1,
+    "certified": true,
+    "kept_fraction": 0.3812,
+    "empirical_risk_kept": 0.5899
+  },
+  "selection_auc_retained_reliability": {
+    "calibrated_confidence": 0.3523,
+    "opacity": 0.135,
+    "raw_heuristic": 0.2897,
+    "random": 0.1648,
+    "oracle_ceiling": 0.3614
+  },
+  "curves_at_budgets": {
+    "budgets": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "calibrated_confidence": [
+      0.6993,
+      0.5835,
+      0.4837,
+      0.3941,
+      0.3186,
+      0.2668,
+      0.23,
+      0.2024,
+      0.1809,
+      0.1634
+    ],
+    "opacity": [
+      0.1378,
+      0.1271,
+      0.1231,
+      0.1257,
+      0.1281,
+      0.1289,
+      0.1312,
+      0.1367,
+      0.1475,
+      0.1634
+    ]
+  }
+}

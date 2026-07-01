@@ -80,12 +80,31 @@ opacity default. This is the concrete B1 answer: a certified, budget-controllabl
 exported reliability that lets a consumer drop carriers with a guarantee — a
 capability a bare 3DGS/DBS splat does not have.
 
-**Honest caveats:** single scene (Truck); the reliability label is held-out colour
-agreement, so an interior carrier occluded across the held-out views can score low
-(mitigated by a robust median over 32 views + a min-observation gate, but present);
-opacity's negative correlation is scene-dependent. Next: repeat on Mip-NeRF-360
-scenes (data present; needs their trained carriers) and add an occlusion-aware
-attribution (depth-ordered contribution) as a second reliability signal.
+**Multi-scene: it generalises.** Repeated end-to-end on **Garden** (Mip-NeRF-360
+outdoor, 120k carriers, 161 train / 24 held-out views) — a very different scene
+from Truck — with the same pipeline:
+
+| metric | Truck | Garden |
+|---|---|---|
+| corr(train-agreement, reliability) | 0.94 | **0.95** |
+| corr(view-count heuristic, reliability) | 0.27 | 0.31 |
+| corr(opacity, reliability) | −0.19 | **−0.18** |
+| ECE raw heuristic → calibrated | 0.68 → 0.0017 | 0.81 → **0.0048** |
+| selection AUC: calibrated | 0.528 | 0.352 |
+| selection AUC: oracle ceiling | 0.544 | 0.361 |
+| selection AUC: opacity (engine default) | 0.268 | **0.135** |
+
+On both scenes calibrated confidence lands within ~2–3% of the oracle ceiling and
+roughly doubles the opacity default, and opacity is consistently the *worst*
+signal (below random) — pruning by opacity removes reliable carriers. The
+absolute reliability level is lower on Garden (sparser 120k carriers over a large
+outdoor scene → more floaters), but the ordering and the calibrated-vs-opacity gap
+are identical. This removes the single-scene caveat.
+
+**Remaining caveats:** the reliability label is held-out colour agreement, so an
+interior carrier occluded across the held-out views can score low (mitigated by a
+robust median + a min-observation gate). Next: an occlusion-aware depth-ordered
+attribution as a second reliability signal, and more Mip-NeRF-360 scenes.
 
 ## Reproduce (accuracy job — safe on shared GPUs, see gpu-usage-policy)
 

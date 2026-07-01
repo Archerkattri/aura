@@ -57,20 +57,20 @@ def main() -> None:
     homog = torch.cat([means, torch.ones(n, 1, device=dev)], dim=1)  # [N,4]
 
     manifest = json.load(open(a.manifest))
-    root = Path(manifest.get("root", Path(a.manifest).parent))
-    if not root.is_absolute():
-        root = (Path(a.manifest).resolve().parent / root)
-    # Resolve root robustly: image_path is relative to the scene root.
+    # manifest['root'] is relative to the repo root (cwd), not the manifest dir.
+    root_raw = Path(manifest.get("root", "."))
+    mparent = Path(a.manifest).resolve().parent
+    _bases = [root_raw, Path.cwd() / root_raw, mparent / root_raw, mparent, Path.cwd()]
     frames = manifest["frames"]
     test_frames = [f for i, f in enumerate(frames) if i % a.holdout == 0]
     train_frames = [f for i, f in enumerate(frames) if i % a.holdout != 0]
 
     def _img_path(fr):
         p = Path(fr["image_path"])
-        for base in (root, Path("data/tanks/truck"), Path(a.manifest).resolve().parent):
+        for base in _bases:
             if (base / p).exists():
                 return base / p
-        return root / p
+        return root_raw / p
 
     import imageio.v3 as imageio
 
