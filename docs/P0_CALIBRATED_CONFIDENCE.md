@@ -38,30 +38,75 @@ asset via the `_AURA_CONFIDENCE` KHR vendor attribute.
 
 Tests: `tests/test_calibration.py` (10 tests, CPU/numpy, all pass).
 
-## The one GPU step (deferred — 5090s busy with gaussianfeels on 2026-07-01)
+## Real-scene result (Truck, 129,531 trained carriers) — 2026-07-01
 
-Calibration needs a **held-out per-carrier reliability label** `y_i`. The honest
-signal is per-carrier held-out rendered error. Produce it on the training box:
+Ran end-to-end on the trained Truck scene (`outputs/truck-sidecar.aura`, 219 train
+/ 32 held-out views). Reliability label = per-carrier held-out colour agreement
+(`experiments/per_carrier_reliability.py`); calibration + certificate + selection
+on a disjoint carrier split (`experiments/calibrate_confidence.py`,
+`outputs/calib_truck.json`).
 
-- For a trained scene, hold out a view split. For each carrier, estimate its
-  contribution error via **leave-one-carrier-out** (or the cheaper
-  **gradient/alpha-weighted attribution** of held-out L1/SSIM to each carrier).
-- Label `y_i = 1` (or continuous `1 - normalized_error_i`) when the held-out
-  residual attributable to carrier `i` is below tolerance.
-- Fit the calibrator on a calibration view-split, evaluate ECE + the pruning
-  certificate on a disjoint test split, and run `selection_quality_curve`
-  against opacity- and random-guided pruning to confirm the killer property on
-  real Mip-NeRF-360 / Truck scenes.
+**The export-time feature works, the shipped heuristic does not.** A carrier's
+train-view colour agreement predicts its held-out reliability at **r = 0.94**;
+AURA's current view-count heuristic only **r = 0.27** (it saturates at ~0.99 on a
+densely-captured scene), and **opacity is _negatively_ correlated (r = −0.19)** —
+so pruning by opacity, the usual engine default, actively removes reliable
+carriers.
 
-Suggested command scaffold (to add under `experiments/`):
+**Calibration (ECE, disjoint eval split):**
+
+| confidence | ECE |
+|---|---|
+| raw view-count heuristic (shipped) | **0.68** |
+| train-agreement feature, uncalibrated | 0.020 |
+| **calibrated** | **0.0017** |
+
+**Certified pruning:** at ε = 0.6, α = 0.1 the conformal certificate keeps 71.7%
+of carriers with the retained set's mean unreliability certified ≤ ε.
+
+**Killer property — mean retained held-out reliability across pruning budgets
+(AUC; higher is better):**
+
+| selection signal | AUC | @10%-keep |
+|---|---|---|
+| **calibrated confidence** | **0.528** | **0.765** |
+| oracle ceiling | 0.544 | — |
+| raw heuristic | 0.410 | — |
+| random | 0.313 | — |
+| opacity (engine default) | 0.268 | 0.167 |
+
+Calibrated-confidence-guided pruning is within 3% of the oracle and **~2×** the
+opacity default. This is the concrete B1 answer: a certified, budget-controllable,
+exported reliability that lets a consumer drop carriers with a guarantee — a
+capability a bare 3DGS/DBS splat does not have.
+
+**Honest caveats:** single scene (Truck); the reliability label is held-out colour
+agreement, so an interior carrier occluded across the held-out views can score low
+(mitigated by a robust median over 32 views + a min-observation gate, but present);
+opacity's negative correlation is scene-dependent. Next: repeat on Mip-NeRF-360
+scenes (data present; needs their trained carriers) and add an occlusion-aware
+attribution (depth-ordered contribution) as a second reliability signal.
+
+## Reproduce (accuracy job — safe on shared GPUs, see gpu-usage-policy)
 
 ```
-# on the GPU box, .gpu_venv active, GPUs verified idle:
-python experiments/per_carrier_reliability.py --scene truck --holdout 0.2 \
-    --attribution alpha_weighted --out reliability_truck.npz
-python experiments/calibrate_confidence.py --reliability reliability_truck.npz \
-    --report calib_truck.json   # ECE, certificate, selection AUCs
+# .gpu_venv active; produces the held-out reliability signal from the trained scene
+OMP_NUM_THREADS=2 .gpu_venv/bin/python experiments/per_carrier_reliability.py \
+    --aura outputs/truck-sidecar.aura --manifest outputs/truck-pts129k-manifest.json \
+    --out outputs/reliability_truck.npz
+# calibration + certificate + selection report (CPU)
+.gpu_venv/bin/python experiments/calibrate_confidence.py \
+    --reliability outputs/reliability_truck.npz --report outputs/calib_truck.json
 ```
+
+## Next reliability signal (optional strengthening)
+
+The current label is held-out colour agreement. A stronger, occlusion-aware
+signal is **depth-ordered per-carrier contribution error**: render the scene,
+attribute held-out L1/SSIM to each carrier by its transmittance-weighted
+contribution (front-to-back), and label by that. It removes the occlusion caveat
+above. Also repeat across the Mip-NeRF-360 scenes (`data/mipnerf360` present) once
+their carriers are trained, to show the property is not Truck-specific.
 
 ## Why this is the successor property, not scaffolding
 
