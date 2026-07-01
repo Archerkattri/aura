@@ -369,6 +369,19 @@ def main(argv: list[str] | None = None) -> int:
     confidence.add_argument("--saturate", type=float, default=12.0)
     confidence.add_argument("--device", default="cuda")
 
+    calib_conf = sub.add_parser(
+        "calibrate-confidence",
+        help="Fit an isotonic calibrator from a held-out reliability signal and "
+             "write the CALIBRATED confidence into carriers.npz (P0 killer property; "
+             "export-splat then ships the trustworthy _AURA_CONFIDENCE)")
+    calib_conf.add_argument("source", type=Path, help="package dir or carriers.npz")
+    calib_conf.add_argument("reliability", type=Path,
+                            help="npz from experiments/per_carrier_reliability.py "
+                                 "(keys: feature, reliability, labeled)")
+    calib_conf.add_argument("--feature", default="train_agree",
+                            help="export-time feature key to calibrate")
+    calib_conf.add_argument("--device", default="cuda")
+
     ray_query = sub.add_parser(
         "ray-query", help="Answer one ray over trained carriers (full RayQueryResult payload as JSON)")
     ray_query.add_argument("source", type=Path, help="package dir or carriers.npz")
@@ -713,6 +726,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "confidence":
         out = _confidence_command(args)
+        print(out)
+        return 0
+    if args.command == "calibrate-confidence":
+        out = _calibrate_confidence_command(args)
         print(out)
         return 0
     if args.command == "ray-query":
@@ -1324,6 +1341,36 @@ def _confidence_command(args: argparse.Namespace) -> Path:
     conf = multiview_confidence(carriers, manifest, scale=args.scale,
                                 device=args.device, saturate=args.saturate)
     kw = {k: carriers[k] for k in ("means", "scales", "quats", "opacity", "beta", "sb") if k in carriers}
+    kw["sh_degree"] = int(carriers.get("sh_degree", 0))
+    if "sh" in carriers:
+        kw["sh"] = carriers["sh"]
+    if "colors" in carriers:
+        kw["colors"] = carriers["colors"]
+    return save_carriers(args.source, confidence=conf, **kw)
+
+
+def _calibrate_confidence_command(args: argparse.Namespace) -> Path:
+    """Fit an isotonic calibrator from a held-out reliability signal and persist
+    the CALIBRATED confidence into carriers.npz (P0 killer property)."""
+    import numpy as np
+
+    from .calibration import IsotonicConfidenceCalibrator
+    from .carrier_io import load_carriers, save_carriers
+
+    carriers = load_carriers(args.source, device=args.device)
+    if carriers is None:
+        raise SystemExit(f"no carriers.npz found at {args.source}")
+    d = np.load(args.reliability)
+    if args.feature not in d or "reliability" not in d:
+        raise SystemExit(
+            f"reliability npz needs keys '{args.feature}' and 'reliability'")
+    feat = np.asarray(d[args.feature], dtype="float64")
+    rel = np.asarray(d["reliability"], dtype="float64")
+    labeled = np.asarray(d["labeled"]) if "labeled" in d else np.ones_like(feat, bool)
+    cal = IsotonicConfidenceCalibrator().fit(feat[labeled], rel[labeled])
+    conf = np.asarray(cal.predict(feat), dtype="float32")
+    kw = {k: carriers[k] for k in ("means", "scales", "quats", "opacity", "beta", "sb")
+          if k in carriers}
     kw["sh_degree"] = int(carriers.get("sh_degree", 0))
     if "sh" in carriers:
         kw["sh"] = carriers["sh"]
