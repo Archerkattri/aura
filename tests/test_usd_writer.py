@@ -4,9 +4,18 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
-from aura.usd_writer import write_usda, _get_position, _get_color, _get_scale
+from aura.usd_writer import (
+    write_usda,
+    write_usd_gaussian_splat,
+    PARTICLEFIELD_SPLAT_TYPE,
+    _C0,
+    _get_position,
+    _get_color,
+    _get_scale,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -265,3 +274,86 @@ def test_get_scale_skips_non_positive_returns_next() -> None:
 
     result = _get_scale(element)
     assert result == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Schema-conformant writer (OpenUSD 26.03 UsdVolParticleField3DGaussianSplat)
+# ---------------------------------------------------------------------------
+
+def _tiny_carriers(n: int = 4) -> dict:
+    """A minimal numpy carrier set (means/scales/quats/opacity/colors + confidence)."""
+    rng = np.random.default_rng(0)
+    quats = rng.normal(size=(n, 4)).astype("float32")
+    quats /= np.linalg.norm(quats, axis=1, keepdims=True)
+    return {
+        "means": (rng.normal(size=(n, 3)) * 2.0).astype("float32"),
+        "scales": (np.abs(rng.normal(size=(n, 3))) * 0.05).astype("float32"),
+        "quats": quats,
+        "opacity": rng.uniform(size=n).astype("float32"),
+        "colors": rng.uniform(size=(n, 3)).astype("float32"),
+        "sh_degree": 0,
+        "confidence": rng.uniform(size=n).astype("float32"),
+    }
+
+
+def test_schema_writer_prim_type_and_attributes(tmp_path: Path) -> None:
+    """Round-trip a tiny carrier set through the schema writer; the reopened stage
+    must carry the official ParticleField3DGaussianSplat prim with all applied-
+    schema attributes present and positions preserved."""
+    pytest.importorskip("pxr")
+    from pxr import Usd
+
+    carriers = _tiny_carriers(5)
+    out = tmp_path / "splat.usda"
+    written = write_usd_gaussian_splat(carriers, out, scene_name="unit-test")
+    assert written.exists()
+
+    stage = Usd.Stage.Open(str(written))
+    prim = stage.GetPrimAtPath("/AURAScene/GaussianSplat")
+    assert prim.IsValid()
+    assert str(prim.GetTypeName()) == PARTICLEFIELD_SPLAT_TYPE
+
+    required = [
+        "positions", "orientations", "scales", "opacities",
+        "primvars:displayColor",
+        "radiance:sphericalHarmonicsCoefficients",
+        "radiance:sphericalHarmonicsDegree",
+        "extent",
+    ]
+    for name in required:
+        attr = prim.GetAttribute(name)
+        assert attr.IsValid() and attr.HasValue(), f"missing schema attr {name}"
+
+    # Values round-trip.
+    pos = np.asarray(prim.GetAttribute("positions").Get())
+    assert pos.shape == (5, 3)
+    np.testing.assert_allclose(pos, carriers["means"], rtol=0, atol=1e-5)
+    assert len(prim.GetAttribute("orientations").Get()) == 5
+    assert int(prim.GetAttribute("radiance:sphericalHarmonicsDegree").Get()) == 0
+    # Degree-0 radiance coefficient is the inverse-SH0 of the display colour.
+    dc = np.asarray(prim.GetAttribute("radiance:sphericalHarmonicsCoefficients").Get())
+    np.testing.assert_allclose(dc, (carriers["colors"] - 0.5) / _C0, rtol=0, atol=1e-4)
+
+
+def test_schema_writer_confidence_vendor_channel(tmp_path: Path) -> None:
+    """The AURA per-carrier confidence rides along as a preserved custom attribute."""
+    pytest.importorskip("pxr")
+    from pxr import Usd
+
+    carriers = _tiny_carriers(3)
+    written = write_usd_gaussian_splat(carriers, tmp_path / "c.usda")
+    stage = Usd.Stage.Open(str(written))
+    prim = stage.GetPrimAtPath("/AURAScene/GaussianSplat")
+    conf = prim.GetAttribute("custom:aura:confidence")
+    assert conf.IsValid() and conf.HasValue()
+    np.testing.assert_allclose(
+        np.asarray(conf.Get()), carriers["confidence"], rtol=0, atol=1e-6)
+
+
+def test_schema_writer_does_not_break_preview_writer(tmp_path: Path) -> None:
+    """The dependency-free preview writer still emits a Points prim (unchanged)."""
+    scene = _make_scene(4)
+    out = write_usda(scene, tmp_path / "preview.usda")
+    text = out.read_text()
+    assert 'def Points "GaussianCarriers"' in text
+    assert PARTICLEFIELD_SPLAT_TYPE not in text

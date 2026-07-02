@@ -360,6 +360,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     export_usd.add_argument("package_dir", type=Path)
     export_usd.add_argument("--output", type=Path, default=Path("outputs/scene.usda"))
+    export_usd.add_argument(
+        "--schema", action="store_true",
+        help="Write the official OpenUSD 26.03 UsdVolParticleField3DGaussianSplat "
+             "schema (native splat prim, requires usd-core) instead of the "
+             "dependency-free Points preview.")
 
     confidence = sub.add_parser(
         "confidence", help="Compute per-carrier multi-view confidence and write it into carriers.npz")
@@ -1439,11 +1444,27 @@ def _export_splat_command(args: argparse.Namespace, load_carriers) -> Path:
 def _export_usd_command(args: argparse.Namespace) -> Path:
     """Export a package to a USD ASCII preview/metadata bridge."""
     from .package import load_package
-    from .usd_writer import write_usda
 
-    package = load_package(args.package_dir)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    if getattr(args, "schema", False):
+        # Schema-conformant path: the official OpenUSD 26.03 splat schema, driven by
+        # the package's carrier tensors (carriers.npz sidecar).
+        from .carrier_io import has_carriers, load_carriers
+        from .usd_writer import write_usd_gaussian_splat
+
+        if not has_carriers(args.package_dir):
+            raise SystemExit(
+                f"--schema needs carrier tensors (carriers.npz) in {args.package_dir}; "
+                "none found. Train/export a package with a carrier sidecar first.")
+        carriers = load_carriers(args.package_dir, device="cpu")
+        scene_name = getattr(getattr(load_package(args.package_dir), "asset", None),
+                             "name", args.package_dir.name)
+        return write_usd_gaussian_splat(carriers, out, scene_name=scene_name)
+
+    from .usd_writer import write_usda
+    package = load_package(args.package_dir)
     return write_usda(package.scene, out)
 
 
