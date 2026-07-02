@@ -46,7 +46,7 @@ output closer to a usable scene asset:
 | Compactness | **Beta reaches Gaussian quality with about half the carriers on Truck** | 500k Beta > 1M fixed Gaussian |
 | PRISM | **Complete for its intended additive role** | Gaussian/Beta stay primary; Gabor/neural route to PRISM |
 | Engine export | **GLB/USD bridge validated** | `KHR_gaussian_splatting` GLB + USD runtime report |
-| Real-scene FPS | **Trained checkpoints exceed 30 FPS** | Truck DBS-Beta/fixed-Gaussian + 3DGUT Truck/Room |
+| Real-scene FPS | **Trained checkpoints exceed 30 FPS (measured on RTX 5090)** | Truck DBS-Beta/fixed-Gaussian + 3DGUT Truck/Room |
 | External baselines | **Local + official same-split table complete** | COLMAP, NeRF, 3DGS, 2DGS-style, ray-traced-GS-style, official 2DGS, official 3DGUT |
 | SOTA A/B upgrades | **Local artifact-backed A/B ready** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
 | Calibrated confidence (P0) | **Certified per-carrier confidence, validated on 4 real scenes** | `docs/P0_CALIBRATED_CONFIDENCE.md` |
@@ -270,6 +270,7 @@ an experiment-only checkpoint.
 ```bash
 aura export-splat scene.aura --output scene.glb
 aura export-usd scene.aura --output scene.usda
+aura export-usd scene.aura --schema --output scene.usda   # OpenUSD 26.03 splat schema
 aura validate-package scene.aura
 aura inspect-package scene.aura
 ```
@@ -278,7 +279,10 @@ Supported export surfaces:
 
 - `KHR_gaussian_splatting` GLB with position, color/opacity, rotation, scale, and
   SH payloads.
-- USD ASCII preview bridge for scene-graph and DCC workflows.
+- USD export: a dependency-free ASCII preview bridge for scene-graph and DCC
+  workflows, plus the official **OpenUSD 26.03** `UsdVolParticleField3DGaussianSplat`
+  schema via `--schema` (native splat prim with a confidence vendor channel;
+  requires `usd-core`).
 - `.aura` package plus `carriers.npz` sidecar for fast local rendering/eval.
 
 Latest engine integration artifact:
@@ -479,6 +483,7 @@ src/aura/
   readiness.py              stricter production-readiness boundary
   relight.py                relighting layer
   confidence.py             per-carrier confidence
+  calibration.py            calibrated confidence + conformal pruning certificate (P0)
   carrier_query.py          ray-query payloads
   schemas/                  .aura package schemas
 
