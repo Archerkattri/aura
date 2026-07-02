@@ -1,26 +1,27 @@
 {
-  "scene": "truck",
+  "scene": "garden",
+  "label": "color",
   "carriers_labeled": 113180,
   "feature": "train_agree",
   "calibration": {
-    "ece_raw_heuristic": 0.8134,
-    "ece_feature_uncalibrated": 0.0119,
-    "ece_calibrated": 0.0048
+    "ece_raw_heuristic": 0.5507,
+    "ece_feature_uncalibrated": 0.013,
+    "ece_calibrated": 0.0015
   },
   "pruning_certificate": {
-    "tau": 0.0772,
+    "tau": 0.0025,
     "epsilon": 0.6,
     "alpha": 0.1,
     "certified": true,
-    "kept_fraction": 0.3812,
-    "empirical_risk_kept": 0.5899
+    "kept_fraction": 1.0,
+    "empirical_risk_kept": 0.5739
   },
   "selection_auc_retained_reliability": {
-    "calibrated_confidence": 0.3523,
-    "opacity": 0.135,
-    "raw_heuristic": 0.2897,
-    "random": 0.1648,
-    "oracle_ceiling": 0.3614
+    "calibrated_confidence": 0.6046,
+    "opacity": 0.4499,
+    "raw_heuristic": 0.4041,
+    "random": 0.4258,
+    "oracle_ceiling": 0.6194
   },
   "curves_at_budgets": {
     "budgets": [
@@ -36,28 +37,28 @@
       1.0
     ],
     "calibrated_confidence": [
-      0.6993,
-      0.5835,
-      0.4837,
-      0.3941,
-      0.3186,
-      0.2668,
-      0.23,
-      0.2024,
-      0.1809,
-      0.1634
+      0.7975,
+      0.75,
+      0.704,
+      0.661,
+      0.6194,
+      0.5794,
+      0.5407,
+      0.5027,
+      0.465,
+      0.4261
     ],
     "opacity": [
-      0.1378,
-      0.1271,
-      0.1231,
-      0.1257,
-      0.1281,
-      0.1289,
-      0.1312,
-      0.1367,
-      0.1475,
-      0.1634
+      0.4498,
+      0.4558,
+      0.4641,
+      0.4717,
+      0.4689,
+      0.4575,
+      0.4437,
+      0.4339,
+      0.4271,
+      0.4261
     ]
   }
 }

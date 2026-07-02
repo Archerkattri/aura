@@ -36,6 +36,24 @@ def main() -> None:
     ap.add_argument("--beta", type=float, default=4.0,
                     help="reliability = exp(-beta * colour L2 distance)")
     ap.add_argument("--conf-saturate", type=float, default=12.0)
+    ap.add_argument("--label", default="color",
+                    choices=["color", "depth_aware"],
+                    help="'color': count a view if the carrier projects in-frame "
+                         "(occlusion-blind). 'depth_aware': only count a view if the "
+                         "carrier IS the visible front surface at its pixel (a cheap "
+                         "per-pixel z-buffer over all carriers), removing occlusion "
+                         "noise from the reliability label.")
+    ap.add_argument("--opacity-thresh", type=float, default=0.5,
+                    help="depth_aware: min opacity for a carrier to occlude (write "
+                         "into the front-depth buffer)")
+    ap.add_argument("--depth-tol", type=float, default=0.03,
+                    help="depth_aware: relative occlusion band; a carrier is occluded "
+                         "in a view (not counted) if opaque content sits in front of "
+                         "it, i.e. z > front_z * (1 + depth_tol)")
+    ap.add_argument("--depth-block", type=int, default=8,
+                    help="depth_aware: pixel block size for the front-surface depth "
+                         "buffer (coarser => robust surface estimate, less sensitive "
+                         "to single-pixel carrier-centre collisions)")
     ap.add_argument("--out", default="outputs/reliability_truck.npz")
     ap.add_argument("--device", default="cuda")
     a = ap.parse_args()
@@ -53,6 +71,7 @@ def main() -> None:
     means = torch.tensor(carriers["means"], dtype=torch.float32, device=dev)
     colors = torch.tensor(np.clip(carriers["colors"], 0, 1), dtype=torch.float32, device=dev)
     opacity = np.clip(carriers["opacity"], 0, 1)
+    opacity_t = torch.tensor(opacity, dtype=torch.float32, device=dev)
     n = means.shape[0]
     homog = torch.cat([means, torch.ones(n, 1, device=dev)], dim=1)  # [N,4]
 
@@ -93,27 +112,62 @@ def main() -> None:
         u = K[0, 0] * cam[:, 0] / zc + K[0, 2]
         v = K[1, 1] * cam[:, 1] / zc + K[1, 2]
         inview = infront & (u >= 0) & (u < w) & (v >= 0) & (v < h)
-        return u, v, w, h, inview
+        return u, v, w, h, inview, z
+
+    depth_aware = a.label == "depth_aware"
+
+    def visible_surface_mask(ui, vi, z, inview, H, W):
+        """Occlusion test. Build a front-SURFACE depth buffer on a coarse pixel grid
+        (block = --depth-block) from all opaque, in-frame carriers (min camera-z per
+        block). A carrier is counted as OBSERVED in this view unless opaque content
+        sits clearly in front of it: it is occluded (excluded) iff
+        ``z > front_z * (1 + depth_tol)``. This one-sided test keeps the whole front
+        surface shell and any near-camera carrier the camera actually sees, but drops
+        interior/back-facing carriers hidden behind an opaque front surface — the
+        occlusion noise the colour-only label suffers from. A coarse block makes the
+        front-surface estimate robust to single-pixel carrier-centre collisions
+        (most trained carriers are near-transparent; per-pixel exact min-z would
+        make 'frontmost' a near-random subset of views)."""
+        block = max(1, a.depth_block)
+        GW = (W + block - 1) // block
+        GH = (H + block - 1) // block
+        gpix = ((vi // block) * GW + (ui // block)).long()   # [N] coarse-block index
+        contributors = inview & (opacity_t > a.opacity_thresh)
+        zbuf = torch.full((GH * GW,), float("inf"), device=dev)
+        if contributors.any():
+            zbuf = zbuf.scatter_reduce(
+                0, gpix[contributors], z[contributors], reduce="amin",
+                include_self=True)
+        front_z = zbuf[gpix]                              # [N] front depth in block
+        not_occluded = torch.isfinite(front_z) & (z <= front_z * (1.0 + a.depth_tol))
+        return inview & not_occluded
 
     def agreement_over(fr_list):
         """Robust colour-agreement of every carrier over a view list: returns
         (agreement in [0,1], observation count). agreement = exp(-beta * L2 of the
-        carrier colour vs the median observed GT colour) over in-frame views."""
-        big = torch.tensor(1e6, device=dev)
+        carrier colour vs the median observed GT colour) over views in which the
+        carrier is observed. 'observed' = in-frame (color label) or the visible
+        front surface at its pixel (depth_aware label)."""
+        nan = torch.tensor(float("nan"), device=dev)
         cols, msks, cnt = [], [], torch.zeros(n, device=dev)
         for fr in fr_list:
-            u, v, w, h, inview = project(fr)
+            u, v, w, h, inview, z = project(fr)
             img = imageio.imread(_img_path(fr))
             H, W = img.shape[0], img.shape[1]
             gt = torch.tensor(img, dtype=torch.float32, device=dev) / 255.0
             ui = torch.clamp(u.round().long(), 0, W - 1)
             vi = torch.clamp(v.round().long(), 0, H - 1)
+            observed = visible_surface_mask(ui, vi, z, inview, H, W) if depth_aware \
+                else inview
             sampled = gt[vi, ui, :]
-            cols.append(torch.where(inview[:, None], sampled, big))
-            msks.append(inview.float())
-            cnt += inview.float()
+            # non-observed views -> NaN so the robust centre is taken over ONLY the
+            # observed views (a sentinel would poison the median once a carrier is
+            # observed in < half the views, as the depth_aware label routinely is).
+            cols.append(torch.where(observed[:, None], sampled, nan))
+            msks.append(observed.float())
+            cnt += observed.float()
         stack = torch.stack(cols, dim=1)                 # [N,V,3]
-        median_obs, _ = stack.median(dim=1)              # no-obs -> ~1e6
+        median_obs = torch.nanmedian(stack, dim=1).values  # over observed views only
         dist = torch.linalg.norm(colors - median_obs, dim=1)
         agree = torch.exp(-a.beta * dist).clamp(0, 1)
         # carriers never observed -> agreement 0 (unsupported, honestly low)
@@ -130,7 +184,7 @@ def main() -> None:
     # saturated / non-discriminative on a densely-captured scene ("before").
     train_cnt = torch.zeros(n, device=dev)
     for fr in train_frames:
-        _, _, _, _, inview = project(fr)
+        _, _, _, _, inview, _ = project(fr)
         train_cnt += inview.float()
     raw_conf = 1.0 - torch.exp(-train_cnt / a.conf_saturate)
 
@@ -145,6 +199,7 @@ def main() -> None:
         heldout_obs=obs_cnt_np.astype("int32"),
         train_obs=train_cnt.cpu().numpy().astype("int32"),
         labeled=labeled,
+        label=np.array(a.label),
     )
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     np.savez(a.out, **out)
@@ -153,6 +208,7 @@ def main() -> None:
     ta_np = train_agree.cpu().numpy()
     print(json.dumps({
         "carriers": int(n),
+        "label": a.label,
         "test_views": len(test_frames),
         "train_views": len(train_frames),
         "labeled_fraction": float(labeled.mean()),

@@ -190,25 +190,34 @@ write-up: [`docs/P0_CALIBRATED_CONFIDENCE.md`](docs/P0_CALIBRATED_CONFIDENCE.md)
 aura calibrate-confidence <package> <reliability.npz>
 ```
 
-Validated end-to-end on two real scenes — Truck (129k carriers) and Garden
-(Mip-NeRF 360 outdoor, 120k carriers):
+Validated end-to-end on **four real scenes** — Truck (129k carriers) and three
+Mip-NeRF 360 scenes: Garden (outdoor, 120k), Kitchen (indoor, 120k), Room (indoor,
+107k). The export-time feature (train-view color agreement) predicts held-out
+reliability; the shipped view-count heuristic and opacity do not:
 
-| signal | Truck | Garden |
-|---|---:|---:|
-| export-time train-view color agreement vs held-out reliability (corr) | **0.94** | **0.95** |
-| view-count heuristic (shipped) vs reliability (corr) | 0.27 | 0.31 |
-| opacity vs reliability (corr) | −0.19 | −0.18 |
-| calibration ECE (raw → calibrated) | 0.68 → 0.0017 | 0.81 → 0.0048 |
+| signal vs held-out reliability (corr) | Truck | Garden | Kitchen | Room |
+|---|---:|---:|---:|---:|
+| **train-view color agreement** (export-time feature) | **0.91** | **0.93** | **0.98** | **0.96** |
+| view-count heuristic (shipped) | −0.05 | −0.13 | −0.01 | 0.05 |
+| opacity (engine pruning default) | −0.18 | 0.16 | 0.08 | 0.05 |
+| calibration ECE (raw → calibrated) | 0.59→0.001 | 0.55→0.002 | 0.56→0.001 | 0.46→0.002 |
 
-Opacity — the usual engine pruning default — is *negatively* correlated with
-reliability, so opacity-pruning removes reliable carriers. Confidence-guided
-pruning retains about **2× the reliability of opacity-guided pruning** at matched
-budgets, within 2–3% of the oracle ceiling on both scenes.
+The killer property is **selection AUC** (mean retained reliability across pruning
+budgets): calibrated confidence lands within **1–4% of the oracle ceiling** on
+every scene and beats opacity, the raw heuristic, and random at every budget
+(calibrated 0.58–0.72 vs opacity 0.37–0.53, itself at or below random). At a
+10%-keep budget calibrated confidence retains 0.77–0.90 reliability vs opacity's
+0.31–0.49. Opacity — the usual engine pruning default — is a poor pruning signal
+on all four scenes (its *correlation* is negative on Truck but near-zero on the
+Mip-360 scenes; either way it is at or below random for selection).
 
-**Caveat:** the reliability label is held-out color agreement, so a carrier
-occluded across held-out views can score low (mitigated by a robust median and a
-min-observation gate). Reproduce with `experiments/per_carrier_reliability.py`
-followed by `experiments/calibrate_confidence.py`.
+The property also **survives an occlusion-aware reliability label**
+(`--label depth_aware`, which counts a carrier only in held-out views where it is
+the visible front surface): calibrated confidence stays within 1–9% of the oracle
+and still beats opacity on all four scenes. Reproduce with
+`experiments/per_carrier_reliability.py` followed by
+`experiments/calibrate_confidence.py`; authoritative write-up in
+[`docs/P0_CALIBRATED_CONFIDENCE.md`](docs/P0_CALIBRATED_CONFIDENCE.md).
 
 ### Semantics And Open-Vocabulary Search
 

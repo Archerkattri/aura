@@ -28,6 +28,7 @@ def main() -> None:
     ap.add_argument("--epsilon", type=float, default=0.6,
                     help="pruning risk budget: mean unreliability of kept set")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--scene", default="truck", help="scene name recorded in report")
     ap.add_argument("--report", default="outputs/calib_truck.json")
     a = ap.parse_args()
 
@@ -77,7 +78,8 @@ def main() -> None:
     _, _, auc_oracle = selection_quality_curve(rel_ev, rel_ev, fracs)
 
     report = {
-        "scene": "truck",
+        "scene": a.scene,
+        "label": str(d["label"]) if "label" in d else "color",
         "carriers_labeled": int(m),
         "feature": a.feature,
         "calibration": {
