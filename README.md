@@ -49,7 +49,7 @@ output closer to a usable scene asset:
 | Real-scene FPS | **Trained checkpoints exceed 30 FPS** | Truck DBS-Beta/fixed-Gaussian + 3DGUT Truck/Room |
 | External baselines | **Local + official same-split table complete** | COLMAP, NeRF, 3DGS, 2DGS-style, ray-traced-GS-style, official 2DGS, official 3DGUT |
 | SOTA A/B upgrades | **Local artifact-backed A/B ready** | DINOv3, VGGT, Depth Anything 3, 3DGUT, official 2DGS |
-| Calibrated confidence (P0) | **Certified per-carrier confidence, validated on 2 real scenes** | `docs/P0_CALIBRATED_CONFIDENCE.md` |
+| Calibrated confidence (P0) | **Certified per-carrier confidence, validated on 4 real scenes** | `docs/P0_CALIBRATED_CONFIDENCE.md` |
 
 **Claim boundary:** the external baseline gate is closed for local
 artifact-backed validation. Official 2DGS and 3DGUT have now been built and run
@@ -210,6 +210,8 @@ every scene and beats opacity, the raw heuristic, and random at every budget
 0.31–0.49. Opacity — the usual engine pruning default — is a poor pruning signal
 on all four scenes (its *correlation* is negative on Truck but near-zero on the
 Mip-360 scenes; either way it is at or below random for selection).
+
+![Four-scene selection AUC: calibrated confidence vs opacity vs oracle ceiling](assets/p0_selection_auc.png)
 
 The property also **survives an occlusion-aware reliability label**
 (`--label depth_aware`, which counts a carrier only in held-out views where it is
@@ -420,6 +422,7 @@ python experiments/inverse_material_validation.py
 python experiments/external_baseline_smokes.py --device cuda
 python experiments/render_tandt_scene_gifs.py
 python experiments/make_readme_visuals.py
+python experiments/make_p0_selection_auc_figure.py
 ```
 
 Regenerate the publication report:
