@@ -213,6 +213,29 @@ Mip-360 scenes; either way it is at or below random for selection).
 
 ![Four-scene selection AUC: calibrated confidence vs opacity vs oracle ceiling](assets/p0_selection_auc.png)
 
+**Pruning sweep (Room, held-out view).** The same property, rendered. As we prune
+100%→10% of carriers, the reliability of the *kept* carriers (bottom meters) is
+the P0 axis: calibrated-confidence pruning (left) tracks the oracle ceiling —
+retained reliability rises to **0.90 at a 10%-keep budget** — while opacity
+pruning (right) stays flat near random (**~0.50**).
+
+![Pruning sweep: calibrated-confidence vs opacity carrier pruning, Room held-out view](assets/pruning_sweep.gif)
+
+**Honest caveat (verified, not the naive story).** The *rendered* image degrades
+*faster* under confidence pruning than under opacity pruning — opacity holds a
+higher render PSNR at every budget (30%-keep: **22.7 dB opacity vs 18.7 dB
+confidence** below). This is structural, not a bug: opacity *is* the
+alpha-compositing blend weight, so keeping the highest-opacity carriers preserves
+the pixels you see almost by construction (which is why opacity pruning is the
+3DGS standard). The point of P0 is the other axis — opacity keeps a good-looking
+render but **unreliable** carriers and ships no guarantee, whereas calibrated
+confidence keeps the carriers that agree with held-out observations and comes with
+a distribution-free certificate. The two signals optimize different things.
+
+![Pruning to 30% of carriers: full vs calibrated-confidence@30% vs opacity@30%](assets/pruning_30pct.png)
+
+Regenerate both with `experiments/make_pruning_sweep_gif.py --scene room --frame 8`.
+
 The property also **survives an occlusion-aware reliability label**
 (`--label depth_aware`, which counts a carrier only in held-out views where it is
 the visible front surface): calibrated confidence stays within 1–9% of the oracle

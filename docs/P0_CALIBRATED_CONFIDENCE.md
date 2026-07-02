@@ -102,6 +102,14 @@ Isotonic calibration drops ECE by ~300–900× on every scene.
 | calibrated confidence @10%-keep | 0.770 | 0.797 | 0.836 | 0.896 |
 | opacity @10%-keep | 0.306 | 0.450 | 0.470 | 0.489 |
 
+**Rendered pruning sweep (`assets/pruning_sweep.gif` + `assets/pruning_30pct.png`,
+gen: `experiments/make_pruning_sweep_gif.py`, Room held-out view):** the sweep
+visualizes retained reliability tracking the oracle for confidence vs staying flat
+(~0.50) for opacity. Honest caveat baked into the figure — *rendered* PSNR is
+higher for opacity at every budget (opacity is the alpha blend weight, so keeping
+high-opacity carriers preserves the render by construction); the P0 win is the
+reliability axis, not rendered PSNR.
+
 On all four scenes calibrated-confidence-guided pruning lands **within 1–4% of the
 oracle ceiling** and **beats opacity, the raw heuristic, and random at every
 budget** (calibrated 0.58–0.72 vs opacity 0.37–0.53, itself at or below random).
