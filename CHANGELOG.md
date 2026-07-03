@@ -1,12 +1,28 @@
 # Changelog
 
 All notable changes to AURA (Adaptive Unified Radiance Asset) are recorded here.
-This is a research repository with its own git history; it is pre-release and
-tracks toward `v0.1.0-dev`, so everything currently lives under **Unreleased**.
-Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Every
-claim below is backed by a committed artifact — negatives are kept, not hidden.
+This is a research repository with its own git history. Format loosely follows
+[Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
+committed artifact — negatives are kept, not hidden.
 
 ## [Unreleased]
+
+_Nothing yet._
+
+## [0.2.0] — 2026-07-03
+
+First tagged release. Consolidates the P0→P2 calibrated-confidence arc into a
+citable version: the killer property (calibrated, certified, exported per-carrier
+confidence), cross-scene calibrator transfer, full-resolution reproduction, and a
+render-grounded reliability label — plus the honest P0 evaluation-leak correction
+(the Truck colour pruning certificate drops from certifying 100% to certifying 77%
+of carriers on the clean, genuinely held-out split, `1.00 → 0.77`). **The public
+API, the `.aura` package format, and the KHR/USD exports are unchanged.** Two items
+stay open: the garden native render-loss label needs an idle GPU (17.4 MP raster
+OOMs under load, so P2 renders it at half resolution), and P3 independent
+re-captures would harden the reliability story further. The four README result
+figures regenerate from committed data via `experiments/make_hardening_figures.py`.
+The change history that produced this release follows.
 
 ### P2 — full-resolution reproduction + render-loss reliability label (2026-07-03)
 

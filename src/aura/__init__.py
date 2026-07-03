@@ -1,5 +1,7 @@
 """AURA-Core: native adaptive radiance reconstruction engine."""
 
+__version__ = "0.2.0"
+
 from aura.asset import AuraAsset
 from aura.assignment import RegionEvidence, choose_carrier
 from aura.benchmark import (

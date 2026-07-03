@@ -1,6 +1,6 @@
 # AURA
 
-**Adaptive Unified Radiance Asset** · research preview (`v0.1.0-dev`)
+**Adaptive Unified Radiance Asset** · research preview (`v0.2.0`)
 
 AURA turns posed captures into a **typed, queryable, relightable, engine-ready
 radiance asset**. It keeps the fast Gaussian / DBS-Beta renderers where they are
@@ -12,7 +12,9 @@ a faster renderer, but a more *trustworthy, inspectable* asset on top of one.
 
 This is a research preview. Every claim below is backed by a committed artifact,
 and the honest scope of each capability — what is trained-and-validated versus
-demo-stage — is stated inline. Negatives are kept, not hidden.
+demo-stage — is stated inline. **Negatives are kept, not hidden; there is no
+official-leaderboard SOTA claim anywhere in this repo.** A preprint describing the
+calibrated-confidence result is in preparation.
 
 <p align="center">
   <img src="docs/truck_orbit.gif" width="82%" alt="AURA reconstruction orbit on Truck"><br>
@@ -34,10 +36,17 @@ confidence `p` are reliable ≈ `p` of the time — plus a **distribution-free p
 certificate**: *drop everything below threshold `τ`, losing at most `ε`
 reliability mass, with confidence `1−α`.* That turns level-of-detail, streaming,
 and pruning decisions from heuristics into *certified* choices, and the value
-travels with the asset as the `_AURA_CONFIDENCE` vendor attribute in the
-`KHR_gaussian_splatting` export. This is the capability a bare splat cannot
-cheaply add — AURA's answer to "what does an asset give you that a renderer does
-not."
+travels with the asset — as the `_AURA_CONFIDENCE` vendor attribute in the
+`KHR_gaussian_splatting` GLB export, and as a confidence vendor channel in the
+OpenUSD 26.03 splat schema. This is the capability a bare splat cannot cheaply
+add — AURA's answer to "what does an asset give you that a renderer does not."
+
+The raw signal AURA used to ship — a view-count heuristic — is *not* a probability:
+it saturates near 1 regardless of whether a carrier is actually reliable. Isotonic
+(PAVA) calibration fixes that, collapsing every scene onto the calibration diagonal
+and dropping expected calibration error (ECE) by ~300–900×:
+
+![Reliability diagram: raw view-count heuristic vs isotonic-calibrated confidence, four scenes](assets/reliability_diagram.png)
 
 Validated end-to-end on **four real scenes**: Truck (129k carriers) and three
 Mip-NeRF 360 scenes — Garden (outdoor, 120k), Kitchen (indoor, 120k), Room
@@ -51,14 +60,13 @@ held-out reliability; the shipped view-count heuristic and opacity do not:
 | opacity (engine pruning default) | −0.18 | 0.16 | 0.08 | 0.05 |
 | calibration ECE (raw → calibrated) | 0.59→0.001 | 0.55→0.002 | 0.56→0.001 | 0.46→0.002 |
 
-Isotonic calibration drops ECE by ~300–900× on every scene. The headline metric
-is **selection AUC** — mean retained reliability across pruning budgets. Calibrated
-confidence lands **within 1–4% of the oracle ceiling** on every scene and beats
-opacity, the raw heuristic, and random at *every* budget (calibrated 0.58–0.72 vs
-opacity 0.37–0.53, itself at or below random). At a 10%-keep budget it retains
-0.77–0.90 reliability vs opacity's 0.31–0.49.
+The headline metric is **selection AUC** — mean retained reliability across pruning
+budgets. Calibrated confidence lands **within 1–4% of the oracle ceiling** on every
+scene and beats opacity, the raw heuristic, and random at *every* budget (calibrated
+0.58–0.72 vs opacity 0.37–0.53, itself at or below random). At a 10%-keep budget it
+retains 0.77–0.90 reliability vs opacity's 0.31–0.49:
 
-![Four-scene selection AUC: calibrated confidence vs opacity vs oracle ceiling](assets/p0_selection_auc.png)
+![Selection curves: retained reliability vs pruning budget for calibrated confidence, opacity, oracle, and random, on four scenes](assets/selection_curves.png)
 
 **Pruning sweep (Room, held-out view).** As carriers are pruned 100%→10%, the
 reliability of what is *kept* (bottom meters) is the P0 axis: calibrated-confidence
@@ -96,27 +104,46 @@ aura calibrate-confidence <package> <reliability.npz>   # fit + wire into KHR ex
 Authoritative deep-dive (method, per-scene tables, both reliability labels, the
 conformal certificate): [`docs/P0_CALIBRATED_CONFIDENCE.md`](docs/P0_CALIBRATED_CONFIDENCE.md).
 
-**P1 (cross-scene transfer + certificate operating study).** A calibrator fit on
-one scene transfers to another: selection/pruning quality is rank-based and isotonic
-calibration is monotone, so transferred selection AUC matches in-scene within
-±0.0004 on all 24 off-diagonal scene pairs; absolute calibration (ECE) degrades
-gracefully (transferred 0.008 color / 0.026 depth on average, worst case 0.017 /
-0.058 — still 1–2 orders below the uncalibrated ~0.54), and the conformal
-certificate stays valid when a small local conformal split is kept on the target
-scene. The certificate's selective regime is mapped on all four scenes × both labels
-(onset ε* 0.47–0.62, tracking scene reliability). Details, the full 4×4×2 matrix, and
-the ε-sweep: [`docs/P1_CROSS_SCENE.md`](docs/P1_CROSS_SCENE.md).
+### P1 — cross-scene transfer + certificate operating study
 
-**P2 (full resolution + a render-loss label).** Two stress-tests: re-fitting carriers
-at **full resolution** (P0 optimised at `--scale 0.25`) and replacing the
-colour-agreement proxy with a label measured from the **actual alpha-composited
-render** (each carrier's exact blend-weighted rendering error on held-out views). The
-P0 story **holds at full resolution** — full-res and a 0.25 control are near-identical,
-so it is not a low-res artifact — and it **survives the render-loss label** with
-honestly weaker margins (the export-time feature predicts the render-grounded label at
-r ≈ 0.66–0.81 vs the proxy's 0.92–0.98; calibration still crushes ECE; the certificate
-stays valid but more selective). P2 also fixes a P0 train/test leak (held-out views
-were seen in training). Details, per-scene tables, and the exact-attribution method:
+A calibrator fit on one scene transfers to another. Because selection/pruning
+quality is rank-based and isotonic calibration is monotone, transferred selection
+AUC matches in-scene within **±0.0004 on all 24 off-diagonal scene pairs**;
+absolute calibration (ECE) degrades gracefully — transferred 0.008 (colour) / 0.026
+(depth) on average, worst case 0.017 / 0.058 — still 1–2 orders of magnitude below
+the uncalibrated ~0.54, and the conformal certificate stays valid when a small local
+conformal split is kept on the target scene:
+
+![Cross-scene calibrator ECE transfer heatmap, colour and occlusion-aware labels](assets/transfer_ece_heatmap.png)
+
+The honest deployment recipe is **"ship one calibrator + a small per-scene conformal
+set."** The certificate's selective regime is mapped on all four scenes × both
+labels (onset ε* 0.47–0.62, tracking scene reliability). Details, the full 4×4×2
+matrix, and the ε-sweep: [`docs/P1_CROSS_SCENE.md`](docs/P1_CROSS_SCENE.md).
+
+### P2 — full resolution + a render-loss label
+
+Two stress-tests: re-fitting carriers at **full resolution** (P0 optimised at
+`--scale 0.25`) and replacing the colour-agreement proxy with a label measured from
+the **actual alpha-composited render** (each carrier's exact blend-weighted
+rendering error on held-out views). The P0 story **holds at full resolution** —
+full-res and a 0.25 control are near-identical, so it is not a low-res artifact —
+and it **survives the render-loss label** with honestly weaker margins:
+
+![Colour proxy vs render-loss label: the export feature still predicts, and calibrated confidence still beats opacity](assets/proxy_vs_renderloss.png)
+
+Under the render-grounded label the export-time feature predicts reliability at
+r ≈ 0.66–0.81 (vs the proxy's 0.92–0.98), calibration still crushes ECE by 2–3
+orders, and calibrated confidence still beats opacity on every scene with the oracle
+gap widening to ~6–13%.
+
+**P2 also fixes a P0 evaluation leak** — P0 trained on *all* frames, so its
+"held-out" reliability views were seen in training. On the clean, genuinely held-out
+split the absolute numbers are slightly lower and *honest*: **the Truck colour
+pruning certificate that P0 reported as keeping 100% of carriers at ε=0.6 certifies
+keeping 77% on the clean split (1.00 → 0.77).** The conclusions are stated relative
+to each run's own oracle ceiling and to opacity, which is what transfers. Details,
+per-scene tables, and the exact-attribution method:
 [`docs/P2_FULLRES_RENDERLOSS.md`](docs/P2_FULLRES_RENDERLOSS.md).
 
 ## The asset contract
@@ -263,8 +290,8 @@ Splatting** (DBS, [arXiv:2501.18630](https://arxiv.org/abs/2501.18630)):
 - On Truck at a matched 1M-carrier budget, Beta wins by **+0.33 dB** and reaches
   comparable quality at **~half the carriers**.
 
-This reproduces DBS's published claim — it is **not** an AURA novelty — and the
-control is a **frozen-β DBS ablation, not real gsplat 3DGS**, with Mip-NeRF 360
+This **+0.33 dB reproduces DBS's published claim — it is not an AURA novelty** — and
+the control is a **frozen-β DBS ablation, not real gsplat 3DGS**, with Mip-NeRF 360
 evaluated at image downsamples. The honest findings that come with it (nobody else
 has published these) are the interesting part:
 
@@ -325,7 +352,8 @@ publicationReady: true · passedGateCount: 11 · remainingGateIds: []
 Gates cover local multi-scene quality, dataset audit, the PRISM additive contract
 and CUDA throughput, real trained-scene FPS, engine/viewer export integration,
 learned LPIPS on CUDA, the external-method baseline table, and secondary-ray /
-inverse-material validation. Regenerate with
+inverse-material validation. This is an **artifact-backed local A/B gate, not an
+official leaderboard**. Regenerate with
 `aura publication-validation-report --output experiments/results/publication_validation.json`.
 
 **Render speed.** Trained Truck checkpoints render above 30 FPS on an RTX 5090 —
@@ -383,7 +411,9 @@ AURA is a research preview; the honest boundary is part of the product.
 - **Only Gaussian and Beta train on real scenes**; Gabor is 2D-crop-only and Neural
   is experimental (both additive PRISM extensions).
 - The P0 reliability label is a **colour-agreement proxy** and the occlusion buffer
-  is a coarse block z-buffer — both conservative.
+  is a coarse block z-buffer — both conservative. The render-loss label (P2) is
+  render-grounded but its garden pass is rendered at half resolution (17.4 MP raster
+  OOMs on the shared GPUs).
 - Third-party viewer compatibility is a **structural** check, not a runtime
   guarantee.
 - 8 scenes only; two Mip-360 scene lists are placeholders; there is no CI, and the
@@ -392,11 +422,19 @@ AURA is a research preview; the honest boundary is part of the product.
 ## Roadmap and history
 
 Dated, per-change history lives in [`CHANGELOG.md`](CHANGELOG.md) — including the
-full P0 development arc and the typed-carrier asset foundation. Near-term
-directions: a true gsplat-3DGS matched-budget control and full-resolution eval;
-binding self-graded gates to real-scene rendered evaluations; a BVH-accelerated
-ray-query; SPZ4 compressed export carrying the confidence channel; and making a
-third carrier real (or scoping the registry claim to two).
+full P0→P2 calibration/certificate hardening arc and the typed-carrier asset
+foundation. Two items are explicitly open:
+
+- **Garden native render-loss label** — its 17.4 MP rasterization OOMs on a loaded
+  GPU, so P2 renders that one label at half resolution; a native pass needs an idle
+  machine.
+- **P3 independent re-captures** — the reliability story is validated on four scenes
+  and two labels; independent scenes / re-captures would harden it further.
+
+Other near-term directions: a true gsplat-3DGS matched-budget control and further
+full-resolution eval; binding self-graded gates to real-scene rendered evaluations;
+a BVH-accelerated ray-query; SPZ4 compressed export carrying the confidence channel;
+and making a third carrier real (or scoping the registry claim to two).
 
 ## Reproduce the evidence
 
@@ -410,10 +448,12 @@ python experiments/per_carrier_reliability.py --aura outputs/<scene>-gsplat.aura
   --manifest outputs/<scene>-manifest.json --out outputs/reliability_<scene>.npz
 python experiments/calibrate_confidence.py --reliability outputs/reliability_<scene>.npz \
   --scene <scene> --report outputs/calib_<scene>.json
-python experiments/make_p0_selection_auc_figure.py
+python experiments/cross_scene_transfer.py   # P1a transfer matrix
+python experiments/cert_sweep.py             # P1b certificate operating study
+bash experiments/run_p2.sh room 0            # P2 full-res + render-loss (per scene)
+python experiments/collect_p2.py             # -> outputs/p2_summary.json
+python experiments/make_hardening_figures.py # the four result figures above
 python experiments/make_pruning_sweep_gif.py --scene room --frame 8
-python experiments/prism_additive_validation.py
-python experiments/external_baseline_smokes.py --device cuda
 aura publication-validation-report --output experiments/results/publication_validation_2026-06-25.json
 ```
 
@@ -434,10 +474,10 @@ src/aura/
 scripts/       dataset, eval, baseline, and DBS bridge utilities
 experiments/   reproduction scripts and figure/GIF generators
 tests/         contract, renderer, validation, and CLI tests
-docs/          README figures, GIFs, and the P0 deep-dive
+docs/          README figures, GIFs, and the P0/P1/P2 deep-dives
+assets/        P0-P2 result figures + the pruning-sweep animation
 ```
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-</content>

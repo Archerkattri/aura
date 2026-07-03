@@ -68,9 +68,14 @@ def test_readme_includes_local_truck_and_train_media_only():
     assert "docs/train_orbit.gif" in readme
     assert "docs/train_depth_orbit.gif" in readme
     assert "docs/capability_board.png" not in readme
-    gallery = readme.split("## Gallery", 1)[1]
-    assert "docs/train_orbit.gif" not in gallery
-    assert "docs/train_depth_orbit.gif" not in gallery
+    # The train image-sweep / sparse-depth GIFs are training-evidence media and
+    # must live under the "Training backends" section, never as top-level hero art.
+    training = readme.split("## Training backends", 1)
+    assert len(training) == 2, "README must have a '## Training backends' section"
+    assert "docs/train_orbit.gif" in training[1]
+    assert "docs/train_depth_orbit.gif" in training[1]
+    assert "docs/train_orbit.gif" not in training[0]
+    assert "docs/train_depth_orbit.gif" not in training[0]
     assert "Tanks and Temples" not in readme
     assert "Temple scene" not in readme
     assert "docs/temple" not in readme.lower()
@@ -78,10 +83,35 @@ def test_readme_includes_local_truck_and_train_media_only():
     assert "tank scene" not in readme.lower()
 
 
+def test_readme_embeds_p0_p2_result_figures():
+    """The four hardening result figures generated from committed data must be
+    embedded, and the pruning-sweep animation must be featured."""
+    readme = (ROOT / "README.md").read_text()
+    for asset in (
+        "assets/reliability_diagram.png",
+        "assets/selection_curves.png",
+        "assets/transfer_ece_heatmap.png",
+        "assets/proxy_vs_renderloss.png",
+        "assets/pruning_sweep.gif",
+    ):
+        assert asset in readme, asset
+        assert (ROOT / asset).exists(), asset
+
+
+def test_readme_states_the_p0_eval_leak_correction():
+    """The honest P0 -> P2 leak correction (Truck certificate 1.00 -> 0.77 on the
+    clean split) is load-bearing and must be stated plainly, not hidden."""
+    readme = (ROOT / "README.md").read_text()
+    assert "1.00 → 0.77" in readme or "1.00 -> 0.77" in readme
+    assert "leak" in readme.lower()
+
+
 def test_readme_sota_claim_boundary_matches_current_artifact():
     readme = (ROOT / "README.md").read_text()
 
-    assert "sotaReady: true" in readme
+    # The deliberately-removed "sotaReady" marker must never come back.
+    assert "sotaReady" not in readme
     assert "full SOTA claim still gated" not in readme
     assert "short same-split GPU validation rows" not in readme
-    assert "official leaderboard claims remain out of scope" in readme
+    # The honest boundary the repo actually ships.
+    assert "no official-leaderboard SOTA claim" in readme
