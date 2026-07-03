@@ -1,18 +1,37 @@
-"""Relighting trained carriers — the 'relightable asset' capability over real
-gsplat/DBS-trained carriers (not just demo scenes).
+"""Relighting PREVIEW over trained carriers (gsplat / DBS-Beta assets).
 
-3DGS bakes lighting into view-dependent colour and cannot be relit. AURA treats a
-carrier as a surface element: its **normal** is the short axis of the Gaussian
-(the direction of least spatial extent ≈ surface normal), and its **albedo** is the
-diffuse colour (SH DC term). Given those, `shading.py`'s Lambertian / Cook-Torrance
-BRDFs produce a *relit* per-carrier colour under arbitrary lights, which gsplat then
-rasterizes. This is an explicit, editable lighting model on top of the same
-carriers — a core post-3DGS differentiator.
+This is a **preview-stage** relighting layer. It is NOT inverse rendering and NOT
+material recovery. 3DGS bakes lighting into view-dependent colour and cannot be
+relit; AURA re-shades each carrier under new lights so the same asset can be
+*previewed* under changed illumination without re-optimising geometry. Precisely
+what it does and does not do:
 
-Scope: normals from covariance are unsigned and noisy for
-near-isotropic carriers, and albedo from baked colour still contains residual
-shading. This is a usable relighting layer, not a full inverse-rendering material
-decomposition.
+- **Albedo** = the baked SH DC term (`0.5 + C0 * dc`; `carrier_albedo`), i.e. the
+  diffuse colour the scene was trained with. It still **contains residual baked-in
+  shading** — it is not a de-lit, recovered material albedo.
+- **Normals** = the covariance short axis (the Gaussian's least-extent direction;
+  `carrier_normals`). These are **unsigned** — the sign is ambiguous, so
+  `relight_colors` lights both faces and keeps the brighter — and noisy for
+  near-isotropic carriers.
+- **No per-carrier material optimization.** Nothing here is fit to observations:
+  there is no albedo/roughness/metallic recovery, no signed-normal estimation, and
+  no evaluation on inverse-rendering benchmarks. `shading.py`'s Lambertian /
+  Cook-Torrance BRDFs are applied *forward* to these guessed fields only.
+
+This is honest scaffolding for the material path, not a physical-correctness,
+material-recovery, or inverse-rendering claim.
+
+v0.8 decision bar (protocol: `docs/P7_RELIGHT_DECISION.md`). A real attempt —
+per-carrier albedo/roughness optimization + signed-normal recovery, trained on GPU —
+will be evaluated on the **TensoIR-Synthetic** and **Stanford-ORB** benchmarks
+(relit-render PSNR/SSIM/LPIPS under novel illumination, albedo PSNR where GT albedo
+exists, normal mean-angular-error where GT normals exist), measured against the
+published object-centric relighting SOTA — **SSD-GS** (arXiv:2604.13333),
+**R3GW** (arXiv:2603.02801), and **GS³** (arXiv:2410.11419), plus the TensoIR/
+Stanford-ORB leaderboard those three do not report on (GS-IR, IRGS, SVG-IR,
+Relightable-3DGS). If the attempt does not reach the pre-registered bar, the
+capability is formally descoped to a "confidence-weighted relighting preview". Until
+that decision lands, this module remains a preview and must be described as one.
 """
 from __future__ import annotations
 
