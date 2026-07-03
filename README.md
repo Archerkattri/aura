@@ -96,6 +96,17 @@ aura calibrate-confidence <package> <reliability.npz>   # fit + wire into KHR ex
 Authoritative deep-dive (method, per-scene tables, both reliability labels, the
 conformal certificate): [`docs/P0_CALIBRATED_CONFIDENCE.md`](docs/P0_CALIBRATED_CONFIDENCE.md).
 
+**P1 (cross-scene transfer + certificate operating study).** A calibrator fit on
+one scene transfers to another: selection/pruning quality is rank-based and isotonic
+calibration is monotone, so transferred selection AUC matches in-scene within
+±0.0004 on all 24 off-diagonal scene pairs; absolute calibration (ECE) degrades
+gracefully (transferred 0.008 color / 0.026 depth on average, worst case 0.017 /
+0.058 — still 1–2 orders below the uncalibrated ~0.54), and the conformal
+certificate stays valid when a small local conformal split is kept on the target
+scene. The certificate's selective regime is mapped on all four scenes × both labels
+(onset ε* 0.47–0.62, tracking scene reliability). Details, the full 4×4×2 matrix, and
+the ε-sweep: [`docs/P1_CROSS_SCENE.md`](docs/P1_CROSS_SCENE.md).
+
 ## The asset contract
 
 Beyond rendering, an `.aura` asset exposes a fixed set of first-class operations.

@@ -8,6 +8,44 @@ claim below is backed by a committed artifact — negatives are kept, not hidden
 
 ## [Unreleased]
 
+### P1 — cross-scene calibrator transfer + certificate operating study (2026-07-03)
+
+Two measurements the P0 write-up explicitly declined, both pure CPU/numpy over the
+committed P0 reliability data — no retraining, no GPU.
+
+#### Added
+- **P1a cross-scene calibrator transfer** (`experiments/cross_scene_transfer.py` →
+  `outputs/cross_scene_transfer.json`, full 4×4×2 matrix). For every ordered scene
+  pair over {truck, garden, kitchen, room} × label {color, depth}: fit the isotonic
+  calibrator on all labeled carriers of the source, evaluate on the target's held-out
+  eval half (the diagonal reproduces `calib_<scene>.json` exactly); report ECE (raw /
+  transferred / in-scene), selection AUC (transferred / in-scene / opacity / oracle),
+  and the ε=0.6, α=0.1 conformal certificate computed with the transferred confidence
+  on the target's own local calibration split.
+- **P1b certificate operating study** (`experiments/cert_sweep.py` →
+  `outputs/cert_sweep.json`). Extends the P0 ε-sweep (Truck-only) to all four scenes ×
+  both labels over ε 0.30→0.65 (α=0.1); records certified τ, kept fraction, empirical
+  kept risk, and the selectivity onset ε per scene.
+- Write-up `docs/P1_CROSS_SCENE.md`; regression test `tests/test_cross_scene_transfer.py`
+  (2 tests, synthetic npz, self-contained).
+
+#### Validated
+- **Transfer holds / degrades gracefully.** Selection AUC transfers essentially for
+  free — an isotonic calibrator is monotone and AUC is rank-based, so transferred vs
+  in-scene AUC agree within ±0.0004 on all 24 off-diagonal pairs. Absolute calibration
+  (ECE) degrades gracefully: transferred off-diagonal ECE mean 0.008 (color) / 0.026
+  (depth), worst case 0.017 / 0.058 (both truck→room) — still 1–2 orders of magnitude
+  below the uncalibrated raw heuristic (~0.54). Neighbouring indoor scenes
+  (kitchen↔room) transfer best; object-centric Truck is the outlier source/target.
+- **Certificate stays valid under transfer.** All 24 transferred certificates are
+  certified at ε=0.6 (color kept 1.00; depth kept 0.914–1.00) because the conformal
+  threshold is fit on the target's local split — the honest deployment recipe is "ship
+  one calibrator + a small per-scene conformal set."
+- **Certificate selectivity mapped on all scenes.** The onset ε* (largest ε with
+  kept<1.0) is Truck 0.59/0.62, Garden 0.57/0.56, Kitchen 0.56/0.55, Room 0.47/0.48
+  (color/depth); it tracks each scene's mean reliability, confirming the certificate
+  is neither vacuous nor over-eager.
+
 ### P0 killer property — calibrated, certified, exported per-carrier confidence (2026-07-01 → 2026-07-02)
 
 The successor axis a bare 3DGS/DBS splat lacks: a per-carrier confidence a
