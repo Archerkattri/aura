@@ -1,0 +1,64 @@
+{
+  "scene": "garden",
+  "label": "depth_aware",
+  "carriers_labeled": 68544,
+  "feature": "train_agree",
+  "calibration": {
+    "ece_raw_heuristic": 0.5046,
+    "ece_feature_uncalibrated": 0.0241,
+    "ece_calibrated": 0.0017
+  },
+  "pruning_certificate": {
+    "tau": 0.031,
+    "epsilon": 0.6,
+    "alpha": 0.1,
+    "certified": true,
+    "kept_fraction": 1.0,
+    "empirical_risk_kept": 0.5302
+  },
+  "selection_auc_retained_reliability": {
+    "calibrated_confidence": 0.6403,
+    "opacity": 0.4795,
+    "raw_heuristic": 0.4399,
+    "random": 0.4699,
+    "oracle_ceiling": 0.6657
+  },
+  "curves_at_budgets": {
+    "budgets": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "calibrated_confidence": [
+      0.8092,
+      0.7689,
+      0.7309,
+      0.6956,
+      0.6594,
+      0.623,
+      0.5864,
+      0.5492,
+      0.5109,
+      0.4698
+    ],
+    "opacity": [
+      0.4604,
+      0.4638,
+      0.4723,
+      0.4813,
+      0.4885,
+      0.494,
+      0.4947,
+      0.4917,
+      0.4788,
+      0.4698
+    ]
+  }
+}

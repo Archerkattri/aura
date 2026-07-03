@@ -8,6 +8,51 @@ claim below is backed by a committed artifact — negatives are kept, not hidden
 
 ## [Unreleased]
 
+### P2 — full-resolution reproduction + render-loss reliability label (2026-07-03)
+
+Stress-tests the P0 killer property along the two axes P0 left open: full resolution
+(P0 fit carriers at `--scale 0.25`, quarter-linear) and a reliability label measured
+from the actual alpha-composited render instead of P0's colour-agreement proxy. Also
+fixes a P0 protocol leak (P0 trained on all frames, so its "held-out" reliability
+views were seen in training; P2 holds every-8th out of training).
+
+#### Added
+- **Full-resolution + render-loss pipeline** (`experiments/train_carriers_p2.py`,
+  `experiments/render_loss_reliability.py`, `experiments/run_p2.sh`,
+  `experiments/collect_p2.py` → `outputs/p2_summary.json`). Per scene it trains
+  train-split carriers at native `--scale 1.0` (all four scenes, garden's 17.4 MP
+  included) plus a `0.25` quarter-resolution control, then runs the colour,
+  occlusion-aware, and render-loss labels + four calibration/certificate reports. Only
+  garden's render-loss *label* is rendered at `0.5` (its 17.4 MP rasterization OOMs on
+  the shared GPUs; the carriers stay native). Reports
+  `outputs/calib_<scene>_{fr,fr_depth,q,renderloss}.json`.
+- **Render-loss label via exact blend-weight attribution.** The render is linear in
+  carrier colour, so `∂⟨render,GT⟩/∂colour_i` recovers the *exact* alpha-compositing
+  blend weights; from them each carrier's blend-weighted rendering error
+  `exp(−β·sqrt(SE_i/W_i))` is an occlusion-exact, visibility-weighted per-carrier
+  render-loss attribution (a first-order gate-gradient ablation was tried and
+  rejected — noise in over-complete scenes). Pure rule + 5 tests in
+  `tests/test_render_loss_reliability.py`.
+- Write-up `docs/P2_FULLRES_RENDERLOSS.md` (every number traces to a JSON).
+
+#### Validated
+- **P0 story holds at full resolution.** The export-time colour feature still predicts
+  held-out reliability at r ≈ 0.92–0.98, calibration still drops ECE ~240–770× to
+  ~0.001–0.002, and calibrated confidence is within ~1–3% of its oracle and beats
+  opacity/heuristic/random. Full-res is at or slightly above the 0.25 quarter control
+  on every scene — the property is not a low-res artifact. Reproduction checks:
+  re-running `calibrate_confidence.py` on the committed P0 npz reproduces
+  `calib_<scene>{,_depth}.json` byte-for-byte, and the quarter control recovers P0's
+  correlation/ECE at matched resolution (residual = the leakage fix).
+- **Killer property survives the render-loss label, with honestly weaker margins.**
+  Calibration still crushes ECE 2–3 orders; the colour feature still predicts the
+  render label but more weakly (r ≈ 0.66–0.81, since it penalises occlusion /
+  visibility-weighted error the proxy misses); calibrated confidence stays above
+  opacity with the oracle gap widening to ~6–13%; the conformal certificate stays
+  valid but becomes more selective (kept 0.26–1.0 at ε=0.6; truck 0.26). A directional
+  prune reconfirms P0's honest caveat under the render label: reliability and
+  render-PSNR-preservation optimise different things.
+
 ### P1 — cross-scene calibrator transfer + certificate operating study (2026-07-03)
 
 Two measurements the P0 write-up explicitly declined, both pure CPU/numpy over the

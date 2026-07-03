@@ -1,0 +1,17 @@
+{
+  "carriers": 120000,
+  "label": "color",
+  "test_views": 32,
+  "train_views": 219,
+  "labeled_fraction": 0.9871,
+  "reliability_mean_labeled": 0.32103994488716125,
+  "reliability_std_labeled": 0.22537861764431,
+  "raw_conf_mean": 0.9886686205863953,
+  "raw_conf_std": 0.04788517206907272,
+  "train_agree_mean": 0.3250173330307007,
+  "train_agree_std": 0.22522778809070587,
+  "corr_trainagree_reliability": 0.9277487964327673,
+  "corr_opacity_reliability": -0.15683798163338253,
+  "corr_rawconf_reliability": 0.005235169836069762,
+  "out": "outputs/reliability_truck_q.npz"
+}

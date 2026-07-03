@@ -1,0 +1,17 @@
+{
+  "carriers": 120000,
+  "label": "depth_aware",
+  "test_views": 32,
+  "train_views": 219,
+  "labeled_fraction": 0.876,
+  "reliability_mean_labeled": 0.34490975737571716,
+  "reliability_std_labeled": 0.23568828403949738,
+  "raw_conf_mean": 0.988666296005249,
+  "raw_conf_std": 0.04787749797105789,
+  "train_agree_mean": 0.35546138882637024,
+  "train_agree_std": 0.23478557169437408,
+  "corr_trainagree_reliability": 0.8567473263997959,
+  "corr_opacity_reliability": -0.06660992382253976,
+  "corr_rawconf_reliability": -0.0034167577880994016,
+  "out": "outputs/reliability_truck_fr_depth.npz"
+}

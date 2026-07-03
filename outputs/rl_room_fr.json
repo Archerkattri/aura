@@ -1,0 +1,35 @@
+{
+  "carriers": 107032,
+  "label": "render_loss",
+  "method": "exact_blend_weighted_color_error",
+  "test_views": 39,
+  "beta": 4.0,
+  "mean_per_view_L1": 0.04082,
+  "labeled_fraction": 0.956,
+  "reliability_mean_labeled": 0.4558,
+  "reliability_std_labeled": 0.2117,
+  "corr_trainagree_reliability": 0.7845,
+  "corr_opacity_reliability": -0.0533,
+  "corr_rawconf_reliability": 0.0992,
+  "corr_colorlabel_reliability": 0.7801,
+  "out": "outputs/reliability_renderloss_room_fr.npz",
+  "directional_prune": {
+    "base_L1": 0.04082,
+    "budgets": [
+      {
+        "prune_frac": 0.1,
+        "drop_least_reliable": 0.04579,
+        "drop_most_reliable": 0.04397,
+        "drop_lowest_opacity": 0.04082,
+        "drop_random": 0.04307
+      },
+      {
+        "prune_frac": 0.2,
+        "drop_least_reliable": 0.05273,
+        "drop_most_reliable": 0.05051,
+        "drop_lowest_opacity": 0.0409,
+        "drop_random": 0.04682
+      }
+    ]
+  }
+}

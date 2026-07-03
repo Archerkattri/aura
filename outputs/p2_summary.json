@@ -1,0 +1,853 @@
+{
+  "experiment": "P2_fullres_and_renderloss",
+  "scenes": {
+    "truck": {
+      "train_fullres": {
+        "manifest": "outputs/truck-fr-manifest.json",
+        "out": "outputs/truck-fr.aura/carriers.npz",
+        "scale": 1.0,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 219,
+        "test_frames": 32,
+        "carriers": 120000,
+        "train_seconds": 228.7,
+        "final_loss": 0.12977930903434753,
+        "width": 979,
+        "height": 546
+      },
+      "train_quarter": {
+        "manifest": "outputs/truck-fr-manifest.json",
+        "out": "outputs/truck-q.aura/carriers.npz",
+        "scale": 0.25,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 219,
+        "test_frames": 32,
+        "carriers": 120000,
+        "train_seconds": 215.9,
+        "final_loss": 0.11538499593734741,
+        "width": 979,
+        "height": 546
+      },
+      "fullres_color": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "color",
+          "test_views": 32,
+          "train_views": 219,
+          "labeled_fraction": 0.98715,
+          "reliability_mean_labeled": 0.33170875906944275,
+          "reliability_std_labeled": 0.22981442511081696,
+          "raw_conf_mean": 0.988666296005249,
+          "raw_conf_std": 0.04787749797105789,
+          "train_agree_mean": 0.33576661348342896,
+          "train_agree_std": 0.22929629683494568,
+          "corr_trainagree_reliability": 0.9270213639930114,
+          "corr_opacity_reliability": -0.13898106707179098,
+          "corr_rawconf_reliability": 0.01421801706813672,
+          "out": "outputs/reliability_truck_fr.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.6605,
+          "ece_feature_uncalibrated": 0.0117,
+          "ece_calibrated": 0.0017
+        },
+        "pruning_certificate": {
+          "tau": 0.1347,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 0.7654,
+          "empirical_risk_kept": 0.5894
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.5047,
+          "opacity": 0.3022,
+          "raw_heuristic": 0.3445,
+          "random": 0.3333,
+          "oracle_ceiling": 0.5199
+        },
+        "carriers_labeled": 118458,
+        "label": "color"
+      },
+      "fullres_depth": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "depth_aware",
+          "test_views": 32,
+          "train_views": 219,
+          "labeled_fraction": 0.876,
+          "reliability_mean_labeled": 0.34490975737571716,
+          "reliability_std_labeled": 0.23568828403949738,
+          "raw_conf_mean": 0.988666296005249,
+          "raw_conf_std": 0.04787749797105789,
+          "train_agree_mean": 0.35546138882637024,
+          "train_agree_std": 0.23478557169437408,
+          "corr_trainagree_reliability": 0.8567473263997959,
+          "corr_opacity_reliability": -0.06660992382253976,
+          "corr_rawconf_reliability": -0.0034167577880994016,
+          "out": "outputs/reliability_truck_fr_depth.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.6507,
+          "ece_feature_uncalibrated": 0.0258,
+          "ece_calibrated": 0.0022
+        },
+        "pruning_certificate": {
+          "tau": 0.1352,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 0.8114,
+          "empirical_risk_kept": 0.5943
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.5067,
+          "opacity": 0.3261,
+          "raw_heuristic": 0.3488,
+          "random": 0.3424,
+          "oracle_ceiling": 0.5359
+        },
+        "carriers_labeled": 105120,
+        "label": "depth_aware"
+      },
+      "quarter_color": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "color",
+          "test_views": 32,
+          "train_views": 219,
+          "labeled_fraction": 0.9871,
+          "reliability_mean_labeled": 0.32103994488716125,
+          "reliability_std_labeled": 0.22537861764431,
+          "raw_conf_mean": 0.9886686205863953,
+          "raw_conf_std": 0.04788517206907272,
+          "train_agree_mean": 0.3250173330307007,
+          "train_agree_std": 0.22522778809070587,
+          "corr_trainagree_reliability": 0.9277487964327673,
+          "corr_opacity_reliability": -0.15683798163338253,
+          "corr_rawconf_reliability": 0.005235169836069762,
+          "out": "outputs/reliability_truck_q.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.6709,
+          "ece_feature_uncalibrated": 0.0113,
+          "ece_calibrated": 0.0014
+        },
+        "pruning_certificate": {
+          "tau": 0.1409,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 0.7386,
+          "empirical_risk_kept": 0.5926
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.4923,
+          "opacity": 0.2869,
+          "raw_heuristic": 0.3323,
+          "random": 0.3209,
+          "oracle_ceiling": 0.5065
+        },
+        "carriers_labeled": 118452,
+        "label": "color"
+      },
+      "fullres_renderloss": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "render_loss",
+          "method": "exact_blend_weighted_color_error",
+          "test_views": 32,
+          "beta": 4.0,
+          "mean_per_view_L1": 0.07683,
+          "labeled_fraction": 0.7073,
+          "reliability_mean_labeled": 0.2597,
+          "reliability_std_labeled": 0.178,
+          "corr_trainagree_reliability": 0.6553,
+          "corr_opacity_reliability": -0.1397,
+          "corr_rawconf_reliability": 0.1032,
+          "corr_colorlabel_reliability": 0.6417,
+          "out": "outputs/reliability_renderloss_truck_fr.npz",
+          "directional_prune": {
+            "base_L1": 0.07683,
+            "budgets": [
+              {
+                "prune_frac": 0.1,
+                "drop_least_reliable": 0.07683,
+                "drop_most_reliable": 0.08329,
+                "drop_lowest_opacity": 0.07683,
+                "drop_random": 0.07937
+              },
+              {
+                "prune_frac": 0.2,
+                "drop_least_reliable": 0.07683,
+                "drop_most_reliable": 0.10023,
+                "drop_lowest_opacity": 0.07683,
+                "drop_random": 0.08354
+              }
+            ]
+          }
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.7298,
+          "ece_feature_uncalibrated": 0.0885,
+          "ece_calibrated": 0.0013
+        },
+        "pruning_certificate": {
+          "tau": 0.3564,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 0.2588,
+          "empirical_risk_kept": 0.5858
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.3534,
+          "opacity": 0.2374,
+          "raw_heuristic": 0.2674,
+          "random": 0.2603,
+          "oracle_ceiling": 0.407
+        },
+        "carriers_labeled": 84878,
+        "label": "render_loss"
+      }
+    },
+    "garden": {
+      "train_fullres": {
+        "manifest": "outputs/garden-fr-manifest.json",
+        "out": "outputs/garden-fr.aura/carriers.npz",
+        "scale": 1.0,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 161,
+        "test_frames": 24,
+        "carriers": 120000,
+        "train_seconds": 1448.8,
+        "final_loss": 0.14527282118797302,
+        "width": 5187,
+        "height": 3361
+      },
+      "train_quarter": {
+        "manifest": "outputs/garden-fr-manifest.json",
+        "out": "outputs/garden-q.aura/carriers.npz",
+        "scale": 0.25,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 161,
+        "test_frames": 24,
+        "carriers": 120000,
+        "train_seconds": 1057.7,
+        "final_loss": 0.1616506725549698,
+        "width": 5187,
+        "height": 3361
+      },
+      "fullres_color": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "color",
+          "test_views": 24,
+          "train_views": 161,
+          "labeled_fraction": 0.943175,
+          "reliability_mean_labeled": 0.4733159840106964,
+          "reliability_std_labeled": 0.2376244217157364,
+          "raw_conf_mean": 0.954054594039917,
+          "raw_conf_std": 0.10942865163087845,
+          "train_agree_mean": 0.47990942001342773,
+          "train_agree_std": 0.2379702478647232,
+          "corr_trainagree_reliability": 0.922459854761194,
+          "corr_opacity_reliability": 0.07224454517032781,
+          "corr_rawconf_reliability": -0.08555670431546114,
+          "out": "outputs/reliability_garden_fr.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.5034,
+          "ece_feature_uncalibrated": 0.015,
+          "ece_calibrated": 0.001
+        },
+        "pruning_certificate": {
+          "tau": 0.0017,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5266
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.642,
+          "opacity": 0.4819,
+          "raw_heuristic": 0.4596,
+          "random": 0.4736,
+          "oracle_ceiling": 0.6594
+        },
+        "carriers_labeled": 113181,
+        "label": "color"
+      },
+      "fullres_depth": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "depth_aware",
+          "test_views": 24,
+          "train_views": 161,
+          "labeled_fraction": 0.5712,
+          "reliability_mean_labeled": 0.46935033798217773,
+          "reliability_std_labeled": 0.24997319281101227,
+          "raw_conf_mean": 0.954054594039917,
+          "raw_conf_std": 0.10942865163087845,
+          "train_agree_mean": 0.480066180229187,
+          "train_agree_std": 0.25037509202957153,
+          "corr_trainagree_reliability": 0.8852544402312434,
+          "corr_opacity_reliability": 0.1610680669935357,
+          "corr_rawconf_reliability": -0.13394922536775364,
+          "out": "outputs/reliability_garden_fr_depth.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.5046,
+          "ece_feature_uncalibrated": 0.0241,
+          "ece_calibrated": 0.0017
+        },
+        "pruning_certificate": {
+          "tau": 0.031,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5302
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.6403,
+          "opacity": 0.4795,
+          "raw_heuristic": 0.4399,
+          "random": 0.4699,
+          "oracle_ceiling": 0.6657
+        },
+        "carriers_labeled": 68544,
+        "label": "depth_aware"
+      },
+      "quarter_color": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "color",
+          "test_views": 24,
+          "train_views": 161,
+          "labeled_fraction": 0.943225,
+          "reliability_mean_labeled": 0.4239521026611328,
+          "reliability_std_labeled": 0.2422236204147339,
+          "raw_conf_mean": 0.9540569186210632,
+          "raw_conf_std": 0.10942339152097702,
+          "train_agree_mean": 0.4296455383300781,
+          "train_agree_std": 0.24325236678123474,
+          "corr_trainagree_reliability": 0.9349160953757438,
+          "corr_opacity_reliability": 0.17287644936445923,
+          "corr_rawconf_reliability": -0.13031046455051493,
+          "out": "outputs/reliability_garden_q.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.5537,
+          "ece_feature_uncalibrated": 0.013,
+          "ece_calibrated": 0.0017
+        },
+        "pruning_certificate": {
+          "tau": 0.0024,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5768
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.6023,
+          "opacity": 0.4497,
+          "raw_heuristic": 0.4016,
+          "random": 0.4245,
+          "oracle_ceiling": 0.6171
+        },
+        "carriers_labeled": 113187,
+        "label": "color"
+      },
+      "fullres_renderloss": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "render_loss",
+          "method": "exact_blend_weighted_color_error",
+          "test_views": 24,
+          "beta": 4.0,
+          "mean_per_view_L1": 0.05811,
+          "labeled_fraction": 0.9272,
+          "reliability_mean_labeled": 0.3548,
+          "reliability_std_labeled": 0.1616,
+          "corr_trainagree_reliability": 0.7527,
+          "corr_opacity_reliability": -0.0464,
+          "corr_rawconf_reliability": 0.001,
+          "corr_colorlabel_reliability": 0.7516,
+          "out": "outputs/reliability_renderloss_garden_fr.npz",
+          "directional_prune": {
+            "base_L1": 0.05811,
+            "budgets": [
+              {
+                "prune_frac": 0.1,
+                "drop_least_reliable": 0.0665,
+                "drop_most_reliable": 0.06775,
+                "drop_lowest_opacity": 0.05873,
+                "drop_random": 0.06194
+              },
+              {
+                "prune_frac": 0.2,
+                "drop_least_reliable": 0.0773,
+                "drop_most_reliable": 0.08405,
+                "drop_lowest_opacity": 0.05944,
+                "drop_random": 0.06795
+              }
+            ]
+          }
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.6218,
+          "ece_feature_uncalibrated": 0.1314,
+          "ece_calibrated": 0.0009
+        },
+        "pruning_certificate": {
+          "tau": 0.2511,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 0.7852,
+          "empirical_risk_kept": 0.5939
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.4444,
+          "opacity": 0.3426,
+          "raw_heuristic": 0.3571,
+          "random": 0.353,
+          "oracle_ceiling": 0.4805
+        },
+        "carriers_labeled": 111259,
+        "label": "render_loss"
+      }
+    },
+    "kitchen": {
+      "train_fullres": {
+        "manifest": "outputs/kitchen-fr-manifest.json",
+        "out": "outputs/kitchen-fr.aura/carriers.npz",
+        "scale": 1.0,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 244,
+        "test_frames": 35,
+        "carriers": 120000,
+        "train_seconds": 632.3,
+        "final_loss": 0.06508051604032516,
+        "width": 3115,
+        "height": 2078
+      },
+      "train_quarter": {
+        "manifest": "outputs/kitchen-fr-manifest.json",
+        "out": "outputs/kitchen-q.aura/carriers.npz",
+        "scale": 0.25,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 244,
+        "test_frames": 35,
+        "carriers": 120000,
+        "train_seconds": 492.8,
+        "final_loss": 0.0743946060538292,
+        "width": 3115,
+        "height": 2078
+      },
+      "fullres_color": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "color",
+          "test_views": 35,
+          "train_views": 244,
+          "labeled_fraction": 1.0,
+          "reliability_mean_labeled": 0.4617934226989746,
+          "reliability_std_labeled": 0.2390437126159668,
+          "raw_conf_mean": 0.9998961091041565,
+          "raw_conf_std": 0.0012964073102921247,
+          "train_agree_mean": 0.4651457965373993,
+          "train_agree_std": 0.24113692343235016,
+          "corr_trainagree_reliability": 0.9804224144331303,
+          "corr_opacity_reliability": 0.08663318484664266,
+          "corr_rawconf_reliability": -0.01069094613504455,
+          "out": "outputs/reliability_kitchen_fr.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.537,
+          "ece_feature_uncalibrated": 0.006,
+          "ece_calibrated": 0.0007
+        },
+        "pruning_certificate": {
+          "tau": 0.0027,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5371
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.6461,
+          "opacity": 0.478,
+          "raw_heuristic": 0.4574,
+          "random": 0.4621,
+          "oracle_ceiling": 0.6505
+        },
+        "carriers_labeled": 120000,
+        "label": "color"
+      },
+      "fullres_depth": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "depth_aware",
+          "test_views": 35,
+          "train_views": 244,
+          "labeled_fraction": 0.980925,
+          "reliability_mean_labeled": 0.47204890847206116,
+          "reliability_std_labeled": 0.24559320509433746,
+          "raw_conf_mean": 0.9998961091041565,
+          "raw_conf_std": 0.0012964073102921247,
+          "train_agree_mean": 0.4763524830341339,
+          "train_agree_std": 0.24714122712612152,
+          "corr_trainagree_reliability": 0.9720640248899761,
+          "corr_opacity_reliability": 0.14013226166953738,
+          "corr_rawconf_reliability": -0.01009621764821059,
+          "out": "outputs/reliability_kitchen_fr_depth.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.5288,
+          "ece_feature_uncalibrated": 0.0074,
+          "ece_calibrated": 0.0008
+        },
+        "pruning_certificate": {
+          "tau": 0.0016,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5289
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.6559,
+          "opacity": 0.4966,
+          "raw_heuristic": 0.4683,
+          "random": 0.4708,
+          "oracle_ceiling": 0.6625
+        },
+        "carriers_labeled": 117711,
+        "label": "depth_aware"
+      },
+      "quarter_color": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "color",
+          "test_views": 35,
+          "train_views": 244,
+          "labeled_fraction": 1.0,
+          "reliability_mean_labeled": 0.4316251277923584,
+          "reliability_std_labeled": 0.23917381465435028,
+          "raw_conf_mean": 0.9998968243598938,
+          "raw_conf_std": 0.0012571346014738083,
+          "train_agree_mean": 0.4345874488353729,
+          "train_agree_std": 0.2410265952348709,
+          "corr_trainagree_reliability": 0.9823733218965482,
+          "corr_opacity_reliability": 0.08742833086912286,
+          "corr_rawconf_reliability": -0.01662863561128242,
+          "out": "outputs/reliability_kitchen_q.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.5674,
+          "ece_feature_uncalibrated": 0.0051,
+          "ece_calibrated": 0.0006
+        },
+        "pruning_certificate": {
+          "tau": 0.0023,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5675
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.6189,
+          "opacity": 0.4479,
+          "raw_heuristic": 0.4265,
+          "random": 0.4321,
+          "oracle_ceiling": 0.6229
+        },
+        "carriers_labeled": 120000,
+        "label": "color"
+      },
+      "fullres_renderloss": {
+        "reliability_summary": {
+          "carriers": 120000,
+          "label": "render_loss",
+          "method": "exact_blend_weighted_color_error",
+          "test_views": 35,
+          "beta": 4.0,
+          "mean_per_view_L1": 0.06641,
+          "labeled_fraction": 0.9946,
+          "reliability_mean_labeled": 0.3546,
+          "reliability_std_labeled": 0.1585,
+          "corr_trainagree_reliability": 0.8059,
+          "corr_opacity_reliability": -0.0391,
+          "corr_rawconf_reliability": -0.0052,
+          "corr_colorlabel_reliability": 0.8153,
+          "out": "outputs/reliability_renderloss_kitchen_fr.npz",
+          "directional_prune": {
+            "base_L1": 0.06641,
+            "budgets": [
+              {
+                "prune_frac": 0.1,
+                "drop_least_reliable": 0.07218,
+                "drop_most_reliable": 0.0746,
+                "drop_lowest_opacity": 0.06695,
+                "drop_random": 0.06945
+              },
+              {
+                "prune_frac": 0.2,
+                "drop_least_reliable": 0.08763,
+                "drop_most_reliable": 0.0888,
+                "drop_lowest_opacity": 0.06869,
+                "drop_random": 0.07485
+              }
+            ]
+          }
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.6458,
+          "ece_feature_uncalibrated": 0.1239,
+          "ece_calibrated": 0.0006
+        },
+        "pruning_certificate": {
+          "tau": 0.2379,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 0.7825,
+          "empirical_risk_kept": 0.5939
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.4511,
+          "opacity": 0.3462,
+          "raw_heuristic": 0.3539,
+          "random": 0.3541,
+          "oracle_ceiling": 0.4793
+        },
+        "carriers_labeled": 119348,
+        "label": "render_loss"
+      }
+    },
+    "room": {
+      "train_fullres": {
+        "manifest": "outputs/room-fr-manifest.json",
+        "out": "outputs/room-fr.aura/carriers.npz",
+        "scale": 1.0,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 272,
+        "test_frames": 39,
+        "carriers": 107032,
+        "train_seconds": 701.0,
+        "final_loss": 0.043351560831069946,
+        "width": 3114,
+        "height": 2075
+      },
+      "train_quarter": {
+        "manifest": "outputs/room-fr-manifest.json",
+        "out": "outputs/room-q.aura/carriers.npz",
+        "scale": 0.25,
+        "iterations": 5000,
+        "holdout": 8,
+        "train_frames": 272,
+        "test_frames": 39,
+        "carriers": 107032,
+        "train_seconds": 453.9,
+        "final_loss": 0.04593005031347275,
+        "width": 3114,
+        "height": 2075
+      },
+      "fullres_color": {
+        "reliability_summary": {
+          "carriers": 107032,
+          "label": "color",
+          "test_views": 39,
+          "train_views": 272,
+          "labeled_fraction": 0.997944539950669,
+          "reliability_mean_labeled": 0.544547975063324,
+          "reliability_std_labeled": 0.2651585340499878,
+          "raw_conf_mean": 0.9923968315124512,
+          "raw_conf_std": 0.04124854877591133,
+          "train_agree_mean": 0.5491189956665039,
+          "train_agree_std": 0.2643089294433594,
+          "corr_trainagree_reliability": 0.9589598767052543,
+          "corr_opacity_reliability": 0.016243928867161344,
+          "corr_rawconf_reliability": 0.049990806910415124,
+          "out": "outputs/reliability_room_fr.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.4481,
+          "ece_feature_uncalibrated": 0.0093,
+          "ece_calibrated": 0.0019
+        },
+        "pruning_certificate": {
+          "tau": 0.0011,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.4552
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.7336,
+          "opacity": 0.5461,
+          "raw_heuristic": 0.5713,
+          "random": 0.5443,
+          "oracle_ceiling": 0.7426
+        },
+        "carriers_labeled": 106812,
+        "label": "color"
+      },
+      "fullres_depth": {
+        "reliability_summary": {
+          "carriers": 107032,
+          "label": "depth_aware",
+          "test_views": 39,
+          "train_views": 272,
+          "labeled_fraction": 0.6883268555198445,
+          "reliability_mean_labeled": 0.5291036367416382,
+          "reliability_std_labeled": 0.2673230469226837,
+          "raw_conf_mean": 0.9923968315124512,
+          "raw_conf_std": 0.04124854877591133,
+          "train_agree_mean": 0.5360522866249084,
+          "train_agree_std": 0.26549196243286133,
+          "corr_trainagree_reliability": 0.9352551058993197,
+          "corr_opacity_reliability": 0.07929058702286472,
+          "corr_rawconf_reliability": 0.036927328282849926,
+          "out": "outputs/reliability_room_fr_depth.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.4667,
+          "ece_feature_uncalibrated": 0.0144,
+          "ece_calibrated": 0.0024
+        },
+        "pruning_certificate": {
+          "tau": 0.0061,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.4724
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.7155,
+          "opacity": 0.5349,
+          "raw_heuristic": 0.534,
+          "random": 0.5251,
+          "oracle_ceiling": 0.7294
+        },
+        "carriers_labeled": 73673,
+        "label": "depth_aware"
+      },
+      "quarter_color": {
+        "reliability_summary": {
+          "carriers": 107032,
+          "label": "color",
+          "test_views": 39,
+          "train_views": 272,
+          "labeled_fraction": 0.9979912549517901,
+          "reliability_mean_labeled": 0.52158123254776,
+          "reliability_std_labeled": 0.2653864026069641,
+          "raw_conf_mean": 0.9923872947692871,
+          "raw_conf_std": 0.041240494698286057,
+          "train_agree_mean": 0.5252856612205505,
+          "train_agree_std": 0.2646891176700592,
+          "corr_trainagree_reliability": 0.9611214318876657,
+          "corr_opacity_reliability": 0.04755783745293629,
+          "corr_rawconf_reliability": 0.04500809049729154,
+          "out": "outputs/reliability_room_q.npz"
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.4701,
+          "ece_feature_uncalibrated": 0.008,
+          "ece_calibrated": 0.0013
+        },
+        "pruning_certificate": {
+          "tau": 0.0073,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.4772
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.7147,
+          "opacity": 0.5285,
+          "raw_heuristic": 0.5439,
+          "random": 0.5238,
+          "oracle_ceiling": 0.7235
+        },
+        "carriers_labeled": 106817,
+        "label": "color"
+      },
+      "fullres_renderloss": {
+        "reliability_summary": {
+          "carriers": 107032,
+          "label": "render_loss",
+          "method": "exact_blend_weighted_color_error",
+          "test_views": 39,
+          "beta": 4.0,
+          "mean_per_view_L1": 0.04082,
+          "labeled_fraction": 0.956,
+          "reliability_mean_labeled": 0.4558,
+          "reliability_std_labeled": 0.2117,
+          "corr_trainagree_reliability": 0.7845,
+          "corr_opacity_reliability": -0.0533,
+          "corr_rawconf_reliability": 0.0992,
+          "corr_colorlabel_reliability": 0.7801,
+          "out": "outputs/reliability_renderloss_room_fr.npz",
+          "directional_prune": {
+            "base_L1": 0.04082,
+            "budgets": [
+              {
+                "prune_frac": 0.1,
+                "drop_least_reliable": 0.04579,
+                "drop_most_reliable": 0.04397,
+                "drop_lowest_opacity": 0.04082,
+                "drop_random": 0.04307
+              },
+              {
+                "prune_frac": 0.2,
+                "drop_least_reliable": 0.05273,
+                "drop_most_reliable": 0.05051,
+                "drop_lowest_opacity": 0.0409,
+                "drop_random": 0.04682
+              }
+            ]
+          }
+        },
+        "calibration": {
+          "ece_raw_heuristic": 0.5368,
+          "ece_feature_uncalibrated": 0.1187,
+          "ece_calibrated": 0.0014
+        },
+        "pruning_certificate": {
+          "tau": 0.0118,
+          "epsilon": 0.6,
+          "alpha": 0.1,
+          "certified": true,
+          "kept_fraction": 1.0,
+          "empirical_risk_kept": 0.5438
+        },
+        "selection_auc": {
+          "calibrated_confidence": 0.5776,
+          "opacity": 0.4428,
+          "raw_heuristic": 0.4909,
+          "random": 0.4549,
+          "oracle_ceiling": 0.6183
+        },
+        "carriers_labeled": 102325,
+        "label": "render_loss"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "carriers": 120000,
+  "label": "depth_aware",
+  "test_views": 35,
+  "train_views": 244,
+  "labeled_fraction": 0.980925,
+  "reliability_mean_labeled": 0.47204890847206116,
+  "reliability_std_labeled": 0.24559320509433746,
+  "raw_conf_mean": 0.9998961091041565,
+  "raw_conf_std": 0.0012964073102921247,
+  "train_agree_mean": 0.4763524830341339,
+  "train_agree_std": 0.24714122712612152,
+  "corr_trainagree_reliability": 0.9720640248899761,
+  "corr_opacity_reliability": 0.14013226166953738,
+  "corr_rawconf_reliability": -0.01009621764821059,
+  "out": "outputs/reliability_kitchen_fr_depth.npz"
+}

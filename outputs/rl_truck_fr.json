@@ -1,0 +1,35 @@
+{
+  "carriers": 120000,
+  "label": "render_loss",
+  "method": "exact_blend_weighted_color_error",
+  "test_views": 32,
+  "beta": 4.0,
+  "mean_per_view_L1": 0.07683,
+  "labeled_fraction": 0.7073,
+  "reliability_mean_labeled": 0.2597,
+  "reliability_std_labeled": 0.178,
+  "corr_trainagree_reliability": 0.6553,
+  "corr_opacity_reliability": -0.1397,
+  "corr_rawconf_reliability": 0.1032,
+  "corr_colorlabel_reliability": 0.6417,
+  "out": "outputs/reliability_renderloss_truck_fr.npz",
+  "directional_prune": {
+    "base_L1": 0.07683,
+    "budgets": [
+      {
+        "prune_frac": 0.1,
+        "drop_least_reliable": 0.07683,
+        "drop_most_reliable": 0.08329,
+        "drop_lowest_opacity": 0.07683,
+        "drop_random": 0.07937
+      },
+      {
+        "prune_frac": 0.2,
+        "drop_least_reliable": 0.07683,
+        "drop_most_reliable": 0.10023,
+        "drop_lowest_opacity": 0.07683,
+        "drop_random": 0.08354
+      }
+    ]
+  }
+}

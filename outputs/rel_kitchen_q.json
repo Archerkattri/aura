@@ -1,0 +1,17 @@
+{
+  "carriers": 120000,
+  "label": "color",
+  "test_views": 35,
+  "train_views": 244,
+  "labeled_fraction": 1.0,
+  "reliability_mean_labeled": 0.4316251277923584,
+  "reliability_std_labeled": 0.23917381465435028,
+  "raw_conf_mean": 0.9998968243598938,
+  "raw_conf_std": 0.0012571346014738083,
+  "train_agree_mean": 0.4345874488353729,
+  "train_agree_std": 0.2410265952348709,
+  "corr_trainagree_reliability": 0.9823733218965482,
+  "corr_opacity_reliability": 0.08742833086912286,
+  "corr_rawconf_reliability": -0.01662863561128242,
+  "out": "outputs/reliability_kitchen_q.npz"
+}

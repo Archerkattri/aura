@@ -107,6 +107,18 @@ scene. The certificate's selective regime is mapped on all four scenes × both l
 (onset ε* 0.47–0.62, tracking scene reliability). Details, the full 4×4×2 matrix, and
 the ε-sweep: [`docs/P1_CROSS_SCENE.md`](docs/P1_CROSS_SCENE.md).
 
+**P2 (full resolution + a render-loss label).** Two stress-tests: re-fitting carriers
+at **full resolution** (P0 optimised at `--scale 0.25`) and replacing the
+colour-agreement proxy with a label measured from the **actual alpha-composited
+render** (each carrier's exact blend-weighted rendering error on held-out views). The
+P0 story **holds at full resolution** — full-res and a 0.25 control are near-identical,
+so it is not a low-res artifact — and it **survives the render-loss label** with
+honestly weaker margins (the export-time feature predicts the render-grounded label at
+r ≈ 0.66–0.81 vs the proxy's 0.92–0.98; calibration still crushes ECE; the certificate
+stays valid but more selective). P2 also fixes a P0 train/test leak (held-out views
+were seen in training). Details, per-scene tables, and the exact-attribution method:
+[`docs/P2_FULLRES_RENDERLOSS.md`](docs/P2_FULLRES_RENDERLOSS.md).
+
 ## The asset contract
 
 Beyond rendering, an `.aura` asset exposes a fixed set of first-class operations.

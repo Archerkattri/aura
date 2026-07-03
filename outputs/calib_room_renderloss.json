@@ -1,0 +1,64 @@
+{
+  "scene": "room",
+  "label": "render_loss",
+  "carriers_labeled": 102325,
+  "feature": "train_agree",
+  "calibration": {
+    "ece_raw_heuristic": 0.5368,
+    "ece_feature_uncalibrated": 0.1187,
+    "ece_calibrated": 0.0014
+  },
+  "pruning_certificate": {
+    "tau": 0.0118,
+    "epsilon": 0.6,
+    "alpha": 0.1,
+    "certified": true,
+    "kept_fraction": 1.0,
+    "empirical_risk_kept": 0.5438
+  },
+  "selection_auc_retained_reliability": {
+    "calibrated_confidence": 0.5776,
+    "opacity": 0.4428,
+    "raw_heuristic": 0.4909,
+    "random": 0.4549,
+    "oracle_ceiling": 0.6183
+  },
+  "curves_at_budgets": {
+    "budgets": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "calibrated_confidence": [
+      0.6754,
+      0.6585,
+      0.6386,
+      0.6178,
+      0.5966,
+      0.5731,
+      0.5484,
+      0.5206,
+      0.4904,
+      0.4562
+    ],
+    "opacity": [
+      0.3659,
+      0.3991,
+      0.4261,
+      0.4444,
+      0.4568,
+      0.4651,
+      0.4715,
+      0.4735,
+      0.4691,
+      0.4562
+    ]
+  }
+}

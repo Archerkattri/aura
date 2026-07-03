@@ -1,0 +1,17 @@
+{
+  "carriers": 120000,
+  "label": "depth_aware",
+  "test_views": 24,
+  "train_views": 161,
+  "labeled_fraction": 0.5712,
+  "reliability_mean_labeled": 0.46935033798217773,
+  "reliability_std_labeled": 0.24997319281101227,
+  "raw_conf_mean": 0.954054594039917,
+  "raw_conf_std": 0.10942865163087845,
+  "train_agree_mean": 0.480066180229187,
+  "train_agree_std": 0.25037509202957153,
+  "corr_trainagree_reliability": 0.8852544402312434,
+  "corr_opacity_reliability": 0.1610680669935357,
+  "corr_rawconf_reliability": -0.13394922536775364,
+  "out": "outputs/reliability_garden_fr_depth.npz"
+}

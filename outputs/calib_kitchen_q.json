@@ -1,0 +1,64 @@
+{
+  "scene": "kitchen",
+  "label": "color",
+  "carriers_labeled": 120000,
+  "feature": "train_agree",
+  "calibration": {
+    "ece_raw_heuristic": 0.5674,
+    "ece_feature_uncalibrated": 0.0051,
+    "ece_calibrated": 0.0006
+  },
+  "pruning_certificate": {
+    "tau": 0.0023,
+    "epsilon": 0.6,
+    "alpha": 0.1,
+    "certified": true,
+    "kept_fraction": 1.0,
+    "empirical_risk_kept": 0.5675
+  },
+  "selection_auc_retained_reliability": {
+    "calibrated_confidence": 0.6189,
+    "opacity": 0.4479,
+    "raw_heuristic": 0.4265,
+    "random": 0.4321,
+    "oracle_ceiling": 0.6229
+  },
+  "curves_at_budgets": {
+    "budgets": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "calibrated_confidence": [
+      0.8283,
+      0.7713,
+      0.7217,
+      0.6766,
+      0.6334,
+      0.5915,
+      0.5508,
+      0.5111,
+      0.472,
+      0.4325
+    ],
+    "opacity": [
+      0.4631,
+      0.4555,
+      0.4529,
+      0.4519,
+      0.4508,
+      0.4463,
+      0.4436,
+      0.4416,
+      0.4404,
+      0.4325
+    ]
+  }
+}
