@@ -22,7 +22,7 @@ calibrated-confidence result is in preparation.
 </p>
 
 ![How a capture becomes a trustworthy asset: COLMAP, NeRF, 3DGS, and the AURA calibration-and-certificate pipeline](docs/how_it_works.png)
-*Same posed photos, four construction targets. COLMAP gives geometry scaffolding, NeRF a neural volume with no primitives to ship, 3DGS fast splats whose only per-splat signals are uncalibrated heuristics — and AURA adds the layer with a guarantee: reliability label → isotonic calibration → split-conformal certificate → confidence-carrying export.*
+*Same posed photos, four construction targets. COLMAP gives geometry scaffolding, NeRF a neural volume with no primitives to ship, 3DGS fast splats whose only per-splat signals are uncalibrated heuristics — and AURA adds the layer with a guarantee: reliability label → isotonic calibration → split-conformal certificate → confidence-carrying export. Validated on 4 real scenes at native resolution; the calibrator transfers across scenes (selection AUC within ±0.0004) and the property survives a render-loss label with honestly weaker margins. Honest scope: Gaussian + Beta are the trained carriers, Gabor / neural footprints are demo-stage PRISM extensions, quality numbers are DBS reproductions rather than AURA novelties, and no SOTA claim is made.*
 
 <p align="center">
   <img src="docs/aura_capability_reel.gif" width="82%" alt="AURA capability reel: reconstruction, depth, confidence, semantics, and query"><br>
