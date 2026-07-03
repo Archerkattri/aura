@@ -168,6 +168,31 @@ class IsotonicConfidenceCalibrator:
         return expected_calibration_error(self.predict(raw), reliability, n_bins)
 
 
+def conformal_mean_upper_bound(loss, alpha=0.1):
+    """Finite-sample, distribution-free upper confidence bound on the mean of a
+    bounded ``[0,1]`` loss.
+
+    Returns ``mean(loss) + sqrt(log(1/alpha) / (2 m))`` for ``m`` observations —
+    the Hoeffding upper confidence bound, valid for any distribution of a
+    ``[0,1]``-bounded loss with confidence ``1 - alpha``. This is the *single*
+    conformal-risk primitive used by both :func:`conformal_prune_certificate`
+    (bounding the retained set's mean unreliability) and the certified-LOD plan in
+    :mod:`aura.lod` (bounding the reliability mass discarded by a prune level), so
+    both certificates share one audited bound rather than re-deriving the margin.
+
+    An empty ``loss`` returns ``0.0`` (nothing observed, nothing to bound).
+    """
+    import numpy as np
+
+    loss = np.clip(np.asarray(loss, dtype="float64").ravel(), 0.0, 1.0)
+    m = loss.shape[0]
+    if m == 0:
+        return 0.0
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be in (0, 1)")
+    return float(loss.mean() + np.sqrt(np.log(1.0 / alpha) / (2.0 * m)))
+
+
 @dataclass
 class ReliabilityCertificate:
     """Conformal pruning certificate for a confidence threshold ``tau``."""
@@ -226,7 +251,7 @@ def conformal_prune_certificate(conf, reliability, epsilon, alpha=0.1):
         if m == 0:
             continue
         rhat = float(unrel[keep].mean())
-        ucb = rhat + np.sqrt(np.log(1.0 / alpha) / (2.0 * m))
+        ucb = conformal_mean_upper_bound(unrel[keep], alpha)
         if ucb <= epsilon:
             return ReliabilityCertificate(
                 tau=float(tau), epsilon=float(epsilon), alpha=float(alpha),

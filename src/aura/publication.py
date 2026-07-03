@@ -80,6 +80,13 @@ RENDERLOSS_CORR_MIN = 0.6
 # would signal the P0 leak returned, so require it strictly below 1.0.
 TRUCK_FULLRES_KEPT_MAX = 0.95
 
+# Certified LOD/streaming plan (P4, outputs/lod_certified.json): every published
+# level's bound must hold on the disjoint eval half, with the stated family-wise
+# Bonferroni accounting (alpha' = alpha / K). Committed run: all 16 bounds hold
+# across the four real scenes at alpha=0.1, K=4 (docs/P4_CERTIFIED_LOD.md).
+LOD_ALPHA = 0.1
+LOD_MIN_LEVELS = 4
+
 # Real-asset relight / secondary-ray probe thresholds (outputs/truck-sidecar.aura,
 # 129,531 trained carriers, CPU probe). Measured probe values: two-light relight
 # mean|Δ| = 0.265, relit-vs-flat-albedo mean|Δ| = 0.295, 24/24 primary hits.
@@ -205,6 +212,7 @@ def publication_validation_report(
         _pruning_certificate_gate(outputs_dir, artifacts),
         _cross_scene_transfer_gate(outputs_dir, artifacts),
         _fullres_renderloss_gate(outputs_dir, artifacts),
+        _certified_lod_gate(outputs_dir, artifacts),
         # Real trained-asset probes (not the synthetic native demo scene).
         _secondary_reflection_gate(outputs_dir, artifacts),
         _inverse_materials_gate(outputs_dir, artifacts),
@@ -679,6 +687,86 @@ def _fullres_renderloss_gate(outputs_dir: Path, artifacts: dict[str, str]) -> Pu
         evidence=tuple(evidence),
         gaps=tuple(gaps),
         next_steps=("add the native 17.4 MP Garden render-loss label on an idle GPU",),
+    )
+
+
+def _certified_lod_gate(outputs_dir: Path, artifacts: dict[str, str]) -> PublicationGate:
+    """Certified LOD/streaming plan (P4) holds with honest family-wise accounting.
+
+    Parses lod_certified.json and checks: the Bonferroni correction is stated and
+    arithmetically consistent (alpha' == alpha / K), all four real scenes carry at
+    least LOD_MIN_LEVELS levels, every level's certified bound holds on the
+    disjoint eval half, the full-keep level is trivial with epsilon exactly 0, and
+    epsilon decreases as the keep-fraction grows.
+    """
+    evidence: list[str] = []
+    gaps: list[str] = []
+    payload, err = _load_artifact(outputs_dir / "lod_certified.json", artifacts)
+    if payload is None:
+        return PublicationGate(
+            id="certified_lod",
+            title="Certified LOD/streaming plan",
+            passed=False, evidence=(), gaps=(err or "missing lod_certified.json",),
+            next_steps=("run experiments/lod_certified_eval.py",),
+        )
+    alpha = _num(payload.get("alpha"))
+    alpha_pl = _num(payload.get("alpha_per_level"))
+    n_levels = len(payload.get("levels") or [])
+    if payload.get("correction") != "bonferroni":
+        gaps.append(f"lod_certified.json: correction {payload.get('correction')!r} != 'bonferroni'")
+    if alpha != LOD_ALPHA:
+        gaps.append(f"lod_certified.json: alpha {alpha} != {LOD_ALPHA}")
+    if n_levels < LOD_MIN_LEVELS:
+        gaps.append(f"lod_certified.json: only {n_levels} levels < {LOD_MIN_LEVELS}")
+    if alpha is not None and alpha_pl is not None and n_levels:
+        if abs(alpha_pl - alpha / n_levels) > 1e-12:
+            gaps.append(
+                f"lod_certified.json: alpha_per_level {alpha_pl} != alpha/K = {alpha / n_levels}"
+                " — family-wise accounting broken"
+            )
+    by_scene = payload.get("by_scene") or {}
+    total_holds = 0
+    for scene in REAL_SCENES:
+        levels = ((by_scene.get(scene) or {}).get("levels")) or []
+        if len(levels) < LOD_MIN_LEVELS:
+            gaps.append(f"lod_certified.json: {scene} has {len(levels)} evaluated levels < {LOD_MIN_LEVELS}")
+            continue
+        eps_by_keep: list[tuple[float, float]] = []
+        for lvl in levels:
+            keep = _num(lvl.get("keep_fraction"))
+            eps = _num(lvl.get("epsilon_certified"))
+            if keep is None or eps is None:
+                gaps.append(f"lod_certified.json: {scene} level missing keep_fraction/epsilon")
+                continue
+            if lvl.get("holds") is not True:
+                gaps.append(f"lod_certified.json: {scene}@{keep} bound does not hold")
+                continue
+            if keep == 1.0 and (lvl.get("trivial") is not True or eps != 0.0):
+                gaps.append(f"lod_certified.json: {scene} full-keep level not trivial/zero (eps={eps})")
+                continue
+            eps_by_keep.append((keep, eps))
+            total_holds += 1
+        eps_sorted = sorted(eps_by_keep)
+        if any(e2 > e1 for (_, e1), (_, e2) in zip(eps_sorted, eps_sorted[1:])):
+            gaps.append(f"lod_certified.json: {scene} epsilon not non-increasing in keep-fraction")
+    if payload.get("all_bounds_hold") is not True or payload.get("violations"):
+        gaps.append(
+            f"lod_certified.json: all_bounds_hold={payload.get('all_bounds_hold')}, "
+            f"violations={payload.get('violations')}"
+        )
+    if total_holds:
+        evidence.append(
+            f"{total_holds} level bounds hold on disjoint eval halves across "
+            f"{len(REAL_SCENES)} scenes (family-wise 1-alpha={1 - LOD_ALPHA:g}, Bonferroni)"
+        )
+    passed = not gaps
+    return PublicationGate(
+        id="certified_lod",
+        title="Certified LOD/streaming plan",
+        passed=passed,
+        evidence=tuple(evidence),
+        gaps=tuple(gaps),
+        next_steps=("re-run lod_certified_eval.py whenever calibrators or scenes change",),
     )
 
 

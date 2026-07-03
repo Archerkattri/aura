@@ -24,7 +24,8 @@ def artifacts_dir(tmp_path):
     for pattern in ("calib_*.json", "rl_*_fr.json"):
         for src in OUTPUTS.glob(pattern):
             shutil.copy(src, tmp_path / src.name)
-    for name in ("cert_sweep.json", "cross_scene_transfer.json", "p2_summary.json"):
+    for name in ("cert_sweep.json", "cross_scene_transfer.json", "p2_summary.json",
+                 "lod_certified.json"):
         shutil.copy(OUTPUTS / name, tmp_path / name)
     return tmp_path
 
@@ -167,6 +168,37 @@ def test_fullres_renderloss_gate_fails_on_renderloss_collapse(artifacts_dir):
     _rewrite(artifacts_dir / "rl_truck_fr.json",
              lambda d: d.__setitem__("corr_trainagree_reliability", 0.1))
     gate = P._fullres_renderloss_gate(artifacts_dir, {})
+    assert gate.passed is False
+
+
+# --- certified_lod ----------------------------------------------------------------
+
+def test_certified_lod_gate_passes_on_committed(artifacts_dir):
+    gate = P._certified_lod_gate(artifacts_dir, {})
+    assert gate.passed is True
+    assert gate.id == "certified_lod"
+
+
+def test_certified_lod_gate_fails_when_a_bound_breaks(artifacts_dir):
+    def break_bound(d):
+        d["by_scene"]["truck"]["levels"][0]["holds"] = False
+    _rewrite(artifacts_dir / "lod_certified.json", break_bound)
+    gate = P._certified_lod_gate(artifacts_dir, {})
+    assert gate.passed is False
+    assert any("does not hold" in g for g in gate.gaps)
+
+
+def test_certified_lod_gate_fails_on_broken_bonferroni_accounting(artifacts_dir):
+    # alpha_per_level must equal alpha / K — quoting uncorrected levels is optimistic.
+    _rewrite(artifacts_dir / "lod_certified.json",
+             lambda d: d.__setitem__("alpha_per_level", d["alpha"]))
+    gate = P._certified_lod_gate(artifacts_dir, {})
+    assert gate.passed is False
+    assert any("family-wise accounting" in g for g in gate.gaps)
+
+
+def test_certified_lod_gate_fails_on_missing(tmp_path):
+    gate = P._certified_lod_gate(tmp_path, {})
     assert gate.passed is False
 
 

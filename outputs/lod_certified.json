@@ -1,0 +1,384 @@
+{
+  "experiment": "P4_certified_lod_streaming",
+  "scenes": [
+    "truck",
+    "garden",
+    "kitchen",
+    "room"
+  ],
+  "feature": "train_agree",
+  "alpha": 0.1,
+  "alpha_per_level": 0.025,
+  "correction": "bonferroni",
+  "family_wise_confidence": 0.9,
+  "levels": [
+    0.1,
+    0.25,
+    0.5,
+    1.0
+  ],
+  "seed": 0,
+  "loss": "discarded_reliability_mass = mean(reliability * 1[conf < tau])",
+  "protocol": "seed-0 50/50 carrier split (matches calibrate_confidence.py): calibrator fit + LOD plan built on the CALIBRATION half only; empirical lost-reliability mass measured on the disjoint EVAL half.",
+  "scope": "epsilon bounds RELIABILITY mass (colour-agreement / occlusion-aware proxy), NOT rendered PSNR; opacity remains the PSNR-preserving prune signal (see docs/P0_CALIBRATED_CONFIDENCE.md, docs/P2_FULLRES_RENDERLOSS.md).",
+  "by_scene": {
+    "truck": {
+      "n_labeled": 127878,
+      "n_cal": 63939,
+      "n_eval": 63939,
+      "mean_reliability_eval": 0.4072,
+      "plan": {
+        "scene": "truck",
+        "alpha": 0.1,
+        "correction": "bonferroni",
+        "alpha_per_level": 0.025,
+        "family_wise_confidence": 0.9,
+        "sort": "calibrated_confidence_desc",
+        "n_cal": 63939,
+        "n_levels": 4,
+        "loss": "discarded_reliability_mass",
+        "levels": [
+          {
+            "keep_fraction": 0.1,
+            "tau": 0.720322142331264,
+            "epsilon_certified": 0.33416935085379745,
+            "n_cal": 63939,
+            "n_kept_cal": 6394,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.25,
+            "tau": 0.5977449748434848,
+            "epsilon_certified": 0.23625896152909862,
+            "n_cal": 63939,
+            "n_kept_cal": 15985,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.5,
+            "tau": 0.3938722813173252,
+            "epsilon_certified": 0.1104561512015769,
+            "n_cal": 63939,
+            "n_kept_cal": 31970,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 1.0,
+            "tau": 0.0019247443415224552,
+            "epsilon_certified": 0.0,
+            "n_cal": 63939,
+            "n_kept_cal": 63939,
+            "trivial": true
+          }
+        ]
+      },
+      "levels": [
+        {
+          "keep_fraction": 0.1,
+          "tau": 0.720322,
+          "epsilon_certified": 0.334169,
+          "n_kept_cal": 6394,
+          "empirical_loss_eval": 0.32809,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.25,
+          "tau": 0.597745,
+          "epsilon_certified": 0.236259,
+          "n_kept_cal": 15985,
+          "empirical_loss_eval": 0.232038,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.5,
+          "tau": 0.393872,
+          "epsilon_certified": 0.110456,
+          "n_kept_cal": 31970,
+          "empirical_loss_eval": 0.105116,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 1.0,
+          "tau": 0.001925,
+          "epsilon_certified": 0.0,
+          "n_kept_cal": 63939,
+          "empirical_loss_eval": 0.0,
+          "holds": true,
+          "trivial": true
+        }
+      ]
+    },
+    "garden": {
+      "n_labeled": 113180,
+      "n_cal": 56590,
+      "n_eval": 56590,
+      "mean_reliability_eval": 0.4261,
+      "plan": {
+        "scene": "garden",
+        "alpha": 0.1,
+        "correction": "bonferroni",
+        "alpha_per_level": 0.025,
+        "family_wise_confidence": 0.9,
+        "sort": "calibrated_confidence_desc",
+        "n_cal": 56590,
+        "n_levels": 4,
+        "loss": "discarded_reliability_mass",
+        "levels": [
+          {
+            "keep_fraction": 0.1,
+            "tau": 0.7426899634237323,
+            "epsilon_certified": 0.3473766990785956,
+            "n_cal": 56590,
+            "n_kept_cal": 5659,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.25,
+            "tau": 0.6180207564918008,
+            "epsilon_certified": 0.24535275447456428,
+            "n_cal": 56590,
+            "n_kept_cal": 14148,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.5,
+            "tau": 0.41932790302023104,
+            "epsilon_certified": 0.1226134207360432,
+            "n_cal": 56590,
+            "n_kept_cal": 28295,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 1.0,
+            "tau": 0.002063544699922204,
+            "epsilon_certified": 0.0,
+            "n_cal": 56590,
+            "n_kept_cal": 56590,
+            "trivial": true
+          }
+        ]
+      },
+      "levels": [
+        {
+          "keep_fraction": 0.1,
+          "tau": 0.74269,
+          "epsilon_certified": 0.347377,
+          "n_kept_cal": 5659,
+          "empirical_loss_eval": 0.340074,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.25,
+          "tau": 0.618021,
+          "epsilon_certified": 0.245353,
+          "n_kept_cal": 14148,
+          "empirical_loss_eval": 0.237718,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.5,
+          "tau": 0.419328,
+          "epsilon_certified": 0.122613,
+          "n_kept_cal": 28295,
+          "empirical_loss_eval": 0.11642,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 1.0,
+          "tau": 0.002064,
+          "epsilon_certified": 0.0,
+          "n_kept_cal": 56590,
+          "empirical_loss_eval": 0.0,
+          "holds": true,
+          "trivial": true
+        }
+      ]
+    },
+    "kitchen": {
+      "n_labeled": 120000,
+      "n_cal": 60000,
+      "n_eval": 60000,
+      "mean_reliability_eval": 0.4431,
+      "plan": {
+        "scene": "kitchen",
+        "alpha": 0.1,
+        "correction": "bonferroni",
+        "alpha_per_level": 0.025,
+        "family_wise_confidence": 0.9,
+        "sort": "calibrated_confidence_desc",
+        "n_cal": 60000,
+        "n_levels": 4,
+        "loss": "discarded_reliability_mass",
+        "levels": [
+          {
+            "keep_fraction": 0.1,
+            "tau": 0.7761277430279311,
+            "epsilon_certified": 0.3643134861304804,
+            "n_cal": 60000,
+            "n_kept_cal": 6000,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.25,
+            "tau": 0.6339531071124024,
+            "epsilon_certified": 0.2546658581733152,
+            "n_cal": 60000,
+            "n_kept_cal": 15000,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.5,
+            "tau": 0.44253001006575404,
+            "epsilon_certified": 0.12572454571476277,
+            "n_cal": 60000,
+            "n_kept_cal": 30000,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 1.0,
+            "tau": 0.0017962479032576084,
+            "epsilon_certified": 0.0,
+            "n_cal": 60000,
+            "n_kept_cal": 60000,
+            "trivial": true
+          }
+        ]
+      },
+      "levels": [
+        {
+          "keep_fraction": 0.1,
+          "tau": 0.776128,
+          "epsilon_certified": 0.364313,
+          "n_kept_cal": 6000,
+          "empirical_loss_eval": 0.35983,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.25,
+          "tau": 0.633953,
+          "epsilon_certified": 0.254666,
+          "n_kept_cal": 15000,
+          "empirical_loss_eval": 0.251139,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.5,
+          "tau": 0.44253,
+          "epsilon_certified": 0.125725,
+          "n_kept_cal": 30000,
+          "empirical_loss_eval": 0.121555,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 1.0,
+          "tau": 0.001796,
+          "epsilon_certified": 0.0,
+          "n_kept_cal": 60000,
+          "empirical_loss_eval": 0.0,
+          "holds": true,
+          "trivial": true
+        }
+      ]
+    },
+    "room": {
+      "n_labeled": 106809,
+      "n_cal": 53404,
+      "n_eval": 53405,
+      "mean_reliability_eval": 0.5289,
+      "plan": {
+        "scene": "room",
+        "alpha": 0.1,
+        "correction": "bonferroni",
+        "alpha_per_level": 0.025,
+        "family_wise_confidence": 0.9,
+        "sort": "calibrated_confidence_desc",
+        "n_cal": 53404,
+        "n_levels": 4,
+        "loss": "discarded_reliability_mass",
+        "levels": [
+          {
+            "keep_fraction": 0.1,
+            "tau": 0.8561305890389539,
+            "epsilon_certified": 0.44315080472005663,
+            "n_cal": 53404,
+            "n_kept_cal": 5340,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.25,
+            "tau": 0.7419641113420553,
+            "epsilon_certified": 0.3178300554417483,
+            "n_cal": 53404,
+            "n_kept_cal": 13351,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 0.5,
+            "tau": 0.5597082834501969,
+            "epsilon_certified": 0.15982489034951755,
+            "n_cal": 53404,
+            "n_kept_cal": 26702,
+            "trivial": false
+          },
+          {
+            "keep_fraction": 1.0,
+            "tau": 0.0010438329773023725,
+            "epsilon_certified": 0.0,
+            "n_cal": 53404,
+            "n_kept_cal": 53404,
+            "trivial": true
+          }
+        ]
+      },
+      "levels": [
+        {
+          "keep_fraction": 0.1,
+          "tau": 0.856131,
+          "epsilon_certified": 0.443151,
+          "n_kept_cal": 5340,
+          "empirical_loss_eval": 0.438997,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.25,
+          "tau": 0.741964,
+          "epsilon_certified": 0.31783,
+          "n_kept_cal": 13351,
+          "empirical_loss_eval": 0.311704,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 0.5,
+          "tau": 0.559708,
+          "epsilon_certified": 0.159825,
+          "n_kept_cal": 26702,
+          "empirical_loss_eval": 0.151399,
+          "holds": true,
+          "trivial": false
+        },
+        {
+          "keep_fraction": 1.0,
+          "tau": 0.001044,
+          "epsilon_certified": 0.0,
+          "n_kept_cal": 53404,
+          "empirical_loss_eval": 0.0,
+          "holds": true,
+          "trivial": true
+        }
+      ]
+    }
+  },
+  "all_bounds_hold": true,
+  "violations": []
+}

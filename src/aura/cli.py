@@ -395,6 +395,27 @@ def main(argv: list[str] | None = None) -> int:
                             help="export-time feature key to calibrate")
     calib_conf.add_argument("--device", default="cuda")
 
+    lod_plan = sub.add_parser(
+        "lod-plan",
+        help="Build a certified LOD/streaming plan (Bonferroni family-wise "
+             "distribution-free bound on discarded reliability mass) and print as JSON")
+    lod_plan.add_argument("source", type=Path,
+                          help="reliability npz (keys: <feature>, reliability, labeled) "
+                               "OR a package dir / carriers.npz with --reliability")
+    lod_plan.add_argument("--reliability", type=Path, default=None,
+                          help="reliability npz when source is a package/carriers.npz")
+    lod_plan.add_argument("--feature", default="train_agree",
+                          help="export-time feature key to calibrate into confidence")
+    lod_plan.add_argument("--alpha", type=float, default=0.1,
+                          help="family-wise miscoverage; per-level is alpha/K (Bonferroni)")
+    lod_plan.add_argument("--levels", type=float, nargs="+", default=[0.10, 0.25, 0.50, 1.00],
+                          help="keep-fractions in (0,1]")
+    lod_plan.add_argument("--seed", type=int, default=0)
+    lod_plan.add_argument("--scene", default=None, help="scene name recorded in the plan")
+    lod_plan.add_argument("--all-labeled", action="store_true",
+                          help="use all labeled carriers as the conformal set "
+                               "(default: seed-0 cal half, matching calibrate_confidence.py)")
+
     ray_query = sub.add_parser(
         "ray-query", help="Answer one ray over trained carriers (full RayQueryResult payload as JSON)")
     ray_query.add_argument("source", type=Path, help="package dir or carriers.npz")
@@ -749,6 +770,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "calibrate-confidence":
         out = _calibrate_confidence_command(args)
         print(out)
+        return 0
+    if args.command == "lod-plan":
+        print(_lod_plan_command(args))
         return 0
     if args.command == "ray-query":
         print(_ray_query_command(args))
@@ -1395,6 +1419,53 @@ def _calibrate_confidence_command(args: argparse.Namespace) -> Path:
     if "colors" in carriers:
         kw["colors"] = carriers["colors"]
     return save_carriers(args.source, confidence=conf, **kw)
+
+
+def _lod_plan_command(args: argparse.Namespace) -> str:
+    """Build a certified LOD/streaming plan from a reliability signal and return JSON.
+
+    Fits the isotonic calibrator on the conformal set (the seed-0 calibration half,
+    matching ``experiments/calibrate_confidence.py``, unless ``--all-labeled``) and
+    emits a Bonferroni family-wise-valid plan. The reliability npz is either the
+    ``source`` itself or ``--reliability``; a package/carriers.npz source is accepted
+    for symmetry with ``calibrate-confidence`` but the plan is built from the
+    reliability labels.
+    """
+    import json
+
+    import numpy as np
+
+    from .calibration import IsotonicConfidenceCalibrator
+    from .lod import certified_lod_plan
+
+    rel_path = args.reliability if args.reliability is not None else args.source
+    rel_path = Path(rel_path)
+    if rel_path.suffix != ".npz" or not rel_path.exists():
+        raise SystemExit(
+            f"need a reliability .npz (keys '{args.feature}', 'reliability', 'labeled'); "
+            f"got {rel_path} — pass it as source or via --reliability")
+    d = np.load(rel_path)
+    if args.feature not in d or "reliability" not in d:
+        raise SystemExit(f"reliability npz needs keys '{args.feature}' and 'reliability'")
+    labeled = np.asarray(d["labeled"]) if "labeled" in d else np.ones(d[args.feature].shape, bool)
+    feat = np.asarray(d[args.feature], dtype="float64")[labeled]
+    rel = np.asarray(d["reliability"], dtype="float64")[labeled]
+    m = feat.shape[0]
+
+    if args.all_labeled:
+        cal_idx = np.arange(m)
+    else:
+        rng = np.random.default_rng(args.seed)
+        cal_idx = rng.permutation(m)[: m // 2]
+
+    calibrator = IsotonicConfidenceCalibrator().fit(feat[cal_idx], rel[cal_idx])
+    conf_cal = calibrator.predict(feat[cal_idx])
+    scene = args.scene
+    if scene is None and "label" in d:
+        scene = None  # label is a reliability-label name, not a scene; leave unset
+    plan = certified_lod_plan(conf_cal, rel[cal_idx], levels=args.levels,
+                              alpha=args.alpha, scene=scene)
+    return json.dumps(plan, indent=2)
 
 
 def _ray_query_command(args: argparse.Namespace) -> str:

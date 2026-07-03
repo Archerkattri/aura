@@ -30,6 +30,7 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert gates["pruning_certificate"]["passed"] is True
     assert gates["cross_scene_transfer"]["passed"] is True
     assert gates["fullres_renderloss"]["passed"] is True
+    assert gates["certified_lod"]["passed"] is True
     # Relight / secondary-ray gates are bound to the real trained asset, not the
     # synthetic native demo scene, and report a concrete pass status.
     assert gates["secondary_ray_reflection"]["passed"] is True
