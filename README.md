@@ -2,21 +2,25 @@
 
 [![CI](https://github.com/Archerkattri/aura/actions/workflows/ci.yml/badge.svg)](https://github.com/Archerkattri/aura/actions/workflows/ci.yml)
 
-**Adaptive Unified Radiance Asset** · research preview (`v0.2.0`)
+**Adaptive Unified Radiance Asset** · research preview (`v0.7.0-dev`)
 
-AURA turns posed captures into a **typed, queryable, relightable, engine-ready
-radiance asset**. It keeps the fast Gaussian / DBS-Beta renderers where they are
-strong and adds the asset layer they do not provide: a **calibrated, certified
-confidence** every carrier carries, plus typed-carrier metadata, ray queries,
-semantic identity, a relighting preview, PRISM extension footprints, and
-standards-based export. The chain is Photogrammetry → NeRF → 3DGS → **AURA**: not
-a faster renderer, but a more *trustworthy, inspectable* asset on top of one.
+AURA is the **trust layer for splats**. A plain 3DGS/DBS checkpoint renders fast
+but ships no notion of per-primitive trust; AURA keeps those fast Gaussian /
+DBS-Beta renderers where they are strong and adds the layer they do not provide —
+a **calibrated confidence** every carrier carries, turned into a **distribution-free
+certificate**, turned into a **certified streaming/LOD ladder**, with that
+confidence **travelling in every standard container** (glTF, USD, SPZ), and all of
+it **gate-checked and CPU-reproducible**. The chain is Photogrammetry → NeRF → 3DGS
+→ **AURA**: not a faster renderer, but a more *trustworthy, inspectable* asset on
+top of one.
 
-This is a research preview. Every claim below is backed by a committed artifact,
-and the honest scope of each capability — what is trained-and-validated versus
-demo-stage — is stated inline. **Negatives are kept, not hidden; there is no
-official-leaderboard SOTA claim anywhere in this repo.** A preprint describing the
-calibrated-confidence result is in preparation.
+This is the road to `v1.0`. `v0.7.0-dev` is the current development state; **`v0.2.0`
+was the last tagged release** (owner ships the tags). Every claim below is backed by
+a committed artifact, and the honest scope of each capability — what is
+trained-and-validated versus demo-stage — is stated inline. **Negatives are kept,
+not hidden; there is no official-leaderboard SOTA claim anywhere in this repo.** A
+preprint describing the calibrated-confidence result is **in preparation and
+publishes at v1.0**.
 
 <p align="center">
   <img src="docs/truck_orbit.gif" width="82%" alt="AURA reconstruction orbit on Truck"><br>
@@ -40,9 +44,10 @@ certificate**: *drop everything below threshold `τ`, losing at most `ε`
 reliability mass, with confidence `1−α`.* That turns level-of-detail, streaming,
 and pruning decisions from heuristics into *certified* choices, and the value
 travels with the asset — as the `_AURA_CONFIDENCE` vendor attribute in the
-`KHR_gaussian_splatting` GLB export, and as a confidence vendor channel in the
-OpenUSD 26.03 splat schema. This is the capability a bare splat cannot cheaply
-add — AURA's answer to "what does an asset give you that a renderer does not."
+`KHR_gaussian_splatting` GLB export, as `primvars:aura:confidence` in the OpenUSD
+26.03 splat schema, and as a confidence sidecar next to the Niantic SPZ v4 export.
+This is the capability a bare splat cannot cheaply add — AURA's answer to "what
+does an asset give you that a renderer does not."
 
 The raw signal AURA used to ship — a view-count heuristic — is *not* a probability:
 it saturates near 1 regardless of whether a carrier is actually reliable. Isotonic
@@ -149,9 +154,55 @@ gap widening to ~6–13%.
 split the absolute numbers are slightly lower and *honest*: **the Truck colour
 pruning certificate that P0 reported as keeping 100% of carriers at ε=0.6 certifies
 keeping 77% on the clean split (1.00 → 0.77).** The conclusions are stated relative
-to each run's own oracle ceiling and to opacity, which is what transfers. Details,
-per-scene tables, and the exact-attribution method:
-[`docs/P2_FULLRES_RENDERLOSS.md`](docs/P2_FULLRES_RENDERLOSS.md).
+to each run's own oracle ceiling and to opacity, which is what transfers. This leak
+class is now **mechanically impossible to reintroduce**: the calibration gate is
+guarded by `aura.split_guard`, which reconstructs the train/eval partition from a
+producer's recorded view counts and fails the gate if an eval view was ever a train
+view (the exact fingerprint of the historical leak). Details, per-scene tables, and
+the exact-attribution method: [`docs/P2_FULLRES_RENDERLOSS.md`](docs/P2_FULLRES_RENDERLOSS.md).
+
+## Certified LOD / streaming
+
+P4 makes the pruning certificate *do something*. One certificate becomes an
+**ordered, multi-level streaming plan**: carriers stream in **descending calibrated
+confidence**, and a consumer may **stop at any published level** with a stated,
+distribution-free bound on the reliability mass it discarded by stopping there —
+the level-of-detail ladder a bare 3DGS/DBS splat cannot offer.
+
+With `K = 4` published keep-levels (`0.10 / 0.25 / 0.50 / 1.00`), each level's
+discarded-reliability-mass bound `ε_k` is a finite-sample Hoeffding upper bound
+computed on the **calibration half only**. The `K` levels are `K` simultaneous
+certificates, so each is certified at **`α' = α/K` (Bonferroni)** and the union
+bound gives **family-wise confidence `1−α` = 0.9** across the whole plan (strictly
+more conservative than an uncorrected bound — the honest direction). The `1.00`
+level is trivial (`ε = 0` by definition, nothing pruned):
+
+| keep fraction | Truck `ε` | Garden `ε` | Kitchen `ε` | Room `ε` |
+|---|---:|---:|---:|---:|
+| 0.10 | 0.334 | 0.347 | 0.364 | 0.443 |
+| 0.25 | 0.236 | 0.245 | 0.255 | 0.318 |
+| 0.50 | 0.111 | 0.123 | 0.126 | 0.160 |
+| 1.00 | 0.000 (trivial) | 0.000 (trivial) | 0.000 (trivial) | 0.000 (trivial) |
+
+**All 16 bounds hold** (12 non-trivial + 4 trivial) on the **disjoint eval half** of
+every scene — the same seed-0 50/50 split used to fit the calibrator; the eval half
+never touches plan construction. Read the numbers correctly: keeping only 10% of
+carriers discards a *large* share of the scene's total reliability mass (`ε ≈
+0.33–0.44`) even though the kept 10% are each individually very reliable (P0: 0.77–
+0.90 mean retained reliability at 10%-keep) — there are simply many moderately-
+reliable carriers, so a hard prune forfeits much of the aggregate mass, and the
+certificate bounds that forfeited mass honestly. `ε_k` bounds a *reliability-mass*
+proxy, not rendered PSNR (opacity remains the PSNR-preserving prune signal — same
+caveat as P0/P2), and the guarantee is exchangeability-dependent, so cross-scene
+deployment needs a small local conformal set per scene.
+
+```bash
+aura lod-plan outputs/reliability_truck.npz --scene truck   # emit a certified plan as JSON
+```
+
+Method, the full per-level `τ` / `ε_certified` / empirical-loss tables, and the
+plateau-rounding correctness finding: [`docs/P4_CERTIFIED_LOD.md`](docs/P4_CERTIFIED_LOD.md)
+(artifact: `outputs/lod_certified.json`).
 
 ## The asset contract
 
@@ -161,8 +212,9 @@ Each is described here with its honest maturity.
 ### Typed carriers
 
 The registry defines **seven carrier types**, but they are not equally real, and
-each carries an explicit `maturity` flag (`trained` / `demo` / `metadata`) so the
-asset never advertises more than it can back. Four types have render footprints,
+each carries an explicit `maturity` flag (`trained` / `demo` / `metadata`) — a
+contract **enforced by a publication gate** (`carrier_registry_honesty`), so the
+asset can never advertise more than it can back. Four types have render footprints,
 routed to the backend that serves each best; the other three (surface, volume,
 semantic) are typed-metadata contracts only — no trained render family stands
 behind them yet:
@@ -175,19 +227,22 @@ behind them yet:
 | Neural | PRISM (Gaussian fallback) | experimental footprint | demo-stage (experimental, unvalidated) |
 | Surface / Volume / Semantic | — | typed-metadata contract | metadata only |
 
-Gaussian and Beta are the quality backends and train on full scenes. Gabor and
-Neural are **additive PRISM extensions**, not alternative quality backends — Gabor
-currently trains only on 2D crops. The neural footprint is experimental and
-unvalidated: PRISM ships **no** neural kernel, so a neural carrier is composited via
-an **explicit, provenance-annotated Gaussian fallback** (`hybrid.footprint_routing`
-reports `fallback:gaussian`), never a silent swap, and its research factory
-(`prism.make_neural_footprint`) is gated behind `enable_experimental=True`. PRISM
-(Pluggable Radiance-prImitive Splatting Module, pure-PyTorch + a custom CUDA path)
-verifies that Gaussian/Beta route to the primary backend, Gabor routes to a real
-PRISM footprint, and the extension measurably changes the rendered image. It is
-real-time on an RTX 5090 (hundreds of FPS at 50k carriers, CUDA forward matching the
-torch path > 100 dB), artifact recorded in
-`experiments/results/production_fps_sweep_2026-06-25.json`.
+Gaussian and Beta are the quality backends and train on full scenes, each with
+committed `calib_<scene>.json` evidence — the gate **fails** if any type claims
+`trained` without it. Gabor and Neural are **additive PRISM extensions**, not
+alternative quality backends — Gabor currently trains only on 2D crops. The neural
+footprint is experimental and unvalidated: PRISM ships **no** neural kernel, so a
+neural carrier is composited via an **explicit, provenance-annotated Gaussian
+fallback** (`hybrid.footprint_routing` reports `fallback:gaussian` and
+`render_hybrid` emits a `RuntimeWarning`), never a silent swap, and its research
+factory (`prism.make_neural_footprint`) is quarantined behind
+`enable_experimental=True`. PRISM (Pluggable Radiance-prImitive Splatting Module,
+pure-PyTorch + a custom CUDA path) verifies that Gaussian/Beta route to the primary
+backend, Gabor routes to a real PRISM footprint, and the extension measurably
+changes the rendered image. It is real-time on an RTX 5090 (hundreds of FPS at 50k
+carriers, CUDA forward matching the torch path > 100 dB), artifact recorded in
+`experiments/results/production_fps_sweep_2026-06-25.json`. The registry-honesty
+contract and per-type truth table: [`docs/P6_CARRIER_REGISTRY_AND_CODEBOOK.md`](docs/P6_CARRIER_REGISTRY_AND_CODEBOOK.md).
 
 ![PRISM extension stack](docs/prism_extension_stack.png)
 
@@ -203,30 +258,30 @@ aura ray-query scene.aura --origin 0 0 0 --direction 0 0 1
 aura confidence scene.aura scene/manifest.json
 ```
 
-Scope note: ray-query is currently a **brute-force O(N)** traversal (distance to
-all carriers + argsort), and the secondary-ray / reflection path is validated on a
-demo scene, not yet a BVH-accelerated production traversal.
+Ray query is now backed by a deterministic, pure-numpy **BVH** (`src/aura/bvh.py`)
+over per-carrier isotropic-radius AABBs, with a **batched** query API and a
+build-once streaming handle. Each carrier's cube AABB conservatively bounds its
+hit-sphere, so the BVH candidate set is a **provable superset** of the brute-force
+hit set and the final hit test is the exact brute-force arithmetic — superset + same
+resolver ⇒ **exact parity**. That parity is the acceptance criterion: BVH == brute
+with **0 mismatches** across synthetic edge cases (misses, origin-inside-AABB,
+degenerate flat carriers, duplicate positions, opacity/confidence filtering) **and
+300 random rays on the real 129,531-carrier truck asset**. On the truck the BVH
+visits **0.39% of tree nodes** and examines **7.2% of carriers** per ray (vs 100%
+for brute) — direct evidence of sub-linear traversal — for a **3.2× CPU wall-clock**
+speedup on a 1024-ray batch (`min_opacity=0.1`, `outputs/bvh_query_benchmark.json`).
+
+Honest bar: this is an **algorithmic** CPU-numpy fix validated for correctness, **not
+a wall-clock comparison against the CUDA LBVH ray tracers in 3DGRT / 3DGUT** (now
+landing in gsplat `main`) — matching their GPU wall-clock from CPU Python remains the
+**deferred bar**, and AURA's secondary rays stay **readiness probes**, not a
+physically-based tracer. A single one-off ray still uses the brute path (the BVH is
+for batches/streaming, where the tree build amortises). Design and benchmark:
+[`docs/P5_BVH_RAY_QUERY.md`](docs/P5_BVH_RAY_QUERY.md).
 
 | Confidence heatmap | Expected-depth orbit |
 |---|---|
 | ![Confidence heatmap](docs/confidence_truck.png) | ![Expected-depth orbit](docs/truck_depth_orbit.gif) |
-
-### Relight preview
-
-Carriers carry surface/material fields, so the same asset can be previewed under
-changed lighting without changing geometry.
-
-```bash
-aura relight-preview scene.aura scene/manifest.json --output relit.ppm
-```
-
-Scope note: this is a **relighting preview** (albedo from the baked SH DC term,
-normals from the carrier covariance short axis), not yet data-driven inverse
-rendering — no optimization from observations and no TensoIR/Stanford-ORB
-evaluation. It is honest scaffolding for the material path, not an inverse-rendering
-claim.
-
-![Relighting sweep](docs/relight_sweep.gif)
 
 ### Semantics and open-vocabulary query
 
@@ -245,25 +300,80 @@ baseline, while DINOv2 keeps the stronger wheel-only margin (both recorded).
 | 14-view carrier groups | ![DINOv2 stride-16 semantic groups](docs/semantic_distill_dinov2_stride16_ab.png) | ![DINOv3 k12 stride-16 semantic groups](docs/semantic_distill_dinov3_k12_stride16.png) |
 | Wheel query highlight | ![DINOv2 stride-16 query](docs/semantic_query_dinov2_stride16_ab.png) | ![DINOv3 k12 stride-16 query](docs/semantic_query_dinov3_k12_stride16.png) |
 
-### Export
+**Codebook semantics (LangSplatV2-style).** Heavy per-carrier features do not need to
+ship per carrier: a shared **K-entry k-means codebook** (`src/aura/codebook.py`)
+holds the feature vectors once, and each carrier stores only a small **uint8/uint16
+index**. Open-vocabulary query then costs **O(K·d + N)** — score the K codebook
+entries against the query embedding, then fan out to carriers by index — instead of a
+dense `O(N·d)` scan. On the committed real truck DINOv2 distillation this compresses
+**1.53 GB → 1.05 MB at k=64** (≈1398×, uint8 indices), with reconstruction
+relative-error **0.319** (falling as k grows). The library carries the codebook layer
+and the semantic contract (labels, `SemanticFeaturePayload`), but no committed
+per-carrier feature tensor — so `semantic` stays a **metadata** carrier, and wiring
+real feature distillation into the exported asset is the **GPU-gated next step**.
+Truth table and the codebook byte-formula: [`docs/P6_CARRIER_REGISTRY_AND_CODEBOOK.md`](docs/P6_CARRIER_REGISTRY_AND_CODEBOOK.md).
 
-The export path writes real engine-facing assets instead of leaving results as an
-experiment-only checkpoint.
+### Relight preview
+
+Carriers carry surface/material fields, so the same asset can be previewed under
+changed lighting without changing geometry.
 
 ```bash
-aura export-splat scene.aura --output scene.glb           # KHR_gaussian_splatting GLB
-aura export-usd   scene.aura --output scene.usda          # dependency-free ASCII preview
-aura export-usd   scene.aura --schema --output scene.usda # OpenUSD 26.03 splat schema
+aura relight-preview scene.aura scene/manifest.json --output relit.ppm
+```
+
+Scope note: this is a **relighting preview** (albedo from the baked SH DC term,
+normals from the carrier covariance short axis), not yet data-driven inverse
+rendering — no optimization from observations and no TensoIR/Stanford-ORB
+evaluation. It is honest scaffolding for the material path, not an inverse-rendering
+claim. The **v0.8 attempt is pre-registered** with a promote-or-descope rule
+([`docs/P7_RELIGHT_DECISION.md`](docs/P7_RELIGHT_DECISION.md)): a genuine per-scene
+inverse-rendering pass is measured against the object-relighting SOTA that actually
+reports on TensoIR-Synthetic / Stanford-ORB (GS-IR, IRGS, SVG-IR, R3DG, PT-IR), and
+unless it clears the bar (relight PSNR ≥ 27 dB, albedo PSNR ≥ 27 dB, signed normal
+MAE ≤ 8°, ORB within 3 dB) the capability is formally renamed a
+"confidence-weighted relighting preview" and the sub-bar numbers published as an
+honest negative — the outcome is a measurement, not a narrative.
+
+![Relighting sweep](docs/relight_sweep.gif)
+
+## Exports & interchange
+
+The export path writes real engine-facing assets instead of leaving results as an
+experiment-only checkpoint — and the calibrated confidence rides along in every
+container.
+
+```bash
+aura export-splat scene.aura --output scene.glb            # KHR_gaussian_splatting GLB (+ _AURA_CONFIDENCE)
+aura export-spz   scene.aura --output scene.spz            # Niantic SPZ v4 (+ .spz.confidence.npz sidecar)
+aura export-usd   scene.aura --output scene.usda           # dependency-free ASCII preview
+aura export-usd   scene.aura --schema --output scene.usda  # OpenUSD 26.03 splat schema (+ primvars:aura:confidence)
 aura validate-package scene.aura
 aura inspect-package  scene.aura
 ```
 
 - **`KHR_gaussian_splatting` GLB** with position, colour/opacity, rotation, scale,
-  and SH payloads — and the calibrated `_AURA_CONFIDENCE` vendor attribute.
+  and SH payloads — and the calibrated **`_AURA_CONFIDENCE`** vendor attribute. KHR
+  status (checked against `KhronosGroup/glTF@main`): the base extension is a
+  **Release Candidate** (merged PR #2490, 2026-01-27) and AURA's emitted attribute
+  names already match the merged RC schema exactly; the compression extension
+  `KHR_gaussian_splatting_compression_spz_2` is an **unmerged v2-only draft and is
+  deliberately absent** (`extensionsUsed` lists only the base extension); confidence
+  rides as a glTF-core vendor attribute, needing no extension.
+- **SPZ v4 export** (`src/aura/spz.py`): a pure-numpy reader/writer for the Niantic
+  `.spz` (`NGSP`) container, **cross-validated bit-exact against the reference
+  C++** (`nianticlabs/spz` @ `bb0efad`) — files AURA writes decode through the
+  reference `loadSpz`, files the reference `saveSpz` writes decode here, and on
+  identical bytes the two decoders agree bit-exactly on positions/scales/SH. SPZ v4
+  has **no** per-splat confidence channel, so AURA writes calibrated confidence to a
+  **`<name>.spz.confidence.npz` sidecar** aligned 1:1 to SPZ point order (the
+  `carriers.npz` sidecar pattern). Cross-validation harness:
+  `experiments/spz_reference_crossval.cc`.
 - **USD export**: a dependency-free ASCII preview bridge for scene-graph / DCC
   workflows, plus the official **OpenUSD 26.03** `UsdVolParticleField3DGaussianSplat`
-  schema via `--schema` (native splat prim with a confidence vendor channel;
-  requires `usd-core`).
+  schema via `--schema` (native splat prim; confidence written as the idiomatic
+  per-particle primvar **`primvars:aura:confidence`**, `interpolation = "vertex"`,
+  with a legacy `custom:aura:confidence` fallback reader; requires `usd-core`).
 - **`.aura` package + `carriers.npz` sidecar** for fast local rendering/eval.
 
 Third-party viewer compatibility is a **structural** check, not a runtime guarantee.
@@ -357,21 +467,42 @@ trained DBS-Beta checkpoint:
 |---|---|
 | ![Train orbit](docs/train_orbit.gif) | ![Train sparse depth](docs/train_depth_orbit.gif) |
 
-## Results and validation
+## Verification and reproducibility
 
-**Publication gate.** The artifact-backed gate report passes **11/11**:
+**Publication gates — 17, content-checked.** The artifact-backed gate report passes
+all gates on this workstation:
 
 ```text
-experiments/results/publication_validation_2026-06-25.json
-publicationReady: true · passedGateCount: 11 · remainingGateIds: []
+aura publication-validation-report
+publicationReady: true · passedGateCount: 17 · remainingGateIds: []
 ```
 
-Gates cover local multi-scene quality, dataset audit, the PRISM additive contract
-and CUDA throughput, real trained-scene FPS, engine/viewer export integration,
-learned LPIPS on CUDA, the external-method baseline table, and secondary-ray /
-inverse-material validation. This is an **artifact-backed local A/B gate, not an
-official leaderboard**. Regenerate with
-`aura publication-validation-report --output experiments/results/publication_validation.json`.
+The gate set grew from **11 existence checks to 17 content-checked gates**
+(`src/aura/publication.py`): a gate now passes only when the committed real-scene
+artifact is *parsed and its numbers meet a threshold* (calibration ECE, pruning
+certificate, cross-scene transfer, full-res + render-loss, certified LOD, carrier-
+registry honesty, the local/external quality tables), not merely present. Missing,
+stale, or malformed data **fails** the gate; the two trained-asset probes
+(secondary-ray, inverse-materials) return an explicit `unverified` / `requires_gpu`
+state when the large GPU-produced asset is absent — a distinct state from `failed`,
+never a silent pass. This is an **artifact-backed local A/B gate, not an official
+leaderboard**.
+
+**Split guard.** The calibration gate is wrapped by `aura.split_guard`, which makes
+the historical P0 eval-leak class (held-out reliability views that were seen in
+training) **mechanically impossible** — it rejects any recorded view partition that
+is not a clean disjoint holdout.
+
+**CI.** GitHub Actions runs the CPU-testable suite on Python 3.11 and 3.12 on every
+push and PR (`.github/workflows/ci.yml`; badge above), via
+`pytest -m "not gpu and not local_data"`.
+
+**CPU-only reproduction.** [`REPRODUCE.md`](REPRODUCE.md) is a verified, GPU-free
+walkthrough that reproduces the calibrated-confidence, certificate, and certified-LOD
+results **bit-for-bit** from the committed artifacts (every recompute script fixes
+seed 0 and the same 50/50 split, so the recomputed JSON is byte-identical to the
+committed file; `git diff` is empty). A fresh clone content-checks **15/17** gates,
+with exactly the two trained-asset probes `unverified` by design.
 
 **Render speed.** Trained Truck checkpoints render above 30 FPS on an RTX 5090 —
 DBS-Beta 46 FPS, fixed-Gaussian control 49 FPS (979×546,
@@ -413,55 +544,8 @@ gsplat-control 3DGS 8/8 scenes. The SOTA A/B artifact
 (`sota_ab_validation_2026-06-25.json`) promotes the DINOv3-small/timm, official
 2DGS, and 3DGUT providers.
 
-## Limitations and claim boundary
-
-AURA is a research preview; the honest boundary is part of the product.
-
-- **Local artifact-backed A/B readiness only — no official-leaderboard SOTA claim**,
-  and no production-FPS-everywhere claim.
-- The typed-carrier quality win **reproduces DBS** against a frozen-β control (not
-  real gsplat 3DGS), with Mip-360 eval at image downsamples; it is not an AURA
-  novelty.
-- **Ray-query is brute-force O(N)**; secondary rays are validated on a demo scene.
-- **Relighting is a preview** (baked-SH albedo, covariance normals), not data-driven
-  inverse rendering.
-- **Only Gaussian and Beta train on real scenes**; Gabor is 2D-crop-only and Neural
-  is experimental (both additive PRISM extensions).
-- The P0 reliability label is a **colour-agreement proxy** and the occlusion buffer
-  is a coarse block z-buffer — both conservative. The render-loss label (P2) is
-  render-grounded but its garden pass is rendered at half resolution (17.4 MP raster
-  OOMs on the shared GPUs).
-- Third-party viewer compatibility is a **structural** check, not a runtime
-  guarantee.
-- 8 scenes only; two Mip-360 scene lists are placeholders; there is no CI, and the
-  custom CUDA path is sm_120-only (RTX 5090).
-
-## Roadmap and history
-
-Dated, per-change history lives in [`CHANGELOG.md`](CHANGELOG.md) — including the
-full P0→P2 calibration/certificate hardening arc and the typed-carrier asset
-foundation. Two items are explicitly open:
-
-- **Garden native render-loss label** — its 17.4 MP rasterization OOMs on a loaded
-  GPU, so P2 renders that one label at half resolution; a native pass needs an idle
-  machine.
-- **P3 independent re-captures** — the reliability story is validated on four scenes
-  and two labels; independent scenes / re-captures would harden it further.
-
-Other near-term directions: a true gsplat-3DGS matched-budget control and further
-full-resolution eval; binding self-graded gates to real-scene rendered evaluations;
-a BVH-accelerated ray-query; SPZ4 compressed export carrying the confidence channel;
-and making a third carrier real (or scoping the registry claim to two).
-
-## Reproduce the evidence
-
-**No GPU?** [`REPRODUCE.md`](REPRODUCE.md) is a verified, CPU-only walkthrough that
-reproduces the calibrated-confidence, certificate, and certified-LOD results
-bit-for-bit from the committed artifacts. The GPU pipeline below regenerates
-everything from raw captures.
-
-Most headline artifacts regenerate from `experiments/` (accuracy jobs run fine on
-shared GPUs; only FPS rows need an idle machine):
+The GPU pipeline that regenerates everything from raw captures (accuracy jobs run
+fine on shared GPUs; only FPS rows need an idle machine):
 
 ```bash
 bash scripts/fetch_scene.sh truck data/tanks/truck
@@ -474,10 +558,56 @@ python experiments/cross_scene_transfer.py   # P1a transfer matrix
 python experiments/cert_sweep.py             # P1b certificate operating study
 bash experiments/run_p2.sh room 0            # P2 full-res + render-loss (per scene)
 python experiments/collect_p2.py             # -> outputs/p2_summary.json
+python experiments/lod_certified_eval.py     # P4 certified LOD plan -> outputs/lod_certified.json
+python experiments/bvh_query_benchmark.py    # P5 BVH parity + throughput -> outputs/bvh_query_benchmark.json
 python experiments/make_hardening_figures.py # the four result figures above
 python experiments/make_pruning_sweep_gif.py --scene room --frame 8
-aura publication-validation-report --output experiments/results/publication_validation_2026-06-25.json
+aura publication-validation-report --output experiments/results/publication_validation.json
 ```
+
+## Limitations and claim boundary
+
+AURA is a research preview; the honest boundary is part of the product.
+
+- **Local artifact-backed A/B readiness only — no official-leaderboard SOTA claim**,
+  and no production-FPS-everywhere claim.
+- The typed-carrier quality win **reproduces DBS** against a frozen-β control (not
+  real gsplat 3DGS), with Mip-360 eval at image downsamples; it is not an AURA
+  novelty.
+- **Ray query is a CPU BVH validated for parity**, not a GPU wall-clock match against
+  the 3DGRT/3DGUT CUDA tracers; secondary rays remain readiness probes, not a
+  physically-based tracer.
+- **Relighting is a preview** (baked-SH albedo, covariance normals), not data-driven
+  inverse rendering; the v0.8 promote-or-descope rule is pre-registered.
+- **Only Gaussian and Beta train on real scenes**; Gabor is 2D-crop-only and Neural
+  is experimental (both additive PRISM extensions). `semantic` is a metadata carrier
+  — the codebook layer is CPU-validated but no per-carrier feature tensor ships in
+  the asset yet.
+- The P0 reliability label is a **colour-agreement proxy** and the occlusion buffer
+  is a coarse block z-buffer — both conservative. The render-loss label (P2) is
+  render-grounded but its garden pass is rendered at half resolution (17.4 MP raster
+  OOMs on the shared GPUs). Certified-LOD `ε` bounds reliability mass, not PSNR.
+- Third-party viewer compatibility is a **structural** check, not a runtime
+  guarantee. The custom CUDA path is sm_120-only (RTX 5090).
+- 8 scenes only; two Mip-360 scene lists are placeholders.
+
+## Road to v1.0
+
+Dated, per-change history lives in [`CHANGELOG.md`](CHANGELOG.md). The v0.3→v0.7 CPU
+ladder — true-control gate harness, standards exports (SPZ4 / USD 26.03 / KHR status),
+certified LOD, BVH ray query, registry honesty + codebook, CI, split guard, and
+verified CPU reproduction — has landed. What remains to `v1.0` is either **GPU-gated**
+or **external**:
+
+- **GPU-gated:** the B2 true gsplat-MCMC matched-budget headline control (the current
+  control is a frozen-β DBS ablation); the Garden native 17.4 MP render-loss label
+  (OOMs under concurrent GPU load — needs a memory-idle machine); the v0.7b attempt to
+  make Gabor a real trained third carrier (else the registry claim stays scoped to
+  two); and the v0.8 relighting attempt against the pre-registered promote-or-descope
+  bar.
+- **External:** an independent outside reproduction, and P3 independent re-captures —
+  the reliability story is validated on four scenes and two labels; new scenes would
+  harden it further.
 
 ## Repository map
 
@@ -485,18 +615,22 @@ aura publication-validation-report --output experiments/results/publication_vali
 src/aura/
   calibration.py      calibrated confidence + conformal pruning certificate (P0)
   confidence.py       raw per-carrier confidence signal
+  lod.py              certified LOD/streaming plan (P4)   split_guard.py  eval-leak guard
+  bvh.py              median-split carrier BVH (P5)       carrier_query.py  ray-query payloads
+  codebook.py         k-means semantic codebook (P6)      carriers.py  typed-carrier registry + maturity
   gltf_splat.py       KHR_gaussian_splatting export (+ _AURA_CONFIDENCE)
+  spz.py              Niantic SPZ v4 reader/writer (+ confidence sidecar)
   usd_writer.py       OpenUSD 26.03 UsdVolParticleField3DGaussianSplat schema
   hybrid.py           primary backend + PRISM extension routing
   prism.py            torch PRISM rasterizer      prism_cuda.py  CUDA PRISM path
-  relight.py          relighting preview layer    carrier_query.py  ray-query payloads
-  publication.py      artifact-backed gate report readiness.py  production boundary
+  relight.py          relighting preview layer
+  publication.py      17-gate content-checked report  readiness.py  production boundary
   carrier_io.py       fast carriers.npz sidecar   schemas/  .aura package schemas
 
 scripts/       dataset, eval, baseline, and DBS bridge utilities
-experiments/   reproduction scripts and figure/GIF generators
+experiments/   reproduction scripts, figure/GIF generators, SPZ crossval harness
 tests/         contract, renderer, validation, and CLI tests
-docs/          README figures, GIFs, and the P0/P1/P2 deep-dives
+docs/          README figures, GIFs, and the P0/P1/P2/P4/P5/P6/P7 deep-dives
 assets/        P0-P2 result figures + the pruning-sweep animation
 ```
 

@@ -5,9 +5,59 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
-## [Unreleased]
+## [Unreleased] — v0.7.0-dev (the road-to-v1.0 CPU ladder, landed 2026-07-03)
 
-_Nothing yet._
+### Added
+- **Certified LOD / streaming** (`src/aura/lod.py`, `aura lod-plan`, `docs/P4_CERTIFIED_LOD.md`):
+  carriers stream in descending calibrated confidence with K published stopping
+  levels, each carrying a distribution-free bound on discarded reliability mass at
+  Bonferroni `α/K` (family-wise `1−α`). All 16 bounds hold on disjoint eval halves
+  (`outputs/lod_certified.json`). Finding: isotonic plateaus make τ-rounding unsafe —
+  τ is stored at full precision.
+- **SPZ v4 export** (`src/aura/spz.py`, `aura export-spz`): pure-numpy NGSP
+  reader/writer cross-validated bit-exact against the reference C++
+  (`nianticlabs/spz` @ `bb0efad`; harness preserved at
+  `experiments/spz_reference_crossval.cc`); confidence rides as a
+  `.spz.confidence.npz` sidecar (v4 has no per-splat channel).
+- **BVH batched ray query** (`src/aura/bvh.py`, `docs/P5_BVH_RAY_QUERY.md`):
+  median-split BVH whose leaf AABBs provably superset the isotropic hit test ⇒
+  exact parity with brute force (0 mismatches incl. 300 rays on the real truck
+  asset); batched API + build-once streaming handle; 0.39% node visits / 7.2%
+  carriers per ray on the truck.
+- **Carrier maturity contract** (`carriers.py`, gate `carrier_registry_honesty`):
+  every carrier type declares `trained` / `demo` / `metadata`; a `trained` claim
+  requires committed `calib_<scene>.json` evidence. Hybrid neural routing is now an
+  explicit provenance-annotated Gaussian fallback (`fallback:gaussian` +
+  `RuntimeWarning`), never silent; `prism.make_neural_footprint` is quarantined
+  behind `enable_experimental=True`.
+- **Codebook semantics** (`src/aura/codebook.py`, `docs/P6_CARRIER_REGISTRY_AND_CODEBOOK.md`):
+  K-entry k-means codebook + uint8/16 per-carrier indices; `O(K·d + N)`
+  open-vocabulary fan-out; real truck DINOv2 features compress 1.53 GB → 1.05 MB at
+  k=64 (recon rel-err 0.319). Feature distillation into the shipped asset stays
+  GPU-gated.
+- **Publication gates content-checked** (`publication.py`): 11 existence checks →
+  **17 gates** that parse committed artifacts and enforce numeric thresholds;
+  trained-asset probes return explicit `unverified`/`requires_gpu` instead of
+  passing. **Split guard** (`split_guard.py`) makes the historical P0 eval-leak
+  class mechanically impossible (including the Truck-certificate-back-at-1.00
+  fingerprint).
+- **CI** (`.github/workflows/ci.yml`): CPU suite on Python 3.11/3.12 on every
+  push/PR; `gpu` / `local_data` pytest markers.
+- **REPRODUCE.md**: verified, CPU-only, bit-for-bit reproduction of the
+  calibration / certificate / LOD results from a fresh clone (the
+  `reliability_*.npz` inputs are now committed, ~23 MB).
+- **Relight decision protocol** (`docs/P7_RELIGHT_DECISION.md`,
+  `experiments/relight_benchmark_harness.py`): pre-registered promote-or-descope
+  rule for the v0.8 inverse-rendering attempt; TensoIR/Stanford-ORB harness with a
+  CI-tested smoke mode. Relight module docstring corrected to preview-stage.
+- **USD confidence primvar**: `custom:aura:confidence` → idiomatic
+  `primvars:aura:confidence` (vertex interpolation) with a legacy fallback reader.
+- AURA preprint updated to this state (17 pp; publishes at v1.0, owner decision).
+
+### Remaining to v1.0
+GPU-gated: B2 true gsplat-MCMC matched-budget control; garden native 17.4 MP
+render-loss label; v0.7b gabor real-training attempt; v0.8 relighting attempt.
+External: independent reproduction (via REPRODUCE.md); P3 re-captures.
 
 ## [0.2.0] — 2026-07-03
 
