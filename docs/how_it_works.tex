@@ -29,24 +29,24 @@
 
 \begin{document}
 \begin{tikzpicture}[
-  x=1cm, y=1cm, font=\small,
+  x=1cm, y=1cm, font=\normalsize,
   stagebox/.style={rounded corners=7pt, draw=#1, fill=#1!6!surface, line width=1.1pt},
   chip/.style={rounded corners=4pt, draw=#1, fill=surface, line width=0.9pt,
                inner xsep=7pt, inner ysep=6pt, align=center},
   flow/.style={-{Stealth[length=2.6mm]}, line width=1.1pt, color=#1},
-  tag/.style={font=\bfseries\large, color=#1},
-  desc/.style={color=muted, font=\footnotesize, align=left},
-  glyphlab/.style={color=muted, font=\scriptsize, align=center},
+  tag/.style={font=\bfseries\Large, color=#1},
+  desc/.style={color=muted, font=\small, align=left},
+  glyphlab/.style={color=muted, font=\footnotesize, align=center},
   trust/.style={rounded corners=4pt, draw=rawred, dashed, fill=rawred!4!surface,
                 line width=0.8pt, inner xsep=8pt, inner ysep=6pt, align=center,
-                font=\footnotesize}
+                font=\small}
 ]
 
-\fill[surface] (-0.9,2.1) rectangle (26.3,-20.9);
+\fill[surface] (-0.9,2.3) rectangle (30.2,-21.4);
 
 % ============================== title =====================================
-\node[anchor=west, font=\bfseries\LARGE, color=ink] at (0,1.2) {How a capture becomes a trustworthy asset};
-\node[anchor=west, font=\normalsize, color=muted] at (0.02,0.35)
+\node[anchor=west, font=\bfseries\huge, color=ink] at (0,1.2) {How a capture becomes a trustworthy asset};
+\node[anchor=west, font=\large, color=muted] at (0.02,0.35)
   {Same posed photos, four construction targets --- and what each one can promise about its own primitives.};
 
 % ============================== row 1: COLMAP ==============================
@@ -78,9 +78,9 @@
     \node[glyphlab] at (1.9,-1.35) {poses + sparse points};
   \end{scope}
   \draw[flow=colmap] (11.0,0.42) -- (11.9,0.42);
-  \node[chip=colmap, anchor=west] at (12.0,0.42) {output: cameras + seed points\\[-1pt]{\scriptsize (optionally densified by MVS)}};
-  \node[trust, anchor=east] at (25.3,0.42)
-    {per-primitive trust: ---\\[-1pt]{\scriptsize geometry scaffolding, nothing to render}};
+  \node[chip=colmap, anchor=west] at (12.0,0.42) {output: cameras + seed points\\[-1pt]{\footnotesize (optionally densified by MVS)}};
+  \node[trust, anchor=east] at (29.4,0.42)
+    {per-primitive trust: ---\\[-1pt]{\footnotesize geometry scaffolding, nothing to render}};
 \end{scope}
 \end{scope}
 
@@ -100,11 +100,11 @@
     \fill[nerf] (\p,0) circle (\r);
   \node[glyphlab] at (2.4,-1.05) {samples along the ray};
   \draw[flow=nerf] (4.8,0) -- (5.7,0);
-  \node[chip=nerf, anchor=west] (mlp) at (5.8,0) {MLP\\[-1pt]{\scriptsize $(x,\,\mathrm{dir})\rightarrow(\sigma,\,\mathrm{RGB})$}};
+  \node[chip=nerf, anchor=west] (mlp) at (5.8,0) {MLP\\[-1pt]{\footnotesize $(x,\,\mathrm{dir})\rightarrow(\sigma,\,\mathrm{RGB})$}};
   \draw[flow=nerf] (mlp.east) -- ++(0.75,0);
-  \node[chip=nerf, anchor=west] at (9.55,0) {volume render\\[-1pt]{\scriptsize front-to-back integration $\rightarrow$ pixel}};
-  \node[trust, anchor=east] at (25.3,0)
-    {per-primitive trust: none\\[-1pt]{\scriptsize no primitives --- the scene is network weights}};
+  \node[chip=nerf, anchor=west] at (9.55,0) {volume render\\[-1pt]{\footnotesize front-to-back integration $\rightarrow$ pixel}};
+  \node[trust, anchor=east] at (29.4,0)
+    {per-primitive trust: none\\[-1pt]{\footnotesize no primitives --- the scene is network weights}};
 \end{scope}
 \end{scope}
 
@@ -130,11 +130,11 @@
     \node[glyphlab] at (1.4,-0.68) {anisotropic Gaussians};
   \end{scope}
   \draw[flow=gs] (6.1,0.2) -- (7.0,0.2);
-  \node[chip=gs, anchor=west] (opt) at (7.1,0.2) {optimize vs.\ photos\\[-1pt]{\scriptsize densify / prune}};
+  \node[chip=gs, anchor=west] (opt) at (7.1,0.2) {optimize vs.\ photos\\[-1pt]{\footnotesize densify / prune}};
   \draw[flow=gs] (opt.east) -- ++(0.75,0);
-  \node[chip=gs, anchor=west] at (11.35,0.2) {tile rasterizer\\[-1pt]{\scriptsize real-time novel views}};
-  \node[trust, anchor=east] at (25.3,0.2)
-    {per-splat trust: uncalibrated heuristics\\[-1pt]{\scriptsize opacity / view count rank reliability $\approx$ random}};
+  \node[chip=gs, anchor=west] at (11.35,0.2) {tile rasterizer\\[-1pt]{\footnotesize real-time novel views}};
+  \node[trust, anchor=east] at (29.4,0.2)
+    {per-splat trust: uncalibrated heuristics\\[-1pt]{\footnotesize opacity / view count rank reliability $\approx$ random}};
 \end{scope}
 \end{scope}
 
@@ -146,35 +146,33 @@
 
 \begin{scope}[shift={(0.6,-2.5)}]
   \node[chip=aura, anchor=west] (car) at (0,0)
-    {trained typed carriers\\[-1pt]{\scriptsize gsplat Gaussian $\cdot$ DBS Beta}};
+    {trained typed carriers\\[-1pt]{\footnotesize gsplat Gaussian $\cdot$ DBS Beta}};
   \draw[flow=aura] (car.east) -- ++(0.55,0);
   \node[chip=aura, anchor=west] (lab) at ($(car.east)+(0.65,0)$)
-    {held-out reliability label\\[-1pt]{\scriptsize multi-view re-projection agreement}\\[-1pt]{\scriptsize colour + occlusion-aware depth}};
+    {held-out reliability label\\[-1pt]{\footnotesize multi-view re-projection agreement}\\[-1pt]{\footnotesize colour + occlusion-aware depth}};
   \draw[flow=aura] (lab.east) -- ++(0.55,0);
   \node[chip=aura, anchor=west] (cal) at ($(lab.east)+(0.65,0)$)
-    {isotonic calibration\\[-1pt]{\scriptsize of the export-time train-agreement}\\[-1pt]{\scriptsize feature\, ($r=0.91$--$0.98$);\ ECE ${\sim}0.5\rightarrow{\sim}0.001$}};
+    {isotonic calibration\\[-1pt]{\footnotesize of the export-time train-agreement}\\[-1pt]{\footnotesize feature\, ($r=0.91$--$0.98$);\ ECE ${\sim}0.5\rightarrow{\sim}0.001$}};
   \draw[flow=cert] (cal.east) -- ++(0.55,0);
   \node[chip=cert, anchor=west] (crt) at ($(cal.east)+(0.65,0)$)
-    {split-conformal certificate\\[-1pt]{\scriptsize keep conf $\geq\tau$ $\Rightarrow$ lost reliability $\leq\varepsilon$}\\[-1pt]{\scriptsize with confidence $1-\alpha$, distribution-free}};
+    {split-conformal certificate\\[-1pt]{\footnotesize keep conf $\geq\tau$ $\Rightarrow$ lost reliability $\leq\varepsilon$}\\[-1pt]{\footnotesize with confidence $1-\alpha$, distribution-free}};
   \draw[flow=cert] (crt.east) -- ++(0.55,0);
   \node[chip=cert, anchor=west, fill=certbg] (exp) at ($(crt.east)+(0.65,0)$)
-    {confidence-carrying export\\[-1pt]{\scriptsize \texttt{.aura} + \texttt{carriers.npz}}\\[-1pt]{\scriptsize glTF \texttt{KHR\_gaussian\_splatting} $\cdot$ \texttt{\_AURA\_CONFIDENCE}}\\[-1pt]{\scriptsize OpenUSD 26.03 splat schema + vendor channel}};
+    {confidence-carrying export\\[-1pt]{\footnotesize \texttt{.aura} + \texttt{carriers.npz}}\\[-1pt]{\footnotesize glTF \texttt{KHR\_gaussian\_splatting} $\cdot$ \texttt{\_AURA\_CONFIDENCE}}\\[-1pt]{\footnotesize OpenUSD 26.03 splat schema + vendor channel}};
 
-  \node[anchor=west, color=cert, font=\footnotesize\bfseries] at (0,-1.72)
-    {What this buys downstream:};
-  \node[anchor=west, color=ink, font=\footnotesize] at (4.05,-1.72)
-    {certified pruning, LOD and streaming decisions with a stated risk bound --- instead of trusting opacity, which ranks carriers at or below random.};
+  \node[anchor=west, color=ink, font=\small] at (0,-1.72)
+    {{\color{cert}\textbf{What this provides downstream:}} certified pruning, LOD and streaming decisions with a stated risk bound --- instead of trusting opacity, which ranks carriers at or below random.};
 
-  \node[anchor=west, color=muted, font=\scriptsize] at (0,-2.42)
+  \node[anchor=west, color=muted, font=\footnotesize] at (0,-2.42)
     {Validated on 4 real scenes at native resolution; the calibrator transfers across scenes (selection AUC $\pm$0.0004) and the property survives a render-loss label with honestly weaker margins.};
-  \node[anchor=west, color=muted, font=\scriptsize] at (0,-2.92)
+  \node[anchor=west, color=muted, font=\footnotesize] at (0,-2.92)
     {Honest scope: Gaussian + Beta are the trained carriers; Gabor / neural footprints are demo-stage PRISM extensions. Quality numbers are DBS reproductions, not AURA novelties. No SOTA claim.};
 \end{scope}
 \end{scope}
 
 % row separators
 \foreach \y in {-5.15, -9.5, -14.1}
-  \draw[grid, line width=0.7pt] (0,\y) -- (25.6,\y);
+  \draw[grid, line width=0.7pt] (0,\y) -- (29.6,\y);
 
 \end{tikzpicture}
 \end{document}

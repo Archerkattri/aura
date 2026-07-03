@@ -22,6 +22,7 @@ calibrated-confidence result is in preparation.
 </p>
 
 ![How a capture becomes a trustworthy asset: COLMAP, NeRF, 3DGS, and the AURA calibration-and-certificate pipeline](docs/how_it_works.png)
+*Same posed photos, four construction targets. COLMAP gives geometry scaffolding, NeRF a neural volume with no primitives to ship, 3DGS fast splats whose only per-splat signals are uncalibrated heuristics — and AURA adds the layer with a guarantee: reliability label → isotonic calibration → split-conformal certificate → confidence-carrying export.*
 
 <p align="center">
   <img src="docs/aura_capability_reel.gif" width="82%" alt="AURA capability reel: reconstruction, depth, confidence, semantics, and query"><br>
@@ -47,6 +48,7 @@ it saturates near 1 regardless of whether a carrier is actually reliable. Isoton
 and dropping expected calibration error (ECE) by ~300–900×:
 
 ![Reliability diagram: raw view-count heuristic vs isotonic-calibrated confidence, four scenes](assets/reliability_diagram.png)
+*Reliability diagrams on the held-out eval split (10 equal-count bins per curve). In every scene the shipped view-count heuristic reports ~1.0 regardless of true reliability; isotonic (PAVA) calibration places the reported value on the diagonal, cutting ECE ~300–900×. Sources: `outputs/reliability_<scene>.npz`, `outputs/calib_<scene>.json`.*
 
 Validated end-to-end on **four real scenes**: Truck (129k carriers) and three
 Mip-NeRF 360 scenes — Garden (outdoor, 120k), Kitchen (indoor, 120k), Room
@@ -67,6 +69,7 @@ scene and beats opacity, the raw heuristic, and random at *every* budget (calibr
 retains 0.77–0.90 reliability vs opacity's 0.31–0.49:
 
 ![Selection curves: retained reliability vs pruning budget for calibrated confidence, opacity, oracle, and random, on four scenes](assets/selection_curves.png)
+*Lower keep fractions = more aggressive pruning (x-axis reversed). On every scene the calibrated curve hugs the oracle ceiling and beats opacity at every budget; opacity sits at or below random.*
 
 **Pruning sweep (Room, held-out view).** As carriers are pruned 100%→10%, the
 reliability of what is *kept* (bottom meters) is the P0 axis: calibrated-confidence
@@ -115,6 +118,7 @@ the uncalibrated ~0.54, and the conformal certificate stays valid when a small l
 conformal split is kept on the target scene:
 
 ![Cross-scene calibrator ECE transfer heatmap, colour and occlusion-aware labels](assets/transfer_ece_heatmap.png)
+*Off-diagonal = calibrator fit on the source scene, applied to the target. Every transferred ECE stays 1–2 orders of magnitude below the uncalibrated raw heuristic (~0.54); selection/pruning AUC transfers within ±0.0004 because the isotonic map is rank-preserving. Truck is the object-centric outlier.*
 
 The honest deployment recipe is **"ship one calibrator + a small per-scene conformal
 set."** The certificate's selective regime is mapped on all four scenes × both
@@ -131,6 +135,7 @@ full-res and a 0.25 control are near-identical, so it is not a low-res artifact 
 and it **survives the render-loss label** with honestly weaker margins:
 
 ![Colour proxy vs render-loss label: the export feature still predicts, and calibrated confidence still beats opacity](assets/proxy_vs_renderloss.png)
+*Full-resolution carriers. The render-loss label penalises occlusion and visibility-weighted colour error the proxy misses, so correlation weakens and the calibrated-to-oracle gap widens from ~1–3% to ~6–13% — but calibrated confidence still beats opacity on every scene. Numbers trace to `outputs/p2_summary.json`.*
 
 Under the render-grounded label the export-time feature predicts reliability at
 r ≈ 0.66–0.81 (vs the proxy's 0.92–0.98), calibration still crushes ECE by 2–3

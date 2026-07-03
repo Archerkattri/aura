@@ -120,7 +120,7 @@ def fig_reliability_diagram():
     splits = {k: load_split(k) for k, _ in SCENES}
     calibs = {k: json.loads((OUT / f"calib_{k}.json").read_text()) for k, _ in SCENES}
 
-    fig, axes = plt.subplots(2, 2, figsize=(10.6, 9.2), dpi=200, sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 2, figsize=(9.2, 8.9), dpi=190, sharex=True, sharey=True)
 
     for ax, (skey, slabel) in zip(axes.ravel(), SCENES):
         s = splits[skey]
@@ -134,15 +134,16 @@ def fig_reliability_diagram():
         raw_ece = calibs[skey]["calibration"]["ece_raw_heuristic"]
         cal_ece = calibs[skey]["calibration"]["ece_calibrated"]
         ax.set_title(f"{slabel}   —   ECE {raw_ece:.2f} → {cal_ece:.4f}",
-                     fontsize=11.5, color=INK, pad=8, fontweight="bold")
+                     fontsize=14, color=INK, pad=9, fontweight="bold")
         ax.set_xlim(0, 1.02)
         ax.set_ylim(0, 1.02)
         ax.set_aspect("equal")
+        ax.tick_params(labelsize=11)
         _style(ax)
     for ax in axes[1, :]:
-        ax.set_xlabel("Reported confidence", fontsize=10.5, color=INK)
+        ax.set_xlabel("Reported confidence", fontsize=12.5, color=INK)
     for ax in axes[:, 0]:
-        ax.set_ylabel("Empirical held-out reliability", fontsize=10.5, color=INK)
+        ax.set_ylabel("Empirical held-out reliability", fontsize=12.5, color=INK)
 
     handles = [
         Line2D([0], [0], color=RAW, lw=2.2, marker="s", ms=5.0, mec=SURFACE,
@@ -152,18 +153,13 @@ def fig_reliability_diagram():
         Line2D([0], [0], color=MUTED, lw=1.1, ls=(0, (5, 4)),
                label="perfect calibration (y = x)"),
     ]
-    fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.955),
-               frameon=False, fontsize=10, ncol=3, columnspacing=1.8)
+    fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.965),
+               frameon=False, fontsize=11.5, ncol=3, columnspacing=1.6)
     fig.suptitle("Isotonic calibration turns the confidence into a trustworthy reliability",
-                 fontsize=13.5, color=INK, fontweight="bold", y=0.985)
-    fig.text(0.5, 0.008,
-             "Reliability diagrams on the held-out eval split (10 equal-count bins per curve). In every scene the shipped "
-             "view-count heuristic reports ~1.0 regardless of true reliability; isotonic (PAVA) calibration places the "
-             "reported value on the diagonal, cutting ECE ~300–900×. Sources: outputs/reliability_<scene>.npz, calib_<scene>.json.",
-             ha="center", fontsize=8.4, color=MUTED)
-    fig.tight_layout(rect=(0, 0.025, 1, 0.925))
+                 fontsize=16, color=INK, fontweight="bold", y=0.995)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
     p = ASSETS / "reliability_diagram.png"
-    fig.savefig(p, bbox_inches="tight", facecolor=SURFACE, dpi=200)
+    fig.savefig(p, bbox_inches="tight", facecolor=SURFACE, dpi=190)
     plt.close(fig)
     print("wrote", p)
 
@@ -214,11 +210,7 @@ def fig_selection_curves():
                bbox_to_anchor=(0.5, 0.975))
     fig.suptitle("Calibrated-confidence pruning tracks the oracle; opacity stays near random",
                  fontsize=13, color=INK, fontweight="bold", y=1.0)
-    fig.text(0.5, -0.005,
-             "Lower keep fractions = more aggressive pruning (x-axis reversed). On every scene the calibrated curve "
-             "hugs the oracle ceiling and beats opacity at every budget; opacity sits at or below random.",
-             ha="center", fontsize=8.2, color=MUTED)
-    fig.tight_layout(rect=(0, 0.01, 1, 0.93))
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     p = ASSETS / "selection_curves.png"
     fig.savefig(p, bbox_inches="tight", facecolor=SURFACE, dpi=200)
     plt.close(fig)
@@ -282,11 +274,6 @@ def fig_transfer_heatmap():
 
     fig.suptitle("A single calibrator transfers across scenes (boxed diagonal = in-scene)",
                  fontsize=13, color=INK, fontweight="bold", y=1.02)
-    fig.text(0.5, -0.02,
-             "Off-diagonal = calibrator fit on the source scene, applied to the target. Every transferred ECE stays "
-             "1-2 orders of magnitude below the uncalibrated raw heuristic (~0.54); selection/pruning AUC transfers "
-             "within +/-0.0004 (rank-invariant). Truck is the object-centric outlier.",
-             ha="center", fontsize=8.2, color=MUTED)
     p = ASSETS / "transfer_ece_heatmap.png"
     fig.savefig(p, bbox_inches="tight", facecolor=SURFACE, dpi=200)
     plt.close(fig)
@@ -313,7 +300,7 @@ def fig_proxy_vs_renderloss():
     ora_r = [auc(k, "fullres_renderloss", "oracle_ceiling") for k in keys]
     opa_r = [auc(k, "fullres_renderloss", "opacity") for k in keys]
 
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(11.4, 5.2), dpi=200)
+    fig, (axL, axR) = plt.subplots(2, 1, figsize=(9.2, 10.4), dpi=190)
     x = np.arange(4)
 
     # Panel 1 — export feature correlation with each label (grouped pair).
@@ -323,18 +310,19 @@ def fig_proxy_vs_renderloss():
     axL.bar(x + bw / 2, corr_rloss, bw, color=RENDER, edgecolor=SURFACE, lw=1.4,
             label="render-loss label (stricter)", zorder=3)
     for xi, v in zip(x - bw / 2, corr_color):
-        axL.text(xi, v + 0.014, f"{v:.2f}", ha="center", va="bottom", fontsize=8.6, color=INK)
+        axL.text(xi, v + 0.014, f"{v:.2f}", ha="center", va="bottom", fontsize=11, color=INK)
     for xi, v in zip(x + bw / 2, corr_rloss):
-        axL.text(xi, v + 0.014, f"{v:.2f}", ha="center", va="bottom", fontsize=8.6, color=INK)
-    axL.set_ylim(0, 1.12)
+        axL.text(xi, v + 0.014, f"{v:.2f}", ha="center", va="bottom", fontsize=11, color=INK)
+    axL.set_ylim(0, 1.22)
     axL.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    axL.set_ylabel("corr(export feature, held-out reliability)", fontsize=9.8, color=INK)
-    axL.set_title("The export-time feature still predicts\nthe stricter label", fontsize=11,
-                  color=INK, pad=8, fontweight="bold")
-    axL.set_xticks(x); axL.set_xticklabels(disp, fontsize=10)
+    axL.set_ylabel("corr(export feature, held-out reliability)", fontsize=12, color=INK)
+    axL.set_title("The export-time feature still predicts the stricter label", fontsize=14,
+                  color=INK, pad=9, fontweight="bold")
+    axL.set_xticks(x); axL.set_xticklabels(disp, fontsize=12.5)
     axL.tick_params(axis="x", length=0)
-    axL.legend(loc="lower center", bbox_to_anchor=(0.5, -0.24), frameon=False,
-               fontsize=8.8, ncol=2, columnspacing=1.6)
+    axL.tick_params(axis="y", labelsize=11)
+    axL.legend(loc="upper center", frameon=False, fontsize=11.5, ncol=2,
+               columnspacing=1.6)
     _style(axL)
 
     # Panel 2 — selection AUC under the render-loss label: opacity vs calibrated
@@ -347,31 +335,26 @@ def fig_proxy_vs_renderloss():
     axR.bar(x + bw3, ora_r, bw3, color="#dddbd2", edgecolor=ORACLE, lw=1.2,
             label="oracle ceiling", zorder=3)
     for xi, v in zip(x - bw3, opa_r):
-        axR.text(xi, v + 0.008, f"{v:.2f}", ha="center", va="bottom", fontsize=8.2, color=INK)
+        axR.text(xi, v + 0.008, f"{v:.2f}", ha="center", va="bottom", fontsize=10.5, color=INK)
     for xi, v in zip(x, cal_r):
-        axR.text(xi, v + 0.008, f"{v:.2f}", ha="center", va="bottom", fontsize=8.2,
+        axR.text(xi, v + 0.008, f"{v:.2f}", ha="center", va="bottom", fontsize=10.5,
                  color=INK, fontweight="bold")
     for xi, v in zip(x + bw3, ora_r):
-        axR.text(xi, v + 0.008, f"{v:.2f}", ha="center", va="bottom", fontsize=8.2, color=MUTED)
-    axR.set_ylim(0, 0.78)
-    axR.set_ylabel("Selection AUC under the render-loss label", fontsize=9.8, color=INK)
-    axR.set_title("Calibrated stays between opacity and the\noracle; the oracle gap widens to ~6–13%",
-                  fontsize=11, color=INK, pad=8, fontweight="bold")
-    axR.set_xticks(x); axR.set_xticklabels(disp, fontsize=10)
+        axR.text(xi, v + 0.008, f"{v:.2f}", ha="center", va="bottom", fontsize=10.5, color=MUTED)
+    axR.set_ylim(0, 0.85)
+    axR.set_ylabel("Selection AUC under the render-loss label", fontsize=12, color=INK)
+    axR.set_title("Calibrated stays between opacity and the oracle;\nthe oracle gap widens to ~6–13%",
+                  fontsize=14, color=INK, pad=9, fontweight="bold")
+    axR.set_xticks(x); axR.set_xticklabels(disp, fontsize=12.5)
     axR.tick_params(axis="x", length=0)
-    axR.legend(loc="lower center", bbox_to_anchor=(0.5, -0.24), frameon=False,
-               fontsize=8.8, ncol=3, columnspacing=1.2, handlelength=1.3)
+    axR.tick_params(axis="y", labelsize=11)
+    axR.legend(loc="upper center", frameon=False, fontsize=11.5, ncol=3,
+               columnspacing=1.2, handlelength=1.3)
     _style(axR)
 
-    fig.suptitle("P2: the killer property survives a render-grounded label, with honestly weaker margins",
-                 fontsize=12.6, color=INK, fontweight="bold", y=1.0)
-    fig.text(0.5, -0.075,
-             "Full-resolution carriers. The render-loss label penalises occlusion and visibility-weighted colour error the "
-             "proxy misses, so correlation weakens (left) and the calibrated-to-oracle gap widens from ~1–3% (proxy label: "
-             f"AUC {min(cal_c):.2f}–{max(cal_c):.2f} vs oracle {min(ora_c):.2f}–{max(ora_c):.2f}) to ~6–13% (right) — but "
-             "calibrated confidence still beats opacity on every scene. Numbers trace to outputs/p2_summary.json.",
-             ha="center", fontsize=8.2, color=MUTED)
-    fig.tight_layout(rect=(0, 0.05, 1, 0.94))
+    fig.suptitle("P2: the killer property survives a render-grounded label,\nwith honestly weaker margins",
+                 fontsize=15.5, color=INK, fontweight="bold", y=0.995)
+    fig.tight_layout(rect=(0, 0, 1, 0.935), h_pad=2.4)
     p = ASSETS / "proxy_vs_renderloss.png"
     fig.savefig(p, bbox_inches="tight", facecolor=SURFACE, dpi=200)
     plt.close(fig)
