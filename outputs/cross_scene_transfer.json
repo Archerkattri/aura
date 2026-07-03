@@ -1,0 +1,904 @@
+{
+  "experiment": "P1a_cross_scene_calibrator_transfer",
+  "scenes": [
+    "truck",
+    "garden",
+    "kitchen",
+    "room"
+  ],
+  "labels": [
+    "color",
+    "depth"
+  ],
+  "seed": 0,
+  "alpha": 0.1,
+  "epsilon": 0.6,
+  "protocol": {
+    "diagonal": "in-scene: calibrator fit on B's cal half, evaluated on B's eval half (reproduces calibrate_confidence.py / calib_<scene>.json)",
+    "off_diagonal": "transferred: calibrator fit on ALL labeled carriers of source A, evaluated on B's eval half (same ev_idx as the diagonal)",
+    "certificate": "epsilon=0.6, alpha=0.1, computed with the transferred confidence on B's OWN calibration split (cal_idx) \u2014 the local conformal set that restores distribution-free validity",
+    "auc_note": "selection AUC is rank-based and isotonic calibration is monotone, so transferred and in-scene AUC coincide up to isotonic tie-pooling"
+  },
+  "by_label": {
+    "color": {
+      "in_scene_reference": {
+        "truck": {
+          "n_labeled": 127878,
+          "n_eval": 63939,
+          "ece_raw": 0.5855,
+          "ece_inscene": 0.0014,
+          "auc_inscene": 0.5808,
+          "auc_opacity": 0.3668,
+          "auc_oracle": 0.6009,
+          "cert_inscene": {
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928
+          }
+        },
+        "garden": {
+          "n_labeled": 113180,
+          "n_eval": 56590,
+          "ece_raw": 0.5507,
+          "ece_inscene": 0.0015,
+          "auc_inscene": 0.6046,
+          "auc_opacity": 0.4499,
+          "auc_oracle": 0.6194,
+          "cert_inscene": {
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739
+          }
+        },
+        "kitchen": {
+          "n_labeled": 120000,
+          "n_eval": 60000,
+          "ece_raw": 0.5568,
+          "ece_inscene": 0.0006,
+          "auc_inscene": 0.6291,
+          "auc_opacity": 0.4584,
+          "auc_oracle": 0.6332,
+          "cert_inscene": {
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569
+          }
+        },
+        "room": {
+          "n_labeled": 106809,
+          "n_eval": 53405,
+          "ece_raw": 0.4641,
+          "ece_inscene": 0.0016,
+          "auc_inscene": 0.7204,
+          "auc_opacity": 0.5339,
+          "auc_oracle": 0.7291,
+          "cert_inscene": {
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711
+          }
+        }
+      },
+      "matrix": [
+        {
+          "source": "truck",
+          "target": "truck",
+          "kind": "in_scene",
+          "ece_raw": 0.5855,
+          "ece": 0.0014,
+          "ece_inscene": 0.0014,
+          "ece_delta_vs_inscene": -0.0,
+          "auc": 0.5808,
+          "auc_inscene": 0.5808,
+          "auc_opacity": 0.3668,
+          "auc_oracle": 0.6009,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0019,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5936,
+            "n_conformal": 63939
+          }
+        },
+        {
+          "source": "truck",
+          "target": "garden",
+          "kind": "transferred",
+          "ece_raw": 0.5507,
+          "ece": 0.0044,
+          "ece_inscene": 0.0015,
+          "ece_delta_vs_inscene": 0.0029,
+          "auc": 0.6046,
+          "auc_inscene": 0.6046,
+          "auc_opacity": 0.4499,
+          "auc_oracle": 0.6194,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0019,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5729,
+            "n_conformal": 56590
+          }
+        },
+        {
+          "source": "truck",
+          "target": "kitchen",
+          "kind": "transferred",
+          "ece_raw": 0.5568,
+          "ece": 0.0123,
+          "ece_inscene": 0.0006,
+          "ece_delta_vs_inscene": 0.0117,
+          "auc": 0.6291,
+          "auc_inscene": 0.6291,
+          "auc_opacity": 0.4584,
+          "auc_oracle": 0.6332,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0019,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5561,
+            "n_conformal": 60000
+          }
+        },
+        {
+          "source": "truck",
+          "target": "room",
+          "kind": "transferred",
+          "ece_raw": 0.4641,
+          "ece": 0.0173,
+          "ece_inscene": 0.0016,
+          "ece_delta_vs_inscene": 0.0157,
+          "auc": 0.7203,
+          "auc_inscene": 0.7204,
+          "auc_opacity": 0.5339,
+          "auc_oracle": 0.7291,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0019,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4723,
+            "n_conformal": 53404
+          }
+        },
+        {
+          "source": "garden",
+          "target": "truck",
+          "kind": "transferred",
+          "ece_raw": 0.5855,
+          "ece": 0.0047,
+          "ece_inscene": 0.0014,
+          "ece_delta_vs_inscene": 0.0033,
+          "auc": 0.5807,
+          "auc_inscene": 0.5808,
+          "auc_opacity": 0.3668,
+          "auc_oracle": 0.6009,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.002,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5936,
+            "n_conformal": 63939
+          }
+        },
+        {
+          "source": "garden",
+          "target": "garden",
+          "kind": "in_scene",
+          "ece_raw": 0.5507,
+          "ece": 0.0015,
+          "ece_inscene": 0.0015,
+          "ece_delta_vs_inscene": 0.0,
+          "auc": 0.6046,
+          "auc_inscene": 0.6046,
+          "auc_opacity": 0.4499,
+          "auc_oracle": 0.6194,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0021,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5729,
+            "n_conformal": 56590
+          }
+        },
+        {
+          "source": "garden",
+          "target": "kitchen",
+          "kind": "transferred",
+          "ece_raw": 0.5568,
+          "ece": 0.0084,
+          "ece_inscene": 0.0006,
+          "ece_delta_vs_inscene": 0.0078,
+          "auc": 0.6291,
+          "auc_inscene": 0.6291,
+          "auc_opacity": 0.4584,
+          "auc_oracle": 0.6332,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.002,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5561,
+            "n_conformal": 60000
+          }
+        },
+        {
+          "source": "garden",
+          "target": "room",
+          "kind": "transferred",
+          "ece_raw": 0.4641,
+          "ece": 0.0127,
+          "ece_inscene": 0.0016,
+          "ece_delta_vs_inscene": 0.0111,
+          "auc": 0.7204,
+          "auc_inscene": 0.7204,
+          "auc_opacity": 0.5339,
+          "auc_oracle": 0.7291,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.002,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4723,
+            "n_conformal": 53404
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "truck",
+          "kind": "transferred",
+          "ece_raw": 0.5855,
+          "ece": 0.0113,
+          "ece_inscene": 0.0014,
+          "ece_delta_vs_inscene": 0.0099,
+          "auc": 0.5808,
+          "auc_inscene": 0.5808,
+          "auc_opacity": 0.3668,
+          "auc_oracle": 0.6009,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0019,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5936,
+            "n_conformal": 63939
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "garden",
+          "kind": "transferred",
+          "ece_raw": 0.5507,
+          "ece": 0.0083,
+          "ece_inscene": 0.0015,
+          "ece_delta_vs_inscene": 0.0068,
+          "auc": 0.6046,
+          "auc_inscene": 0.6046,
+          "auc_opacity": 0.4499,
+          "auc_oracle": 0.6194,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0017,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5729,
+            "n_conformal": 56590
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "kitchen",
+          "kind": "in_scene",
+          "ece_raw": 0.5568,
+          "ece": 0.0006,
+          "ece_inscene": 0.0006,
+          "ece_delta_vs_inscene": 0.0,
+          "auc": 0.6291,
+          "auc_inscene": 0.6291,
+          "auc_opacity": 0.4584,
+          "auc_oracle": 0.6332,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5561,
+            "n_conformal": 60000
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "room",
+          "kind": "transferred",
+          "ece_raw": 0.4641,
+          "ece": 0.0027,
+          "ece_inscene": 0.0016,
+          "ece_delta_vs_inscene": 0.0011,
+          "auc": 0.7204,
+          "auc_inscene": 0.7204,
+          "auc_opacity": 0.5339,
+          "auc_oracle": 0.7291,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0016,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4723,
+            "n_conformal": 53404
+          }
+        },
+        {
+          "source": "room",
+          "target": "truck",
+          "kind": "transferred",
+          "ece_raw": 0.5855,
+          "ece": 0.0094,
+          "ece_inscene": 0.0014,
+          "ece_delta_vs_inscene": 0.008,
+          "auc": 0.5808,
+          "auc_inscene": 0.5808,
+          "auc_opacity": 0.3668,
+          "auc_oracle": 0.6009,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0069,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5936,
+            "n_conformal": 63939
+          }
+        },
+        {
+          "source": "room",
+          "target": "garden",
+          "kind": "transferred",
+          "ece_raw": 0.5507,
+          "ece": 0.0074,
+          "ece_inscene": 0.0015,
+          "ece_delta_vs_inscene": 0.0059,
+          "auc": 0.6046,
+          "auc_inscene": 0.6046,
+          "auc_opacity": 0.4499,
+          "auc_oracle": 0.6194,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0069,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5729,
+            "n_conformal": 56590
+          }
+        },
+        {
+          "source": "room",
+          "target": "kitchen",
+          "kind": "transferred",
+          "ece_raw": 0.5568,
+          "ece": 0.0024,
+          "ece_inscene": 0.0006,
+          "ece_delta_vs_inscene": 0.0018,
+          "auc": 0.6291,
+          "auc_inscene": 0.6291,
+          "auc_opacity": 0.4584,
+          "auc_oracle": 0.6332,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0069,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5561,
+            "n_conformal": 60000
+          }
+        },
+        {
+          "source": "room",
+          "target": "room",
+          "kind": "in_scene",
+          "ece_raw": 0.4641,
+          "ece": 0.0016,
+          "ece_inscene": 0.0016,
+          "ece_delta_vs_inscene": -0.0,
+          "auc": 0.7204,
+          "auc_inscene": 0.7204,
+          "auc_opacity": 0.5339,
+          "auc_oracle": 0.7291,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4723,
+            "n_conformal": 53404
+          }
+        }
+      ],
+      "summary": {
+        "n_off_diagonal_pairs": 12,
+        "mean_raw_ece": 0.5393,
+        "mean_inscene_ece": 0.0013,
+        "offdiag_transferred_ece_mean": 0.0084,
+        "offdiag_transferred_ece_median": 0.0083,
+        "offdiag_transferred_ece_max": 0.0173,
+        "offdiag_ece_delta_mean": 0.0072,
+        "offdiag_ece_delta_max": 0.0157,
+        "offdiag_auc_delta_mean": -0.0,
+        "offdiag_auc_delta_min": -0.0001,
+        "offdiag_auc_delta_max": 0.0,
+        "all_transferred_certificates_valid": true,
+        "best_transfer_pair_by_ece": {
+          "pair": "kitchen->room",
+          "ece": 0.0027,
+          "ece_inscene": 0.0016,
+          "ece_delta": 0.0011
+        },
+        "worst_transfer_pair_by_ece": {
+          "pair": "truck->room",
+          "ece": 0.0173,
+          "ece_inscene": 0.0016,
+          "ece_delta": 0.0157
+        },
+        "best_transfer_pair_by_auc": {
+          "pair": "truck->garden",
+          "auc": 0.6046,
+          "auc_inscene": 0.6046,
+          "auc_delta": -0.0
+        },
+        "worst_transfer_pair_by_auc": {
+          "pair": "truck->room",
+          "auc": 0.7203,
+          "auc_inscene": 0.7204,
+          "auc_delta": -0.0001
+        }
+      }
+    },
+    "depth": {
+      "in_scene_reference": {
+        "truck": {
+          "n_labeled": 79231,
+          "n_eval": 39616,
+          "ece_raw": 0.6204,
+          "ece_inscene": 0.0037,
+          "auc_inscene": 0.523,
+          "auc_opacity": 0.3423,
+          "auc_oracle": 0.5753,
+          "cert_inscene": {
+            "tau": 0.1331,
+            "certified": true,
+            "kept_fraction": 0.9029,
+            "empirical_risk_kept": 0.5912
+          }
+        },
+        "garden": {
+          "n_labeled": 75431,
+          "n_eval": 37716,
+          "ece_raw": 0.537,
+          "ece_inscene": 0.0017,
+          "auc_inscene": 0.6161,
+          "auc_opacity": 0.4586,
+          "auc_oracle": 0.6376,
+          "cert_inscene": {
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614
+          }
+        },
+        "kitchen": {
+          "n_labeled": 117681,
+          "n_eval": 58841,
+          "ece_raw": 0.5497,
+          "ece_inscene": 0.0009,
+          "auc_inscene": 0.639,
+          "auc_opacity": 0.4753,
+          "auc_oracle": 0.6449,
+          "cert_inscene": {
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498
+          }
+        },
+        "room": {
+          "n_labeled": 77966,
+          "n_eval": 38983,
+          "ece_raw": 0.4708,
+          "ece_inscene": 0.0024,
+          "auc_inscene": 0.7134,
+          "auc_opacity": 0.5315,
+          "auc_oracle": 0.7271,
+          "cert_inscene": {
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765
+          }
+        }
+      },
+      "matrix": [
+        {
+          "source": "truck",
+          "target": "truck",
+          "kind": "in_scene",
+          "ece_raw": 0.6204,
+          "ece": 0.0037,
+          "ece_inscene": 0.0037,
+          "ece_delta_vs_inscene": -0.0,
+          "auc": 0.523,
+          "auc_inscene": 0.523,
+          "auc_opacity": 0.3423,
+          "auc_oracle": 0.5753,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.1331,
+            "certified": true,
+            "kept_fraction": 0.9051,
+            "empirical_risk_kept": 0.591,
+            "n_conformal": 39615
+          }
+        },
+        {
+          "source": "truck",
+          "target": "garden",
+          "kind": "transferred",
+          "ece_raw": 0.537,
+          "ece": 0.035,
+          "ece_inscene": 0.0017,
+          "ece_delta_vs_inscene": 0.0333,
+          "auc": 0.6161,
+          "auc_inscene": 0.6161,
+          "auc_opacity": 0.4586,
+          "auc_oracle": 0.6376,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0201,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5624,
+            "n_conformal": 37715
+          }
+        },
+        {
+          "source": "truck",
+          "target": "kitchen",
+          "kind": "transferred",
+          "ece_raw": 0.5497,
+          "ece": 0.0485,
+          "ece_inscene": 0.0009,
+          "ece_delta_vs_inscene": 0.0476,
+          "auc": 0.6389,
+          "auc_inscene": 0.639,
+          "auc_opacity": 0.4753,
+          "auc_oracle": 0.6449,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0201,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5495,
+            "n_conformal": 58840
+          }
+        },
+        {
+          "source": "truck",
+          "target": "room",
+          "kind": "transferred",
+          "ece_raw": 0.4708,
+          "ece": 0.0579,
+          "ece_inscene": 0.0024,
+          "ece_delta_vs_inscene": 0.0555,
+          "auc": 0.713,
+          "auc_inscene": 0.7134,
+          "auc_opacity": 0.5315,
+          "auc_oracle": 0.7271,
+          "auc_delta_vs_inscene": -0.0004,
+          "cert_transferred_local_split": {
+            "tau": 0.0201,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4789,
+            "n_conformal": 38983
+          }
+        },
+        {
+          "source": "garden",
+          "target": "truck",
+          "kind": "transferred",
+          "ece_raw": 0.6204,
+          "ece": 0.0286,
+          "ece_inscene": 0.0037,
+          "ece_delta_vs_inscene": 0.0249,
+          "auc": 0.5228,
+          "auc_inscene": 0.523,
+          "auc_opacity": 0.3423,
+          "auc_oracle": 0.5753,
+          "auc_delta_vs_inscene": -0.0002,
+          "cert_transferred_local_split": {
+            "tau": 0.0903,
+            "certified": true,
+            "kept_fraction": 0.9151,
+            "empirical_risk_kept": 0.5943,
+            "n_conformal": 39615
+          }
+        },
+        {
+          "source": "garden",
+          "target": "garden",
+          "kind": "in_scene",
+          "ece_raw": 0.537,
+          "ece": 0.0017,
+          "ece_inscene": 0.0017,
+          "ece_delta_vs_inscene": -0.0,
+          "auc": 0.6161,
+          "auc_inscene": 0.6161,
+          "auc_opacity": 0.4586,
+          "auc_oracle": 0.6376,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5624,
+            "n_conformal": 37715
+          }
+        },
+        {
+          "source": "garden",
+          "target": "kitchen",
+          "kind": "transferred",
+          "ece_raw": 0.5497,
+          "ece": 0.0144,
+          "ece_inscene": 0.0009,
+          "ece_delta_vs_inscene": 0.0135,
+          "auc": 0.639,
+          "auc_inscene": 0.639,
+          "auc_opacity": 0.4753,
+          "auc_oracle": 0.6449,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0199,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5495,
+            "n_conformal": 58840
+          }
+        },
+        {
+          "source": "garden",
+          "target": "room",
+          "kind": "transferred",
+          "ece_raw": 0.4708,
+          "ece": 0.0132,
+          "ece_inscene": 0.0024,
+          "ece_delta_vs_inscene": 0.0108,
+          "auc": 0.7133,
+          "auc_inscene": 0.7134,
+          "auc_opacity": 0.5315,
+          "auc_oracle": 0.7271,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0199,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4789,
+            "n_conformal": 38983
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "truck",
+          "kind": "transferred",
+          "ece_raw": 0.6204,
+          "ece": 0.0407,
+          "ece_inscene": 0.0037,
+          "ece_delta_vs_inscene": 0.037,
+          "auc": 0.5229,
+          "auc_inscene": 0.523,
+          "auc_opacity": 0.3423,
+          "auc_oracle": 0.5753,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0754,
+            "certified": true,
+            "kept_fraction": 0.914,
+            "empirical_risk_kept": 0.5939,
+            "n_conformal": 39615
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "garden",
+          "kind": "transferred",
+          "ece_raw": 0.537,
+          "ece": 0.0141,
+          "ece_inscene": 0.0017,
+          "ece_delta_vs_inscene": 0.0124,
+          "auc": 0.6162,
+          "auc_inscene": 0.6161,
+          "auc_opacity": 0.4586,
+          "auc_oracle": 0.6376,
+          "auc_delta_vs_inscene": 0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0016,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5624,
+            "n_conformal": 37715
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "kitchen",
+          "kind": "in_scene",
+          "ece_raw": 0.5497,
+          "ece": 0.0009,
+          "ece_inscene": 0.0009,
+          "ece_delta_vs_inscene": 0.0,
+          "auc": 0.639,
+          "auc_inscene": 0.639,
+          "auc_opacity": 0.4753,
+          "auc_oracle": 0.6449,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5495,
+            "n_conformal": 58840
+          }
+        },
+        {
+          "source": "kitchen",
+          "target": "room",
+          "kind": "transferred",
+          "ece_raw": 0.4708,
+          "ece": 0.0062,
+          "ece_inscene": 0.0024,
+          "ece_delta_vs_inscene": 0.0038,
+          "auc": 0.7133,
+          "auc_inscene": 0.7134,
+          "auc_opacity": 0.5315,
+          "auc_oracle": 0.7271,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0016,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4789,
+            "n_conformal": 38983
+          }
+        },
+        {
+          "source": "room",
+          "target": "truck",
+          "kind": "transferred",
+          "ece_raw": 0.6204,
+          "ece": 0.0346,
+          "ece_inscene": 0.0037,
+          "ece_delta_vs_inscene": 0.0309,
+          "auc": 0.5229,
+          "auc_inscene": 0.523,
+          "auc_opacity": 0.3423,
+          "auc_oracle": 0.5753,
+          "auc_delta_vs_inscene": -0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0931,
+            "certified": true,
+            "kept_fraction": 0.914,
+            "empirical_risk_kept": 0.5939,
+            "n_conformal": 39615
+          }
+        },
+        {
+          "source": "room",
+          "target": "garden",
+          "kind": "transferred",
+          "ece_raw": 0.537,
+          "ece": 0.0083,
+          "ece_inscene": 0.0017,
+          "ece_delta_vs_inscene": 0.0066,
+          "auc": 0.6162,
+          "auc_inscene": 0.6161,
+          "auc_opacity": 0.4586,
+          "auc_oracle": 0.6376,
+          "auc_delta_vs_inscene": 0.0001,
+          "cert_transferred_local_split": {
+            "tau": 0.0164,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5624,
+            "n_conformal": 37715
+          }
+        },
+        {
+          "source": "room",
+          "target": "kitchen",
+          "kind": "transferred",
+          "ece_raw": 0.5497,
+          "ece": 0.0062,
+          "ece_inscene": 0.0009,
+          "ece_delta_vs_inscene": 0.0053,
+          "auc": 0.639,
+          "auc_inscene": 0.639,
+          "auc_opacity": 0.4753,
+          "auc_oracle": 0.6449,
+          "auc_delta_vs_inscene": 0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.0168,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5495,
+            "n_conformal": 58840
+          }
+        },
+        {
+          "source": "room",
+          "target": "room",
+          "kind": "in_scene",
+          "ece_raw": 0.4708,
+          "ece": 0.0024,
+          "ece_inscene": 0.0024,
+          "ece_delta_vs_inscene": 0.0,
+          "auc": 0.7134,
+          "auc_inscene": 0.7134,
+          "auc_opacity": 0.5315,
+          "auc_oracle": 0.7271,
+          "auc_delta_vs_inscene": -0.0,
+          "cert_transferred_local_split": {
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4789,
+            "n_conformal": 38983
+          }
+        }
+      ],
+      "summary": {
+        "n_off_diagonal_pairs": 12,
+        "mean_raw_ece": 0.5445,
+        "mean_inscene_ece": 0.0022,
+        "offdiag_transferred_ece_mean": 0.0256,
+        "offdiag_transferred_ece_median": 0.0215,
+        "offdiag_transferred_ece_max": 0.0579,
+        "offdiag_ece_delta_mean": 0.0235,
+        "offdiag_ece_delta_max": 0.0555,
+        "offdiag_auc_delta_mean": -0.0001,
+        "offdiag_auc_delta_min": -0.0004,
+        "offdiag_auc_delta_max": 0.0001,
+        "all_transferred_certificates_valid": true,
+        "best_transfer_pair_by_ece": {
+          "pair": "kitchen->room",
+          "ece": 0.0062,
+          "ece_inscene": 0.0024,
+          "ece_delta": 0.0038
+        },
+        "worst_transfer_pair_by_ece": {
+          "pair": "truck->room",
+          "ece": 0.0579,
+          "ece_inscene": 0.0024,
+          "ece_delta": 0.0555
+        },
+        "best_transfer_pair_by_auc": {
+          "pair": "kitchen->garden",
+          "auc": 0.6162,
+          "auc_inscene": 0.6161,
+          "auc_delta": 0.0001
+        },
+        "worst_transfer_pair_by_auc": {
+          "pair": "truck->room",
+          "auc": 0.713,
+          "auc_inscene": 0.7134,
+          "auc_delta": -0.0004
+        }
+      }
+    }
+  }
+}

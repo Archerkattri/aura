@@ -1,0 +1,2449 @@
+{
+  "experiment": "P1b_certificate_operating_study",
+  "scenes": [
+    "truck",
+    "garden",
+    "kitchen",
+    "room"
+  ],
+  "labels": [
+    "color",
+    "depth"
+  ],
+  "alpha": 0.1,
+  "seed": 0,
+  "epsilon_grid": [
+    0.3,
+    0.31,
+    0.32,
+    0.33,
+    0.34,
+    0.35,
+    0.36,
+    0.37,
+    0.38,
+    0.39,
+    0.4,
+    0.41,
+    0.42,
+    0.43,
+    0.44,
+    0.45,
+    0.46,
+    0.47,
+    0.48,
+    0.49,
+    0.5,
+    0.51,
+    0.52,
+    0.53,
+    0.54,
+    0.55,
+    0.56,
+    0.57,
+    0.58,
+    0.59,
+    0.6,
+    0.61,
+    0.62,
+    0.63,
+    0.64,
+    0.65
+  ],
+  "protocol": "in-scene P0 protocol: calibrator fit on the 50/50 seed-0 cal half, certificate evaluated on the eval half with calibrated confidence (matches calibrate_confidence.py / calib_<scene>.json)",
+  "selectivity_note": "selectivity_onset_epsilon = the largest epsilon in the grid whose certified kept_fraction < 1.0 (kept_fraction is monotone non-decreasing in epsilon); None if the full set is kept across the whole grid",
+  "by_scene": {
+    "truck": {
+      "color": {
+        "n_labeled": 127878,
+        "n_eval": 63939,
+        "mean_reliability_eval": 0.4072,
+        "selectivity_onset_epsilon": 0.59,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.6179,
+            "certified": true,
+            "kept_fraction": 0.2221,
+            "empirical_risk_kept": 0.2888,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.5992,
+            "certified": true,
+            "kept_fraction": 0.2316,
+            "empirical_risk_kept": 0.2933,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.5728,
+            "certified": true,
+            "kept_fraction": 0.2711,
+            "empirical_risk_kept": 0.3104,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.56,
+            "certified": true,
+            "kept_fraction": 0.2853,
+            "empirical_risk_kept": 0.3166,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.5389,
+            "certified": true,
+            "kept_fraction": 0.3172,
+            "empirical_risk_kept": 0.3304,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.5112,
+            "certified": true,
+            "kept_fraction": 0.346,
+            "empirical_risk_kept": 0.3426,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.4968,
+            "certified": true,
+            "kept_fraction": 0.3689,
+            "empirical_risk_kept": 0.3521,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.4786,
+            "certified": true,
+            "kept_fraction": 0.3916,
+            "empirical_risk_kept": 0.3614,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.454,
+            "certified": true,
+            "kept_fraction": 0.418,
+            "empirical_risk_kept": 0.3721,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.4464,
+            "certified": true,
+            "kept_fraction": 0.4424,
+            "empirical_risk_kept": 0.3818,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.4218,
+            "certified": true,
+            "kept_fraction": 0.4593,
+            "empirical_risk_kept": 0.3888,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.4065,
+            "certified": true,
+            "kept_fraction": 0.4898,
+            "empirical_risk_kept": 0.401,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.3814,
+            "certified": true,
+            "kept_fraction": 0.5198,
+            "empirical_risk_kept": 0.4127,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.3813,
+            "certified": true,
+            "kept_fraction": 0.5328,
+            "empirical_risk_kept": 0.4179,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.3481,
+            "certified": true,
+            "kept_fraction": 0.5718,
+            "empirical_risk_kept": 0.433,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.3273,
+            "certified": true,
+            "kept_fraction": 0.6019,
+            "empirical_risk_kept": 0.4444,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.3136,
+            "certified": true,
+            "kept_fraction": 0.6217,
+            "empirical_risk_kept": 0.4516,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.2989,
+            "certified": true,
+            "kept_fraction": 0.6512,
+            "empirical_risk_kept": 0.4629,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.2784,
+            "certified": true,
+            "kept_fraction": 0.6753,
+            "empirical_risk_kept": 0.4718,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.25,
+            "certified": true,
+            "kept_fraction": 0.706,
+            "empirical_risk_kept": 0.4832,
+            "selective": true
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.2321,
+            "certified": true,
+            "kept_fraction": 0.7319,
+            "empirical_risk_kept": 0.4929,
+            "selective": true
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.2155,
+            "certified": true,
+            "kept_fraction": 0.7613,
+            "empirical_risk_kept": 0.5037,
+            "selective": true
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.1895,
+            "certified": true,
+            "kept_fraction": 0.7923,
+            "empirical_risk_kept": 0.5151,
+            "selective": true
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.1743,
+            "certified": true,
+            "kept_fraction": 0.8147,
+            "empirical_risk_kept": 0.5235,
+            "selective": true
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.1525,
+            "certified": true,
+            "kept_fraction": 0.8454,
+            "empirical_risk_kept": 0.5349,
+            "selective": true
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.1351,
+            "certified": true,
+            "kept_fraction": 0.8586,
+            "empirical_risk_kept": 0.5398,
+            "selective": true
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.1099,
+            "certified": true,
+            "kept_fraction": 0.899,
+            "empirical_risk_kept": 0.5547,
+            "selective": true
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.0914,
+            "certified": true,
+            "kept_fraction": 0.9252,
+            "empirical_risk_kept": 0.5644,
+            "selective": true
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.0644,
+            "certified": true,
+            "kept_fraction": 0.9522,
+            "empirical_risk_kept": 0.5747,
+            "selective": true
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.0452,
+            "certified": true,
+            "kept_fraction": 0.9815,
+            "empirical_risk_kept": 0.5857,
+            "selective": true
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.0023,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5928,
+            "selective": false
+          }
+        ]
+      },
+      "depth": {
+        "n_labeled": 79231,
+        "n_eval": 39616,
+        "mean_reliability_eval": 0.3773,
+        "selectivity_onset_epsilon": 0.62,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.9433,
+            "certified": false,
+            "kept_fraction": 0.0001,
+            "empirical_risk_kept": 0.2345,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.9433,
+            "certified": false,
+            "kept_fraction": 0.0001,
+            "empirical_risk_kept": 0.2345,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.9433,
+            "certified": false,
+            "kept_fraction": 0.0001,
+            "empirical_risk_kept": 0.2345,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.9433,
+            "certified": false,
+            "kept_fraction": 0.0001,
+            "empirical_risk_kept": 0.2345,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.6504,
+            "certified": true,
+            "kept_fraction": 0.0734,
+            "empirical_risk_kept": 0.3182,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.6227,
+            "certified": true,
+            "kept_fraction": 0.1065,
+            "empirical_risk_kept": 0.33,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.6057,
+            "certified": true,
+            "kept_fraction": 0.1378,
+            "empirical_risk_kept": 0.3411,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.5694,
+            "certified": true,
+            "kept_fraction": 0.1841,
+            "empirical_risk_kept": 0.3565,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.5694,
+            "certified": true,
+            "kept_fraction": 0.1841,
+            "empirical_risk_kept": 0.3565,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.5439,
+            "certified": true,
+            "kept_fraction": 0.2446,
+            "empirical_risk_kept": 0.3788,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.5426,
+            "certified": true,
+            "kept_fraction": 0.2511,
+            "empirical_risk_kept": 0.3806,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.491,
+            "certified": true,
+            "kept_fraction": 0.3156,
+            "empirical_risk_kept": 0.4002,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.4764,
+            "certified": true,
+            "kept_fraction": 0.343,
+            "empirical_risk_kept": 0.4099,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.4568,
+            "certified": true,
+            "kept_fraction": 0.3665,
+            "empirical_risk_kept": 0.4178,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.4395,
+            "certified": true,
+            "kept_fraction": 0.398,
+            "empirical_risk_kept": 0.4292,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.4089,
+            "certified": true,
+            "kept_fraction": 0.4345,
+            "empirical_risk_kept": 0.4416,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.4089,
+            "certified": true,
+            "kept_fraction": 0.4345,
+            "empirical_risk_kept": 0.4416,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.376,
+            "certified": true,
+            "kept_fraction": 0.4973,
+            "empirical_risk_kept": 0.4618,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.3509,
+            "certified": true,
+            "kept_fraction": 0.5171,
+            "empirical_risk_kept": 0.4682,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.3387,
+            "certified": true,
+            "kept_fraction": 0.5581,
+            "empirical_risk_kept": 0.4812,
+            "selective": true
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.3197,
+            "certified": true,
+            "kept_fraction": 0.5941,
+            "empirical_risk_kept": 0.4929,
+            "selective": true
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.3016,
+            "certified": true,
+            "kept_fraction": 0.6251,
+            "empirical_risk_kept": 0.5024,
+            "selective": true
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.2843,
+            "certified": true,
+            "kept_fraction": 0.6464,
+            "empirical_risk_kept": 0.5094,
+            "selective": true
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.2615,
+            "certified": true,
+            "kept_fraction": 0.6875,
+            "empirical_risk_kept": 0.5226,
+            "selective": true
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.2403,
+            "certified": true,
+            "kept_fraction": 0.7101,
+            "empirical_risk_kept": 0.5299,
+            "selective": true
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.2303,
+            "certified": true,
+            "kept_fraction": 0.7384,
+            "empirical_risk_kept": 0.5387,
+            "selective": true
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.1966,
+            "certified": true,
+            "kept_fraction": 0.7816,
+            "empirical_risk_kept": 0.5524,
+            "selective": true
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.1743,
+            "certified": true,
+            "kept_fraction": 0.8041,
+            "empirical_risk_kept": 0.5595,
+            "selective": true
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.1629,
+            "certified": true,
+            "kept_fraction": 0.8456,
+            "empirical_risk_kept": 0.5729,
+            "selective": true
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.1423,
+            "certified": true,
+            "kept_fraction": 0.8729,
+            "empirical_risk_kept": 0.5817,
+            "selective": true
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.1331,
+            "certified": true,
+            "kept_fraction": 0.9029,
+            "empirical_risk_kept": 0.5912,
+            "selective": true
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.096,
+            "certified": true,
+            "kept_fraction": 0.9331,
+            "empirical_risk_kept": 0.6006,
+            "selective": true
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.07,
+            "certified": true,
+            "kept_fraction": 0.9727,
+            "empirical_risk_kept": 0.6133,
+            "selective": true
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.0142,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.6227,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.0142,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.6227,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.0142,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.6227,
+            "selective": false
+          }
+        ]
+      }
+    },
+    "garden": {
+      "color": {
+        "n_labeled": 113180,
+        "n_eval": 56590,
+        "mean_reliability_eval": 0.4261,
+        "selectivity_onset_epsilon": 0.57,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.583,
+            "certified": true,
+            "kept_fraction": 0.2885,
+            "empirical_risk_kept": 0.2909,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.5696,
+            "certified": true,
+            "kept_fraction": 0.3075,
+            "empirical_risk_kept": 0.2993,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.5436,
+            "certified": true,
+            "kept_fraction": 0.3325,
+            "empirical_risk_kept": 0.3098,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.5269,
+            "certified": true,
+            "kept_fraction": 0.3575,
+            "empirical_risk_kept": 0.3208,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.5146,
+            "certified": true,
+            "kept_fraction": 0.3755,
+            "empirical_risk_kept": 0.3284,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.4978,
+            "certified": true,
+            "kept_fraction": 0.397,
+            "empirical_risk_kept": 0.3377,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.4659,
+            "certified": true,
+            "kept_fraction": 0.4321,
+            "empirical_risk_kept": 0.3526,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.4549,
+            "certified": true,
+            "kept_fraction": 0.4524,
+            "empirical_risk_kept": 0.3612,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.4341,
+            "certified": true,
+            "kept_fraction": 0.4818,
+            "empirical_risk_kept": 0.3731,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.4186,
+            "certified": true,
+            "kept_fraction": 0.5063,
+            "empirical_risk_kept": 0.3831,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.3963,
+            "certified": true,
+            "kept_fraction": 0.5285,
+            "empirical_risk_kept": 0.3923,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.3814,
+            "certified": true,
+            "kept_fraction": 0.5488,
+            "empirical_risk_kept": 0.4002,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.3516,
+            "certified": true,
+            "kept_fraction": 0.5767,
+            "empirical_risk_kept": 0.4114,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.3414,
+            "certified": true,
+            "kept_fraction": 0.6089,
+            "empirical_risk_kept": 0.424,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.3193,
+            "certified": true,
+            "kept_fraction": 0.6328,
+            "empirical_risk_kept": 0.4332,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.3013,
+            "certified": true,
+            "kept_fraction": 0.6559,
+            "empirical_risk_kept": 0.4422,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.2778,
+            "certified": true,
+            "kept_fraction": 0.6875,
+            "empirical_risk_kept": 0.4544,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.2591,
+            "certified": true,
+            "kept_fraction": 0.7138,
+            "empirical_risk_kept": 0.4645,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.2469,
+            "certified": true,
+            "kept_fraction": 0.7402,
+            "empirical_risk_kept": 0.4746,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.2174,
+            "certified": true,
+            "kept_fraction": 0.7671,
+            "empirical_risk_kept": 0.4847,
+            "selective": true
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.2047,
+            "certified": true,
+            "kept_fraction": 0.7929,
+            "empirical_risk_kept": 0.4946,
+            "selective": true
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.187,
+            "certified": true,
+            "kept_fraction": 0.8197,
+            "empirical_risk_kept": 0.5047,
+            "selective": true
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.163,
+            "certified": true,
+            "kept_fraction": 0.8459,
+            "empirical_risk_kept": 0.5146,
+            "selective": true
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.1425,
+            "certified": true,
+            "kept_fraction": 0.8702,
+            "empirical_risk_kept": 0.5237,
+            "selective": true
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.1222,
+            "certified": true,
+            "kept_fraction": 0.8978,
+            "empirical_risk_kept": 0.5341,
+            "selective": true
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.0999,
+            "certified": true,
+            "kept_fraction": 0.9261,
+            "empirical_risk_kept": 0.545,
+            "selective": true
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.0786,
+            "certified": true,
+            "kept_fraction": 0.952,
+            "empirical_risk_kept": 0.5549,
+            "selective": true
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.0508,
+            "certified": true,
+            "kept_fraction": 0.9763,
+            "empirical_risk_kept": 0.5644,
+            "selective": true
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.0025,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5739,
+            "selective": false
+          }
+        ]
+      },
+      "depth": {
+        "n_labeled": 75431,
+        "n_eval": 37716,
+        "mean_reliability_eval": 0.4386,
+        "selectivity_onset_epsilon": 0.56,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.6041,
+            "certified": true,
+            "kept_fraction": 0.2884,
+            "empirical_risk_kept": 0.2808,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.588,
+            "certified": true,
+            "kept_fraction": 0.3124,
+            "empirical_risk_kept": 0.291,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.5389,
+            "certified": true,
+            "kept_fraction": 0.3559,
+            "empirical_risk_kept": 0.3085,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.5247,
+            "certified": true,
+            "kept_fraction": 0.3838,
+            "empirical_risk_kept": 0.32,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.5058,
+            "certified": true,
+            "kept_fraction": 0.3963,
+            "empirical_risk_kept": 0.3251,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.5004,
+            "certified": true,
+            "kept_fraction": 0.4225,
+            "empirical_risk_kept": 0.3355,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.4664,
+            "certified": true,
+            "kept_fraction": 0.4621,
+            "empirical_risk_kept": 0.3515,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.4432,
+            "certified": true,
+            "kept_fraction": 0.4844,
+            "empirical_risk_kept": 0.3604,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.4374,
+            "certified": true,
+            "kept_fraction": 0.498,
+            "empirical_risk_kept": 0.3657,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.4084,
+            "certified": true,
+            "kept_fraction": 0.537,
+            "empirical_risk_kept": 0.3812,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.3926,
+            "certified": true,
+            "kept_fraction": 0.5573,
+            "empirical_risk_kept": 0.3892,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.3669,
+            "certified": true,
+            "kept_fraction": 0.5907,
+            "empirical_risk_kept": 0.4021,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.3651,
+            "certified": true,
+            "kept_fraction": 0.6069,
+            "empirical_risk_kept": 0.4084,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.3375,
+            "certified": true,
+            "kept_fraction": 0.6438,
+            "empirical_risk_kept": 0.4229,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.3062,
+            "certified": true,
+            "kept_fraction": 0.6652,
+            "empirical_risk_kept": 0.4313,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.3013,
+            "certified": true,
+            "kept_fraction": 0.6923,
+            "empirical_risk_kept": 0.4418,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.2777,
+            "certified": true,
+            "kept_fraction": 0.7155,
+            "empirical_risk_kept": 0.4506,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.2585,
+            "certified": true,
+            "kept_fraction": 0.748,
+            "empirical_risk_kept": 0.4631,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.2363,
+            "certified": true,
+            "kept_fraction": 0.7692,
+            "empirical_risk_kept": 0.4714,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.2109,
+            "certified": true,
+            "kept_fraction": 0.7955,
+            "empirical_risk_kept": 0.4815,
+            "selective": true
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.1866,
+            "certified": true,
+            "kept_fraction": 0.8275,
+            "empirical_risk_kept": 0.4937,
+            "selective": true
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.1652,
+            "certified": true,
+            "kept_fraction": 0.8526,
+            "empirical_risk_kept": 0.5033,
+            "selective": true
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.1463,
+            "certified": true,
+            "kept_fraction": 0.8798,
+            "empirical_risk_kept": 0.5139,
+            "selective": true
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.1234,
+            "certified": true,
+            "kept_fraction": 0.905,
+            "empirical_risk_kept": 0.5235,
+            "selective": true
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.105,
+            "certified": true,
+            "kept_fraction": 0.9198,
+            "empirical_risk_kept": 0.5294,
+            "selective": true
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.0755,
+            "certified": true,
+            "kept_fraction": 0.9534,
+            "empirical_risk_kept": 0.5425,
+            "selective": true
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.0654,
+            "certified": true,
+            "kept_fraction": 0.9768,
+            "empirical_risk_kept": 0.5519,
+            "selective": true
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.0221,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5614,
+            "selective": false
+          }
+        ]
+      }
+    },
+    "kitchen": {
+      "color": {
+        "n_labeled": 120000,
+        "n_eval": 60000,
+        "mean_reliability_eval": 0.4431,
+        "selectivity_onset_epsilon": 0.56,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.552,
+            "certified": true,
+            "kept_fraction": 0.3507,
+            "empirical_risk_kept": 0.2924,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.5358,
+            "certified": true,
+            "kept_fraction": 0.3736,
+            "empirical_risk_kept": 0.3024,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.513,
+            "certified": true,
+            "kept_fraction": 0.3962,
+            "empirical_risk_kept": 0.3122,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.4976,
+            "certified": true,
+            "kept_fraction": 0.4197,
+            "empirical_risk_kept": 0.3224,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.4792,
+            "certified": true,
+            "kept_fraction": 0.4411,
+            "empirical_risk_kept": 0.3316,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.4566,
+            "certified": true,
+            "kept_fraction": 0.4658,
+            "empirical_risk_kept": 0.342,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.4428,
+            "certified": true,
+            "kept_fraction": 0.4929,
+            "empirical_risk_kept": 0.3534,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.4197,
+            "certified": true,
+            "kept_fraction": 0.5165,
+            "empirical_risk_kept": 0.3631,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.4018,
+            "certified": true,
+            "kept_fraction": 0.5427,
+            "empirical_risk_kept": 0.3739,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.3872,
+            "certified": true,
+            "kept_fraction": 0.5677,
+            "empirical_risk_kept": 0.384,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.3662,
+            "certified": true,
+            "kept_fraction": 0.59,
+            "empirical_risk_kept": 0.3932,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.3488,
+            "certified": true,
+            "kept_fraction": 0.6138,
+            "empirical_risk_kept": 0.4029,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.3279,
+            "certified": true,
+            "kept_fraction": 0.639,
+            "empirical_risk_kept": 0.413,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.307,
+            "certified": true,
+            "kept_fraction": 0.6677,
+            "empirical_risk_kept": 0.4246,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.2888,
+            "certified": true,
+            "kept_fraction": 0.6878,
+            "empirical_risk_kept": 0.4326,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.2724,
+            "certified": true,
+            "kept_fraction": 0.7179,
+            "empirical_risk_kept": 0.4445,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.2526,
+            "certified": true,
+            "kept_fraction": 0.7386,
+            "empirical_risk_kept": 0.4526,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.2304,
+            "certified": true,
+            "kept_fraction": 0.7664,
+            "empirical_risk_kept": 0.4637,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.211,
+            "certified": true,
+            "kept_fraction": 0.7945,
+            "empirical_risk_kept": 0.4748,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.1959,
+            "certified": true,
+            "kept_fraction": 0.8166,
+            "empirical_risk_kept": 0.4834,
+            "selective": true
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.1747,
+            "certified": true,
+            "kept_fraction": 0.8433,
+            "empirical_risk_kept": 0.494,
+            "selective": true
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.1479,
+            "certified": true,
+            "kept_fraction": 0.8717,
+            "empirical_risk_kept": 0.5052,
+            "selective": true
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.1287,
+            "certified": true,
+            "kept_fraction": 0.8966,
+            "empirical_risk_kept": 0.5151,
+            "selective": true
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.1083,
+            "certified": true,
+            "kept_fraction": 0.9218,
+            "empirical_risk_kept": 0.5251,
+            "selective": true
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.0845,
+            "certified": true,
+            "kept_fraction": 0.9458,
+            "empirical_risk_kept": 0.5347,
+            "selective": true
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.06,
+            "certified": true,
+            "kept_fraction": 0.9727,
+            "empirical_risk_kept": 0.5456,
+            "selective": true
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.0229,
+            "certified": true,
+            "kept_fraction": 0.9962,
+            "empirical_risk_kept": 0.5553,
+            "selective": true
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.0018,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5569,
+            "selective": false
+          }
+        ]
+      },
+      "depth": {
+        "n_labeled": 117681,
+        "n_eval": 58841,
+        "mean_reliability_eval": 0.4502,
+        "selectivity_onset_epsilon": 0.55,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.5456,
+            "certified": true,
+            "kept_fraction": 0.3739,
+            "empirical_risk_kept": 0.2903,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.5299,
+            "certified": true,
+            "kept_fraction": 0.3964,
+            "empirical_risk_kept": 0.3001,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.5107,
+            "certified": true,
+            "kept_fraction": 0.4203,
+            "empirical_risk_kept": 0.3103,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.4847,
+            "certified": true,
+            "kept_fraction": 0.4512,
+            "empirical_risk_kept": 0.3234,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.4653,
+            "certified": true,
+            "kept_fraction": 0.4742,
+            "empirical_risk_kept": 0.3331,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.4465,
+            "certified": true,
+            "kept_fraction": 0.4949,
+            "empirical_risk_kept": 0.3417,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.4221,
+            "certified": true,
+            "kept_fraction": 0.5241,
+            "empirical_risk_kept": 0.3538,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.4127,
+            "certified": true,
+            "kept_fraction": 0.5483,
+            "empirical_risk_kept": 0.3639,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.3826,
+            "certified": true,
+            "kept_fraction": 0.5721,
+            "empirical_risk_kept": 0.3738,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.3691,
+            "certified": true,
+            "kept_fraction": 0.594,
+            "empirical_risk_kept": 0.3829,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.3501,
+            "certified": true,
+            "kept_fraction": 0.6197,
+            "empirical_risk_kept": 0.3934,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.3331,
+            "certified": true,
+            "kept_fraction": 0.6426,
+            "empirical_risk_kept": 0.4029,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.3145,
+            "certified": true,
+            "kept_fraction": 0.6638,
+            "empirical_risk_kept": 0.4116,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.2919,
+            "certified": true,
+            "kept_fraction": 0.6908,
+            "empirical_risk_kept": 0.4228,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.2711,
+            "certified": true,
+            "kept_fraction": 0.7195,
+            "empirical_risk_kept": 0.4346,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.2531,
+            "certified": true,
+            "kept_fraction": 0.7409,
+            "empirical_risk_kept": 0.4433,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.2338,
+            "certified": true,
+            "kept_fraction": 0.7672,
+            "empirical_risk_kept": 0.4541,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.2114,
+            "certified": true,
+            "kept_fraction": 0.7897,
+            "empirical_risk_kept": 0.4633,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.1921,
+            "certified": true,
+            "kept_fraction": 0.8159,
+            "empirical_risk_kept": 0.474,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.1707,
+            "certified": true,
+            "kept_fraction": 0.8433,
+            "empirical_risk_kept": 0.4852,
+            "selective": true
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.1517,
+            "certified": true,
+            "kept_fraction": 0.8675,
+            "empirical_risk_kept": 0.4951,
+            "selective": true
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.1363,
+            "certified": true,
+            "kept_fraction": 0.8914,
+            "empirical_risk_kept": 0.5048,
+            "selective": true
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.1111,
+            "certified": true,
+            "kept_fraction": 0.9153,
+            "empirical_risk_kept": 0.5146,
+            "selective": true
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.0871,
+            "certified": true,
+            "kept_fraction": 0.9406,
+            "empirical_risk_kept": 0.5249,
+            "selective": true
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.0657,
+            "certified": true,
+            "kept_fraction": 0.9656,
+            "empirical_risk_kept": 0.5353,
+            "selective": true
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.0334,
+            "certified": true,
+            "kept_fraction": 0.9898,
+            "empirical_risk_kept": 0.5454,
+            "selective": true
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.0033,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.5498,
+            "selective": false
+          }
+        ]
+      }
+    },
+    "room": {
+      "color": {
+        "n_labeled": 106809,
+        "n_eval": 53405,
+        "mean_reliability_eval": 0.5289,
+        "selectivity_onset_epsilon": 0.47,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.474,
+            "certified": true,
+            "kept_fraction": 0.6028,
+            "empirical_risk_kept": 0.2932,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.4536,
+            "certified": true,
+            "kept_fraction": 0.6247,
+            "empirical_risk_kept": 0.3014,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.4217,
+            "certified": true,
+            "kept_fraction": 0.6562,
+            "empirical_risk_kept": 0.3137,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.4049,
+            "certified": true,
+            "kept_fraction": 0.6793,
+            "empirical_risk_kept": 0.323,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.3747,
+            "certified": true,
+            "kept_fraction": 0.7074,
+            "empirical_risk_kept": 0.3344,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.3473,
+            "certified": true,
+            "kept_fraction": 0.7311,
+            "empirical_risk_kept": 0.3442,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.3188,
+            "certified": true,
+            "kept_fraction": 0.7523,
+            "empirical_risk_kept": 0.3531,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.2931,
+            "certified": true,
+            "kept_fraction": 0.7778,
+            "empirical_risk_kept": 0.3642,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.2727,
+            "certified": true,
+            "kept_fraction": 0.7991,
+            "empirical_risk_kept": 0.3738,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.2431,
+            "certified": true,
+            "kept_fraction": 0.8212,
+            "empirical_risk_kept": 0.3837,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.216,
+            "certified": true,
+            "kept_fraction": 0.8417,
+            "empirical_risk_kept": 0.3932,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.1875,
+            "certified": true,
+            "kept_fraction": 0.8649,
+            "empirical_risk_kept": 0.4041,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.1714,
+            "certified": true,
+            "kept_fraction": 0.8828,
+            "empirical_risk_kept": 0.4125,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.1314,
+            "certified": true,
+            "kept_fraction": 0.9073,
+            "empirical_risk_kept": 0.4244,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.106,
+            "certified": true,
+            "kept_fraction": 0.9292,
+            "empirical_risk_kept": 0.4351,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.0854,
+            "certified": true,
+            "kept_fraction": 0.9465,
+            "empirical_risk_kept": 0.4437,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.0581,
+            "certified": true,
+            "kept_fraction": 0.9688,
+            "empirical_risk_kept": 0.455,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.0311,
+            "certified": true,
+            "kept_fraction": 0.9851,
+            "empirical_risk_kept": 0.4633,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4711,
+            "selective": false
+          }
+        ]
+      },
+      "depth": {
+        "n_labeled": 77966,
+        "n_eval": 38983,
+        "mean_reliability_eval": 0.5235,
+        "selectivity_onset_epsilon": 0.48,
+        "always_selective": false,
+        "never_selective": false,
+        "sweep": [
+          {
+            "epsilon": 0.3,
+            "tau": 0.4852,
+            "certified": true,
+            "kept_fraction": 0.5749,
+            "empirical_risk_kept": 0.2905,
+            "selective": true
+          },
+          {
+            "epsilon": 0.31,
+            "tau": 0.4701,
+            "certified": true,
+            "kept_fraction": 0.5957,
+            "empirical_risk_kept": 0.2985,
+            "selective": true
+          },
+          {
+            "epsilon": 0.32,
+            "tau": 0.4512,
+            "certified": true,
+            "kept_fraction": 0.6268,
+            "empirical_risk_kept": 0.3104,
+            "selective": true
+          },
+          {
+            "epsilon": 0.33,
+            "tau": 0.4271,
+            "certified": true,
+            "kept_fraction": 0.6588,
+            "empirical_risk_kept": 0.3229,
+            "selective": true
+          },
+          {
+            "epsilon": 0.34,
+            "tau": 0.392,
+            "certified": true,
+            "kept_fraction": 0.6836,
+            "empirical_risk_kept": 0.3329,
+            "selective": true
+          },
+          {
+            "epsilon": 0.35,
+            "tau": 0.3864,
+            "certified": true,
+            "kept_fraction": 0.6943,
+            "empirical_risk_kept": 0.3372,
+            "selective": true
+          },
+          {
+            "epsilon": 0.36,
+            "tau": 0.3381,
+            "certified": true,
+            "kept_fraction": 0.7302,
+            "empirical_risk_kept": 0.352,
+            "selective": true
+          },
+          {
+            "epsilon": 0.37,
+            "tau": 0.3224,
+            "certified": true,
+            "kept_fraction": 0.754,
+            "empirical_risk_kept": 0.3618,
+            "selective": true
+          },
+          {
+            "epsilon": 0.38,
+            "tau": 0.2899,
+            "certified": true,
+            "kept_fraction": 0.7758,
+            "empirical_risk_kept": 0.3712,
+            "selective": true
+          },
+          {
+            "epsilon": 0.39,
+            "tau": 0.2628,
+            "certified": true,
+            "kept_fraction": 0.8049,
+            "empirical_risk_kept": 0.3838,
+            "selective": true
+          },
+          {
+            "epsilon": 0.4,
+            "tau": 0.2319,
+            "certified": true,
+            "kept_fraction": 0.8275,
+            "empirical_risk_kept": 0.3939,
+            "selective": true
+          },
+          {
+            "epsilon": 0.41,
+            "tau": 0.2151,
+            "certified": true,
+            "kept_fraction": 0.8436,
+            "empirical_risk_kept": 0.401,
+            "selective": true
+          },
+          {
+            "epsilon": 0.42,
+            "tau": 0.1835,
+            "certified": true,
+            "kept_fraction": 0.8617,
+            "empirical_risk_kept": 0.4093,
+            "selective": true
+          },
+          {
+            "epsilon": 0.43,
+            "tau": 0.1625,
+            "certified": true,
+            "kept_fraction": 0.8933,
+            "empirical_risk_kept": 0.424,
+            "selective": true
+          },
+          {
+            "epsilon": 0.44,
+            "tau": 0.1221,
+            "certified": true,
+            "kept_fraction": 0.9131,
+            "empirical_risk_kept": 0.4335,
+            "selective": true
+          },
+          {
+            "epsilon": 0.45,
+            "tau": 0.1197,
+            "certified": true,
+            "kept_fraction": 0.9296,
+            "empirical_risk_kept": 0.4414,
+            "selective": true
+          },
+          {
+            "epsilon": 0.46,
+            "tau": 0.0764,
+            "certified": true,
+            "kept_fraction": 0.9524,
+            "empirical_risk_kept": 0.4527,
+            "selective": true
+          },
+          {
+            "epsilon": 0.47,
+            "tau": 0.0635,
+            "certified": true,
+            "kept_fraction": 0.9721,
+            "empirical_risk_kept": 0.4624,
+            "selective": true
+          },
+          {
+            "epsilon": 0.48,
+            "tau": 0.0192,
+            "certified": true,
+            "kept_fraction": 0.9937,
+            "empirical_risk_kept": 0.4733,
+            "selective": true
+          },
+          {
+            "epsilon": 0.49,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.5,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.51,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.52,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.53,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.54,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.55,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.56,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.57,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.58,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.59,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.6,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.61,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.62,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.63,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.64,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          },
+          {
+            "epsilon": 0.65,
+            "tau": 0.001,
+            "certified": true,
+            "kept_fraction": 1.0,
+            "empirical_risk_kept": 0.4765,
+            "selective": false
+          }
+        ]
+      }
+    }
+  }
+}
