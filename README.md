@@ -455,6 +455,11 @@ and making a third carrier real (or scoping the registry claim to two).
 
 ## Reproduce the evidence
 
+**No GPU?** [`REPRODUCE.md`](REPRODUCE.md) is a verified, CPU-only walkthrough that
+reproduces the calibrated-confidence, certificate, and certified-LOD results
+bit-for-bit from the committed artifacts. The GPU pipeline below regenerates
+everything from raw captures.
+
 Most headline artifacts regenerate from `experiments/` (accuracy jobs run fine on
 shared GPUs; only FPS rows need an idle machine):
 
