@@ -80,9 +80,15 @@ def main() -> None:
     root_raw = Path(manifest.get("root", "."))
     mparent = Path(a.manifest).resolve().parent
     _bases = [root_raw, Path.cwd() / root_raw, mparent / root_raw, mparent, Path.cwd()]
+    from aura.split_guard import holdout_split
+
     frames = manifest["frames"]
-    test_frames = [f for i, f in enumerate(frames) if i % a.holdout == 0]
-    train_frames = [f for i, f in enumerate(frames) if i % a.holdout != 0]
+    # Single source of truth for the train/eval partition: the guard guarantees the
+    # held-out (test) views are disjoint from the training views, so the historical
+    # P0 leak (held-out views seen in training) cannot be re-introduced silently.
+    split = holdout_split(len(frames), a.holdout)
+    test_frames = [frames[i] for i in split.eval_views]
+    train_frames = [frames[i] for i in split.train_views]
 
     def _img_path(fr):
         p = Path(fr["image_path"])
