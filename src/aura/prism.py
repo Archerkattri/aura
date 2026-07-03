@@ -186,18 +186,43 @@ def gabor_footprint(dx, dy, conic, torch, freq=None, phase=0.0):
     return env * (1.0 + osc) * 0.5
 
 
-def make_neural_footprint(torch, *, latent_dim: int = 4, hidden: int = 32, n_freq: int = 4, device="cuda"):
-    """Splat-the-Net-style **neural carrier**: a bounded neural primitive whose
-    footprint is a small shared MLP over Fourier features of the local
-    (conic-normalised) offset plus a per-carrier latent, gated by a Gaussian
-    envelope so support stays bounded. Returns ``(footprint_callable, module)``;
-    add ``module.parameters()`` (and the per-carrier latents) to the optimizer to
-    train it. The footprint matches the ``(dx, dy, conic, torch, latent=...)``
-    calling convention of :func:`composite`.
+# The neural carrier is EXPERIMENTAL and UNVALIDATED. Its factory
+# (:func:`make_neural_footprint`) is gated behind this flag so it can never be
+# reached implicitly. See the docstring below for its honest status.
+NEURAL_FOOTPRINT_EXPERIMENTAL = True
 
-    A neural carrier can represent local appearance a single Gaussian/Beta/Gabor
+
+def make_neural_footprint(torch, *, latent_dim: int = 4, hidden: int = 32, n_freq: int = 4,
+                          device="cuda", enable_experimental: bool = False):
+    """Splat-the-Net-style **neural carrier** — EXPERIMENTAL, UNVALIDATED, orphaned.
+
+    Honest status (audit item M4): this factory is **not wired into any render or
+    training path**. The shipped hybrid renderer does not use it — a ``neural``
+    carrier there is composited via an explicit Gaussian fallback
+    (``hybrid.footprint_routing`` / ``hybrid.render_hybrid`` provenance), and PRISM's
+    ``_FOOTPRINTS`` table has no neural entry. It has no real-scene training or
+    quality evidence. A future GPU session may revive it; until then it is quarantined
+    behind ``enable_experimental=True`` so it cannot be reached by accident. Calling
+    it without opting in raises ``NotImplementedError``.
+
+    When enabled it builds a bounded neural primitive whose footprint is a small
+    shared MLP over Fourier features of the local (conic-normalised) offset plus a
+    per-carrier latent, gated by a Gaussian envelope so support stays bounded. Returns
+    ``(footprint_callable, module)``; add ``module.parameters()`` (and the per-carrier
+    latents) to the optimizer to train it. The footprint matches the
+    ``(dx, dy, conic, torch, latent=...)`` calling convention of :func:`composite`.
+
+    A neural carrier could represent local appearance a single Gaussian/Beta/Gabor
     cannot (rings, corners, fine structure) — the expressive end of the carrier
-    spectrum (see the AURA roadmap; arXiv:2510.08491 Splat-the-Net)."""
+    spectrum (see the AURA roadmap; arXiv:2510.08491 Splat-the-Net) — but that
+    capability is a hypothesis here, not a validated result."""
+
+    if not enable_experimental:
+        raise NotImplementedError(
+            "make_neural_footprint is experimental and unvalidated: it is not wired "
+            "into any render/training path and has no real-scene evidence. Pass "
+            "enable_experimental=True to construct it anyway (GPU/research only)."
+        )
 
     nn = torch.nn
     in_dim = 2 * 2 * n_freq + latent_dim

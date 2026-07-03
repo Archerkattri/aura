@@ -37,6 +37,8 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert gates["secondary_ray_reflection"]["status"] == "passed"
     assert gates["inverse_materials"]["passed"] is True
     assert gates["inverse_materials"]["status"] == "passed"
+    # Carrier-registry honesty: no carrier advertises maturity it can't back.
+    assert gates["carrier_registry_honesty"]["passed"] is True
     assert "external_method_baselines" not in payload["remainingGateIds"]
     assert "secondary_ray_reflection" not in payload["remainingGateIds"]
     assert "inverse_materials" not in payload["remainingGateIds"]

@@ -5,9 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from aura.carriers import carrier_maturity_map
 from aura.exchange import exchange_plan
 from aura.package import AuraPackage
 from aura.scene import BVH_CHUNK_THRESHOLD
+
+# Per-carrier maturity (trained/demo/metadata) from the canonical registry.
+_CARRIER_MATURITY = carrier_maturity_map()
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,9 @@ def _carrier_export_entry(carrier_id: str) -> dict[str, Any]:
     }.get(carrier_id, "unknown")
     return {
         "carrierId": carrier_id,
+        # Honest per-carrier maturity from the registry (trained/demo/metadata) so
+        # the export report never advertises a carrier type as more real than it is.
+        "maturity": _CARRIER_MATURITY.get(carrier_id, "unknown"),
         "nativeAura": "full_contract",
         "gltfFallback": fallback_status,
         "usdBridge": "typed_metadata_no_native_ray_query",

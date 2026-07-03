@@ -4,6 +4,7 @@ Each rebound gate is checked two ways: it PASSES on the committed outputs/ artif
 (or the real trained asset) and FAILS on tampered / missing / malformed data. The
 real-asset relight and secondary-ray gates run on outputs/truck-sidecar.aura on CPU.
 """
+import dataclasses
 import json
 import shutil
 import sys
@@ -13,6 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from aura import publication as P  # noqa: E402
+from aura.carriers import CarrierKind, CarrierSpec, default_registry  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 OUTPUTS = REPO / "outputs"
@@ -277,3 +279,41 @@ def test_inverse_materials_gate_unverified_when_asset_missing(tmp_path):
     gate = P._inverse_materials_gate(tmp_path, {})
     assert gate.passed is False
     assert gate.status == "unverified"
+
+
+# --- carrier_registry_honesty ---------------------------------------------------
+
+def test_carrier_registry_honesty_gate_passes_on_committed(artifacts_dir):
+    gate = P._carrier_registry_honesty_gate(artifacts_dir, {})
+    assert gate.passed is True
+    assert gate.id == "carrier_registry_honesty"
+
+
+def test_carrier_registry_honesty_gate_fails_when_demo_carrier_claims_trained(artifacts_dir):
+    reg = dict(default_registry())
+    reg["gabor"] = dataclasses.replace(reg["gabor"], maturity="trained")  # over-claim
+    gate = P._carrier_registry_honesty_gate(artifacts_dir, {}, registry=reg)
+    assert gate.passed is False
+    assert any("gabor" in g and "trained" in g for g in gate.gaps)
+
+
+def test_carrier_registry_honesty_gate_fails_on_type_absent_from_contract(artifacts_dir):
+    reg = dict(default_registry())
+    reg["myst"] = CarrierSpec(id="myst", kind=CarrierKind.GAUSSIAN_FALLBACK,
+                              description="unlisted", primary_render=True, ray_query=True,
+                              maturity="trained")
+    gate = P._carrier_registry_honesty_gate(artifacts_dir, {}, registry=reg)
+    assert gate.passed is False
+    assert any("myst" in g and "contract" in g for g in gate.gaps)
+
+
+def test_carrier_registry_honesty_gate_fails_when_trained_evidence_missing(tmp_path):
+    # Default registry (gaussian/beta = trained) but no committed calib_*.json here.
+    gate = P._carrier_registry_honesty_gate(tmp_path, {})
+    assert gate.passed is False
+    assert any("evidence missing" in g for g in gate.gaps)
+
+
+def test_carrier_registry_honesty_gate_is_registered_in_report():
+    report = P.publication_validation_report()
+    assert "carrier_registry_honesty" in {g.id for g in report.gates}

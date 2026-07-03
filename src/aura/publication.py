@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from aura.carriers import CARRIER_MATURITIES, CarrierSpec, default_registry
 from aura.split_guard import SplitLeakError, verify_recorded_split
 
 
@@ -94,6 +95,32 @@ RELIGHT_MIN_LIGHT_DELTA = 0.02
 RELIGHT_MIN_ALBEDO_DELTA = 0.02
 SECONDARY_MIN_PRIMARY_HITS = 4
 REAL_ASSET_DIR = OUTPUTS / "truck-sidecar.aura"
+
+# Carrier-registry honesty contract (audit item M4). The registry advertises seven
+# carrier *types* but they are not equally real; this map is the maturity each type
+# is allowed to claim, and the gate fails if the live registry advertises anything
+# it can't back. The comment on each entry names the reason.
+#   trained  -> real-scene training + committed evidence (calib_<scene>.json).
+#   demo     -> footprint renders but only in demo/2D/PRISM-extension use.
+#   metadata -> typed contract/payload only, no trained render family.
+CARRIER_MATURITY_CONTRACT = {
+    "gaussian": "trained",   # gsplat quality backend; calib_<scene>.json corpus
+    "beta": "trained",       # DBS-Beta quality backend; +0.335 dB result, calib corpus
+    "gabor": "demo",         # real gabor_footprint but validated only on 2D crops
+    "neural": "demo",        # make_neural_footprint orphaned+experimental; hybrid falls back to gaussian
+    "surface": "metadata",   # typed contract/payload only
+    "volume": "metadata",    # typed contract/payload only
+    "semantic": "metadata",  # semantic graph/labels + GPU-only distilled features (uncommitted)
+}
+# A "trained" claim must be backed by committed real-scene evidence. This maps the
+# only carrier families with such evidence to the artifacts that prove it: the
+# per-scene calibration JSONs, which exist because those scenes were trained with
+# the gaussian (gsplat) / beta (DBS-Beta) quality backends. A carrier that claims
+# "trained" but is absent here (or whose evidence files are missing) fails the gate.
+TRAINED_CARRIER_EVIDENCE = {
+    "gaussian": tuple(f"calib_{scene}.json" for scene in REAL_SCENES),
+    "beta": tuple(f"calib_{scene}.json" for scene in REAL_SCENES),
+}
 
 # Distinct gate statuses. UNVERIFIED / REQUIRES_GPU are failures, never passes.
 STATUS_PASSED = "passed"
@@ -216,6 +243,8 @@ def publication_validation_report(
         # Real trained-asset probes (not the synthetic native demo scene).
         _secondary_reflection_gate(outputs_dir, artifacts),
         _inverse_materials_gate(outputs_dir, artifacts),
+        # Carrier-registry honesty: no carrier type may advertise maturity it can't back.
+        _carrier_registry_honesty_gate(outputs_dir, artifacts),
     )
     return PublicationValidationReport(gates=gates, artifacts=artifacts)
 
@@ -979,4 +1008,78 @@ def _inverse_materials_gate(
         ) if passed else (),
         gaps=tuple(gaps),
         next_steps=("evaluate material/albedo/roughness behavior on inverse-rendering benchmarks",),
+    )
+
+
+def _carrier_registry_honesty_gate(
+    outputs_dir: Path,
+    artifacts: dict[str, str],
+    registry: dict[str, CarrierSpec] | None = None,
+) -> PublicationGate:
+    """No carrier type may advertise a maturity it cannot back.
+
+    Content-checked against the live registry (``aura.carriers.default_registry``)
+    and the committed real-scene evidence in ``outputs/``. The gate FAILS when:
+
+      * a registered carrier type is absent from ``CARRIER_MATURITY_CONTRACT``
+        (an unlabelled type is an implicit over-claim), or advertises an unknown
+        maturity literal;
+      * the registry's advertised ``maturity`` disagrees with the contract;
+      * a carrier advertises ``"trained"`` but has no committed real-scene evidence
+        — i.e. it is not in ``TRAINED_CARRIER_EVIDENCE`` (only gaussian/beta today),
+        or its calib_<scene>.json evidence artifacts are missing.
+
+    Passing a ``registry`` overrides the default so a tampered registry (e.g. gabor
+    flipped to "trained") can be exercised in tests.
+    """
+    reg = registry if registry is not None else default_registry()
+    evidence: list[str] = []
+    gaps: list[str] = []
+
+    trained_ok: list[str] = []
+    for carrier_id, spec in reg.items():
+        maturity = getattr(spec, "maturity", None)
+        if maturity not in CARRIER_MATURITIES:
+            gaps.append(f"{carrier_id}: registry maturity {maturity!r} is not a known level")
+            continue
+        expected = CARRIER_MATURITY_CONTRACT.get(carrier_id)
+        if expected is None:
+            gaps.append(f"{carrier_id}: registered carrier absent from the maturity contract")
+            continue
+        if maturity != expected:
+            gaps.append(f"{carrier_id}: registry advertises maturity {maturity!r} but contract allows {expected!r}")
+            continue
+        if maturity == "trained":
+            required = TRAINED_CARRIER_EVIDENCE.get(carrier_id)
+            if not required:
+                gaps.append(f"{carrier_id}: claims 'trained' but has no committed real-scene evidence source")
+                continue
+            missing = [name for name in required if not (outputs_dir / name).exists()]
+            if missing:
+                gaps.append(f"{carrier_id}: 'trained' evidence missing {', '.join(missing)}")
+                continue
+            for name in required:
+                artifacts[Path(name).stem] = str(outputs_dir / name)
+            trained_ok.append(carrier_id)
+
+    if trained_ok:
+        evidence.append(
+            f"trained carriers {sorted(trained_ok)} backed by committed calib_<scene>.json "
+            f"evidence on {len(REAL_SCENES)} real scenes"
+        )
+    demo = sorted(c for c, m in CARRIER_MATURITY_CONTRACT.items() if m == "demo")
+    meta = sorted(c for c, m in CARRIER_MATURITY_CONTRACT.items() if m == "metadata")
+    if not gaps:
+        evidence.append(f"demo-stage carriers {demo} advertised as demo, not trained")
+        evidence.append(f"metadata-only carriers {meta} advertised as metadata, not trained")
+        evidence.append(f"all {len(reg)} registered carrier types carry an explicit, backed maturity")
+
+    passed = not gaps
+    return PublicationGate(
+        id="carrier_registry_honesty",
+        title="Carrier registry advertises only backed maturity",
+        passed=passed,
+        evidence=tuple(evidence),
+        gaps=tuple(gaps),
+        next_steps=("promote a demo carrier (gabor/neural) to 'trained' only with committed real-scene evidence",),
     )

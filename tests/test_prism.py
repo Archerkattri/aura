@@ -363,7 +363,9 @@ def test_neural_carrier_trains_and_beats_gaussian_on_ring():
         return float(loss.detach())
 
     g_loss = fit(gaussian_footprint, [])
-    nfp, net = make_neural_footprint(torch, device=dev)
+    # Neural carrier is experimental/unvalidated — opt in explicitly. This 2D-ring
+    # fit is exactly the demo-stage evidence, not a real-scene result.
+    nfp, net = make_neural_footprint(torch, device=dev, enable_experimental=True)
     latents = torch.randn(1, 4, device=dev).requires_grad_(True)
     n_loss = fit(nfp, list(net.parameters()) + [latents], latents=latents)
     assert n_loss < g_loss, f"neural ({n_loss:.4f}) should beat gaussian ({g_loss:.4f}) on a ring"

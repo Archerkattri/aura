@@ -160,24 +160,34 @@ Each is described here with its honest maturity.
 
 ### Typed carriers
 
-One contract covers four footprint families, each routed to the backend that
-serves it best:
+The registry defines **seven carrier types**, but they are not equally real, and
+each carries an explicit `maturity` flag (`trained` / `demo` / `metadata`) so the
+asset never advertises more than it can back. Four types have render footprints,
+routed to the backend that serves each best; the other three (surface, volume,
+semantic) are typed-metadata contracts only — no trained render family stands
+behind them yet:
 
 | Carrier | Default path | Role | Maturity |
 |---|---|---|---|
 | Gaussian | gsplat | primary quality rasterization | trained on real scenes |
 | Beta | DBS-Beta | primary typed-carrier quality path | trained on real scenes |
 | Gabor | PRISM | additive high-frequency extension | demo-stage (2D crops only) |
-| Neural | PRISM | additive experimental extension | demo-stage (experimental) |
+| Neural | PRISM (Gaussian fallback) | experimental footprint | demo-stage (experimental, unvalidated) |
+| Surface / Volume / Semantic | — | typed-metadata contract | metadata only |
 
 Gaussian and Beta are the quality backends and train on full scenes. Gabor and
 Neural are **additive PRISM extensions**, not alternative quality backends — Gabor
-currently trains only on 2D crops and the neural footprint is experimental. PRISM
+currently trains only on 2D crops. The neural footprint is experimental and
+unvalidated: PRISM ships **no** neural kernel, so a neural carrier is composited via
+an **explicit, provenance-annotated Gaussian fallback** (`hybrid.footprint_routing`
+reports `fallback:gaussian`), never a silent swap, and its research factory
+(`prism.make_neural_footprint`) is gated behind `enable_experimental=True`. PRISM
 (Pluggable Radiance-prImitive Splatting Module, pure-PyTorch + a custom CUDA path)
-verifies that Gaussian/Beta route to the primary backend, Gabor/Neural route to
-PRISM, and the extension measurably changes the rendered image. It is real-time on
-an RTX 5090 (hundreds of FPS at 50k carriers, CUDA forward matching the torch path
-> 100 dB), artifact recorded in `experiments/results/production_fps_sweep_2026-06-25.json`.
+verifies that Gaussian/Beta route to the primary backend, Gabor routes to a real
+PRISM footprint, and the extension measurably changes the rendered image. It is
+real-time on an RTX 5090 (hundreds of FPS at 50k carriers, CUDA forward matching the
+torch path > 100 dB), artifact recorded in
+`experiments/results/production_fps_sweep_2026-06-25.json`.
 
 ![PRISM extension stack](docs/prism_extension_stack.png)
 

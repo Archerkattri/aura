@@ -13,9 +13,69 @@ primary image. PRISM extends gsplat/Beta, it does not compete with or replace th
 """
 from __future__ import annotations
 
+import warnings
+
 FOOTPRINT_CODES = {"gaussian": 0, "beta": 1, "gabor": 2, "neural": 3}
+FOOTPRINT_NAMES = {v: k for k, v in FOOTPRINT_CODES.items()}
 PRIMARY_QUALITY_CODES = frozenset((FOOTPRINT_CODES["gaussian"], FOOTPRINT_CODES["beta"]))
 DEFAULT_PRISM_EXTENSION_CODES = frozenset((FOOTPRINT_CODES["gabor"], FOOTPRINT_CODES["neural"]))
+
+# Footprints PRISM's extension compositor (:func:`_prism_layer`) actually
+# implements as a distinct kernel. ``neural`` (code 3) is a *registered* extension
+# carrier, but its real footprint (``prism.make_neural_footprint``) needs a trained
+# shared MLP plus per-carrier latents that this tensor-level helper does not carry.
+# So a neural carrier is NOT rendered with a neural kernel here — it is composited
+# with the Gaussian footprint as an EXPLICIT, annotated fallback (see
+# :func:`footprint_routing` and the provenance emitted by ``render_hybrid``), never
+# silently. Making neural real is a GPU-session task; until then honesty > silence.
+PRISM_IMPLEMENTED_FOOTPRINTS = frozenset((FOOTPRINT_CODES["gabor"], FOOTPRINT_CODES["beta"]))
+FALLBACK_FOOTPRINT = "gaussian"
+
+
+def footprint_routing(ftypes, *, include_beta: bool = False):
+    """Explain, per carrier, how the hybrid renderer will actually route it.
+
+    Pure/CPU-safe (accepts any iterable of integer footprint codes — a Python list,
+    numpy array, or torch tensor) so the routing contract is testable without a GPU.
+    Returns one dict per carrier::
+
+        {"code": int, "carrier": str, "layer": "primary"|"prism",
+         "footprint": <kernel actually used>, "fallback": <str|None>}
+
+    ``layer`` is ``"primary"`` for the gsplat/DBS-Beta quality backend and
+    ``"prism"`` for the additive extension compositor. ``fallback`` is ``None`` when
+    the carrier renders with its own footprint, or ``"fallback:gaussian"`` when an
+    extension carrier (today: ``neural``) has no implemented kernel and is
+    composited via the Gaussian footprint instead — the routing is surfaced, not
+    hidden.
+    """
+    ext_codes = set(DEFAULT_PRISM_EXTENSION_CODES)
+    if include_beta:
+        ext_codes = ext_codes | {FOOTPRINT_CODES["beta"]}
+    routes = []
+    for raw in ftypes:
+        code = int(raw)
+        name = FOOTPRINT_NAMES.get(code, f"code{code}")
+        if code in ext_codes:
+            layer = "prism"
+            if code in PRISM_IMPLEMENTED_FOOTPRINTS:
+                routes.append({"code": code, "carrier": name, "layer": layer,
+                               "footprint": name, "fallback": None})
+            else:
+                routes.append({"code": code, "carrier": name, "layer": layer,
+                               "footprint": FALLBACK_FOOTPRINT,
+                               "fallback": f"fallback:{FALLBACK_FOOTPRINT}"})
+        else:
+            routes.append({"code": code, "carrier": name, "layer": "primary",
+                           "footprint": name, "fallback": None})
+    return routes
+
+
+def fallback_carrier_codes(ftypes, *, include_beta: bool = False):
+    """Sorted unique extension-carrier codes that composite via the Gaussian
+    fallback rather than their own kernel (today: ``neural``)."""
+    return sorted({r["code"] for r in footprint_routing(ftypes, include_beta=include_beta)
+                   if r["fallback"] is not None})
 
 
 def extension_mask(ftypes, *, include_beta: bool = False):
@@ -36,7 +96,9 @@ def extension_mask(ftypes, *, include_beta: bool = False):
 def _prism_layer(means, quats, scales, opacities, colors, ftypes, freq, phase,
                  viewmat, K, width, height, torch):
     """Front-to-back composite of the (non-Gaussian) PRISM carriers, returning
-    (rgb [H,W,3], alpha [H,W], depth [H,W]) so the layer can be merged with gsplat."""
+    (rgb [H,W,3], alpha [H,W], depth [H,W], fell_back) so the layer can be merged
+    with gsplat. ``fell_back`` is the set of extension footprint codes that had no
+    implemented kernel and were composited via the Gaussian fallback."""
     from .prism import (project_gaussians, quats_scales_to_cov3d,
                         gaussian_footprint, beta_footprint, gabor_footprint)
     dev = means.device
@@ -47,13 +109,14 @@ def _prism_layer(means, quats, scales, opacities, colors, ftypes, freq, phase,
     depth = torch.zeros((height, width), device=dev)
     M = proj.index.shape[0]
     if M == 0:
-        return rgb, 1.0 - T, depth
+        return rgb, 1.0 - T, depth, set()
     ys = torch.arange(height, device=dev, dtype=torch.float32)
     xs = torch.arange(width, device=dev, dtype=torch.float32)
     gy, gx = torch.meshgrid(ys, xs, indexing="ij")
     sub_c = colors[proj.index]; sub_o = opacities[proj.index]
     sub_ft = ftypes[proj.index]; sub_fr = freq[proj.index]; sub_ph = phase[proj.index]
     order = torch.argsort(proj.depths)
+    fell_back = set()
     for m in order.tolist():
         dx = gx - proj.means2d[m, 0]; dy = gy - proj.means2d[m, 1]
         conic = proj.conics[m]; code = int(sub_ft[m])
@@ -62,18 +125,22 @@ def _prism_layer(means, quats, scales, opacities, colors, ftypes, freq, phase,
         elif code == FOOTPRINT_CODES["beta"]:
             w = beta_footprint(dx, dy, conic, torch, beta=2.0)
         else:
+            # Unimplemented extension footprint (today: neural / code 3). Render it
+            # with the Gaussian kernel as an EXPLICIT fallback and record it so the
+            # caller sees provenance instead of a silent behaviour swap.
+            fell_back.add(code)
             w = gaussian_footprint(dx, dy, conic, torch)
         alpha = (sub_o[m] * w).clamp(0.0, 0.999)
         contrib = T * alpha
         rgb = rgb + contrib.unsqueeze(-1) * sub_c[m].view(1, 1, 3)
         depth = depth + contrib * proj.depths[m]
         T = T * (1.0 - alpha)
-    return rgb, 1.0 - T, depth
+    return rgb, 1.0 - T, depth, fell_back
 
 
 def render_hybrid(means, quats, scales, opacities, colors, ftypes, viewmat, K,
                   width, height, *, freq=None, phase=None, sh_degree=None, device="cuda",
-                  include_beta_in_prism: bool = False):
+                  include_beta_in_prism: bool = False, provenance=None):
     """Render a mixed-carrier scene with PRISM as an additive extension layer.
 
     Primary quality carriers (Gaussian and Beta) are kept on the primary backend
@@ -82,6 +149,14 @@ def render_hybrid(means, quats, scales, opacities, colors, ftypes, viewmat, K,
     the Beta quality result as the primary layer before compositing PRISM
     extensions. ``include_beta_in_prism`` is opt-in for PRISM-Beta experiments
     only. Returns rgb [H,W,3].
+
+    Honesty note: an extension carrier with no implemented PRISM kernel (today the
+    ``neural`` footprint, whose real kernel needs a trained MLP + per-carrier
+    latents this helper does not carry) is composited via the Gaussian footprint as
+    an EXPLICIT fallback — never a silent swap. When that happens a
+    ``RuntimeWarning`` is emitted; pass a mutable dict as ``provenance`` to also
+    receive ``{"fallbacks": [{"carrier": ..., "footprint": "gaussian",
+    "provenance": "fallback:gaussian"}]}`` describing which carriers fell back.
     """
     import torch
     from gsplat import rasterization
@@ -112,13 +187,32 @@ def render_hybrid(means, quats, scales, opacities, colors, ftypes, viewmat, K,
     # --- PRISM extension layer ---
     p = torch.nonzero(is_extension, as_tuple=False).squeeze(-1)
     if p.numel() == 0:
+        if provenance is not None:
+            provenance.setdefault("fallbacks", [])
         return rgb_g                       # pure-Gaussian scene == gsplat exactly
     p_colors = colors[p]
     if p_colors.dim() == 3:                # SH → use DC term as flat colour for PRISM
         p_colors = (0.5 + 0.28209479177387814 * p_colors[:, 0, :]).clamp(0, 1)
-    rgb_p, a_p, d_p = _prism_layer(means[p], quats[p], scales[p], opacities[p],
-                                   p_colors, ftypes[p], freq[p], phase[p],
-                                   vm[0], Ks[0], width, height, torch)
+    rgb_p, a_p, d_p, fell_back = _prism_layer(means[p], quats[p], scales[p], opacities[p],
+                                              p_colors, ftypes[p], freq[p], phase[p],
+                                              vm[0], Ks[0], width, height, torch)
+
+    # Surface the unimplemented-footprint fallback (today: neural -> gaussian).
+    fallbacks = [{"carrier": FOOTPRINT_NAMES.get(c, f"code{c}"),
+                  "footprint": FALLBACK_FOOTPRINT,
+                  "provenance": f"fallback:{FALLBACK_FOOTPRINT}"}
+                 for c in sorted(fell_back)]
+    if fallbacks:
+        names = ", ".join(f["carrier"] for f in fallbacks)
+        warnings.warn(
+            f"render_hybrid: PRISM extension carrier(s) [{names}] have no implemented "
+            f"footprint and were composited via the Gaussian fallback "
+            f"(provenance=fallback:{FALLBACK_FOOTPRINT}); this is a scoped fallback, "
+            f"not a native neural render.",
+            RuntimeWarning, stacklevel=2,
+        )
+    if provenance is not None:
+        provenance["fallbacks"] = fallbacks
 
     # --- depth-correct 2-layer over-composite (front layer wins per pixel) ---
     front_is_p = (d_p <= d_g).float().unsqueeze(-1)
