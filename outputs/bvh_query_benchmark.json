@@ -1,0 +1,132 @@
+{
+  "format": "AURA_BVH_RAY_QUERY_BENCHMARK",
+  "honest_scope": "CPU-only numpy/torch. Quantifies an algorithmic fix (O(N) -> sub-linear node visits + batched API) and its CPU wall-clock. NOT a wall-clock comparison against the CUDA LBVH tracers in 3DGRT/3DGUT (gsplat main), which remains the deferred bar. Secondary rays are readiness probes.",
+  "machine": {
+    "cpu_only": true,
+    "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.35",
+    "processor": "x86_64",
+    "torch": "2.11.0+cu128",
+    "numpy": "2.4.4",
+    "torch_threads": 4
+  },
+  "parity_note": "parity_mismatches counts rays where the BVH result differs from the brute-force result over the exact rays timed; 0 == exact parity.",
+  "results": [
+    {
+      "scene": "synthetic_1000",
+      "carriers": 1000,
+      "single": {
+        "rays": 50,
+        "brute_rays_per_s": 2678.6,
+        "bvh_autocache_rays_per_s": 904.5,
+        "bvh_streaming_prebuilt_rays_per_s": 929.2,
+        "build_seconds": 0.0009,
+        "parity_mismatches": 0
+      },
+      "batch": {
+        "rays": 1024,
+        "bvh_incl_build_rays_per_s": 22977.3,
+        "geometry_no_filter": {
+          "min_opacity": 0.0,
+          "brute_rays_per_s": 2822.3,
+          "bvh_reuse_rays_per_s": 23540.2,
+          "speedup_reuse_vs_brute": 8.34,
+          "parity_mismatches": 0
+        },
+        "filtered_min_opacity_0p1": {
+          "min_opacity": 0.1,
+          "brute_rays_per_s": 2796.9,
+          "bvh_reuse_rays_per_s": 26111.8,
+          "speedup_reuse_vs_brute": 9.34,
+          "parity_mismatches": 0
+        }
+      },
+      "traversal": {
+        "tree_nodes": 31,
+        "max_depth": 4,
+        "node_visits_per_ray_mean": 22.5,
+        "node_visits_per_ray_max": 31,
+        "candidates_per_ray_mean": 485.9,
+        "node_visits_frac_of_N": 0.0225,
+        "candidates_frac_of_N": 0.4859
+      }
+    },
+    {
+      "scene": "synthetic_10000",
+      "carriers": 10000,
+      "single": {
+        "rays": 50,
+        "brute_rays_per_s": 1150.7,
+        "bvh_autocache_rays_per_s": 177.7,
+        "bvh_streaming_prebuilt_rays_per_s": 190.6,
+        "build_seconds": 0.0203,
+        "parity_mismatches": 0
+      },
+      "batch": {
+        "rays": 1024,
+        "bvh_incl_build_rays_per_s": 5134.0,
+        "geometry_no_filter": {
+          "min_opacity": 0.0,
+          "brute_rays_per_s": 1272.8,
+          "bvh_reuse_rays_per_s": 5520.7,
+          "speedup_reuse_vs_brute": 4.34,
+          "parity_mismatches": 0
+        },
+        "filtered_min_opacity_0p1": {
+          "min_opacity": 0.1,
+          "brute_rays_per_s": 1353.6,
+          "bvh_reuse_rays_per_s": 5686.1,
+          "speedup_reuse_vs_brute": 4.2,
+          "parity_mismatches": 0
+        }
+      },
+      "traversal": {
+        "tree_nodes": 511,
+        "max_depth": 8,
+        "node_visits_per_ray_mean": 181.1,
+        "node_visits_per_ray_max": 319,
+        "candidates_per_ray_mean": 2162.1,
+        "node_visits_frac_of_N": 0.0181,
+        "candidates_frac_of_N": 0.2162
+      }
+    },
+    {
+      "scene": "truck_129531",
+      "carriers": 129531,
+      "single": {
+        "rays": 50,
+        "brute_rays_per_s": 378.1,
+        "bvh_autocache_rays_per_s": 78.6,
+        "bvh_streaming_prebuilt_rays_per_s": 80.4,
+        "build_seconds": 0.3842,
+        "parity_mismatches": 0
+      },
+      "batch": {
+        "rays": 1024,
+        "bvh_incl_build_rays_per_s": 500.2,
+        "geometry_no_filter": {
+          "min_opacity": 0.0,
+          "brute_rays_per_s": 386.1,
+          "bvh_reuse_rays_per_s": 623.7,
+          "speedup_reuse_vs_brute": 1.62,
+          "parity_mismatches": 0
+        },
+        "filtered_min_opacity_0p1": {
+          "min_opacity": 0.1,
+          "brute_rays_per_s": 362.7,
+          "bvh_reuse_rays_per_s": 1150.6,
+          "speedup_reuse_vs_brute": 3.17,
+          "parity_mismatches": 0
+        }
+      },
+      "traversal": {
+        "tree_nodes": 4095,
+        "max_depth": 11,
+        "node_visits_per_ray_mean": 499.4,
+        "node_visits_per_ray_max": 1431,
+        "candidates_per_ray_mean": 9342.9,
+        "node_visits_frac_of_N": 0.0039,
+        "candidates_frac_of_N": 0.0721
+      }
+    }
+  ]
+}
