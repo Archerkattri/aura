@@ -68,7 +68,9 @@ aura = "aura.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "." keeps `import experiments.*` working under bare `pytest` (CI) exactly as it
+# does under `python -m pytest` (which puts the cwd on sys.path itself).
+pythonpath = ["src", "."]
 addopts = "-q --strict-markers"
 markers = [
     "gpu: requires CUDA hardware, a compiled CUDA kernel, or the gsplat rasterizer (excluded in CI via -m 'not gpu')",
