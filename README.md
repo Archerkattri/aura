@@ -21,7 +21,7 @@ calibrated-confidence result is in preparation.
   <em>Truck reconstructed as an AURA asset.</em>
 </p>
 
-![How COLMAP, NeRF, 3DGS, and AURA represent a scene](docs/how_it_works.png)
+![How a capture becomes a trustworthy asset: COLMAP, NeRF, 3DGS, and the AURA calibration-and-certificate pipeline](docs/how_it_works.png)
 
 <p align="center">
   <img src="docs/aura_capability_reel.gif" width="82%" alt="AURA capability reel: reconstruction, depth, confidence, semantics, and query"><br>
