@@ -2525,6 +2525,10 @@ def test_coverage_build_extension_torch_cuda_unavailable(monkeypatch):
     if importlib.util.find_spec("torch") is None:
         pytest.skip("torch required for this path")
     import torch
+    import torch.utils.cpp_extension
+    # Pin CUDA_HOME so the torch-cuda branch (not the CUDA_HOME-missing branch)
+    # is exercised on CPU-only runners where torch resolves CUDA_HOME to None.
+    monkeypatch.setattr(torch.utils.cpp_extension, "CUDA_HOME", "/usr/local/cuda", raising=False)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     status, module = _build_cuda_renderer_extension_module()
     assert status.available is False
@@ -2975,6 +2979,8 @@ def test_coverage_cuda_kernel_extension_status_torch_cuda_unavailable(monkeypatc
     if importlib.util.find_spec("torch") is None:
         pytest.skip("torch required for this path")
     import torch
+    import torch.utils.cpp_extension
+    monkeypatch.setattr(torch.utils.cpp_extension, "CUDA_HOME", "/usr/local/cuda", raising=False)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     status = cuda_kernel_extension_status(build=True)
     assert status.available is False

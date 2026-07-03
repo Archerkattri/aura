@@ -61,6 +61,7 @@ def _spd_scene():
     return scene, covs
 
 
+@pytest.mark.gpu
 @requires_torch
 def test_covariance_color_opacity_round_trip():
     """scene -> trainable params -> scene reconstructs covariance/color/opacity."""

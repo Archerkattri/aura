@@ -45,6 +45,8 @@ def test_publication_validation_report_aggregates_current_artifacts():
     assert any("official 2DGS/3DGUT same-split rows complete: 8/8 and 8/8" in line for line in gates["external_method_baselines"]["evidence"])
 
 
+# Asserts publicationReady, which needs the gitignored real asset (see above).
+@pytest.mark.local_data
 def test_publication_validation_report_cli_prints_json():
     result = subprocess.run(
         [sys.executable, "-m", "aura.cli", "publication-validation-report"],
