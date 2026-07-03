@@ -25,6 +25,21 @@ import json
 import struct
 from pathlib import Path
 
+# KHR standardisation status (checked 2026-07 against KhronosGroup/glTF@main):
+#   * KHR_gaussian_splatting is a **Release Candidate** — merged 2026-01-27 (PR #2490)
+#     into the ratified-namespace path, but its Status field still reads "Release
+#     Candidate"; ratification is pending (targeted Q2 2026, not yet reflected in the
+#     spec). The namespaced attribute names emitted below (``KHR_gaussian_splatting:
+#     ROTATION/SCALE/OPACITY/SH_DEGREE_l_COEF_n``) already match that merged RC schema
+#     exactly, so nothing is renamed here; re-diff only when Status flips off "RC".
+#   * The compression extension ``KHR_gaussian_splatting_compression_spz_2`` is an
+#     UNMERGED draft (open PR #2531, not on ``main``) and wraps SPZ **v2**, not the
+#     SPZ v4 that ``aura.spz`` writes — it is deliberately NOT implemented, and
+#     ``extensionsUsed`` lists only the base extension.
+#   * Per-carrier confidence rides as ``_AURA_CONFIDENCE`` using the glTF 2.0 core-spec
+#     ``_``-prefixed custom-attribute mechanism (application-specific semantics MUST
+#     start with an underscore) — always spec-legal, needs no extension of its own.
+
 # SH band-0 constant (Y_0^0): COLOR_0 fallback = 0.5 + C0 * f_dc.
 _C0 = 0.28209479177387814
 _EXT = "KHR_gaussian_splatting"

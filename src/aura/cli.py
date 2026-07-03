@@ -354,6 +354,14 @@ def main(argv: list[str] | None = None) -> int:
     export_splat.add_argument("source", type=Path, help="package dir containing carriers.npz, or a carriers.npz file")
     export_splat.add_argument("--output", type=Path, default=Path("outputs/splat.glb"))
 
+    export_spz = sub.add_parser(
+        "export-spz",
+        help="Export carriers (a .aura package dir or carriers.npz) to a Niantic SPZ v4 "
+             ".spz file (+ <name>.spz.confidence.npz sidecar if confidence is present)",
+    )
+    export_spz.add_argument("source", type=Path, help="package dir containing carriers.npz, or a carriers.npz file")
+    export_spz.add_argument("--output", type=Path, default=Path("outputs/splat.spz"))
+
     export_usd = sub.add_parser(
         "export-usd",
         help="Export a .aura package to USD ASCII (.usda) preview/metadata bridge",
@@ -723,6 +731,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export-splat":
         from .carrier_io import load_carriers
         out = _export_splat_command(args, load_carriers)
+        print(out)
+        return 0
+    if args.command == "export-spz":
+        from .carrier_io import load_carriers
+        out = _export_spz_command(args, load_carriers)
         print(out)
         return 0
     if args.command == "export-usd":
@@ -1439,6 +1452,18 @@ def _export_splat_command(args: argparse.Namespace, load_carriers) -> Path:
     if out.suffix.lower() == ".gltf":
         return write_splat_gltf(carriers, out)
     return write_splat_glb(carriers, out)
+
+
+def _export_spz_command(args: argparse.Namespace, load_carriers) -> Path:
+    """Export carriers to a Niantic SPZ v4 ``.spz`` file (+ confidence sidecar)."""
+    from .spz import write_spz
+
+    carriers = load_carriers(args.source, device="cpu")
+    if carriers is None:
+        raise SystemExit(f"no carriers.npz found at {args.source}")
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return write_spz(carriers, out, provenance={"source": str(args.source)})
 
 
 def _export_usd_command(args: argparse.Namespace) -> Path:

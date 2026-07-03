@@ -10,6 +10,7 @@ import pytest
 from aura.usd_writer import (
     write_usda,
     write_usd_gaussian_splat,
+    read_confidence_primvar,
     PARTICLEFIELD_SPLAT_TYPE,
     _C0,
     _get_position,
@@ -335,19 +336,48 @@ def test_schema_writer_prim_type_and_attributes(tmp_path: Path) -> None:
     np.testing.assert_allclose(dc, (carriers["colors"] - 0.5) / _C0, rtol=0, atol=1e-4)
 
 
-def test_schema_writer_confidence_vendor_channel(tmp_path: Path) -> None:
-    """The AURA per-carrier confidence rides along as a preserved custom attribute."""
+def test_schema_writer_confidence_is_vertex_primvar(tmp_path: Path) -> None:
+    """The AURA per-carrier confidence rides as an idiomatic vertex primvar
+    ``primvars:aura:confidence`` (not a bare ``custom:`` attribute)."""
     pytest.importorskip("pxr")
-    from pxr import Usd
+    from pxr import Usd, UsdGeom
 
     carriers = _tiny_carriers(3)
     written = write_usd_gaussian_splat(carriers, tmp_path / "c.usda")
     stage = Usd.Stage.Open(str(written))
     prim = stage.GetPrimAtPath("/AURAScene/GaussianSplat")
-    conf = prim.GetAttribute("custom:aura:confidence")
-    assert conf.IsValid() and conf.HasValue()
+
+    # It is a real primvar, at the namespaced attribute path, interpolation vertex.
+    pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar("aura:confidence")
+    assert pv, "primvars:aura:confidence must exist as a primvar"
+    assert pv.GetInterpolation() == UsdGeom.Tokens.vertex
+    assert prim.GetAttribute("primvars:aura:confidence").IsValid()
     np.testing.assert_allclose(
-        np.asarray(conf.Get()), carriers["confidence"], rtol=0, atol=1e-6)
+        np.asarray(pv.Get()), carriers["confidence"], rtol=0, atol=1e-6)
+
+    # The non-idiomatic pre-v0.4 custom attribute is no longer written.
+    assert not prim.GetAttribute("custom:aura:confidence").HasValue()
+
+    # The compat reader recovers it from the primvar.
+    np.testing.assert_allclose(
+        read_confidence_primvar(prim), carriers["confidence"], rtol=0, atol=1e-6)
+
+
+def test_read_confidence_primvar_legacy_fallback(tmp_path: Path) -> None:
+    """The reader falls back to the legacy ``custom:aura:confidence`` attribute."""
+    pytest.importorskip("pxr")
+    from pxr import Sdf, Usd, Vt
+
+    carriers = _tiny_carriers(4)
+    written = write_usd_gaussian_splat(
+        carriers, tmp_path / "legacy.usda", include_confidence=False)
+    stage = Usd.Stage.Open(str(written))
+    prim = stage.GetPrimAtPath("/AURAScene/GaussianSplat")
+    # Simulate a pre-v0.4 file that used the bare custom attribute.
+    a = prim.CreateAttribute("custom:aura:confidence", Sdf.ValueTypeNames.FloatArray)
+    a.Set(Vt.FloatArray.FromNumpy(carriers["confidence"].astype("float32")))
+    np.testing.assert_allclose(
+        read_confidence_primvar(prim), carriers["confidence"], rtol=0, atol=1e-6)
 
 
 def test_schema_writer_does_not_break_preview_writer(tmp_path: Path) -> None:

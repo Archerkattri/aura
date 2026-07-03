@@ -230,8 +230,11 @@ def write_usd_gaussian_splat(
     scene_name : str, optional
         Recorded as ``custom:aura:sceneName``.
     include_confidence : bool
-        If a ``confidence`` array is present, also write it as the AURA vendor
-        channel ``custom:aura:confidence`` (schema-preserved, not interpreted).
+        If a ``confidence`` array is present, also write it as the idiomatic
+        per-particle primvar ``primvars:aura:confidence`` (``float[]``,
+        ``interpolation = "vertex"``), which DCCs/renderers discover as
+        per-point custom data (arbitrary ``custom:`` attributes are ignored by
+        most tools and do not survive composition/instancing as well).
     prim_path : str
         Prim path for the splat field.
 
@@ -245,7 +248,7 @@ def write_usd_gaussian_splat(
         If ``usd-core`` (pxr) is not importable.
     """
     try:
-        from pxr import Gf, Sdf, Tf, Usd, UsdVol, Vt  # noqa: F401
+        from pxr import Gf, Sdf, Tf, Usd, UsdGeom, UsdVol, Vt  # noqa: F401
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise ImportError(
             "write_usd_gaussian_splat requires the 'usd-core' package (pxr) for the "
@@ -326,13 +329,17 @@ def write_usd_gaussian_splat(
         hi = means.max(axis=0).astype("float32")
         field.CreateExtentAttr(Vt.Vec3fArray.FromNumpy(np.stack([lo, hi])))
 
-    # AURA vendor channel: the calibrated per-carrier confidence, preserved (not
-    # interpreted) by conformant tools — this is the property a bare splat lacks.
+    # AURA vendor channel: the calibrated per-carrier confidence. Written as the
+    # idiomatic per-particle primvar ``primvars:aura:confidence`` (interpolation
+    # "vertex", one value per particle) — the standard USD channel for custom
+    # per-point data, discoverable via UsdGeom.PrimvarsAPI and robust under layer
+    # composition/instancing. This is the property a bare splat lacks.
     conf = carriers.get("confidence") if hasattr(carriers, "get") else None
     conf = _to_numpy(conf)
     if include_confidence and conf is not None:
-        a = prim.CreateAttribute("custom:aura:confidence", Sdf.ValueTypeNames.FloatArray)
-        a.Set(Vt.FloatArray.FromNumpy(conf.astype("float32")))
+        pv = UsdGeom.PrimvarsAPI(prim).CreatePrimvar(
+            "aura:confidence", Sdf.ValueTypeNames.FloatArray, UsdGeom.Tokens.vertex)
+        pv.Set(Vt.FloatArray.FromNumpy(conf.astype("float32")))
 
     prim.CreateAttribute("custom:aura:carrierCount", Sdf.ValueTypeNames.Int).Set(n)
     prim.CreateAttribute("custom:aura:schema", Sdf.ValueTypeNames.String).Set(
@@ -343,3 +350,22 @@ def write_usd_gaussian_splat(
 
     stage.GetRootLayer().Save()
     return output_path
+
+
+def read_confidence_primvar(prim):
+    """Read AURA per-carrier confidence from a splat prim.
+
+    Prefers the idiomatic primvar ``primvars:aura:confidence`` and falls back to
+    the pre-v0.4 ``custom:aura:confidence`` attribute for backwards compatibility.
+    Returns a numpy ``float32`` array, or ``None`` if neither channel is present.
+    """
+    import numpy as np
+    from pxr import UsdGeom
+
+    pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar("aura:confidence")
+    if pv and pv.HasValue():
+        return np.asarray(pv.Get(), dtype="float32")
+    attr = prim.GetAttribute("custom:aura:confidence")  # legacy (pre-v0.4)
+    if attr and attr.IsValid() and attr.HasValue():
+        return np.asarray(attr.Get(), dtype="float32")
+    return None

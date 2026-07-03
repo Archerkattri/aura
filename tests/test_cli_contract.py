@@ -14,6 +14,7 @@ from aura import package_scene  # noqa: E402
 from aura.cli import (  # noqa: E402
     _confidence_command,
     _export_splat_command,
+    _export_spz_command,
     _export_usd_command,
     _relight_preview_command,
     _ray_query_command,
@@ -56,6 +57,14 @@ def test_export_splat_command_writes_glb(tmp_path):
     _make_carriers(tmp_path)
     out = _export_splat_command(Namespace(source=tmp_path, output=tmp_path / "x.glb"), load_carriers)
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_export_spz_command_writes_spz(tmp_path):
+    _make_carriers(tmp_path)
+    out = _export_spz_command(Namespace(source=tmp_path, output=tmp_path / "x.spz"), load_carriers)
+    assert out.exists() and out.stat().st_size > 0
+    from aura.spz import read_spz_header
+    assert read_spz_header(out)["version"] == 4
 
 
 def test_export_usd_command_writes_usda(tmp_path):
