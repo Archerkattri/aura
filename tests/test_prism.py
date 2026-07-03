@@ -42,6 +42,7 @@ def test_gradients_flow_through_rasterizer():
     assert means.grad is not None and torch.isfinite(means.grad).all()
 
 
+@pytest.mark.gpu
 @requires_torch
 @requires_gsplat
 def test_matches_gsplat_on_gaussians():

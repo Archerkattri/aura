@@ -17,7 +17,10 @@ def _cuda_available():
     return bool(torch.cuda.is_available())
 
 
-pytestmark = pytest.mark.skipif(not _cuda_available(), reason="CUDA torch device is unavailable")
+pytestmark = [
+    pytest.mark.gpu,
+    pytest.mark.skipif(not _cuda_available(), reason="CUDA torch device is unavailable"),
+]
 
 
 def test_torch_render_targets_runs_on_cuda_device():

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.gpu
+
 torch = pytest.importorskip("torch")
 if not torch.cuda.is_available():
     pytest.skip("hybrid renderer needs CUDA (gsplat)", allow_module_level=True)

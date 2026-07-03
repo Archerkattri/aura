@@ -1,5 +1,7 @@
 # AURA
 
+[![CI](https://github.com/Archerkattri/aura/actions/workflows/ci.yml/badge.svg)](https://github.com/Archerkattri/aura/actions/workflows/ci.yml)
+
 **Adaptive Unified Radiance Asset** · research preview (`v0.2.0`)
 
 AURA turns posed captures into a **typed, queryable, relightable, engine-ready

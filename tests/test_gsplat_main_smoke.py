@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -7,12 +8,16 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GSPLAT_MAIN = Path("/tmp/aura_sota_repos/gsplat-main")
+GSPLAT_MAIN = Path(os.environ.get("AURA_GSPLAT_MAIN", "/tmp/aura_sota_repos/gsplat-main"))
 
-pytestmark = pytest.mark.skipif(
-    not GSPLAT_MAIN.exists(),
-    reason="gsplat-main source checkout is required for this local CUDA smoke",
-)
+pytestmark = [
+    pytest.mark.local_data,
+    pytest.mark.gpu,
+    pytest.mark.skipif(
+        not GSPLAT_MAIN.exists(),
+        reason="gsplat-main source checkout is required for this local CUDA smoke",
+    ),
+]
 
 
 def test_gsplat_main_mcmc_smoke_script_writes_artifact(tmp_path):
