@@ -5,9 +5,34 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
-## [Unreleased] — v0.7.0-dev (the road-to-v1.0 CPU ladder, landed 2026-07-03)
+## [1.0.0] — 2026-07-05
 
-### Added
+**Scoped v1.0.0 release with documented limitations.** The calibrated-confidence trust
+layer — the load-bearing contribution — is complete and honestly bounded; the items the
+release does *not* close (a full 8-scene true-3DGS control, external reproduction, the
+UBS-6D arm, and the demo/metadata carriers) are documented as **open**, not implied done,
+in the README's "v1.0 Known Limitations" section. This release folds the B2 true
+gsplat-3DGS control result and freezes the P0→P2 + CPU-ladder work into a citable version.
+
+### Added (v1.0.0)
+- **B2 — true gsplat-3DGS MCMC control (Truck).** A genuine gsplat-3DGS control
+  (`simple_trainer.py mcmc`, `cap_max=1e6`, 30k steps, every-8th-view split) at a matched
+  1M-carrier budget on Truck, replacing the frozen-β DBS ablation for that one scene. Result
+  (`outputs/gsplat_control.json`, now committed via `git add -f`): true gsplat-3DGS **25.94 dB**
+  (final@30k) vs frozen-β control **25.96** vs adaptive Beta **26.39** — the typed-carrier win
+  holds against real 3DGS (**+0.45 dB**), and the frozen-β control lands within **0.03 dB** of
+  true 3DGS, so it was *not* artificially weak. **Honest bound: Truck only (1/8 scenes)**; the
+  other seven scenes and the +0.80 dB 8-scene mean remain frozen-control numbers, and UBS-6D
+  was not built. New reproducible figure `assets/b2_gsplat_control_truck.png`
+  (`experiments/make_b2_gsplat_control_figure.py`, reads the JSON verbatim).
+- **Version bump** `0.7.0.dev0 → 1.0.0` (`pyproject.toml`, `src/aura/__init__.py`, README,
+  paper); PyPI development-status classifier `Alpha → Beta` (honest for a documented-limitations
+  preview release).
+- README "Road to v1.0" rewritten to **"v1.0 Known Limitations"**; the "gsplat-control"
+  naming collision resolved — the frozen-β/fixed-Gaussian control (8/8 scenes) is now named
+  distinctly from the true gsplat-3DGS MCMC control (Truck, 1/8).
+
+### Added (v0.3→v0.7 CPU ladder, landed 2026-07-03)
 - **Certified LOD / streaming** (`src/aura/lod.py`, `aura lod-plan`, `docs/P4_CERTIFIED_LOD.md`):
   carriers stream in descending calibrated confidence with K published stopping
   levels, each carrying a distribution-free bound on discarded reliability mass at
@@ -54,10 +79,18 @@ committed artifact — negatives are kept, not hidden.
   `primvars:aura:confidence` (vertex interpolation) with a legacy fallback reader.
 - AURA preprint updated to this state (17 pp; publishes at v1.0, owner decision).
 
-### Remaining to v1.0
-GPU-gated: B2 true gsplat-MCMC matched-budget control; garden native 17.4 MP
-render-loss label; v0.7b gabor real-training attempt; v0.8 relighting attempt.
-External: independent reproduction (via REPRODUCE.md); P3 re-captures.
+### Known limitations at v1.0 (documented open, not closed)
+- **B2 true gsplat-3DGS control is Truck-only (1/8)**; the 8-scene mean stays a
+  frozen-control number; UBS-6D arm not built.
+- **Garden native 17.4 MP render-loss label** rendered at half resolution (OOMs under
+  concurrent GPU load); v0.7b gabor real-training attempt not landed (registry stays scoped
+  to two trained carriers); v0.8 relighting stays a **preview** by its pre-registered
+  promote-or-descope rule (not attempted at bar).
+- **Ray query** is a CPU-BVH parity result, not a GPU wall-clock match to 3DGRT/3DGUT.
+- **No external reproduction; no P3 independent re-captures** (four single-capture scenes).
+- **Established honest negatives** (kept, not defects): adaptive per-carrier β does not beat
+  a good global β; cross-family mix-routing never beats the best single family.
+See the README "v1.0 Known Limitations" section for the full list.
 
 ## [0.2.0] — 2026-07-03
 

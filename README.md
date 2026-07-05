@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Archerkattri/aura/actions/workflows/ci.yml/badge.svg)](https://github.com/Archerkattri/aura/actions/workflows/ci.yml)
 
-**Adaptive Unified Radiance Asset** · research preview (`v0.7.0-dev`)
+**Adaptive Unified Radiance Asset** · research preview (`v1.0.0`)
 
 AURA is the **trust layer for splats**. A plain 3DGS/DBS checkpoint renders fast
 but ships no notion of per-primitive trust; AURA keeps those fast Gaussian /
@@ -14,13 +14,15 @@ it **gate-checked and CPU-reproducible**. The chain is Photogrammetry → NeRF �
 → **AURA**: not a faster renderer, but a more *trustworthy, inspectable* asset on
 top of one.
 
-This is the road to `v1.0`. `v0.7.0-dev` is the current development state; **`v0.2.0`
-was the last tagged release** (owner ships the tags). Every claim below is backed by
-a committed artifact, and the honest scope of each capability — what is
+This is **`v1.0.0`**, a scoped release with documented limitations (see
+[v1.0 Known Limitations](#v10-known-limitations)). It ships the trust-layer
+contribution complete and honestly bounded; the items it does *not* close (a full
+8-scene true-3DGS control, external reproduction, and a handful of demo-stage
+carriers) are stated as open, not implied done. Every claim below is backed by a
+committed artifact, and the honest scope of each capability — what is
 trained-and-validated versus demo-stage — is stated inline. **Negatives are kept,
 not hidden; there is no official-leaderboard SOTA claim anywhere in this repo.** A
-preprint describing the calibrated-confidence result is **in preparation and
-publishes at v1.0**.
+preprint describing the calibrated-confidence result accompanies this release.
 
 <p align="center">
   <img src="docs/truck_orbit.gif" width="82%" alt="AURA reconstruction orbit on Truck"><br>
@@ -441,6 +443,31 @@ has published these) are the interesting part:
 
 ![Compactness curve](docs/compactness_curve.png)
 
+### B2 — the win holds against a real gsplat-3DGS control (Truck, 1/8 scenes)
+
+The multi-scene table above uses a **frozen-β DBS ablation** as the control (`--sb_number 0
+--beta_lr 0`), *not* a real 3DGS renderer. The long-standing question was whether that
+frozen control was artificially weak — inflating the typed-carrier win. To answer it we ran
+a genuine **gsplat-3DGS MCMC** control (`simple_trainer.py mcmc`, `cap_max=1e6`, 30k steps,
+same every-8th-view split) at a matched 1M-carrier budget on **Truck**, and the win holds:
+
+| Truck, matched 1M carriers | PSNR | SSIM | LPIPS |
+|---|---:|---:|---:|
+| **true gsplat-3DGS** (MCMC, final@30k) | 25.94 | 0.890 | 0.125 |
+| frozen-β control (DBS ablation) | 25.96 | 0.890 | 0.128 |
+| **AURA Beta** (adaptive) | **26.39** | **0.896** | **0.123** |
+
+![B2: adaptive-Beta win holds against a real gsplat-3DGS control on Truck (1/8 scenes)](assets/b2_gsplat_control_truck.png)
+
+Two honest readings: adaptive Beta beats the true gsplat-3DGS control by **+0.45 dB**, and
+the **frozen-β control (25.96) lands within 0.03 dB of true 3DGS (25.94)** — so it was *not*
+artificially weak; the typed win is real, not an artifact of a hobbled baseline. **Honest
+bound: this true-3DGS control is Truck-only (1 of 8 scenes).** The other seven scenes still
+compare against the frozen-β control only, so the headline **+0.80 dB 8-scene mean below is
+still measured against the frozen control**, and the UBS-6D arm was not built. Numbers read
+verbatim from `outputs/gsplat_control.json`; regenerate the chart with
+`python experiments/make_b2_gsplat_control_figure.py`.
+
 ### Multi-scene typed-carrier quality
 
 | Scene | AURA Beta PSNR | Fixed Gaussian PSNR | Delta |
@@ -519,7 +546,7 @@ run as 30k same-split GPU rows on all 8 audited scenes
 |---|---:|---:|---:|---|
 | COLMAP sparse SfM | 8.9952 | 0.049027 | 0.757455 | local CUDA smoke |
 | compact NeRF | 8.6726 | 0.126395 | 0.971559 | local 1-iter CUDA smoke |
-| 3DGS / gsplat-control | 26.0172 | 0.890420 | 0.127743 | executed fixed-Gaussian control |
+| 3DGS frozen-β control (DBS ablation) | 26.0172 | 0.890420 | 0.127743 | frozen-Gaussian control — NOT the true gsplat-MCMC control (see [B2](#b2--the-win-holds-against-a-real-gsplat-3dgs-control-truck-18-scenes)) |
 | 2DGS-style surfel | 10.7072 | 0.177134 | 0.645361 | local smoke/protocol row |
 | ray-traced-GS-style | 6.7688 | 0.066934 | 0.822136 | local smoke/protocol row |
 | official 2DGS Truck | 25.1223 | 0.873086 | 0.173525 | official repo, 30k steps, Truck native |
@@ -540,9 +567,12 @@ run as 30k same-split GPU rows on all 8 audited scenes
 | official 3DGUT Stump | 26.3474 | 0.758430 | 0.360993 | official repo, 30k steps, Mip-360 Stump ds=2 |
 
 Completed counts: official 2DGS 8/8 scenes, official 3DGUT 8/8 scenes, local
-gsplat-control 3DGS 8/8 scenes. The SOTA A/B artifact
-(`sota_ab_validation_2026-06-25.json`) promotes the DINOv3-small/timm, official
-2DGS, and 3DGUT providers.
+**frozen-β control 8/8 scenes**. Note the distinction: this frozen-β/fixed-Gaussian
+control (the `26.0172` row above and the multi-scene table's control column) is a
+DBS ablation, *not* a real 3DGS renderer — the **true gsplat-3DGS MCMC control is
+Truck-only (1/8), reported separately in [B2](#b2--the-win-holds-against-a-real-gsplat-3dgs-control-truck-18-scenes)**.
+The SOTA A/B artifact (`sota_ab_validation_2026-06-25.json`) promotes the
+DINOv3-small/timm, official 2DGS, and 3DGUT providers.
 
 The GPU pipeline that regenerates everything from raw captures (accuracy jobs run
 fine on shared GPUs; only FPS rows need an idle machine):
@@ -571,9 +601,12 @@ AURA is a research preview; the honest boundary is part of the product.
 
 - **Local artifact-backed A/B readiness only — no official-leaderboard SOTA claim**,
   and no production-FPS-everywhere claim.
-- The typed-carrier quality win **reproduces DBS** against a frozen-β control (not
-  real gsplat 3DGS), with Mip-360 eval at image downsamples; it is not an AURA
-  novelty.
+- The typed-carrier quality win **reproduces DBS**; it is not an AURA novelty. The
+  8-scene mean is measured against a frozen-β control (not real gsplat 3DGS), with
+  Mip-360 eval at image downsamples. A **true gsplat-3DGS MCMC control was added for
+  Truck only** ([B2](#b2--the-win-holds-against-a-real-gsplat-3dgs-control-truck-18-scenes)),
+  where the win holds (+0.45 dB) and the frozen control is within 0.03 dB — but the
+  other 7 scenes have no true 3DGS control.
 - **Ray query is a CPU BVH validated for parity**, not a GPU wall-clock match against
   the 3DGRT/3DGUT CUDA tracers; secondary rays remain readiness probes, not a
   physically-based tracer.
@@ -591,23 +624,54 @@ AURA is a research preview; the honest boundary is part of the product.
   guarantee. The custom CUDA path is sm_120-only (RTX 5090).
 - 8 scenes only; two Mip-360 scene lists are placeholders.
 
-## Road to v1.0
+## v1.0 Known Limitations
 
-Dated, per-change history lives in [`CHANGELOG.md`](CHANGELOG.md). The v0.3→v0.7 CPU
-ladder — true-control gate harness, standards exports (SPZ4 / USD 26.03 / KHR status),
-certified LOD, BVH ray query, registry honesty + codebook, CI, split guard, and
-verified CPU reproduction — has landed. What remains to `v1.0` is either **GPU-gated**
-or **external**:
+`v1.0.0` ships the calibrated-confidence trust layer complete and honestly bounded.
+It does **not** close every item on the pre-release ladder, and — consistent with this
+project's ethos that negatives are published, not hidden — the open items are listed
+here as *open*, not implied done. Dated, per-change history lives in
+[`CHANGELOG.md`](CHANGELOG.md); the per-capability claim boundary is above.
 
-- **GPU-gated:** the B2 true gsplat-MCMC matched-budget headline control (the current
-  control is a frozen-β DBS ablation); the Garden native 17.4 MP render-loss label
-  (OOMs under concurrent GPU load — needs a memory-idle machine); the v0.7b attempt to
-  make Gabor a real trained third carrier (else the registry claim stays scoped to
-  two); and the v0.8 relighting attempt against the pre-registered promote-or-descope
-  bar.
-- **External:** an independent outside reproduction, and P3 independent re-captures —
-  the reliability story is validated on four scenes and two labels; new scenes would
-  harden it further.
+**Scope of the evidence (open, would harden the result):**
+
+- **The true gsplat-3DGS control is Truck-only (1 of 8 scenes).** The [B2](#b2--the-win-holds-against-a-real-gsplat-3dgs-control-truck-18-scenes)
+  MCMC control confirms the typed-carrier win on Truck (+0.45 dB vs real 3DGS; the
+  frozen-β control within 0.03 dB, so it was not artificially weak). The other seven
+  scenes still compare against the frozen-β DBS ablation only, so the headline **+0.80 dB
+  8-scene mean remains a frozen-control number**. The **UBS-6D arm was not built** (no
+  trainer in this repo).
+- **No external reproduction; no P3 independent re-captures.** The reliability story is
+  validated on four single-capture scenes under two labels, with a CPU-only bit-for-bit
+  reproduction from committed artifacts ([`REPRODUCE.md`](REPRODUCE.md)) — but no outside
+  party has reproduced it, and there are no independent re-captures of the same scenes.
+- **Garden's native 17.4 MP render-loss label is rendered at half resolution** (the
+  full-res raster OOMs under concurrent GPU load); its carriers and its colour/occlusion
+  labels are native. Four scenes is a small sample; two Mip-360 scene lists are placeholders.
+
+**Preview / demo-stage capabilities (shipped as scaffolding, labelled as such):**
+
+- **Relighting is a preview**, not data-driven inverse rendering (albedo = baked SH-DC,
+  normals = unsigned covariance short axis). This is a **pre-registered descope**: the
+  v0.8 promote-or-descope bar ([`docs/P7_RELIGHT_DECISION.md`](docs/P7_RELIGHT_DECISION.md))
+  was not attempted at bar for this release, so the capability stays a preview by rule.
+- **Ray query is a CPU-BVH parity result, not a GPU wall-clock match.** The BVH is proven
+  bit-for-parity with brute force (0 mismatches, incl. 300 rays on the real truck asset),
+  but matching the CUDA 3DGRT/3DGUT tracers' GPU wall-clock is the **deferred bar**;
+  secondary rays remain readiness probes, not a physically-based tracer.
+- **Only Gaussian and Beta are trained carriers.** Gabor is 2D-crop-only, Neural is an
+  experimental provenance-annotated Gaussian fallback, and Surface / Volume / Semantic are
+  **metadata contracts** — the semantic codebook layer is CPU-validated but no per-carrier
+  feature tensor ships in the asset. The v0.7b attempt to make Gabor a real trained third
+  carrier was not landed, so the registry stays honestly scoped to two trained types.
+
+**Established honest negatives (not open questions — measured and kept):**
+
+- **Adaptive per-carrier β does not beat a good global β** (learned 26.352 < uniform β=2,
+  26.421). The typed +dB win decomposes to a spherical-Beta *colour* model (~+0.4 dB), not
+  to per-carrier adaptivity (~0).
+- **Cross-family mix-routing never beats the best single family.**
+- These are publishable negatives (nobody else has published them); they are not defects to
+  be fixed but findings that bound the contribution.
 
 ## Repository map
 

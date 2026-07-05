@@ -1,0 +1,12 @@
+B2 true gsplat-3DGS matched-budget control (Truck) — LAUNCHED & CONFIRMED RUNNING
+date: 2026-07-05 09:48:35
+trainer PID: 1571193   (detached via setsid; survives this session)
+GPU: CUDA_VISIBLE_DEVICES=1  (RTX 5090, GPU index 1)
+backend: gsplat-main source (/tmp/aura_sota_repos/gsplat-main) via .gpu_venv, MCMC strategy, cap_max=1e6
+data: data/tanks/truck, data_factor=1 (979x546), test_every=8, lpips=vgg, max_steps=30000
+log: /home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/runs/b2_gsplat_control_truck_20260705_093155/train.log
+results (collector default): /tmp/gsplat_control/truck/stats/val_step*.json
+launch script: /home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/runs/b2_gsplat_control_truck_20260705_093155/launch.sh   (exact cmd also at scratchpad/aura_b2_cmd.sh)
+monitor:  tail -f /home/krishi/workspace/brain/workspace/projects/aura/repo/experiments/runs/b2_gsplat_control_truck_20260705_093155/train.log
+collect:  cd repo && .gpu_venv/bin/python experiments/collect_gsplat_control.py
+reference to beat/compare (Truck, 1M): DBS-Beta 26.39 (pack 26.352) / DBS frozen-Gauss 25.96 (pack 26.017)

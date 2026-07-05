@@ -1,0 +1,132 @@
+{
+  "format": "AURA_B2_GSPLAT_CONTROL",
+  "protocol": {
+    "budget": 1000000,
+    "strategy": "gsplat MCMCStrategy, cap_max=1e6, 30k steps",
+    "split": "every 8th view test (llffhold=8 == test_every=8)",
+    "lpips": "vgg (matches DBS evaluator)",
+    "selection_note": "DBS iteration_best selects the checkpoint on TEST metrics; 'best' mirrors that rule for gsplat, 'final' is the standard final-at-30k protocol. Quote 'final' by default and state the selection rule whenever 'best' is quoted."
+  },
+  "scenes": {
+    "truck": {
+      "gsplat_mcmc_1M": {
+        "final": {
+          "step": 29999,
+          "psnr": 25.935150146484375,
+          "ssim": 0.8898259401321411,
+          "lpips": 0.12526026368141174,
+          "num_GS": 1000000
+        },
+        "best": {
+          "step": 27999,
+          "psnr": 25.93844223022461,
+          "ssim": 0.8897367715835571,
+          "lpips": 0.12626205384731293,
+          "num_GS": 1000000
+        },
+        "n_evals": 15
+      },
+      "dbs_beta_1M": {
+        "psnr": 26.39360237121582,
+        "ssim": 0.8957456350326538,
+        "lpips": 0.12278576195240021
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 25.961856842041016,
+        "ssim": 0.889708936214447,
+        "lpips": 0.1281273066997528
+      }
+    },
+    "garden": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 27.265220642089844,
+        "ssim": 0.8529180884361267,
+        "lpips": 0.13871847093105316
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 26.6373348236084,
+        "ssim": 0.8418798446655273,
+        "lpips": 0.14724823832511902
+      }
+    },
+    "bicycle": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 25.148128509521484,
+        "ssim": 0.7576749920845032,
+        "lpips": 0.24038246273994446
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 24.843175888061523,
+        "ssim": 0.7521011233329773,
+        "lpips": 0.23069265484809875
+      }
+    },
+    "stump": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 26.64301109313965,
+        "ssim": 0.7773892879486084,
+        "lpips": 0.22955839335918427
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 26.455883026123047,
+        "ssim": 0.7709895372390747,
+        "lpips": 0.23000243306159973
+      }
+    },
+    "bonsai": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 34.03269958496094,
+        "ssim": 0.9533898830413818,
+        "lpips": 0.18626447021961212
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 32.27204895019531,
+        "ssim": 0.9442753195762634,
+        "lpips": 0.1959872543811798
+      }
+    },
+    "counter": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 30.319522857666016,
+        "ssim": 0.9228547215461731,
+        "lpips": 0.17656812071800232
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 28.8087215423584,
+        "ssim": 0.9074422717094421,
+        "lpips": 0.19119198620319366
+      }
+    },
+    "kitchen": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 32.374977111816406,
+        "ssim": 0.9323477745056152,
+        "lpips": 0.12355728447437286
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 31.287168502807617,
+        "ssim": 0.9245507717132568,
+        "lpips": 0.13299301266670227
+      }
+    },
+    "room": {
+      "gsplat_mcmc_1M": null,
+      "dbs_beta_1M": {
+        "psnr": 32.78147506713867,
+        "ssim": 0.9336426854133606,
+        "lpips": 0.1957133710384369
+      },
+      "dbs_frozen_gauss_1M": {
+        "psnr": 32.294620513916016,
+        "ssim": 0.9301729798316956,
+        "lpips": 0.1985074132680893
+      }
+    }
+  }
+}
