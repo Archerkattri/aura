@@ -1,9 +1,14 @@
 # AURA
 
-[![CI](https://github.com/Archerkattri/aura/actions/workflows/ci.yml/badge.svg)](https://github.com/Archerkattri/aura/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Archerkattri/aura?color=1f6feb)](https://github.com/Archerkattri/aura/releases)
+[![PyPI](https://img.shields.io/pypi/v/aura-splat?label=pypi%20%C2%B7%20aura--splat&color=3775a9)](https://pypi.org/project/aura-splat/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21500723.svg)](https://doi.org/10.5281/zenodo.21500723)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0d9488.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](pyproject.toml)
+[![Tests](https://img.shields.io/badge/tests-1947%20passing-16a34a.svg)](tests/)
+[![Certified](https://img.shields.io/badge/certificate-split--conformal%20%C2%B7%2016%2F16%20bounds-d97706.svg)](docs/P4_CERTIFIED_LOD.md)
 
-**Adaptive Unified Radiance Asset** · research preview (`v1.0.0`)
+**Adaptive Unified Radiance Asset** · research preview (`v1.0.2`)
 
 AURA is the **trust layer for splats**. A plain 3DGS/DBS checkpoint renders fast
 but ships no notion of per-primitive trust; AURA keeps those fast Gaussian /
