@@ -23,3 +23,7 @@ abstract: >-
   an export-time feature, and a distribution-free split-conformal pruning
   certificate extended into a certified level-of-detail ladder, delivered through
   glTF (KHR_gaussian_splatting), OpenUSD, and SPZ interchange.
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21500723
+    description: "Zenodo software archive"

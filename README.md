@@ -1,6 +1,7 @@
 # AURA
 
 [![CI](https://github.com/Archerkattri/aura/actions/workflows/ci.yml/badge.svg)](https://github.com/Archerkattri/aura/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21500723.svg)](https://doi.org/10.5281/zenodo.21500723)
 
 **Adaptive Unified Radiance Asset** · research preview (`v1.0.0`)
 
