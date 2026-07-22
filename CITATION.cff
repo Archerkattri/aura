@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use AURA, please cite it as below."
+title: "AURA: Calibrated Per-Carrier Confidence and Certified Pruning for Gaussian-Splat Assets"
+type: software
+authors:
+  - family-names: Attri
+    given-names: Krishi
+    email: krishiattriwork@gmail.com
+    orcid: "https://orcid.org/0009-0005-4695-6467"
+version: 1.0.2
+date-released: 2026-07-22
+repository-code: "https://github.com/Archerkattri/aura"
+license: MIT
+keywords:
+  - gaussian splatting
+  - uncertainty calibration
+  - conformal prediction
+  - neural rendering
+  - level-of-detail
+abstract: >-
+  AURA attaches a trustworthy per-carrier confidence to trained Gaussian-splat
+  assets: a held-out multi-view reliability label, isotonic (PAVA) calibration of
+  an export-time feature, and a distribution-free split-conformal pruning
+  certificate extended into a certified level-of-detail ladder, delivered through
+  glTF (KHR_gaussian_splatting), OpenUSD, and SPZ interchange.

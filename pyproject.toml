@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aura-core"
-version = "1.0.1"
+name = "aura-splat"
+version = "1.0.2"
 description = "AURA-Core: adaptive unified radiance asset reconstruction engine"
 readme = "README.md"
 license = { file = "LICENSE" }

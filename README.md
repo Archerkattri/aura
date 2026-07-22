@@ -401,7 +401,9 @@ Third-party viewer compatibility is a **structural** check, not a runtime guaran
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip
-pip install -e ".[dev,gpu,assets]"
+pip install -e ".[dev,gpu,assets]"   # from source
+# or from PyPI:
+pip install aura-splat
 ```
 
 For CUDA-first local work use the GPU environment when available

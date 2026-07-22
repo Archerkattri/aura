@@ -5,6 +5,13 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
+## [1.0.2] — 2026-07-22
+
+### Changed
+- Package renamed on PyPI to **`aura-splat`** (the name `aura-core` is taken by an
+  unrelated project); import name stays `aura`. First PyPI release.
+- Added `CITATION.cff`; repository archiving enabled on Zenodo (DOI minted per release).
+
 ## [1.0.1] — 2026-07-22
 
 ### Fixed

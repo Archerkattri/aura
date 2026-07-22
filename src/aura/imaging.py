@@ -219,7 +219,7 @@ def write_exr_image(image: RenderImage, path: Path | str) -> Path:
     if not capability.available:
         raise RuntimeError(
             "EXR export requires the optional asset backend; "
-            f"install aura-core[assets] ({capability.detail})"
+            f"install aura-splat[assets] ({capability.detail})"
         )
     import numpy as np  # type: ignore[import-not-found]
     import imageio.v2 as imageio  # type: ignore[import-not-found]
@@ -525,7 +525,7 @@ def write_video(
     if not allow_fallback:
         raise RuntimeError(
             f"no MP4 encoder available ({capability.detail}); "
-            "install aura-core[assets] with ffmpeg, or allow the frame-sequence fallback"
+            "install aura-splat[assets] with ffmpeg, or allow the frame-sequence fallback"
         )
     sequence_dir = output.parent / f"{output.stem}_frames"
     sequence = write_frame_sequence(frame_list, sequence_dir, fps=fps)
