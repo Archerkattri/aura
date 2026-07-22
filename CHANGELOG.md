@@ -5,7 +5,22 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
-## [Unreleased]
+## [1.0.1] — 2026-07-22
+
+### Fixed
+- **Isotonic calibrator: pool tied covariates before PAVA.** `src/aura/calibration.py`
+  did not pre-pool equal confidence values, so on duplicate covariates the fit was not
+  L2-optimal (e.g. returned `0.5` instead of `0.333` on a `[0,1,0]` tie). Now pre-pools
+  ties before the pool-adjacent-violators pass. The paper's published ECE/AUC are
+  **unchanged** — real-data ties shift ECE by `< 1e-6`, below the reported 4-dp
+  precision, and the figure reproduce-checks still pass bit-exactly. Regression test added.
+
+### Added
+- Public API surface exported from `aura.__init__`: `IsotonicConfidenceCalibrator`,
+  `conformal_prune_certificate`, `certified_lod_plan`, and related symbols.
+- CLI error boundaries: `main()` wraps dispatch, emitting `aura: error: …` with exit 1
+  on bad input (`AURA_DEBUG=1` re-raises); glTF `.bin` buffer round-trip decode test.
+- `matplotlib`/`imageio`/`pillow` moved to the `dev` extra; CI installs `.[dev]`.
 
 ### Changed
 - **Certified LOD — Bonferroni over the non-trivial levels only (tighter, still valid).**
