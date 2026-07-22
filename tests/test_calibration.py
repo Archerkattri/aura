@@ -55,6 +55,24 @@ def test_calibrator_preserves_order():
     assert np.all(np.diff(pred) >= -1e-12)   # monotone
 
 
+def test_calibrator_pools_tied_covariates_to_weighted_mean():
+    # Tied raw-confidence values with differing labels must fit to the L2-optimal
+    # isotonic value = the (weighted) mean of the labels at that x. A naive PAVA
+    # that does not pre-pool equal-x would keep an arbitrary within-tie value.
+    raw = np.array([0.5, 0.5, 0.5])
+    y = np.array([0.0, 1.0, 0.0])
+    cal = IsotonicConfidenceCalibrator().fit(raw, y)
+    assert cal.predict(np.array([0.5]))[0] == pytest.approx(1.0 / 3.0)
+    # Mixed: a tie block embedded in an increasing sequence keeps monotonicity
+    # and pools the tie to its mean where the isotonic constraint allows.
+    raw2 = np.array([0.1, 0.4, 0.4, 0.4, 0.9])
+    y2 = np.array([0.0, 0.2, 0.8, 0.2, 1.0])
+    cal2 = IsotonicConfidenceCalibrator().fit(raw2, y2)
+    assert cal2.predict(np.array([0.4]))[0] == pytest.approx(0.4)  # mean(0.2,0.8,0.2)
+    pred = cal2.predict(np.array([0.1, 0.4, 0.9]))
+    assert np.all(np.diff(pred) >= -1e-12)
+
+
 def test_calibrator_requires_fit():
     with pytest.raises(RuntimeError):
         IsotonicConfidenceCalibrator().predict(np.array([0.5]))

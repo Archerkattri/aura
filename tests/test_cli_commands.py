@@ -26,6 +26,7 @@ from aura.cli import (
     _training_resume_state,
     _turntable_frame_renderer,
     _validate_resume_training_state,
+    _dispatch,
     _write_training_checkpoints,
     main,
 )
@@ -711,8 +712,10 @@ class TestBenchmarkRayQuery:
     def test_benchmark_ray_query_requires_expectations(self, tmp_path):
         with patch("aura.cli.native_demo_scene", return_value=MagicMock()), \
              patch("aura.cli.load_package", return_value=MagicMock()):
+            # _dispatch is the validation layer that raises; main() wraps it in
+            # the clean error boundary (covered by test_main_error_boundary_*).
             with pytest.raises(ValueError, match="--native-demo-expectations"):
-                main(["benchmark-ray-query", str(tmp_path)])
+                _dispatch(["benchmark-ray-query", str(tmp_path)])
 
 
 # ---------------------------------------------------------------------------
@@ -1472,7 +1475,27 @@ class TestMainEntryPoint:
                 # Simulate a namespace with an unrecognized command
                 mock_parse.return_value = argparse.Namespace(command="__unknown_command__")
                 with pytest.raises(ValueError, match="__unknown_command__"):
-                    main(["build-native-demo"])  # argv doesn't matter since parse_args is mocked
+                    _dispatch(["build-native-demo"])  # argv doesn't matter since parse_args is mocked
+
+    def test_main_error_boundary_converts_bad_input_to_clean_exit(self, capsys):
+        """main() wraps _dispatch: a ValueError from a subcommand becomes a clean
+        'aura: error: ...' on stderr with exit code 1, not a raw traceback."""
+        with patch("aura.cli._dispatch", side_effect=ValueError("boom-bad-input")):
+            rc = main(["inspect-package", "whatever"])
+        assert rc == 1
+        assert "aura: error: boom-bad-input" in capsys.readouterr().err
+
+    def test_main_error_boundary_reraises_under_debug(self, monkeypatch):
+        """AURA_DEBUG=1 re-raises the full exception instead of swallowing it."""
+        monkeypatch.setenv("AURA_DEBUG", "1")
+        with patch("aura.cli._dispatch", side_effect=ValueError("boom")):
+            with pytest.raises(ValueError, match="boom"):
+                main(["inspect-package", "whatever"])
+
+    def test_main_error_boundary_lets_systemexit_pass_through(self):
+        """argparse --help / usage errors (SystemExit) are not swallowed."""
+        with pytest.raises(SystemExit):
+            main(["--help"])
 
     def test_main_as_module_calls_main(self):
         """Verify __main__ guard: raise SystemExit(main()) is correct flow."""

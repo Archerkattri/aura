@@ -1,5 +1,9 @@
 # AURA Publication Bundle
 
+> **Superseded historical snapshot (2026-06-25).** The current release is **v1.0.0** with **17**
+> passing publication gates and **1947** passing CPU tests — see `README.md` and `REPRODUCE.md` for
+> the live state.
+
 Date: 2026-06-25
 
 This bundle is the paper/package starting point for the current AURA evidence

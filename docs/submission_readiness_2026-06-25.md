@@ -1,5 +1,9 @@
 # AURA Submission Readiness
 
+> **Superseded historical snapshot (2026-06-25).** Numbers below (e.g. `passedGateCount: 11`)
+> reflect the state on that date. The current release is **v1.0.0** with **17** passing publication
+> gates and **1947** passing CPU tests — see `README.md` and `REPRODUCE.md` for the live state.
+
 Date: 2026-06-25
 
 This note is the submission-facing status for AURA/PRISM. It uses the local

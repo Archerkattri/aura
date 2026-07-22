@@ -5,6 +5,22 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
+## [Unreleased]
+
+### Changed
+- **Certified LOD — Bonferroni over the non-trivial levels only (tighter, still valid).**
+  The certified LOD ladder (`src/aura/lod.py`) previously split `α` over all `K` levels
+  (`α' = α/K = 0.025`), but the full-keep (`f = 1.00`) level is a *deterministic*
+  statement (`ε = 0`, nothing pruned, no interval) that consumes no error budget. By the
+  union bound only the `R = K−1 = 3` **non-trivial** random levels need correcting, so
+  `α' = α/R = α/3 ≈ 0.0333`. This is strictly tighter — the family-wise `1−α = 0.9`
+  guarantee is unchanged, but every non-trivial `ε_k` shrinks slightly (e.g. Truck@10%
+  `0.3342 → 0.3340`, Room@10% `0.4432 → 0.4429`). Regenerated `outputs/lod_certified.json`
+  through `experiments/lod_certified_eval.py`; **all 16 bounds still hold** (12 non-trivial
+  + 4 trivial) on the disjoint eval halves, zero violations. Propagated to the paper
+  (Table 6, Fig 9, family-wise paragraph), README, `docs/P4_CERTIFIED_LOD.md`, REPRODUCE.md,
+  the `certified_lod` publication gate (now checks `α' = α/R`), and the LOD unit tests.
+
 ## [1.0.0] — 2026-07-05
 
 **Scoped v1.0.0 release with documented limitations.** The calibrated-confidence trust
@@ -38,7 +54,8 @@ gsplat-3DGS control result and freezes the P0→P2 + CPU-ladder work into a cita
   levels, each carrying a distribution-free bound on discarded reliability mass at
   Bonferroni `α/K` (family-wise `1−α`). All 16 bounds hold on disjoint eval halves
   (`outputs/lod_certified.json`). Finding: isotonic plateaus make τ-rounding unsafe —
-  τ is stored at full precision.
+  τ is stored at full precision. _(Superseded: the Bonferroni divisor was later
+  tightened to `α/R` over the non-trivial levels only — see [Unreleased] above.)_
 - **SPZ v4 export** (`src/aura/spz.py`, `aura export-spz`): pure-numpy NGSP
   reader/writer cross-validated bit-exact against the reference C++
   (`nianticlabs/spz` @ `bb0efad`; harness preserved at
@@ -77,7 +94,7 @@ gsplat-3DGS control result and freezes the P0→P2 + CPU-ladder work into a cita
   CI-tested smoke mode. Relight module docstring corrected to preview-stage.
 - **USD confidence primvar**: `custom:aura:confidence` → idiomatic
   `primvars:aura:confidence` (vertex interpolation) with a legacy fallback reader.
-- AURA preprint updated to this state (17 pp; publishes at v1.0, owner decision).
+- AURA preprint updated to this state (20 pp; publishes at v1.0, owner decision).
 
 ### Known limitations at v1.0 (documented open, not closed)
 - **B2 true gsplat-3DGS control is Truck-only (1/8)**; the 8-scene mean stays a

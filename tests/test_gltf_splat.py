@@ -39,6 +39,46 @@ def test_gltf_declares_extension_and_required_attrs(tmp_path):
     assert (tmp_path / "a.bin").stat().st_size == g["buffers"][0]["byteLength"]
 
 
+def test_buffer_bytes_round_trip_through_accessor_offsets(tmp_path):
+    """Decode the actual .bin at each accessor's computed byteOffset and assert it
+    equals the source array. Guards the buffer offset/padding bookkeeping in
+    build_splat_gltf: a future off-by-one in a byteOffset would silently corrupt a
+    downstream consumer's POSITION / _AURA_CONFIDENCE / COLOR_0, and the existing
+    JSON-only tests would not catch it."""
+    n = 12
+    c = _carriers(n=n, sh_degree=1)
+    c["confidence"] = np.random.default_rng(1).random(n).astype("float32")
+    gltf, bin_bytes = G.build_splat_gltf(c)
+    prim = gltf["meshes"][0]["primitives"][0]
+    accessors, views = gltf["accessors"], gltf["bufferViews"]
+    comps = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}
+
+    def decode(attr_key):
+        acc = accessors[prim["attributes"][attr_key]]
+        view = views[acc["bufferView"]]
+        off = view["byteOffset"] + acc.get("byteOffset", 0)
+        k = comps[acc["type"]]
+        buf = np.frombuffer(bin_bytes, dtype="<f4", count=n * k, offset=off)
+        return buf.reshape(n, k)
+
+    # Expected values via the module's own transforms (this test checks byte
+    # packing/offsets, not the transforms themselves).
+    exp_pos = G._np(c["means"])
+    exp_scale = np.clip(G._np(c["scales"]), 0.0, None)
+    exp_rot = G._quat_wxyz_to_xyzw(c["quats"])
+    exp_op = np.clip(G._np(c["opacity"]).reshape(-1, 1), 0.0, 1.0)
+    exp_rgb = G._diffuse_rgb(c)
+    exp_color0 = np.concatenate([exp_rgb, exp_op], axis=1)
+
+    assert np.allclose(decode("POSITION"), exp_pos, atol=1e-6)
+    assert np.allclose(decode("COLOR_0"), exp_color0, atol=1e-6)
+    assert np.allclose(decode(f"{_EXT}:ROTATION"), exp_rot, atol=1e-6)
+    assert np.allclose(decode(f"{_EXT}:SCALE"), exp_scale, atol=1e-6)
+    assert np.allclose(decode(f"{_EXT}:OPACITY"), exp_op, atol=1e-6)
+    assert np.allclose(decode("_AURA_CONFIDENCE"),
+                       c["confidence"].reshape(n, 1), atol=1e-6)
+
+
 def test_color0_is_vec4_and_sh_higher_orders_present(tmp_path):
     c = _carriers(sh_degree=1)
     p = G.write_splat_gltf(c, tmp_path / "a.gltf")

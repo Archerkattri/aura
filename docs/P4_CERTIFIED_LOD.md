@@ -56,21 +56,27 @@ finite-sample Hoeffding upper confidence bound the pruning certificate uses
 
 computed on the scene's **calibration half only**.
 
-### 4. Family-wise validity (Bonferroni)
-`K` levels are `K` simultaneous certificates from one conformal set. Quoting a naive
-per-level `1−α` would be optimistic. Each level is certified at
+### 4. Family-wise validity (Bonferroni over the non-trivial levels)
+A `K`-level plan makes `K` simultaneous statements from one conformal set, but only
+the `R` **non-trivial** levels (`f < 1`) are *random* certificates that can miscover.
+The 100% level is a **deterministic** statement (`ε = 0` by definition: no carrier is
+pruned, so the discarded mass is exactly zero with no sampling uncertainty), flagged
+`trivial: true`, and it can never fail. By the union bound the family-wise error is at
+most the sum of the per-level errors, and the deterministic level contributes exactly
+`0`, so it needs no error budget. We therefore split `α` over the `R` random levels
+only:
 
 ```
-α' = α / K      (Bonferroni)
+α' = α / R      (Bonferroni over the R = #{f < 1} non-trivial levels)
 ```
 
-so by the union bound **all `K` bounds hold simultaneously with family-wise
-confidence `1−α`** across the whole plan. Bonferroni *widens* each interval
-(`log(K/α) > log(1/α)`), i.e. it is strictly more conservative than an uncorrected
-bound — the honest direction. The 100% level is trivial (`ε = 0` by definition: no
-carrier is pruned, so the discarded mass is exactly zero with no sampling
-uncertainty) and is flagged `trivial: true`; it makes no probabilistic claim and only
-tightens the family-wise statement.
+`R` random intervals at `α'` union-bound to `R·α' = α`, and together with the
+deterministic level **all `K` bounds hold simultaneously with family-wise confidence
+`1−α`**. This is strictly tighter than the naive `α/K` (correcting over the trivial
+level would waste budget on a statement that never fails): with the default `K = 4`
+levels `R = 3`, so `α' = α/3 ≈ 0.0333` rather than `α/4 = 0.025`, yielding smaller
+`ε_k`. Bonferroni still *widens* each random interval relative to an uncorrected bound
+(`log(R/α) > log(1/α)`) — the honest direction.
 
 ### Plan serialization
 `certified_lod_plan(confidence, reliability, *, levels, alpha, scene)` returns a
@@ -79,11 +85,12 @@ JSON-able dict:
 ```json
 {
   "scene": "truck", "alpha": 0.1, "correction": "bonferroni",
-  "alpha_per_level": 0.025, "family_wise_confidence": 0.9,
+  "alpha_per_level": 0.0333…, "family_wise_confidence": 0.9,
   "sort": "calibrated_confidence_desc", "n_cal": 63939, "n_levels": 4,
+  "n_nontrivial_levels": 3,
   "loss": "discarded_reliability_mass",
   "levels": [
-    {"keep_fraction": 0.10, "tau": 0.7203…, "epsilon_certified": 0.3342…, "n_cal": 63939, "n_kept_cal": 6394, "trivial": false},
+    {"keep_fraction": 0.10, "tau": 0.7203…, "epsilon_certified": 0.3340…, "n_cal": 63939, "n_kept_cal": 6394, "trivial": false},
     …
     {"keep_fraction": 1.00, "tau": 0.0019…, "epsilon_certified": 0.0, "n_cal": 63939, "n_kept_cal": 63939, "trivial": true}
   ]
@@ -106,7 +113,8 @@ the plan is built on the calibration half only; the evaluation half never touche
 construction). On the eval half it measures the empirical discarded reliability mass
 at each `τ_k` and checks it against `ε_k`.
 
-`α = 0.1` family-wise, `α' = 0.025` Bonferroni over `K = 4` levels. `τ` = boundary
+`α = 0.1` family-wise, `α' = α/3 ≈ 0.0333` Bonferroni over the `R = 3` non-trivial
+levels (the `f = 1.00` level is deterministic, `ε = 0`). `τ` = boundary
 confidence; `ε_cert` = certified bound (cal half); `emp_loss` = empirical discarded
 mass (eval half); `holds` = `emp_loss ≤ ε_cert`.
 
@@ -114,36 +122,36 @@ mass (eval half); `holds` = `emp_loss ≤ ε_cert`.
 
 | keep | τ | ε_certified | empirical_loss_eval | holds |
 |---:|---:|---:|---:|:--:|
-| 0.10 | 0.7203 | 0.3342 | 0.3281 | ✓ |
-| 0.25 | 0.5977 | 0.2363 | 0.2320 | ✓ |
-| 0.50 | 0.3939 | 0.1105 | 0.1051 | ✓ |
+| 0.10 | 0.7203 | 0.3340 | 0.3281 | ✓ |
+| 0.25 | 0.5977 | 0.2360 | 0.2320 | ✓ |
+| 0.50 | 0.3939 | 0.1102 | 0.1051 | ✓ |
 | 1.00 | 0.0019 | 0.0000 | 0.0000 | ✓ (trivial) |
 
 **Garden** (n_cal = n_eval = 56 590, mean eval reliability 0.426)
 
 | keep | τ | ε_certified | empirical_loss_eval | holds |
 |---:|---:|---:|---:|:--:|
-| 0.10 | 0.7427 | 0.3474 | 0.3401 | ✓ |
-| 0.25 | 0.6180 | 0.2454 | 0.2377 | ✓ |
-| 0.50 | 0.4193 | 0.1226 | 0.1164 | ✓ |
+| 0.10 | 0.7427 | 0.3472 | 0.3401 | ✓ |
+| 0.25 | 0.6180 | 0.2451 | 0.2377 | ✓ |
+| 0.50 | 0.4193 | 0.1224 | 0.1164 | ✓ |
 | 1.00 | 0.0021 | 0.0000 | 0.0000 | ✓ (trivial) |
 
 **Kitchen** (n_cal = n_eval = 60 000, mean eval reliability 0.443)
 
 | keep | τ | ε_certified | empirical_loss_eval | holds |
 |---:|---:|---:|---:|:--:|
-| 0.10 | 0.7761 | 0.3643 | 0.3598 | ✓ |
-| 0.25 | 0.6340 | 0.2547 | 0.2511 | ✓ |
-| 0.50 | 0.4425 | 0.1257 | 0.1216 | ✓ |
+| 0.10 | 0.7761 | 0.3641 | 0.3598 | ✓ |
+| 0.25 | 0.6340 | 0.2544 | 0.2511 | ✓ |
+| 0.50 | 0.4425 | 0.1255 | 0.1216 | ✓ |
 | 1.00 | 0.0018 | 0.0000 | 0.0000 | ✓ (trivial) |
 
 **Room** (n_cal = 53 404, n_eval = 53 405, mean eval reliability 0.529)
 
 | keep | τ | ε_certified | empirical_loss_eval | holds |
 |---:|---:|---:|---:|:--:|
-| 0.10 | 0.8561 | 0.4432 | 0.4390 | ✓ |
-| 0.25 | 0.7420 | 0.3178 | 0.3117 | ✓ |
-| 0.50 | 0.5597 | 0.1598 | 0.1514 | ✓ |
+| 0.10 | 0.8561 | 0.4429 | 0.4390 | ✓ |
+| 0.25 | 0.7420 | 0.3176 | 0.3117 | ✓ |
+| 0.50 | 0.5597 | 0.1596 | 0.1514 | ✓ |
 | 1.00 | 0.0010 | 0.0000 | 0.0000 | ✓ (trivial) |
 
 **All 16 bounds hold** (12 non-trivial + 4 trivial), on every scene and level. The

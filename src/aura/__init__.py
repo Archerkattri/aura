@@ -30,6 +30,22 @@ from aura.carriers import (
     carrier_maturity_map,
     default_registry,
 )
+from aura.calibration import (
+    IsotonicConfidenceCalibrator,
+    ReliabilityCertificate,
+    attach_calibrated_confidence,
+    conformal_mean_upper_bound,
+    conformal_prune_certificate,
+    expected_calibration_error,
+    pava_isotonic,
+    selection_quality_curve,
+)
+from aura.confidence import attach_confidence, multiview_confidence
+from aura.lod import (
+    apply_lod_plan,
+    certified_lod_plan,
+    evaluate_lod_plan,
+)
 from aura.codebook import (
     Codebook,
     assign_codes,
@@ -264,6 +280,19 @@ __all__ = [
     "AuraElement",
     "AuraPackage",
     "AuraAsset",
+    "IsotonicConfidenceCalibrator",
+    "ReliabilityCertificate",
+    "attach_calibrated_confidence",
+    "attach_confidence",
+    "apply_lod_plan",
+    "certified_lod_plan",
+    "conformal_mean_upper_bound",
+    "conformal_prune_certificate",
+    "evaluate_lod_plan",
+    "expected_calibration_error",
+    "multiview_confidence",
+    "pava_isotonic",
+    "selection_quality_curve",
     "AuraScene",
     "AblationConfig",
     "AURA_FORMAT",

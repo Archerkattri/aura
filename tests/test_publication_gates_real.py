@@ -191,7 +191,8 @@ def test_certified_lod_gate_fails_when_a_bound_breaks(artifacts_dir):
 
 
 def test_certified_lod_gate_fails_on_broken_bonferroni_accounting(artifacts_dir):
-    # alpha_per_level must equal alpha / K — quoting uncorrected levels is optimistic.
+    # alpha_per_level must equal alpha / R over the non-trivial levels — quoting the
+    # uncorrected family-wise alpha is optimistic.
     _rewrite(artifacts_dir / "lod_certified.json",
              lambda d: d.__setitem__("alpha_per_level", d["alpha"]))
     gate = P._certified_lod_gate(artifacts_dir, {})

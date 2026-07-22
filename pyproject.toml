@@ -28,7 +28,11 @@ Repository = "https://github.com/Archerkattri/aura"
 Issues = "https://github.com/Archerkattri/aura/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# `dev` is self-sufficient to run the full CPU test suite
+# (`pytest -m "not gpu and not local_data"`): several tests import matplotlib /
+# imageio / pillow to regenerate the README + hardening visuals, so they belong
+# here to keep the CI install line and the README quickstart in sync.
+dev = ["pytest>=8", "matplotlib>=3.7", "imageio>=2.34", "pillow>=10"]
 gpu = ["torch>=2.3"]
 assets = ["imageio>=2.34"]
 sota = [
@@ -43,7 +47,7 @@ sota = [
     "requests",
     "pillow_heif",
     "plyfile",
-    "moviepy==1.0.3",
+    "moviepy>=1.0.3,<2",
     "trimesh",
     "e3nn",
     "addict",

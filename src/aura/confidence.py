@@ -26,8 +26,8 @@ def multiview_confidence(carriers, manifest, *, scale=1.0, device="cuda", satura
     means = carriers["means"].to(device)             # [N,3]
     n = means.shape[0]
     counts = torch.zeros(n, dtype=torch.float32, device=device)
-    ones = torch.ones(n, 3, dtype=torch.float32, device=device)
-    homog = torch.cat([means, ones[:, :1]], dim=1)    # [N,4]
+    ones = torch.ones(n, 1, dtype=torch.float32, device=device)
+    homog = torch.cat([means, ones], dim=1)           # [N,4]
 
     for fr in manifest["frames"]:
         view, k, w, h = manifest_frame_to_camera(fr, scale)

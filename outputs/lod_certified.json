@@ -8,7 +8,8 @@
   ],
   "feature": "train_agree",
   "alpha": 0.1,
-  "alpha_per_level": 0.025,
+  "alpha_per_level": 0.03333333333333333,
+  "n_nontrivial_levels": 3,
   "correction": "bonferroni",
   "family_wise_confidence": 0.9,
   "levels": [
@@ -31,17 +32,18 @@
         "scene": "truck",
         "alpha": 0.1,
         "correction": "bonferroni",
-        "alpha_per_level": 0.025,
+        "alpha_per_level": 0.03333333333333333,
         "family_wise_confidence": 0.9,
         "sort": "calibrated_confidence_desc",
         "n_cal": 63939,
         "n_levels": 4,
+        "n_nontrivial_levels": 3,
         "loss": "discarded_reliability_mass",
         "levels": [
           {
             "keep_fraction": 0.1,
             "tau": 0.720322142331264,
-            "epsilon_certified": 0.33416935085379745,
+            "epsilon_certified": 0.333955670869548,
             "n_cal": 63939,
             "n_kept_cal": 6394,
             "trivial": false
@@ -49,7 +51,7 @@
           {
             "keep_fraction": 0.25,
             "tau": 0.5977449748434848,
-            "epsilon_certified": 0.23625896152909862,
+            "epsilon_certified": 0.23604528154484916,
             "n_cal": 63939,
             "n_kept_cal": 15985,
             "trivial": false
@@ -57,7 +59,7 @@
           {
             "keep_fraction": 0.5,
             "tau": 0.3938722813173252,
-            "epsilon_certified": 0.1104561512015769,
+            "epsilon_certified": 0.11024247121732743,
             "n_cal": 63939,
             "n_kept_cal": 31970,
             "trivial": false
@@ -76,7 +78,7 @@
         {
           "keep_fraction": 0.1,
           "tau": 0.720322,
-          "epsilon_certified": 0.334169,
+          "epsilon_certified": 0.333956,
           "n_kept_cal": 6394,
           "empirical_loss_eval": 0.32809,
           "holds": true,
@@ -85,7 +87,7 @@
         {
           "keep_fraction": 0.25,
           "tau": 0.597745,
-          "epsilon_certified": 0.236259,
+          "epsilon_certified": 0.236045,
           "n_kept_cal": 15985,
           "empirical_loss_eval": 0.232038,
           "holds": true,
@@ -94,7 +96,7 @@
         {
           "keep_fraction": 0.5,
           "tau": 0.393872,
-          "epsilon_certified": 0.110456,
+          "epsilon_certified": 0.110242,
           "n_kept_cal": 31970,
           "empirical_loss_eval": 0.105116,
           "holds": true,
@@ -120,25 +122,26 @@
         "scene": "garden",
         "alpha": 0.1,
         "correction": "bonferroni",
-        "alpha_per_level": 0.025,
+        "alpha_per_level": 0.03333333333333333,
         "family_wise_confidence": 0.9,
         "sort": "calibrated_confidence_desc",
         "n_cal": 56590,
         "n_levels": 4,
+        "n_nontrivial_levels": 3,
         "loss": "discarded_reliability_mass",
         "levels": [
           {
             "keep_fraction": 0.1,
             "tau": 0.7426899634237323,
-            "epsilon_certified": 0.3473766990785956,
+            "epsilon_certified": 0.34714956781560075,
             "n_cal": 56590,
             "n_kept_cal": 5659,
             "trivial": false
           },
           {
             "keep_fraction": 0.25,
-            "tau": 0.6180207564918008,
-            "epsilon_certified": 0.24535275447456428,
+            "tau": 0.6180207564918007,
+            "epsilon_certified": 0.24512562321156944,
             "n_cal": 56590,
             "n_kept_cal": 14148,
             "trivial": false
@@ -146,7 +149,7 @@
           {
             "keep_fraction": 0.5,
             "tau": 0.41932790302023104,
-            "epsilon_certified": 0.1226134207360432,
+            "epsilon_certified": 0.12238628947304837,
             "n_cal": 56590,
             "n_kept_cal": 28295,
             "trivial": false
@@ -165,7 +168,7 @@
         {
           "keep_fraction": 0.1,
           "tau": 0.74269,
-          "epsilon_certified": 0.347377,
+          "epsilon_certified": 0.34715,
           "n_kept_cal": 5659,
           "empirical_loss_eval": 0.340074,
           "holds": true,
@@ -174,7 +177,7 @@
         {
           "keep_fraction": 0.25,
           "tau": 0.618021,
-          "epsilon_certified": 0.245353,
+          "epsilon_certified": 0.245126,
           "n_kept_cal": 14148,
           "empirical_loss_eval": 0.237718,
           "holds": true,
@@ -183,7 +186,7 @@
         {
           "keep_fraction": 0.5,
           "tau": 0.419328,
-          "epsilon_certified": 0.122613,
+          "epsilon_certified": 0.122386,
           "n_kept_cal": 28295,
           "empirical_loss_eval": 0.11642,
           "holds": true,
@@ -209,17 +212,18 @@
         "scene": "kitchen",
         "alpha": 0.1,
         "correction": "bonferroni",
-        "alpha_per_level": 0.025,
+        "alpha_per_level": 0.03333333333333333,
         "family_wise_confidence": 0.9,
         "sort": "calibrated_confidence_desc",
         "n_cal": 60000,
         "n_levels": 4,
+        "n_nontrivial_levels": 3,
         "loss": "discarded_reliability_mass",
         "levels": [
           {
             "keep_fraction": 0.1,
             "tau": 0.7761277430279311,
-            "epsilon_certified": 0.3643134861304804,
+            "epsilon_certified": 0.3640929035882757,
             "n_cal": 60000,
             "n_kept_cal": 6000,
             "trivial": false
@@ -227,7 +231,7 @@
           {
             "keep_fraction": 0.25,
             "tau": 0.6339531071124024,
-            "epsilon_certified": 0.2546658581733152,
+            "epsilon_certified": 0.25444527563111047,
             "n_cal": 60000,
             "n_kept_cal": 15000,
             "trivial": false
@@ -235,7 +239,7 @@
           {
             "keep_fraction": 0.5,
             "tau": 0.44253001006575404,
-            "epsilon_certified": 0.12572454571476277,
+            "epsilon_certified": 0.12550396317255802,
             "n_cal": 60000,
             "n_kept_cal": 30000,
             "trivial": false
@@ -254,7 +258,7 @@
         {
           "keep_fraction": 0.1,
           "tau": 0.776128,
-          "epsilon_certified": 0.364313,
+          "epsilon_certified": 0.364093,
           "n_kept_cal": 6000,
           "empirical_loss_eval": 0.35983,
           "holds": true,
@@ -263,7 +267,7 @@
         {
           "keep_fraction": 0.25,
           "tau": 0.633953,
-          "epsilon_certified": 0.254666,
+          "epsilon_certified": 0.254445,
           "n_kept_cal": 15000,
           "empirical_loss_eval": 0.251139,
           "holds": true,
@@ -272,7 +276,7 @@
         {
           "keep_fraction": 0.5,
           "tau": 0.44253,
-          "epsilon_certified": 0.125725,
+          "epsilon_certified": 0.125504,
           "n_kept_cal": 30000,
           "empirical_loss_eval": 0.121555,
           "holds": true,
@@ -298,17 +302,18 @@
         "scene": "room",
         "alpha": 0.1,
         "correction": "bonferroni",
-        "alpha_per_level": 0.025,
+        "alpha_per_level": 0.03333333333333333,
         "family_wise_confidence": 0.9,
         "sort": "calibrated_confidence_desc",
         "n_cal": 53404,
         "n_levels": 4,
+        "n_nontrivial_levels": 3,
         "loss": "discarded_reliability_mass",
         "levels": [
           {
             "keep_fraction": 0.1,
             "tau": 0.8561305890389539,
-            "epsilon_certified": 0.44315080472005663,
+            "epsilon_certified": 0.44291699644965327,
             "n_cal": 53404,
             "n_kept_cal": 5340,
             "trivial": false
@@ -316,7 +321,7 @@
           {
             "keep_fraction": 0.25,
             "tau": 0.7419641113420553,
-            "epsilon_certified": 0.3178300554417483,
+            "epsilon_certified": 0.31759624717134494,
             "n_cal": 53404,
             "n_kept_cal": 13351,
             "trivial": false
@@ -324,7 +329,7 @@
           {
             "keep_fraction": 0.5,
             "tau": 0.5597082834501969,
-            "epsilon_certified": 0.15982489034951755,
+            "epsilon_certified": 0.15959108207911418,
             "n_cal": 53404,
             "n_kept_cal": 26702,
             "trivial": false
@@ -343,7 +348,7 @@
         {
           "keep_fraction": 0.1,
           "tau": 0.856131,
-          "epsilon_certified": 0.443151,
+          "epsilon_certified": 0.442917,
           "n_kept_cal": 5340,
           "empirical_loss_eval": 0.438997,
           "holds": true,
@@ -352,7 +357,7 @@
         {
           "keep_fraction": 0.25,
           "tau": 0.741964,
-          "epsilon_certified": 0.31783,
+          "epsilon_certified": 0.317596,
           "n_kept_cal": 13351,
           "empirical_loss_eval": 0.311704,
           "holds": true,
@@ -361,7 +366,7 @@
         {
           "keep_fraction": 0.5,
           "tau": 0.559708,
-          "epsilon_certified": 0.159825,
+          "epsilon_certified": 0.159591,
           "n_kept_cal": 26702,
           "empirical_loss_eval": 0.151399,
           "holds": true,

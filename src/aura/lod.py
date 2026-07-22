@@ -23,13 +23,20 @@ finite-sample Hoeffding bound the pruning certificate uses
 (:func:`aura.calibration.conformal_mean_upper_bound`) — computed on the scene's
 **calibration half only**, so the evaluation half never informs the plan.
 
-**Family-wise validity (Bonferroni).** ``K`` levels are ``K`` simultaneous
-certificates drawn from one conformal set, so a naive per-level ``1 - alpha`` would
-be optimistic. We certify each level at ``alpha' = alpha / K`` and state a
-**family-wise** confidence ``1 - alpha`` across the whole plan (union bound). The
-100% level is trivial (``epsilon = 0`` by definition — no carrier is pruned, so the
-discarded mass is exactly zero with no sampling uncertainty) and is flagged
-``trivial: true``.
+**Family-wise validity (Bonferroni over the non-trivial levels).** A ``K``-level plan
+makes ``K`` simultaneous statements, but only the ``R`` **non-trivial** levels
+(keep-fraction ``< 1``) are *random* certificates drawn from one conformal set. The
+100% level is **deterministic**: ``epsilon = 0`` by definition — no carrier is pruned,
+so the discarded mass is exactly zero with no sampling uncertainty — and is flagged
+``trivial: true``. By the union bound the family-wise error is at most the sum of the
+per-level errors, and the deterministic level contributes exactly ``0``, so it needs
+no error budget. We therefore split ``alpha`` over the ``R`` **random** levels only —
+``alpha' = alpha / R`` — and still guarantee family-wise ``1 - alpha`` (``R`` random
+intervals each at ``alpha'`` union-bound to ``R * alpha' = alpha``, plus one
+deterministic statement that never fails). This is strictly tighter than the naive
+``alpha / K``: with the default four levels ``R = 3``, so ``alpha' = alpha / 3``
+(``0.0333`` at ``alpha = 0.1``) instead of ``alpha / 4 = 0.025``, yielding smaller
+certified ``epsilon_k`` at the same honest ``1 - alpha`` guarantee.
 
 **Honest scope.** ``epsilon_k`` bounds *reliability* mass (a colour-agreement /
 occlusion-aware reliability proxy), **not** rendered PSNR. As the repo's P0/P2
@@ -92,11 +99,15 @@ def certified_lod_plan(confidence, reliability, *, levels=DEFAULT_LEVELS,
         Per-carrier reliability in ``[0,1]`` (``1`` = fully reliable) for the *same*
         conformal set. Only this calibration half informs the plan.
     levels : sequence of float
-        Keep-fractions in ``(0, 1]`` (default ``[0.10, 0.25, 0.50, 1.00]``). ``K =
-        len(levels)`` certificates are computed; each is certified at ``alpha' =
-        alpha / K`` for a family-wise ``1 - alpha`` guarantee.
+        Keep-fractions in ``(0, 1]`` (default ``[0.10, 0.25, 0.50, 1.00]``). Of the
+        ``K = len(levels)`` levels, the ``R`` with keep-fraction ``< 1`` are *random*
+        certificates; each is certified at ``alpha' = alpha / R``. Any level with
+        keep-fraction ``>= 1`` is the *deterministic* trivial level (``epsilon = 0``,
+        no interval) and consumes no error budget.
     alpha : float
-        Family-wise miscoverage. Per-level miscoverage is ``alpha / K`` (Bonferroni).
+        Family-wise miscoverage. Per-level miscoverage for the random levels is
+        ``alpha / R`` where ``R`` is the number of non-trivial levels (Bonferroni over
+        the random levels only; the trivial level is deterministic — union bound).
     scene : str, optional
         Recorded in the plan for provenance.
 
@@ -128,7 +139,13 @@ def certified_lod_plan(confidence, reliability, *, levels=DEFAULT_LEVELS,
             raise ValueError(f"keep_fraction must be in (0, 1], got {f}")
 
     K = len(levels)
-    alpha_per_level = alpha / K
+    # Only the NON-TRIVIAL levels (keep-fraction < 1) are random certificates that
+    # spend error budget; a keep-fraction >= 1 level prunes nothing and is a
+    # deterministic epsilon=0 statement (no interval). Bonferroni over the random
+    # levels only — union bound: R random intervals at alpha/R plus one deterministic
+    # statement give family-wise 1-alpha. Tighter than the naive alpha/K.
+    n_nontrivial = sum(1 for f in levels if f < 1.0)
+    alpha_per_level = alpha / n_nontrivial if n_nontrivial > 0 else alpha
 
     order = _stable_desc_order(confidence)
     sorted_conf = confidence[order]
@@ -178,6 +195,7 @@ def certified_lod_plan(confidence, reliability, *, levels=DEFAULT_LEVELS,
         "sort": "calibrated_confidence_desc",
         "n_cal": int(n),
         "n_levels": K,
+        "n_nontrivial_levels": int(n_nontrivial),
         "loss": "discarded_reliability_mass",
         "levels": level_entries,
     }

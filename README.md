@@ -24,6 +24,20 @@ trained-and-validated versus demo-stage — is stated inline. **Negatives are ke
 not hidden; there is no official-leaderboard SOTA claim anywhere in this repo.** A
 preprint describing the calibrated-confidence result accompanies this release.
 
+**Who it's for:** researchers and graphics/vision engineers who already have (or can
+produce) a 3DGS/DBS reconstruction and want a per-carrier reliability they can *trust*,
+*prune by*, *stream by*, and *export* — reviewers reproducing the paper, and pipeline
+authors who need a confidence channel that survives glTF/USD/SPZ interchange.
+
+**Contents:** [Killer property](#the-killer-property-calibrated-certified-exported-confidence) ·
+[Certified LOD](#certified-lod--streaming) · [Asset contract](#the-asset-contract) ·
+[Exports & interchange](#exports--interchange) · [Quickstart](#quickstart) ·
+[Training backends](#training-backends) ·
+[Verification & reproducibility](#verification-and-reproducibility) ·
+[Limitations & claim boundary](#limitations-and-claim-boundary) ·
+[v1.0 Known Limitations](#v10-known-limitations) · [Repository map](#repository-map) ·
+[License](#license)
+
 <p align="center">
   <img src="docs/truck_orbit.gif" width="82%" alt="AURA reconstruction orbit on Truck"><br>
   <em>Truck reconstructed as an AURA asset.</em>
@@ -173,17 +187,19 @@ the level-of-detail ladder a bare 3DGS/DBS splat cannot offer.
 
 With `K = 4` published keep-levels (`0.10 / 0.25 / 0.50 / 1.00`), each level's
 discarded-reliability-mass bound `ε_k` is a finite-sample Hoeffding upper bound
-computed on the **calibration half only**. The `K` levels are `K` simultaneous
-certificates, so each is certified at **`α' = α/K` (Bonferroni)** and the union
-bound gives **family-wise confidence `1−α` = 0.9** across the whole plan (strictly
-more conservative than an uncorrected bound — the honest direction). The `1.00`
-level is trivial (`ε = 0` by definition, nothing pruned):
+computed on the **calibration half only**. Only the `R = 3` **non-trivial** levels
+(`f < 1`) are *random* certificates; the `1.00` level is a *deterministic* statement
+(`ε = 0` by definition, nothing pruned — no interval). By the union bound the
+deterministic level costs no error budget, so we split `α` over the `R` random levels
+only: each is certified at **`α' = α/R` (Bonferroni over the non-trivial levels)** —
+`α/3 ≈ 0.0333`, not `α/4 = 0.025` — giving **family-wise confidence `1−α` = 0.9**
+across the whole plan at strictly tighter `ε_k` than the naive `α/K` correction:
 
 | keep fraction | Truck `ε` | Garden `ε` | Kitchen `ε` | Room `ε` |
 |---|---:|---:|---:|---:|
 | 0.10 | 0.334 | 0.347 | 0.364 | 0.443 |
-| 0.25 | 0.236 | 0.245 | 0.255 | 0.318 |
-| 0.50 | 0.111 | 0.123 | 0.126 | 0.160 |
+| 0.25 | 0.236 | 0.245 | 0.254 | 0.318 |
+| 0.50 | 0.110 | 0.122 | 0.126 | 0.160 |
 | 1.00 | 0.000 (trivial) | 0.000 (trivial) | 0.000 (trivial) | 0.000 (trivial) |
 
 **All 16 bounds hold** (12 non-trivial + 4 trivial) on the **disjoint eval half** of
@@ -392,7 +408,15 @@ For CUDA-first local work use the GPU environment when available
 (`source .gpu_venv/bin/activate`). The DBS-Beta fork installs under the `gsplat`
 package name and is kept isolated in `.dbs_venv` — never mix the two.
 
+The `data/` tree is gitignored, so a fresh clone has no scenes — fetch one first
+(`bash scripts/fetch_scene.sh truck data/tanks/truck`) or point the commands below
+at your own COLMAP capture. To reproduce the *paper's* results with no data or GPU
+at all, see [`REPRODUCE.md`](REPRODUCE.md) (everything runs from committed artifacts).
+
 ```bash
+# 0. Fetch a scene (data/ is gitignored; skip if you already have a capture).
+bash scripts/fetch_scene.sh truck data/tanks/truck
+
 # 1. Build a capture manifest from COLMAP.
 aura colmap-to-capture-manifest data/tanks/truck/sparse/0 \
   --root data/tanks/truck --image-dir data/tanks/truck/images \
@@ -457,6 +481,11 @@ same every-8th-view split) at a matched 1M-carrier budget on **Truck**, and the 
 | frozen-β control (DBS ablation) | 25.96 | 0.890 | 0.128 |
 | **AURA Beta** (adaptive) | **26.39** | **0.896** | **0.123** |
 
+> This B2 table is a **separate matched-1M-carrier run** from the *Truck compactness*
+> table above (which reports 26.02 fixed-Gaussian / 26.35 Beta), so the absolute PSNRs
+> differ by ~0.04 dB between runs; the typed-carrier *margin* is what is being compared,
+> and it holds in both.
+
 ![B2: adaptive-Beta win holds against a real gsplat-3DGS control on Truck (1/8 scenes)](assets/b2_gsplat_control_truck.png)
 
 Two honest readings: adaptive Beta beats the true gsplat-3DGS control by **+0.45 dB**, and
@@ -464,7 +493,8 @@ the **frozen-β control (25.96) lands within 0.03 dB of true 3DGS (25.94)** — 
 artificially weak; the typed win is real, not an artifact of a hobbled baseline. **Honest
 bound: this true-3DGS control is Truck-only (1 of 8 scenes).** The other seven scenes still
 compare against the frozen-β control only, so the headline **+0.80 dB 8-scene mean below is
-still measured against the frozen control**, and the UBS-6D arm was not built. Numbers read
+still measured against the frozen control**, and a further planned quality-backend variant was
+left unbuilt. Numbers read
 verbatim from `outputs/gsplat_control.json`; regenerate the chart with
 `python experiments/make_b2_gsplat_control_figure.py`.
 
@@ -622,7 +652,9 @@ AURA is a research preview; the honest boundary is part of the product.
   OOMs on the shared GPUs). Certified-LOD `ε` bounds reliability mass, not PSNR.
 - Third-party viewer compatibility is a **structural** check, not a runtime
   guarantee. The custom CUDA path is sm_120-only (RTX 5090).
-- 8 scenes only; two Mip-360 scene lists are placeholders.
+- Reliability is evaluated on **4 real scenes** (Truck, Garden, Kitchen, Room); the
+  wider **8-scene** quality set does not yet carry measured baseline-vs-candidate entries
+  for every Mip-NeRF-360 scene (see the frozen-control caveat under *v1.0 Known Limitations*).
 
 ## v1.0 Known Limitations
 
@@ -638,15 +670,17 @@ here as *open*, not implied done. Dated, per-change history lives in
   MCMC control confirms the typed-carrier win on Truck (+0.45 dB vs real 3DGS; the
   frozen-β control within 0.03 dB, so it was not artificially weak). The other seven
   scenes still compare against the frozen-β DBS ablation only, so the headline **+0.80 dB
-  8-scene mean remains a frozen-control number**. The **UBS-6D arm was not built** (no
-  trainer in this repo).
+  8-scene mean remains a frozen-control number**. A **further planned quality-backend variant
+  was left unbuilt** (no trainer for it in this repo).
 - **No external reproduction; no P3 independent re-captures.** The reliability story is
   validated on four single-capture scenes under two labels, with a CPU-only bit-for-bit
   reproduction from committed artifacts ([`REPRODUCE.md`](REPRODUCE.md)) — but no outside
   party has reproduced it, and there are no independent re-captures of the same scenes.
 - **Garden's native 17.4 MP render-loss label is rendered at half resolution** (the
   full-res raster OOMs under concurrent GPU load); its carriers and its colour/occlusion
-  labels are native. Four scenes is a small sample; two Mip-360 scene lists are placeholders.
+  labels are native. Four scenes is a small reliability sample, and the wider 8-scene quality
+  set does not yet carry measured baseline-vs-candidate entries for every Mip-NeRF-360 scene
+  (the 8-scene mean is a frozen-control number, as noted above).
 
 **Preview / demo-stage capabilities (shipped as scaffolding, labelled as such):**
 

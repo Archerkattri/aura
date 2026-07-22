@@ -38,7 +38,7 @@ cd aura
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e . pytest numpy imageio pillow matplotlib
+pip install -e ".[dev]"   # pytest + matplotlib + imageio + pillow (same as CI)
 ```
 
 ## Verified command sequence
@@ -84,7 +84,7 @@ git diff --stat outputs/calib_truck.json outputs/lod_certified.json outputs/cert
 |---|---|---:|---|
 | — | `git clone` (+ `.npz`) | ~20 s* | ~1.2 GB clone |
 | — | venv + CPU torch + deps | ~35 s* | torch `2.x+cpu`, numpy 2.x, `aura` CLI on PATH |
-| a | `pytest -m "not gpu and not local_data" -q` | ~110 s | **1895 passed, 37 skipped, 18 deselected, 0 failed** (exit 0)** |
+| a | `pytest -m "not gpu and not local_data" -q` | ~110 s | **1947 passed, 9 skipped, 23 deselected, 0 failed** (exit 0)** |
 | b | `publication-validation-report` | <1 s | **15/17 gates pass**, `remainingGateIds` = `secondary_ray_reflection`, `inverse_materials` (see below) |
 | c | `calibrate_confidence.py … truck` | <1 s | matches `outputs/calib_truck.json` exactly |
 | d | `lod_certified_eval.py` | ~1 s | "All certified bounds hold on the eval half" — 16/16 bounds, matches `outputs/lod_certified.json` |
@@ -100,10 +100,10 @@ they need the trained assets or a GPU.
 
 | Step | Artifact reproduced | What it establishes | Backs |
 |---|---|---|---|
-| a | (code contracts) | Isotonic (PAVA) calibration, the conformal pruning certificate, the certified-LOD math, and the KHR/USD exporters hold under 1895 CPU tests. | The method sections; `src/aura/calibration.py`, `lod.py` |
+| a | (code contracts) | Isotonic (PAVA) calibration, the conformal pruning certificate, the certified-LOD math, and the KHR/USD exporters hold under 1947 CPU tests. | The method sections; `src/aura/calibration.py`, `lod.py` |
 | b | live gate report | 15 gates content-check the committed real-scene results (calibration ECE, pruning certificate, cross-scene transfer, full-res + render-loss, certified LOD, registry honesty, and the local/external quality tables). | README "Results and validation" |
 | c | `calib_truck.json` | Raw view-count-heuristic ECE **0.5855 → 0.0014 calibrated** (~418×); selection AUC **calibrated 0.5808 vs opacity 0.3668**, within ~3% of the oracle ceiling 0.6009; the ε=0.6, α=0.1 conformal certificate is certified. | README "The killer property"; `docs/P0_CALIBRATED_CONFIDENCE.md` |
-| d | `lod_certified.json` | All **16** certified LOD bounds (4 scenes × 4 keep levels) hold on the disjoint eval half under family-wise Bonferroni accounting (α/K = 0.025, 1−α = 0.9), zero violations. | README P0/certified-LOD; `docs/P4_CERTIFIED_LOD.md` |
+| d | `lod_certified.json` | All **16** certified LOD bounds (4 scenes × 4 keep levels) hold on the disjoint eval half under family-wise Bonferroni accounting over the R = 3 non-trivial levels (α/R ≈ 0.0333; the full-keep level is deterministic, ε = 0; 1−α = 0.9), zero violations. | README P0/certified-LOD; `docs/P4_CERTIFIED_LOD.md` |
 | e | (CLI surface) | The shipped `lod-plan` command turns a reliability signal into a certified, Bonferroni-valid streaming plan — the product surface of the certificate. | README certified-LOD |
 | bonus | `cert_sweep.json` | The certificate's selective regime: per-scene onset ε* **0.47–0.62** across both reliability labels. | README P1; `docs/P1_CROSS_SCENE.md` |
 

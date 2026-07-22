@@ -1,5 +1,8 @@
 # AURA Paper Outline
 
+> **Superseded historical snapshot (2026-06-25).** This early outline predates the final paper;
+> the authoritative manuscript is `paper/main.tex` (v1.0.0). Kept for provenance only.
+
 Date: 2026-06-25
 
 ## Working Title

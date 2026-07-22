@@ -130,25 +130,31 @@ class IsotonicConfidenceCalibrator:
         order = np.argsort(raw, kind="mergesort")
         xs = raw[order]
         ys = reliability[order]
-        ws = None if weights is None else np.asarray(weights, dtype="float64").ravel()[order]
-        fit = pava_isotonic(ys, ws)
-        # Collapse to knots at unique x (keep the last fitted value per x, since
-        # the isotonic fit is constant within a pooled block).
-        ux, last_idx = np.unique(xs, return_index=False), None
-        # np.unique returns sorted unique; map each unique x to its fitted value
-        # (values are constant across ties because PAVA pooled equal-x too).
-        knot_x, knot_y = [], []
+        ws = (np.ones(xs.shape[0]) if weights is None
+              else np.asarray(weights, dtype="float64").ravel()[order])
+        # Pre-pool tied covariates BEFORE PAVA. PAVA merges adjacent blocks only
+        # when the running mean strictly decreases, so it does NOT pool equal-x
+        # points on its own; feeding it one weighted (mean-y, summed-weight) point
+        # per distinct x is what makes the fit the true L2-optimal isotonic
+        # regression on tied data (matches sklearn.isotonic). Without this,
+        # duplicate raw-confidence values would keep an arbitrary within-tie value
+        # instead of their weighted mean.
+        knot_x, pooled_y, pooled_w = [], [], []
         i = 0
         m = xs.shape[0]
         while i < m:
             j = i
             while j + 1 < m and xs[j + 1] == xs[i]:
                 j += 1
+            wblk = ws[i : j + 1]
+            wsum = float(wblk.sum())
             knot_x.append(float(xs[i]))
-            knot_y.append(float(fit[j]))  # constant across the tie block
+            pooled_y.append(float((ys[i : j + 1] * wblk).sum() / wsum))
+            pooled_w.append(wsum)
             i = j + 1
+        fit = pava_isotonic(np.asarray(pooled_y), np.asarray(pooled_w))
         self._x = np.asarray(knot_x, dtype="float64")
-        self._y = np.clip(np.asarray(knot_y, dtype="float64"), 0.0, 1.0)
+        self._y = np.clip(np.asarray(fit, dtype="float64"), 0.0, 1.0)
         self._fitted = True
         return self
 
@@ -213,15 +219,22 @@ def conformal_prune_certificate(conf, reliability, epsilon, alpha=0.1):
     retained set ``{conf >= tau}`` has mean *unreliability* ``1 - reliability``
     at most ``epsilon`` with distribution-free confidence ``1 - alpha``.
 
-    We use the finite-sample-valid upper confidence bound on the retained mean
-    risk. For the retained set of size ``m``, the risk estimate is the sample
-    mean of ``1 - reliability``; we add the split-conformal safety margin
-    ``ceil((m+1)(1-alpha))/m`` correction by requiring the empirical risk to sit
-    below ``epsilon`` at the conformal rank, i.e. the ``(1-alpha)`` upper
-    quantile of the retained unreliabilities must not exceed ``epsilon`` scaled
-    by the risk-control bound. The returned certificate reports the first tau
-    (scanning thresholds high->low, i.e. retaining ever more) at which the
-    guarantee still holds — the most inclusive certified prune.
+    For a candidate ``tau`` the retained set ``{conf >= tau}`` of size ``m`` has
+    risk estimate ``rhat = mean(1 - reliability)`` over the kept carriers; we
+    certify ``tau`` iff the distribution-free Hoeffding upper confidence bound
+    ``rhat + sqrt(log(1/alpha)/(2 m))`` (:func:`conformal_mean_upper_bound`, the
+    single audited risk primitive) is ``<= epsilon``. We scan the distinct
+    confidences from most inclusive (lowest ``tau``, retaining the most) upward
+    and return the FIRST ``tau`` whose bound holds — the most inclusive certified
+    prune.
+
+    Assumption (as in RCPS, Bates et al. 2021): the retained risk is monotone
+    non-increasing in ``tau`` (a stricter threshold cannot make the kept set less
+    reliable), so the pointwise-valid bound at the first crossing controls risk
+    without a multiplicity correction over the threshold grid. This holds
+    empirically on every scene reported (the risk curve is monotone; cf. the
+    LOD ladder in :mod:`aura.lod`, which does apply a family-wise Bonferroni
+    split across its published levels).
     """
     import numpy as np
 

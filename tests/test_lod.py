@@ -41,7 +41,13 @@ def test_plan_schema_and_provenance():
     assert plan["correction"] == "bonferroni"
     assert plan["sort"] == "calibrated_confidence_desc"
     assert plan["alpha"] == pytest.approx(0.1)
-    assert plan["alpha_per_level"] == pytest.approx(0.1 / len(DEFAULT_LEVELS))
+    # Bonferroni over the R non-trivial levels (keep-fraction < 1); the full-keep
+    # level is deterministic (epsilon=0) and spends no budget. DEFAULT_LEVELS has one
+    # trivial level, so R = len - 1 = 3 and alpha' = 0.1 / 3.
+    n_nontrivial = sum(1 for f in DEFAULT_LEVELS if f < 1.0)
+    assert n_nontrivial == len(DEFAULT_LEVELS) - 1
+    assert plan["n_nontrivial_levels"] == n_nontrivial
+    assert plan["alpha_per_level"] == pytest.approx(0.1 / n_nontrivial)
     assert plan["family_wise_confidence"] == pytest.approx(0.9)
     assert plan["n_cal"] == conf.shape[0]
     assert [lvl["keep_fraction"] for lvl in plan["levels"]] == [0.1, 0.25, 0.5, 1.0]
@@ -95,28 +101,31 @@ def test_full_keep_level_is_trivial():
 # --------------------------------------------------------------------------- #
 
 def test_bonferroni_alpha_prime_used_in_certificate():
-    # Each level's epsilon must be the Hoeffding UCB at alpha' = alpha/K on the
-    # per-carrier discard loss (reliability where pruned, else 0) — reconstruct it.
+    # Each level's epsilon must be the Hoeffding UCB at alpha' = alpha/R on the
+    # per-carrier discard loss (reliability where pruned, else 0), where R is the
+    # number of NON-TRIVIAL levels (the full-keep level is deterministic and spends
+    # no budget) — reconstruct it.
     conf, rel = _synthetic()
     alpha = 0.1
     plan = certified_lod_plan(conf, rel, alpha=alpha)
-    K = len(plan["levels"])
-    assert plan["alpha_per_level"] == pytest.approx(alpha / K)
+    R = sum(1 for lvl in plan["levels"] if not lvl["trivial"])
+    assert plan["alpha_per_level"] == pytest.approx(alpha / R)
     for lvl in plan["levels"]:
         if lvl["trivial"]:
             continue
         dropped = conf < float(lvl["tau"])
         discard_loss = np.where(dropped, np.clip(rel, 0, 1), 0.0)
-        expected = conformal_mean_upper_bound(discard_loss, alpha / K)
+        expected = conformal_mean_upper_bound(discard_loss, alpha / R)
         assert lvl["epsilon_certified"] == pytest.approx(expected)
 
 
 def test_more_levels_widens_each_certificate():
-    # More simultaneous levels => smaller alpha' => larger Hoeffding margin, so the
-    # same keep-fraction gets a strictly more conservative (larger) epsilon.
+    # More non-trivial levels => smaller alpha' => larger Hoeffding margin, so the
+    # same keep-fraction gets a strictly more conservative (larger) epsilon. `few`
+    # has R=1 non-trivial level (alpha'=alpha), `many` has R=3 (alpha'=alpha/3).
     conf, rel = _synthetic()
-    few = certified_lod_plan(conf, rel, levels=[0.5, 1.0])           # K=2
-    many = certified_lod_plan(conf, rel, levels=[0.1, 0.25, 0.5, 1.0])  # K=4
+    few = certified_lod_plan(conf, rel, levels=[0.5, 1.0])           # R=1 non-trivial
+    many = certified_lod_plan(conf, rel, levels=[0.1, 0.25, 0.5, 1.0])  # R=3 non-trivial
     eps_few = next(l["epsilon_certified"] for l in few["levels"] if l["keep_fraction"] == 0.5)
     eps_many = next(l["epsilon_certified"] for l in many["levels"] if l["keep_fraction"] == 0.5)
     assert eps_many > eps_few

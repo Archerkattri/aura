@@ -55,13 +55,18 @@ def build_lod_eval_report(outdir, *, feature="train_agree", alpha=0.1,
 
     outdir = Path(outdir)
     levels = [float(f) for f in levels]
+    # Bonferroni over the NON-TRIVIAL levels only (keep-fraction < 1): the full-keep
+    # level is a deterministic epsilon=0 statement, so R = #{f < 1} random certificates
+    # split alpha, alpha' = alpha / R (union bound). See aura.lod.certified_lod_plan.
+    n_nontrivial = sum(1 for f in levels if f < 1.0)
 
     report = {
         "experiment": "P4_certified_lod_streaming",
         "scenes": SCENES,
         "feature": feature,
         "alpha": alpha,
-        "alpha_per_level": alpha / len(levels),
+        "alpha_per_level": alpha / n_nontrivial if n_nontrivial else alpha,
+        "n_nontrivial_levels": n_nontrivial,
         "correction": "bonferroni",
         "family_wise_confidence": round(1.0 - alpha, 6),
         "levels": levels,
@@ -146,7 +151,9 @@ def main() -> None:
     Path(a.report).write_text(json.dumps(report, indent=2) + "\n")
 
     print(f"certified LOD eval — alpha={a.alpha} (family-wise), "
-          f"alpha'={report['alpha_per_level']:.4f} Bonferroni over K={len(a.levels)} levels")
+          f"alpha'={report['alpha_per_level']:.4f} Bonferroni over "
+          f"R={report['n_nontrivial_levels']} non-trivial levels "
+          f"(of K={len(a.levels)}; the full-keep level is deterministic)")
     for scene in SCENES:
         sc = report["by_scene"][scene]
         print(f"\n  {scene}  (n_cal={sc['n_cal']} n_eval={sc['n_eval']} "

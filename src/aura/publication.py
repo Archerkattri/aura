@@ -83,8 +83,10 @@ TRUCK_FULLRES_KEPT_MAX = 0.95
 
 # Certified LOD/streaming plan (P4, outputs/lod_certified.json): every published
 # level's bound must hold on the disjoint eval half, with the stated family-wise
-# Bonferroni accounting (alpha' = alpha / K). Committed run: all 16 bounds hold
-# across the four real scenes at alpha=0.1, K=4 (docs/P4_CERTIFIED_LOD.md).
+# Bonferroni accounting over the NON-TRIVIAL levels (alpha' = alpha / R, R = #{f < 1};
+# the full-keep level is deterministic, epsilon=0, no budget). Committed run: all 16
+# bounds hold across the four real scenes at alpha=0.1, K=4 (R=3, alpha'=1/30)
+# (docs/P4_CERTIFIED_LOD.md).
 LOD_ALPHA = 0.1
 LOD_MIN_LEVELS = 4
 
@@ -723,8 +725,9 @@ def _certified_lod_gate(outputs_dir: Path, artifacts: dict[str, str]) -> Publica
     """Certified LOD/streaming plan (P4) holds with honest family-wise accounting.
 
     Parses lod_certified.json and checks: the Bonferroni correction is stated and
-    arithmetically consistent (alpha' == alpha / K), all four real scenes carry at
-    least LOD_MIN_LEVELS levels, every level's certified bound holds on the
+    arithmetically consistent (alpha' == alpha / R over the R non-trivial levels; the
+    full-keep level is deterministic and consumes no budget), all four real scenes
+    carry at least LOD_MIN_LEVELS levels, every level's certified bound holds on the
     disjoint eval half, the full-keep level is trivial with epsilon exactly 0, and
     epsilon decreases as the keep-fraction grows.
     """
@@ -740,17 +743,23 @@ def _certified_lod_gate(outputs_dir: Path, artifacts: dict[str, str]) -> Publica
         )
     alpha = _num(payload.get("alpha"))
     alpha_pl = _num(payload.get("alpha_per_level"))
-    n_levels = len(payload.get("levels") or [])
+    top_levels = payload.get("levels") or []
+    n_levels = len(top_levels)
+    # Random certificates = the non-trivial levels (keep-fraction < 1); the full-keep
+    # level is a deterministic epsilon=0 statement that spends no error budget, so
+    # Bonferroni divides alpha over R = #{f < 1}, not over K.
+    n_nontrivial = sum(1 for f in top_levels if _num(f) is not None and _num(f) < 1.0)
     if payload.get("correction") != "bonferroni":
         gaps.append(f"lod_certified.json: correction {payload.get('correction')!r} != 'bonferroni'")
     if alpha != LOD_ALPHA:
         gaps.append(f"lod_certified.json: alpha {alpha} != {LOD_ALPHA}")
     if n_levels < LOD_MIN_LEVELS:
         gaps.append(f"lod_certified.json: only {n_levels} levels < {LOD_MIN_LEVELS}")
-    if alpha is not None and alpha_pl is not None and n_levels:
-        if abs(alpha_pl - alpha / n_levels) > 1e-12:
+    if alpha is not None and alpha_pl is not None and n_nontrivial:
+        if abs(alpha_pl - alpha / n_nontrivial) > 1e-12:
             gaps.append(
-                f"lod_certified.json: alpha_per_level {alpha_pl} != alpha/K = {alpha / n_levels}"
+                f"lod_certified.json: alpha_per_level {alpha_pl} != alpha/R = "
+                f"{alpha / n_nontrivial} (R={n_nontrivial} non-trivial levels)"
                 " — family-wise accounting broken"
             )
     by_scene = payload.get("by_scene") or {}

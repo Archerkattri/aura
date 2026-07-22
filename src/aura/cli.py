@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import sys
 from pathlib import Path
 
 from aura.assignment import RegionEvidence
@@ -77,6 +79,26 @@ NATIVE_DEMO_FALLBACKS = {
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point with a uniform error boundary.
+
+    Bad user input (a missing/malformed file, an out-of-range argument) exits
+    cleanly with ``aura: error: ...`` on stderr and status 1 instead of dumping a
+    raw Python traceback. Set ``AURA_DEBUG=1`` to re-raise the full traceback.
+    ``SystemExit`` (argparse's own ``--help`` / usage errors) and
+    ``KeyboardInterrupt`` pass through unchanged.
+    """
+    try:
+        return _dispatch(argv)
+    except (SystemExit, KeyboardInterrupt, BrokenPipeError):
+        raise
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        if os.environ.get("AURA_DEBUG"):
+            raise
+        print(f"aura: error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _dispatch(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aura")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -407,7 +429,9 @@ def main(argv: list[str] | None = None) -> int:
     lod_plan.add_argument("--feature", default="train_agree",
                           help="export-time feature key to calibrate into confidence")
     lod_plan.add_argument("--alpha", type=float, default=0.1,
-                          help="family-wise miscoverage; per-level is alpha/K (Bonferroni)")
+                          help="family-wise miscoverage; per-level is alpha/R over the "
+                               "R non-trivial levels (Bonferroni; the full-keep level is "
+                               "deterministic)")
     lod_plan.add_argument("--levels", type=float, nargs="+", default=[0.10, 0.25, 0.50, 1.00],
                           help="keep-fractions in (0,1]")
     lod_plan.add_argument("--seed", type=int, default=0)

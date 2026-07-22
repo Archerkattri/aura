@@ -49,3 +49,14 @@ LOCAL_SECRETS.md
 .claude/
 .gpu_venv/
 .dbs_venv/
+
+# SKiDL REPL debris (stray tooling artifacts, not part of the library)
+skidl_REPL.log
+skidl_REPL.erc
+*.erc
+
+# env symlink into ../../../envs (never track)
+.gpu_venv
+# run logs
+experiments/runs/**/*.log
+*.log
