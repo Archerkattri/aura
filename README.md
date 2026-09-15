@@ -59,6 +59,11 @@ authors who need a confidence channel that survives glTF/USD/SPZ interchange.
 </p>
 
 ## The killer property: calibrated, certified, exported confidence
+## Architecture at a glance
+
+![aura-current architecture](docs/readme_flow.svg)
+
+AURA keeps confidence attached to each carrier so calibration, certification, level-of-detail selection, and export use the same evidence.
 
 A plain 3DGS/DBS checkpoint has no notion of per-primitive trust. AURA exports,
 per carrier, a **calibrated** confidence `c ∈ [0,1]` — carriers reported at
