@@ -46,6 +46,15 @@ from aura.lod import (
     certified_lod_plan,
     evaluate_lod_plan,
 )
+from aura.distortion_budget import (
+    StreamCandidate,
+    calibrate_distortion_budget,
+    choose_stream_level,
+    evaluate_stream_certificate,
+    make_stream_metadata,
+    metadata_overhead_ratio,
+    validate_stream_metadata,
+)
 from aura.codebook import (
     Codebook,
     assign_codes,

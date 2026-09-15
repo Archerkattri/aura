@@ -188,6 +188,34 @@ def test_apply_lod_plan_full_level_keeps_all():
     assert subset["_lod_kept"] == n
 
 
+def test_apply_full_keep_retains_deployment_below_calibration_minimum():
+    """Level 1.0 must keep deployment carriers outside the calibration range."""
+    calibration_conf = np.array([0.5, 0.8])
+    calibration_rel = np.array([0.6, 0.9])
+    deployment_conf = np.array([0.2, 0.4, 0.95])
+    carriers = {"means": np.arange(9).reshape(3, 3), "confidence": deployment_conf}
+    plan = certified_lod_plan(calibration_conf, calibration_rel, levels=[0.5, 1.0])
+
+    subset = apply_lod_plan(carriers, plan, 1.0)
+
+    assert subset["_lod_kept"] == len(deployment_conf)
+    assert np.array_equal(subset["confidence"], deployment_conf)
+
+
+def test_apply_full_keep_retains_torch_deployment_mapping():
+    torch = pytest.importorskip("torch")
+    calibration_conf = np.array([0.5, 0.8])
+    calibration_rel = np.array([0.6, 0.9])
+    deployment_conf = torch.tensor([0.2, 0.4, 0.95])
+    carriers = {"means": torch.arange(9).reshape(3, 3), "confidence": deployment_conf}
+    plan = certified_lod_plan(calibration_conf, calibration_rel, levels=[0.5, 1.0])
+
+    subset = apply_lod_plan(carriers, plan, 1.0)
+
+    assert subset["_lod_kept"] == len(deployment_conf)
+    assert torch.equal(subset["confidence"], deployment_conf)
+
+
 def test_apply_lod_plan_unknown_level_raises():
     conf, rel = _synthetic(n=200)
     plan = certified_lod_plan(conf, rel)

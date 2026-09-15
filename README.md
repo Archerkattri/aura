@@ -229,6 +229,31 @@ Method, the full per-level `τ` / `ε_certified` / empirical-loss tables, and th
 plateau-rounding correctness finding: [`docs/P4_CERTIFIED_LOD.md`](docs/P4_CERTIFIED_LOD.md)
 (artifact: `outputs/lod_certified.json`).
 
+## Distortion-controlled streaming
+
+The confidence LOD ladder above certifies discarded reliability, not visual
+fidelity. AURA now also ships a finite-family **render-distortion budget** in
+[`aura.distortion_budget`](docs/AU_DISTORTION_BUDGET.md): freeze a nested ladder
+of encoded representations, measure each level against a frozen full asset on
+calibration views, apply one family-wise Bonferroni correction, and choose only
+from levels whose certified distortion fits the declared budget. The full asset
+is a deterministic fallback; if it cannot be sent under the operational cost
+constraints, the consumer abstains.
+
+The certificate binds the asset digest, renderer/version, codec/version,
+permitted level IDs, calibration-set digest and expiry. A mismatched or stale
+certificate is rejected. Held-out real-image loss is reported separately from
+the full-asset certificate, so a render-proxy or reliability score cannot be
+silently promoted to an image-quality guarantee.
+
+```powershell
+python experiments/streaming_distortion_pilot.py
+```
+
+The committed pilot is a synthetic CPU protocol check only. It is not a real
+scene, GPU throughput, external-baseline or official SOTA result; those remain
+the required AU research gate.
+
 ## The asset contract
 
 Beyond rendering, an `.aura` asset exposes a fixed set of first-class operations.
@@ -628,6 +653,7 @@ python experiments/cert_sweep.py             # P1b certificate operating study
 bash experiments/run_p2.sh room 0            # P2 full-res + render-loss (per scene)
 python experiments/collect_p2.py             # -> outputs/p2_summary.json
 python experiments/lod_certified_eval.py     # P4 certified LOD plan -> outputs/lod_certified.json
+python experiments/streaming_distortion_pilot.py # AU finite-family distortion pilot
 python experiments/bvh_query_benchmark.py    # P5 BVH parity + throughput -> outputs/bvh_query_benchmark.json
 python experiments/make_hardening_figures.py # the four result figures above
 python experiments/make_pruning_sweep_gif.py --scene room --frame 8
@@ -722,7 +748,9 @@ here as *open*, not implied done. Dated, per-change history lives in
 src/aura/
   calibration.py      calibrated confidence + conformal pruning certificate (P0)
   confidence.py       raw per-carrier confidence signal
-  lod.py              certified LOD/streaming plan (P4)   split_guard.py  eval-leak guard
+  lod.py              certified reliability LOD/streaming plan (P4)
+  distortion_budget.py finite-family render-distortion certificate (AU)
+  split_guard.py      eval-leak guard
   bvh.py              median-split carrier BVH (P5)       carrier_query.py  ray-query payloads
   codebook.py         k-means semantic codebook (P6)      carriers.py  typed-carrier registry + maturity
   gltf_splat.py       KHR_gaussian_splatting export (+ _AURA_CONFIDENCE)
@@ -744,3 +772,10 @@ assets/        P0-P2 result figures + the pruning-sweep animation
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Current release status
+
+The current release adds the distortion-budget contract, deterministic
+controller metadata and the synthetic held-out distortion pilot. The focused
+tests and pilot pass, including the selected budget and metadata-overhead
+checks. Real rendered-image and GPU quality validation remain external gates.

@@ -230,7 +230,11 @@ def apply_lod_plan(carriers, plan, level):
     conf_np = conf.detach().cpu().numpy() if hasattr(conf, "detach") else np.asarray(conf)
     conf_np = conf_np.ravel()
     n = conf_np.shape[0]
-    keep = np.ones(n, dtype=bool) if tau is None else (conf_np >= float(tau))
+    # A trivial/full-keep level is a deterministic no-pruning instruction. Its
+    # calibration minimum is provenance only; applying it to a deployment set
+    # with confidence below that calibration range must still retain every
+    # carrier. Non-trivial levels continue to use their calibrated threshold.
+    keep = np.ones(n, dtype=bool) if lvl.get("trivial", False) or tau is None else (conf_np >= float(tau))
 
     out = {}
     for key, value in carriers.items():

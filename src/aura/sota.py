@@ -125,7 +125,7 @@ def sota_ab_report(candidates: Sequence[SotaUpgradeCandidate]) -> dict[str, Any]
 
 
 def latest_sota_ab_artifact(results_dir: Path | None = None) -> dict[str, Any]:
-    """Load the newest SOTA A/B validation artifact, or a failing placeholder."""
+    """Load the newest SOTA A/B validation artifact, or a failed-status report."""
 
     root = results_dir or RESULTS
     matches = sorted(root.glob("sota_ab_validation*.json"), key=lambda path: path.stat().st_mtime, reverse=True)

@@ -5,6 +5,16 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
+## [Unreleased]
+
+### Added
+- **Finite-family distortion-controlled streaming** (`src/aura/distortion_budget.py`):
+  calibrates a predeclared nested encoded-level ladder against a frozen full asset,
+  applies family-wise risk correction, reports held-out full-asset and real-image
+  diagnostics separately, chooses a qualifying level or safely falls back/abstains,
+  and binds the certificate to asset, renderer, codec, level-set and expiry metadata.
+  The CPU protocol pilot is synthetic and makes no real-scene or SOTA claim.
+
 ## [1.0.2] — 2026-07-22
 
 ### Changed
