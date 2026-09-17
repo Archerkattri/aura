@@ -5,7 +5,7 @@ This is a research repository with its own git history. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). Every claim below is backed by a
 committed artifact — negatives are kept, not hidden.
 
-## [Unreleased]
+## [1.1.0] - 2026-09-17
 
 ### Added
 - **Finite-family distortion-controlled streaming** (`src/aura/distortion_budget.py`):
@@ -31,6 +31,10 @@ committed artifact — negatives are kept, not hidden.
   ties before the pool-adjacent-violators pass. The paper's published ECE/AUC are
   **unchanged** — real-data ties shift ECE by `< 1e-6`, below the reported 4-dp
   precision, and the figure reproduce-checks still pass bit-exactly. Regression test added.
+
+- Color clamp preserves gradients at the rails: the deterministic torch
+  zero-grad failures are fixed at root cause with forward-identical
+  values. Suite: 1928 passed, 37 environment-gated skips, 0 failures.
 
 ### Added
 - Public API surface exported from `aura.__init__`: `IsotonicConfidenceCalibrator`,
