@@ -178,11 +178,11 @@ def torch_carrier_response_tensors_batched(
 
     if is_batched_gaussian:
         _b = carrier_parameters["__batched__"]  # type: ignore[index]
-        all_colors = torch.clamp(_b["color"], min=0.0, max=1.0)
+        all_colors = _unit_clamp_with_grad(torch, _b["color"])
         all_opacities = torch.clamp(_b["opacity"], min=0.0, max=1.0)
         all_confidences = torch.clamp(_b["confidence"], min=0.0, max=1.0)
     else:
-        all_colors = torch.clamp(_stack_vector_parameter(torch, elements, "color", carrier_parameters, device, defaults=tuple(element.color for element in elements)), min=0.0, max=1.0)
+        all_colors = _unit_clamp_with_grad(torch, _stack_vector_parameter(torch, elements, "color", carrier_parameters, device, defaults=tuple(element.color for element in elements)))
         all_opacities = torch.clamp(_stack_scalar_parameter(torch, elements, "opacity", carrier_parameters, device, defaults=tuple(element.opacity for element in elements)), min=0.0, max=1.0)
         all_confidences = torch.clamp(
             _stack_scalar_parameter(torch, elements, "confidence", carrier_parameters, device, defaults=tuple(element.confidence for element in elements)),
@@ -310,7 +310,7 @@ def torch_carrier_response_tensors_batched(
         modulation = 1.0 - selected_bandwidth + selected_bandwidth * wave
         carrier_colors = torch.where(
             selected_payload_gabor.unsqueeze(1),
-            torch.clamp(all_colors[best_index] * modulation.unsqueeze(1), min=0.0, max=1.0),
+            _unit_clamp_with_grad(torch, all_colors[best_index] * modulation.unsqueeze(1)),
             carrier_colors,
         )
         transmittance = torch.where(selected_payload_gabor, torch.clamp(1.0 - gabor_opacities[best_index], min=0.0, max=1.0), transmittance)
@@ -402,7 +402,7 @@ def torch_carrier_response_tensors_batched(
             confidence,
         )
 
-    return torch.clamp(carrier_colors, min=0.0, max=1.0), torch.clamp(transmittance, min=0.0, max=1.0), torch.clamp(confidence, min=0.0, max=1.0), residual
+    return _unit_clamp_with_grad(torch, carrier_colors), torch.clamp(transmittance, min=0.0, max=1.0), torch.clamp(confidence, min=0.0, max=1.0), residual
 
 
 def torch_carrier_response_tensors(
@@ -454,7 +454,7 @@ def torch_carrier_response_tensors(
                 min=0.0,
                 max=1.0,
             )
-            carrier_colors[mask] = torch.clamp(surface_color, min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, surface_color)
             transmittance[mask] = torch.clamp(1.0 - surface_opacity, min=0.0, max=1.0)
             confidence[mask] = surface_confidence
         elif payload_type == "volume_cell":
@@ -472,7 +472,7 @@ def torch_carrier_response_tensors(
             )
             path_length = torch.clamp(exit_depth[mask, element_index] - best_depth[mask], min=0.0)
             alpha = volume_opacity * (1.0 - torch.exp(-density * path_length))
-            carrier_colors[mask] = torch.clamp(volume_color, min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, volume_color)
             transmittance[mask] = torch.clamp(1.0 - alpha, min=0.0, max=1.0)
             confidence[mask] = volume_confidence
         elif payload_type == "beta_kernel":
@@ -515,7 +515,7 @@ def torch_carrier_response_tensors(
             _freq_scale = float(element.payload.get("frequency_scale", 1.0))
             _app_shift = float(element.payload.get("appearance_shift", 0.0))
             scaled_weight = weight * _freq_scale
-            carrier_colors[mask] = torch.clamp(beta_color + _app_shift, min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, beta_color + _app_shift)
             transmittance[mask] = torch.clamp(1.0 - beta_opacity * scaled_weight, min=0.0, max=1.0)
             confidence[mask] = beta_confidence
         elif payload_type == "gabor_frequency":
@@ -576,7 +576,7 @@ def torch_carrier_response_tensors(
                     _wave_i = 0.5 + 0.5 * torch.sin(2.0 * pi * torch.sum(hit_points[mask] * _f_freq_vec, dim=1) + _f_phase)
                     modulation = modulation + _f_weight * _wave_i
                 modulation = 1.0 - bandwidth + bandwidth * modulation
-            carrier_colors[mask] = torch.clamp(gabor_color * modulation.unsqueeze(1), min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, gabor_color * modulation.unsqueeze(1))
             transmittance[mask] = torch.clamp(1.0 - gabor_opacity, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(gabor_confidence * bandwidth, min=0.0, max=1.0)
         elif payload_type == "neural_residual":
@@ -641,7 +641,7 @@ def torch_carrier_response_tensors(
                 else:
                     _anchor_contribution = torch.zeros((), dtype=torch.float32, device=device)
                 residual_strength = torch.clamp(residual_strength + _anchor_contribution, min=0.0, max=1.0)
-            carrier_colors[mask] = torch.clamp(neural_color, min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, neural_color)
             transmittance[mask] = torch.clamp(1.0 - neural_opacity * residual_strength, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(neural_confidence * (1.0 - residual_strength * 0.25), min=0.0, max=1.0)
             residual[mask] = True
@@ -654,7 +654,7 @@ def torch_carrier_response_tensors(
                 device,
                 default=element.payload.get("confidence", element.confidence),
             )
-            carrier_colors[mask] = torch.clamp(colors[element_index], min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, colors[element_index])
             transmittance[mask] = torch.clamp(1.0 - opacities[element_index], min=0.0, max=1.0)
             confidence[mask] = torch.clamp(semantic_confidence, min=0.0, max=1.0)
         elif payload_type == "gaussian_fallback":
@@ -686,7 +686,7 @@ def torch_carrier_response_tensors(
                 mean=gaussian_mean,
                 covariance_diag=covariance_diag,
             )
-            carrier_colors[mask] = torch.clamp(gaussian_color, min=0.0, max=1.0)
+            carrier_colors[mask] = _unit_clamp_with_grad(torch, gaussian_color)
             transmittance[mask] = torch.clamp(1.0 - gaussian_opacity * gaussian_weight, min=0.0, max=1.0)
             confidence[mask] = torch.clamp(gaussian_confidence * gaussian_weight, min=0.0, max=1.0)
 
@@ -1166,6 +1166,18 @@ def _half_extent(element: Any) -> tuple[float, float, float]:
     return tuple(
         max((max_corner[index] - min_corner[index]) * 0.5, 1e-4) for index in range(3)
     )  # type: ignore[return-value]
+def _unit_clamp_with_grad(torch: Any, value: Any) -> Any:
+    """Clamp colors to [0, 1] without killing gradients at the rails.
+
+    Forward values are exactly ``torch.clamp(value, 0, 1)``. Unlike a hard
+    clamp (zero gradient at 0.0/1.0), parameters sitting exactly on the
+    rails -- e.g. default white or black-start colors -- still receive
+    gradients, so rail-initialized colors stay learnable.
+    """
+    clamped = torch.clamp(value, min=0.0, max=1.0)
+    return torch.where((value >= 0.0) & (value <= 1.0), value, clamped)
+
+
 
 
 def _carrier_parameter(

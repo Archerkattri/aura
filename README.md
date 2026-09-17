@@ -6,7 +6,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21500723.svg)](https://doi.org/10.5281/zenodo.21500723)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-1947%20passing-16a34a.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1928%20passing-16a34a.svg)](tests/)
 [![Certified](https://img.shields.io/badge/certificate-split--conformal%20%C2%B7%2016%2F16%20bounds-d97706.svg)](docs/P4_CERTIFIED_LOD.md)
 
 **Adaptive Unified Radiance Asset** · research preview (`v1.0.2`)
@@ -21,7 +21,7 @@ it **gate-checked and CPU-reproducible**. The chain is Photogrammetry → NeRF �
 → **AURA**: not a faster renderer, but a more *trustworthy, inspectable* asset on
 top of one.
 
-This is **`v1.0.0`**, a scoped release with documented limitations (see
+This is **`v1.0.2`**, a scoped release with documented limitations (see
 [v1.0 Known Limitations](#v10-known-limitations)). It ships the trust-layer
 contribution complete and honestly bounded; the items it does *not* close (a full
 8-scene true-3DGS control, external reproduction, and a handful of demo-stage
@@ -778,4 +778,5 @@ MIT. See [LICENSE](LICENSE).
 The current release adds the distortion-budget contract, deterministic
 controller metadata and the synthetic held-out distortion pilot. The focused
 tests and pilot pass, including the selected budget and metadata-overhead
-checks. Real rendered-image and GPU quality validation remain external gates.
+checks. The CPU suite passes 1928 tests with 37 environment-gated skips and
+0 failures. Real rendered-image and GPU quality validation remain external gates.
