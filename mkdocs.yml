@@ -1,0 +1,70 @@
+site_name: aura
+site_description: >-
+  AURA is the trust layer for splats: calibrated per-carrier confidence turned into
+  distribution-free certificates, certified LOD ladders, and confidence that survives
+  glTF/USD/SPZ interchange.
+site_url: https://archerkattri.github.io/aura/
+repo_url: https://github.com/Archerkattri/aura
+repo_name: Archerkattri/aura
+docs_dir: docs_site
+
+# No CI: built locally (`mkdocs build`) and deployed manually to gh-pages.
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Calibrated confidence: p0-calibrated-confidence.md
+  - Distortion budget: distortion-budget.md
+  - Cross-scene: p1-cross-scene.md
+  - Full-res render loss: p2-fullres-renderloss.md
+  - Certified LOD: p4-certified-lod.md
+  - BVH ray query: p5-bvh-ray-query.md
+  - Carrier registry: p6-carrier-registry.md
+  - Relight decision: p7-relight-decision.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true

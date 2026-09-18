@@ -60,3 +60,6 @@ skidl_REPL.erc
 # run logs
 experiments/runs/**/*.log
 *.log
+
+# mkdocs build output
+site/
