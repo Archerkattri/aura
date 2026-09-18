@@ -1,0 +1,1281 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AURA is the trust layer for splats: calibrated per-carrier confidence turned into distribution-free certificates, certified LOD ladders, and confidence that survives glTF/USD/SPZ interchange.">
+      
+      
+      
+        <link rel="canonical" href="https://archerkattri.github.io/aura/p2-fullres-renderloss/">
+      
+      
+        <link rel="prev" href="../p1-cross-scene/">
+      
+      
+        <link rel="next" href="../p4-certified-lod/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Full-res render loss - aura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=IBM+Plex+Sans:300,300i,400,400i,700,700i%7CIBM+Plex+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"IBM Plex Sans";--md-code-font:"IBM Plex Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#p2-full-resolution-reproduction-and-a-render-loss-reliability-label" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="aura" class="md-header__button md-logo" aria-label="aura" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            aura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Full-res render loss
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="amber"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="amber"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Archerkattri/aura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Archerkattri/aura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="aura" class="md-nav__button md-logo" aria-label="aura" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    aura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Archerkattri/aura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Archerkattri/aura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p0-calibrated-confidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibrated confidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../distortion-budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distortion budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p1-cross-scene/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cross-scene
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full-res render loss
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full-res render loss
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-p0-reduced-and-what-full-resolution-means-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What P0 reduced, and what "full resolution" means here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduction-checks-against-p0-overlap-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduction checks against P0 (overlap points)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#p2a-full-resolution-colour-agreement-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2a — full resolution (colour-agreement label)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#p2b-a-render-loss-reliability-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2b — a render-loss reliability label
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="P2b — a render-loss reliability label">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#method-exact-blend-weight-attribution-not-a-first-order-ablation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Method: exact blend-weight attribution (not a first-order ablation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#head-to-head-colour-proxy-vs-render-loss-label-full-res-carriers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Head-to-head (colour proxy vs render-loss label, full-res carriers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduce
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p4-certified-lod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Certified LOD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p5-bvh-ray-query/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BVH ray query
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p6-carrier-registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Carrier registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p7-relight-decision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Relight decision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-p0-reduced-and-what-full-resolution-means-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What P0 reduced, and what "full resolution" means here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduction-checks-against-p0-overlap-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduction checks against P0 (overlap points)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#p2a-full-resolution-colour-agreement-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2a — full resolution (colour-agreement label)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#p2b-a-render-loss-reliability-label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2b — a render-loss reliability label
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="P2b — a render-loss reliability label">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#method-exact-blend-weight-attribution-not-a-first-order-ablation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Method: exact blend-weight attribution (not a first-order ablation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#head-to-head-colour-proxy-vs-render-loss-label-full-res-carriers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Head-to-head (colour proxy vs render-loss label, full-res carriers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduce
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="p2-full-resolution-reproduction-and-a-render-loss-reliability-label">P2 — full-resolution reproduction and a render-loss reliability label<a class="headerlink" href="#p2-full-resolution-reproduction-and-a-render-loss-reliability-label" title="Permanent link">&para;</a></h1>
+<p>P2 stress-tests the P0 killer property (calibrated, certified, exported per-carrier
+confidence) along the two axes P0 left open:</p>
+<ul>
+<li><strong>P2a — full resolution.</strong> P0 fit its carriers at <em>reduced</em> resolution. Does the
+  calibrated-confidence story survive at full resolution, or was it a low-res
+  artifact?</li>
+<li><strong>P2b — a render-loss label.</strong> P0's reliability label is a <strong>colour-agreement
+  proxy</strong> that never renders. Does the story survive when the label is measured from
+  the <strong>actual alpha-composited render</strong> on held-out views?</li>
+</ul>
+<p>Every number below traces to a committed JSON in <code>outputs/</code> (force-added; <code>outputs/</code>
+is gitignored). Reproduce with <code>experiments/run_p2.sh &lt;scene&gt; &lt;gpu&gt;</code> then
+<code>experiments/collect_p2.py</code> (→ <code>outputs/p2_summary.json</code>).</p>
+<h2 id="what-p0-reduced-and-what-full-resolution-means-here">What P0 reduced, and what "full resolution" means here<a class="headerlink" href="#what-p0-reduced-and-what-full-resolution-means-here" title="Permanent link">&para;</a></h2>
+<p><code>aura train-gsplat --scale s</code> (and the P2 trainer) render and compute the training
+loss at a linear fraction <code>s</code> of each camera's native resolution: the GT image is
+bilinearly downsampled to <code>s×</code>, the intrinsics scale by <code>s</code>, and gsplat rasterizes
+at <code>s·W × s·H</code> (<code>src/aura/gsplat_renderer.py:manifest_frame_to_camera</code>,
+<code>_load_image_rgb</code>, <code>train_scene_gsplat</code>). <strong>P0 used <code>--scale 0.25</code></strong> on the native
+<code>images/</code> COLMAP manifest — so the P0 carriers were fit against <strong>quarter-linear-
+resolution</strong> renders. (Note the reliability-<em>label</em> projection in
+<code>per_carrier_reliability.py</code> already used <code>scale=1.0</code>, i.e. full-res GT — so what P0
+reduced was the <strong>trained carriers</strong>, not the label evaluation.) For these scenes
+<code>0.25×</code> native is <code>≈ images_4 / images_2</code>, i.e. the <em>standard</em> 3DGS Mip-360 training
+resolution; <strong>full resolution here is <code>--scale 1.0</code> = native <code>images/</code></strong>, 16× the
+pixels P0 optimised against.</p>
+<p>Native resolutions: <strong>truck 979×546</strong>, <strong>room 3114×2075</strong>, <strong>kitchen 3115×2078</strong>,
+<strong>garden 5187×3361</strong>. <strong>All four scenes are trained at native <code>1.0</code></strong> (garden's
+17.4 MP fit during a transient GPU-memory window; the run took ~24 min on a shared
+5090 under a concurrent ~27 GB external job). The one memory concession is garden's
+<strong>render-loss label</strong>, whose 17.4 MP <em>rasterization</em> OOMs on the shared GPUs, so it is
+rendered at <code>0.5</code> (the carriers are still native <code>1.0</code>); the colour/occlusion labels,
+which only project points into full-res GT, run at native <code>1.0</code> for every scene.</p>
+<p>P2 also <strong>fixes a P0 protocol leak</strong>: P0 trained on <em>all</em> frames, so the every-8th
+views its reliability label calls "held-out" were actually seen in training. P2
+<strong>holds every-8th out of training</strong> (<code>train_carriers_p2.py</code>, llffhold <code>holdout=8</code>),
+so both labels are genuinely held-out. One consequence is that absolute reliability
+(and hence absolute selection AUC) sits a little below P0's mildly-optimistic
+figures; the conclusions are stated relative to each run's own oracle ceiling and to
+opacity, which is what transfers.</p>
+<h2 id="reproduction-checks-against-p0-overlap-points">Reproduction checks against P0 (overlap points)<a class="headerlink" href="#reproduction-checks-against-p0-overlap-points" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Calibration + certificate math is unchanged.</strong> Re-running
+   <code>experiments/calibrate_confidence.py</code> on the committed P0 <code>reliability_*.npz</code>
+   reproduces every committed <code>outputs/calib_&lt;scene&gt;{,_depth}.json</code> <strong>byte-for-byte</strong>
+   (all 8, verified this session). So any P2 movement is from the carriers/label, not
+   the calibration code.</li>
+<li><strong>The label pipeline reproduces P0 at matched resolution.</strong> The P2 <strong>quarter
+   control</strong> (<code>--scale 0.25</code>, the same resolution as P0, but with the clean
+   train-split) recovers P0's correlation/ECE story on every scene (e.g. room
+   corr(feature, reliability) <code>0.961</code> vs P0 <code>0.96</code>, ECE <code>0.470→0.0013</code> vs P0
+   <code>0.464→0.0016</code>). The small residual vs P0 is the leakage fix, not resolution.</li>
+</ol>
+<h2 id="p2a-full-resolution-colour-agreement-label">P2a — full resolution (colour-agreement label)<a class="headerlink" href="#p2a-full-resolution-colour-agreement-label" title="Permanent link">&para;</a></h2>
+<p>Per scene, colour-agreement label: <code>corr</code> = correlation of the export-time
+train-view feature with held-out reliability; ECE raw→calibrated; selection AUC
+(calibrated / oracle ceiling / opacity); certificate kept-fraction at ε=0.6, α=0.1.
+Rows: <strong>P0</strong> = committed <code>calib_&lt;scene&gt;.json</code> (0.25, all-frames, the pre-P2 baseline);
+<strong>quarter</strong> = P2 control (0.25, clean train-split); <strong>FULL-RES</strong> = P2 headline (1.0,
+train-split); <strong>depth</strong> = full-res occlusion-aware label.</p>
+<table>
+<thead>
+<tr>
+<th>scene</th>
+<th>condition</th>
+<th style="text-align: right;">corr</th>
+<th style="text-align: right;">ECE raw→cal</th>
+<th style="text-align: right;">AUC cal</th>
+<th style="text-align: right;">oracle</th>
+<th style="text-align: right;">opacity</th>
+<th style="text-align: right;">cert kept</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>truck</strong></td>
+<td>P0 (0.25, all-frames)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.586→0.0014</td>
+<td style="text-align: right;">0.581</td>
+<td style="text-align: right;">0.601</td>
+<td style="text-align: right;">0.367</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>quarter (0.25, split)</td>
+<td style="text-align: right;">0.93</td>
+<td style="text-align: right;">0.671→0.0014</td>
+<td style="text-align: right;">0.492</td>
+<td style="text-align: right;">0.507</td>
+<td style="text-align: right;">0.287</td>
+<td style="text-align: right;">0.74</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>FULL-RES (1.0, split)</strong></td>
+<td style="text-align: right;"><strong>0.93</strong></td>
+<td style="text-align: right;">0.661→0.0017</td>
+<td style="text-align: right;"><strong>0.505</strong></td>
+<td style="text-align: right;">0.520</td>
+<td style="text-align: right;">0.302</td>
+<td style="text-align: right;">0.77</td>
+</tr>
+<tr>
+<td></td>
+<td>full-res depth</td>
+<td style="text-align: right;">0.86</td>
+<td style="text-align: right;">0.651→0.0022</td>
+<td style="text-align: right;">0.507</td>
+<td style="text-align: right;">0.536</td>
+<td style="text-align: right;">0.326</td>
+<td style="text-align: right;">0.81</td>
+</tr>
+<tr>
+<td><strong>garden</strong></td>
+<td>P0 (0.25, all-frames)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.551→0.0015</td>
+<td style="text-align: right;">0.605</td>
+<td style="text-align: right;">0.619</td>
+<td style="text-align: right;">0.450</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>quarter (0.25, split)</td>
+<td style="text-align: right;">0.93</td>
+<td style="text-align: right;">0.554→0.0017</td>
+<td style="text-align: right;">0.602</td>
+<td style="text-align: right;">0.617</td>
+<td style="text-align: right;">0.450</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>FULL-RES (1.0, split)</strong></td>
+<td style="text-align: right;"><strong>0.92</strong></td>
+<td style="text-align: right;">0.503→0.0010</td>
+<td style="text-align: right;"><strong>0.642</strong></td>
+<td style="text-align: right;">0.659</td>
+<td style="text-align: right;">0.482</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>full-res depth</td>
+<td style="text-align: right;">0.89</td>
+<td style="text-align: right;">0.505→0.0017</td>
+<td style="text-align: right;">0.640</td>
+<td style="text-align: right;">0.666</td>
+<td style="text-align: right;">0.480</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td><strong>kitchen</strong></td>
+<td>P0 (0.25, all-frames)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.557→0.0006</td>
+<td style="text-align: right;">0.629</td>
+<td style="text-align: right;">0.633</td>
+<td style="text-align: right;">0.458</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>quarter (0.25, split)</td>
+<td style="text-align: right;">0.98</td>
+<td style="text-align: right;">0.567→0.0006</td>
+<td style="text-align: right;">0.619</td>
+<td style="text-align: right;">0.623</td>
+<td style="text-align: right;">0.448</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>FULL-RES (1.0, split)</strong></td>
+<td style="text-align: right;"><strong>0.98</strong></td>
+<td style="text-align: right;">0.537→0.0007</td>
+<td style="text-align: right;"><strong>0.646</strong></td>
+<td style="text-align: right;">0.651</td>
+<td style="text-align: right;">0.478</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>full-res depth</td>
+<td style="text-align: right;">0.97</td>
+<td style="text-align: right;">0.529→0.0008</td>
+<td style="text-align: right;">0.656</td>
+<td style="text-align: right;">0.663</td>
+<td style="text-align: right;">0.497</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td><strong>room</strong></td>
+<td>P0 (0.25, all-frames)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.464→0.0016</td>
+<td style="text-align: right;">0.720</td>
+<td style="text-align: right;">0.729</td>
+<td style="text-align: right;">0.534</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>quarter (0.25, split)</td>
+<td style="text-align: right;">0.96</td>
+<td style="text-align: right;">0.470→0.0013</td>
+<td style="text-align: right;">0.715</td>
+<td style="text-align: right;">0.724</td>
+<td style="text-align: right;">0.529</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>FULL-RES (1.0, split)</strong></td>
+<td style="text-align: right;"><strong>0.96</strong></td>
+<td style="text-align: right;">0.448→0.0019</td>
+<td style="text-align: right;"><strong>0.734</strong></td>
+<td style="text-align: right;">0.743</td>
+<td style="text-align: right;">0.546</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td>full-res depth</td>
+<td style="text-align: right;">0.94</td>
+<td style="text-align: right;">0.467→0.0024</td>
+<td style="text-align: right;">0.716</td>
+<td style="text-align: right;">0.729</td>
+<td style="text-align: right;">0.535</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict — the P0 story holds at full resolution.</strong> The export-time train-view
+colour-agreement feature still predicts held-out reliability at <strong>r ≈ 0.92–0.98</strong>
+(occlusion-aware depth label 0.86–0.97); the view-count and opacity heuristics stay
+uninformative (|corr| ≤ 0.17). Isotonic calibration still drops ECE by <strong>~240–770×</strong>
+to ~0.001–0.002. Calibrated confidence lands <strong>within ~1–3% of the oracle ceiling</strong>
+(truck 2.9%, garden 2.6%, kitchen 0.8%, room 1.2%) and beats opacity, the raw
+heuristic, and random on every scene. Crucially, <strong>full-res is at or slightly above
+the 0.25 quarter control on every scene</strong> (AUC 0.505 vs 0.492, 0.642 vs 0.602, 0.646
+vs 0.619, 0.734 vs 0.715) — the P0 conclusions are <em>not</em> a reduced-resolution
+artifact; if anything full resolution helps a little. Absolute AUC sits a touch below
+P0's committed values, which the quarter control localises to the train/test-leakage
+fix (it moves the same way at 0.25 and 1.0), not to resolution.</p>
+<h2 id="p2b-a-render-loss-reliability-label">P2b — a render-loss reliability label<a class="headerlink" href="#p2b-a-render-loss-reliability-label" title="Permanent link">&para;</a></h2>
+<h3 id="method-exact-blend-weight-attribution-not-a-first-order-ablation">Method: exact blend-weight attribution (not a first-order ablation)<a class="headerlink" href="#method-exact-blend-weight-attribution-not-a-first-order-ablation" title="Permanent link">&para;</a></h3>
+<p>A leave-one-out render-loss delta per carrier is what one wants, but a first-order
+gate gradient <code>ΔL_i ≈ −∂L/∂g_i</code> (gate = per-carrier opacity multiplier) was tried and
+<strong>rejected</strong>: in an over-complete splat scene individual carriers are highly
+redundant, so the first-order delta is dominated by noise and does <em>not</em> track true
+finite ablation (measured correlation to true group-ablation deltas ≈ 0.11; ranking
+by it, removing the "most-harmful" carriers still <em>raised</em> held-out loss). It is not a
+usable label.</p>
+<p>Instead P2 uses an <strong>exact</strong> attribution. The rendered image is <em>linear</em> in the
+carrier colours, <code>R_p = Σ_i w_{i,p} c_i</code>, where <code>w_{i,p} = α_i T_i</code> is carrier <code>i</code>'s
+alpha-compositing blend weight at pixel <code>p</code> (<code>T_i</code> = transmittance in front, so
+occluded / low-opacity carriers get <code>w ≈ 0</code> for free). Because <code>R</code> is linear in <code>c</code>,
+<code>∂(Σ_p R_p f_p)/∂c_i = Σ_p w_{i,p} f_p</code> is <strong>exact</strong> for any pixel weighting <code>f</code>
+independent of <code>c_i</code>. Three colour-backward passes per held-out view therefore recover
+per carrier, exactly, <code>W_i = Σ_p w_{i,p}</code>, <code>A_i = Σ_p w_{i,p} GT_p</code>, and
+<code>B_i = Σ_p w_{i,p} GT_p²</code>, and the carrier's blend-weighted rendering error closes in
+form:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>SE_i   = Σ_ch (c_{i,ch}² W_i − 2 c_{i,ch} A_{i,ch} + B_{i,ch})
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>dist_i = sqrt(SE_i / W_i)              # blend-weighted RMS colour distance
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>reliability_i = exp(−β · dist_i),  β=4 # same squash as the colour label
+</code></pre></div>
+<p>This is the P0 colour label upgraded to the <strong>true alpha composite</strong>: it scores each
+carrier by whether it paints the right colour <em>where it is actually visible</em>, is
+occlusion-exact (carriers with <code>W_i</code> below a floor are unlabelled, not mislabelled),
+and is a faithful per-carrier attribution of the rendered L2 error. It is not a
+first-order approximation — the render is genuinely linear in colour.
+(<code>experiments/render_loss_reliability.py</code>; pure rule + tests in
+<code>tests/test_render_loss_reliability.py</code>.) Features and the labelled carrier set are
+copied from the P0 colour npz for the <strong>same</strong> carriers, so only the label changes
+head-to-head.</p>
+<h3 id="head-to-head-colour-proxy-vs-render-loss-label-full-res-carriers">Head-to-head (colour proxy vs render-loss label, full-res carriers)<a class="headerlink" href="#head-to-head-colour-proxy-vs-render-loss-label-full-res-carriers" title="Permanent link">&para;</a></h3>
+<p>Same full-res (native-1.0) carriers and same labelled carrier set; only the label
+changes. <code>corr(feat)</code> = export feature vs the label; <code>corr(c↔r)</code> = colour label vs
+render-loss label; <code>lab</code> = labelled fraction; then ECE, AUC (cal/oracle/opacity),
+cert kept@ε=0.6. (Garden's render-loss label is rendered at 0.5; see above.)</p>
+<table>
+<thead>
+<tr>
+<th>scene</th>
+<th>label</th>
+<th style="text-align: right;">corr(feat)</th>
+<th style="text-align: right;">corr(c↔r)</th>
+<th style="text-align: right;">lab</th>
+<th style="text-align: right;">ECE raw→cal</th>
+<th style="text-align: right;">AUC cal</th>
+<th style="text-align: right;">oracle</th>
+<th style="text-align: right;">opacity</th>
+<th style="text-align: right;">cert kept</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>truck</strong></td>
+<td>colour (proxy)</td>
+<td style="text-align: right;">0.93</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.99</td>
+<td style="text-align: right;">0.661→0.0017</td>
+<td style="text-align: right;">0.505</td>
+<td style="text-align: right;">0.520</td>
+<td style="text-align: right;">0.302</td>
+<td style="text-align: right;">0.77</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>render-loss</strong></td>
+<td style="text-align: right;">0.66</td>
+<td style="text-align: right;">0.64</td>
+<td style="text-align: right;">0.71</td>
+<td style="text-align: right;">0.730→0.0013</td>
+<td style="text-align: right;">0.353</td>
+<td style="text-align: right;">0.407</td>
+<td style="text-align: right;">0.237</td>
+<td style="text-align: right;">0.26</td>
+</tr>
+<tr>
+<td><strong>garden</strong></td>
+<td>colour (proxy)</td>
+<td style="text-align: right;">0.92</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.94</td>
+<td style="text-align: right;">0.503→0.0010</td>
+<td style="text-align: right;">0.642</td>
+<td style="text-align: right;">0.659</td>
+<td style="text-align: right;">0.482</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>render-loss</strong></td>
+<td style="text-align: right;">0.75</td>
+<td style="text-align: right;">0.75</td>
+<td style="text-align: right;">0.93</td>
+<td style="text-align: right;">0.622→0.0009</td>
+<td style="text-align: right;">0.444</td>
+<td style="text-align: right;">0.481</td>
+<td style="text-align: right;">0.343</td>
+<td style="text-align: right;">0.79</td>
+</tr>
+<tr>
+<td><strong>kitchen</strong></td>
+<td>colour (proxy)</td>
+<td style="text-align: right;">0.98</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1.00</td>
+<td style="text-align: right;">0.537→0.0007</td>
+<td style="text-align: right;">0.646</td>
+<td style="text-align: right;">0.651</td>
+<td style="text-align: right;">0.478</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>render-loss</strong></td>
+<td style="text-align: right;">0.81</td>
+<td style="text-align: right;">0.82</td>
+<td style="text-align: right;">0.99</td>
+<td style="text-align: right;">0.646→0.0006</td>
+<td style="text-align: right;">0.451</td>
+<td style="text-align: right;">0.479</td>
+<td style="text-align: right;">0.346</td>
+<td style="text-align: right;">0.78</td>
+</tr>
+<tr>
+<td><strong>room</strong></td>
+<td>colour (proxy)</td>
+<td style="text-align: right;">0.96</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1.00</td>
+<td style="text-align: right;">0.448→0.0019</td>
+<td style="text-align: right;">0.734</td>
+<td style="text-align: right;">0.743</td>
+<td style="text-align: right;">0.546</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>render-loss</strong></td>
+<td style="text-align: right;">0.78</td>
+<td style="text-align: right;">0.78</td>
+<td style="text-align: right;">0.96</td>
+<td style="text-align: right;">0.537→0.0014</td>
+<td style="text-align: right;">0.578</td>
+<td style="text-align: right;">0.618</td>
+<td style="text-align: right;">0.443</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict — the killer property survives the stricter label, with honestly weaker
+margins.</strong> Under the render-grounded label: (1) calibration still crushes ECE by
+2–3 orders of magnitude (to ~0.001); (2) the export-time colour feature still
+<em>predicts</em> the render-loss label, but more weakly — <strong>r ≈ 0.66–0.81</strong> vs the proxy's
+0.92–0.98 — because the render label penalises occlusion and visibility-weighted
+colour error the occlusion-blind proxy misses (the two labels themselves correlate
+only r ≈ 0.64–0.82); (3) calibrated confidence stays <strong>above opacity/random and near
+oracle, but the oracle gap widens to ~6–13%</strong> (vs ~1–3% for colour); (4) the conformal
+certificate stays valid but becomes <strong>more selective</strong> — at ε=0.6 the kept fraction
+drops from ~1.0 (colour) toward the floater-heavy scenes' true reliability (truck
+keeps 0.26, garden/kitchen ~0.78, room 1.0), i.e. the render label honestly refuses to
+certify carriers the proxy over-credited.</p>
+<p><strong>Honest caveat, reconfirmed.</strong> A directional finite-ablation prune
+(<code>directional_prune</code> in the render-loss summaries) reproduces P0's caveat under the
+render label. <strong>Opacity is the render-preserving prune on every scene</strong>: dropping the
+lowest-opacity carriers leaves held-out render L1 essentially unchanged (e.g. room
+0.0408→0.0408, garden 0.0581→0.0587 at a 10%-keep-out), while dropping the
+least-<em>reliable</em> carriers costs at least as much and usually more L1 (room
+0.0408→0.0458, kitchen 0.0664→0.0722, garden 0.0581→0.0665; truck's least-reliable are
+render-invisible so both are ~free). This is the same structural fact P0 flagged:
+opacity <em>is</em> the alpha blend weight, so the least-reliable carriers are often the most
+<em>visible</em> (load-bearing but slightly wrong-coloured) — reliability and
+render-PSNR-preservation optimise different things. The P2 render-loss label makes this
+explicit rather than resolving it.</p>
+<h2 id="reproduce">Reproduce<a class="headerlink" href="#reproduce" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># full pipeline for one scene (train fr@1.0 + quarter@0.25 + 3 labels + 4 calibrations)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>experiments/run_p2.sh<span class="w"> </span>room<span class="w"> </span><span class="m">0</span><span class="w">            </span><span class="c1"># native full-res (also truck, kitchen, garden)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># garden's 17.4 MP render-loss RASTER OOMs on a shared GPU; render that one label at 0.5:</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>experiments/render_loss_reliability.py<span class="w"> </span>--carriers<span class="w"> </span>outputs/garden-fr.aura<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span>--manifest<span class="w"> </span>outputs/garden-fr-manifest.json<span class="w"> </span>--color-npz<span class="w"> </span>outputs/reliability_garden_fr.npz<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>--out<span class="w"> </span>outputs/reliability_renderloss_garden_fr.npz<span class="w"> </span>--scale<span class="w"> </span><span class="m">0</span>.5
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>experiments/collect_p2.py<span class="w">               </span><span class="c1"># -&gt; outputs/p2_summary.json</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

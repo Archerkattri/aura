@@ -1,0 +1,1095 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AURA is the trust layer for splats: calibrated per-carrier confidence turned into distribution-free certificates, certified LOD ladders, and confidence that survives glTF/USD/SPZ interchange.">
+      
+      
+      
+        <link rel="canonical" href="https://archerkattri.github.io/aura/p6-carrier-registry/">
+      
+      
+        <link rel="prev" href="../p5-bvh-ray-query/">
+      
+      
+        <link rel="next" href="../p7-relight-decision/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Carrier registry - aura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=IBM+Plex+Sans:300,300i,400,400i,700,700i%7CIBM+Plex+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"IBM Plex Sans";--md-code-font:"IBM Plex Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#p6-carrier-registry-honesty-langsplatv2-style-codebook-semantics" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="aura" class="md-header__button md-logo" aria-label="aura" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            aura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Carrier registry
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="amber"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="amber"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Archerkattri/aura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Archerkattri/aura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="aura" class="md-nav__button md-logo" aria-label="aura" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    aura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Archerkattri/aura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Archerkattri/aura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p0-calibrated-confidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibrated confidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../distortion-budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distortion budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p1-cross-scene/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cross-scene
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p2-fullres-renderloss/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full-res render loss
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p4-certified-lod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Certified LOD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p5-bvh-ray-query/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BVH ray query
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Carrier registry
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Carrier registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-carrier-truth-table-verified-in-code-2026-07-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Carrier truth table (verified in code, 2026-07-03)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-the-maturity-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The maturity contract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. The maturity contract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#publication-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publication gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-silent-fallback-fix-hybridpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The silent-fallback fix (hybrid.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-orphaned-neural-footprint-prismpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The orphaned neural footprint (prism.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-codebook-design-srcauracodebookpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Codebook design (src/aura/codebook.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-honest-scope-validated-vs-gpu-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Honest scope — validated vs GPU-gated
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-what-backs-the-open-vocab-query-demo-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. What backs the open-vocab query demo today
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p7-relight-decision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Relight decision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-carrier-truth-table-verified-in-code-2026-07-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Carrier truth table (verified in code, 2026-07-03)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-the-maturity-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The maturity contract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. The maturity contract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#publication-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publication gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-silent-fallback-fix-hybridpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The silent-fallback fix (hybrid.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-orphaned-neural-footprint-prismpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The orphaned neural footprint (prism.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-codebook-design-srcauracodebookpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Codebook design (src/aura/codebook.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-honest-scope-validated-vs-gpu-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Honest scope — validated vs GPU-gated
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-what-backs-the-open-vocab-query-demo-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. What backs the open-vocab query demo today
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="p6-carrier-registry-honesty-langsplatv2-style-codebook-semantics">P6 — Carrier registry honesty + LangSplatV2-style codebook semantics<a class="headerlink" href="#p6-carrier-registry-honesty-langsplatv2-style-codebook-semantics" title="Permanent link">&para;</a></h1>
+<p>This note covers audit item <strong>M4</strong> (carrier registry honesty, CPU half) and the
+<strong>P4 codebook-semantics</strong> infrastructure. It is the source of truth for what each
+carrier type can back, and for what the semantic codebook layer does and does not
+validate. Scope discipline: every claim below is either validated on CPU in CI, or
+explicitly marked GPU-gated.</p>
+<h2 id="1-carrier-truth-table-verified-in-code-2026-07-03">1. Carrier truth table (verified in code, 2026-07-03)<a class="headerlink" href="#1-carrier-truth-table-verified-in-code-2026-07-03" title="Permanent link">&para;</a></h2>
+<p>The registry (<code>src/aura/carriers.py:default_registry</code>) advertises <strong>seven</strong> carrier
+types. They are not equally real. Verified state:</p>
+<table>
+<thead>
+<tr>
+<th>Carrier</th>
+<th>Registry kind</th>
+<th>Real-scene training</th>
+<th>Demo / 2D training</th>
+<th>Render support (PRISM / hybrid)</th>
+<th>Maturity</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>gaussian</strong></td>
+<td><code>GAUSSIAN_FALLBACK</code></td>
+<td><strong>Yes</strong> — gsplat quality backend; committed <code>outputs/calib_&lt;scene&gt;.json</code> for truck/garden/kitchen/room</td>
+<td>—</td>
+<td>primary quality backend (gsplat rasterization); <code>gaussian_footprint</code> in PRISM</td>
+<td><strong>trained</strong></td>
+</tr>
+<tr>
+<td><strong>beta</strong></td>
+<td><code>BETA_KERNEL</code></td>
+<td><strong>Yes</strong> — DBS-Beta quality backend (+0.335 dB matched-budget); same calib corpus</td>
+<td>—</td>
+<td>primary quality backend (DBS-Beta); <code>beta_footprint</code> in PRISM; kept off the PRISM layer by default</td>
+<td><strong>trained</strong></td>
+</tr>
+<tr>
+<td><strong>gabor</strong></td>
+<td><code>GABOR_FREQUENCY</code></td>
+<td>No</td>
+<td>Yes — <code>gabor_footprint</code> renders; assignable via <code>assign_footprints</code> / <code>train_carriers_prism</code>; validated on 2D crops only</td>
+<td>real PRISM extension footprint (hybrid code 2 → <code>gabor_footprint</code>)</td>
+<td><strong>demo</strong></td>
+</tr>
+<tr>
+<td><strong>neural</strong></td>
+<td><code>NEURAL_RESIDUAL</code></td>
+<td>No</td>
+<td>Partial — <code>make_neural_footprint</code> trains a 2D ring (test), but is <strong>orphaned</strong> (no caller) and <strong>experimental</strong></td>
+<td><strong>no PRISM kernel</strong>; hybrid code 3 composites via an <strong>explicit Gaussian fallback</strong></td>
+<td><strong>demo</strong></td>
+</tr>
+<tr>
+<td><strong>surface</strong></td>
+<td><code>SURFACE_CELL</code></td>
+<td>No</td>
+<td>No</td>
+<td>typed payload / contract only; no dedicated footprint</td>
+<td><strong>metadata</strong></td>
+</tr>
+<tr>
+<td><strong>volume</strong></td>
+<td><code>VOLUME_CELL</code></td>
+<td>No</td>
+<td>No</td>
+<td>typed contract only (a <code>volumetric</code> composite flag exists but no trained family)</td>
+<td><strong>metadata</strong></td>
+</tr>
+<tr>
+<td><strong>semantic</strong></td>
+<td><code>SEMANTIC_FEATURE</code></td>
+<td>No</td>
+<td>No</td>
+<td>not a render carrier (<code>primary_render=False</code>); label graph + per-carrier <code>semantic_id</code>; DINO features distilled only on GPU, uncommitted</td>
+<td><strong>metadata</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Two families train and render on real scenes with committed evidence; two have real
+or partial footprints validated only in demo/2D use; three are typed-metadata
+contracts with no trained render family behind them.</p>
+<h2 id="2-the-maturity-contract">2. The maturity contract<a class="headerlink" href="#2-the-maturity-contract" title="Permanent link">&para;</a></h2>
+<p>Every <code>CarrierSpec</code> now carries an explicit <code>maturity</code> field
+(<code>trained</code> | <code>demo</code> | <code>metadata</code>), surfaced through:</p>
+<ul>
+<li><code>aura.carriers.CarrierSpec.maturity</code> and <code>aura.carriers.carrier_maturity_map()</code>;</li>
+<li>the runtime export report (<code>runtime_export._carrier_export_entry</code> → <code>"maturity"</code>);</li>
+<li>the README typed-carrier table.</li>
+</ul>
+<p>Contract meaning:</p>
+<ul>
+<li><strong>trained</strong> — trains and renders on real scenes with committed evidence
+  (<code>calib_&lt;scene&gt;.json</code>). Only <strong>gaussian</strong> and <strong>beta</strong> today.</li>
+<li><strong>demo</strong> — has a footprint that renders, but validated only in a demo / 2D / PRISM
+  extension setting, not on real full scenes. <strong>gabor</strong>, <strong>neural</strong> today.</li>
+<li><strong>metadata</strong> — a typed contract / payload / graph only; no trained render family.
+  <strong>surface</strong>, <strong>volume</strong>, <strong>semantic</strong> today.</li>
+</ul>
+<h3 id="publication-gate">Publication gate<a class="headerlink" href="#publication-gate" title="Permanent link">&para;</a></h3>
+<p><code>publication._carrier_registry_honesty_gate</code> (registered in
+<code>publication_validation_report</code>) enforces the contract as a content-checked gate,
+mirroring the existing real-scene gates. It <strong>FAILS</strong> when:</p>
+<ol>
+<li>a registered carrier is <strong>absent</strong> from <code>CARRIER_MATURITY_CONTRACT</code> (an
+   unlabelled type is an implicit over-claim), or advertises an unknown maturity;</li>
+<li>the registry's advertised maturity <strong>disagrees</strong> with the contract (e.g. gabor
+   flipped to <code>trained</code>);</li>
+<li>a carrier claims <strong><code>trained</code></strong> without committed real-scene evidence — i.e. it is
+   not in <code>TRAINED_CARRIER_EVIDENCE</code> (only gaussian/beta), or its
+   <code>calib_&lt;scene&gt;.json</code> artifacts are missing.</li>
+</ol>
+<p>Tests: <code>tests/test_publication_gates_real.py</code> (passes on committed artifacts; fails
+on a demo-carrier-claims-trained tamper, an unlisted-type tamper, and a
+missing-evidence tamper) and <code>tests/test_carrier_maturity.py</code>.</p>
+<h3 id="the-silent-fallback-fix-hybridpy">The silent-fallback fix (hybrid.py)<a class="headerlink" href="#the-silent-fallback-fix-hybridpy" title="Permanent link">&para;</a></h3>
+<p>Previously <code>hybrid._prism_layer</code> routed the unimplemented neural code (3) to the
+Gaussian branch with no signal — the exact silent-substitution failure this repo
+forbids. Now the fallback is <strong>explicit</strong>:</p>
+<ul>
+<li><code>hybrid.footprint_routing(ftypes)</code> (pure/CPU-testable) reports, per carrier, the
+  layer (<code>primary</code>/<code>prism</code>), the footprint actually used, and a <code>fallback</code> field
+  that reads <code>"fallback:gaussian"</code> for neural;</li>
+<li><code>render_hybrid</code> emits a <code>RuntimeWarning</code> when a neural carrier is composited via
+  the Gaussian fallback, and populates an optional <code>provenance</code> dict with the
+  fallback list;</li>
+<li>existing hybrid tests are unchanged (no neural carrier is rendered in them), so
+  behavior for existing packages is identical — the fallback is now <em>visible</em>, not
+  changed.</li>
+</ul>
+<h3 id="the-orphaned-neural-footprint-prismpy">The orphaned neural footprint (prism.py)<a class="headerlink" href="#the-orphaned-neural-footprint-prismpy" title="Permanent link">&para;</a></h3>
+<p><code>prism.make_neural_footprint</code> is a Splat-the-Net-style neural primitive that is not
+wired into any render or training path and has no real-scene evidence. It is now
+<strong>quarantined</strong> behind <code>enable_experimental=True</code> (raises <code>NotImplementedError</code>
+otherwise) with a docstring stating its unvalidated status. It is <strong>not deleted</strong> —
+a later GPU session may revive it. The one exercise of it (a 2D-ring fit in
+<code>tests/test_prism.py</code>) opts in explicitly and is labelled demo-stage.</p>
+<h2 id="3-codebook-design-srcauracodebookpy">3. Codebook design (<code>src/aura/codebook.py</code>)<a class="headerlink" href="#3-codebook-design-srcauracodebookpy" title="Permanent link">&para;</a></h2>
+<p>LangSplatV2 (arXiv:2507.07136) trick: heavy per-carrier semantic features live once
+in a shared <strong>K-entry codebook</strong>; each carrier stores only a small integer index.</p>
+<ul>
+<li><code>fit_codebook(features, k, seed=0, iters=50)</code> — deterministic k-means (seeded
+  k-means++ init, empty clusters re-seeded to the worst-fit point). <code>k ≤ N</code>.</li>
+<li><code>assign_codes(features, codebook)</code> — nearest-centroid index per carrier, in the
+  codebook's compact dtype (<strong>uint8</strong> when <code>k ≤ 256</code>, else <strong>uint16</strong>).</li>
+<li><code>reconstruct(codes, codebook)</code> — gather features back from indices.</li>
+<li><code>compression_report(...)</code> — original <code>N·d·4</code> bytes vs compressed
+  <code>k·d·4 + N·code_bytes</code>; ratio + reconstruction RMSE / Frobenius-relative error.</li>
+<li><code>query_codebook</code> / <code>open_vocab_query</code> — <strong>open-vocab query in O(K·d + N)</strong>: score
+  the K codebook entries against the query embedding (<code>O(K·d)</code>), then fan out to
+  carriers by index (<code>O(N)</code>), instead of the dense <code>O(N·d)</code> scan.</li>
+<li><code>save_codebook</code> / <code>load_codebook</code> — <code>codebook.npz</code> + JSON metadata sidecar,
+  aligned with the <code>carriers.npz</code> sidecar pattern so the codebook sits next to the
+  carriers it indexes.</li>
+</ul>
+<p>Storage layout mirrors carriers: the heavy <code>[k, d]</code> float32 matrix is written once;
+carriers carry a <code>[N]</code> uint8/uint16 index array.</p>
+<h2 id="4-honest-scope-validated-vs-gpu-gated">4. Honest scope — validated vs GPU-gated<a class="headerlink" href="#4-honest-scope-validated-vs-gpu-gated" title="Permanent link">&para;</a></h2>
+<p><strong>Validated on CPU (CI-safe, synthetic):</strong> <code>tests/test_codebook.py</code> — deterministic
+fit, uint8/uint16 index selection, reconstruction error on well-separated clusters,
+compression ratio and its exact byte formula, the <code>O(K·d + N)</code> code-indexed query
+fan-out (carrier scores equal the per-code score gathered by index), in-cluster
+open-vocab retrieval, and <code>save</code>/<code>load</code> round-trip.</p>
+<p><strong>Validated on a real distilled feature tensor (local_data):</strong> the multi-view DINO
+distillation itself is GPU-gated (<code>experiments/semantic_distill.py</code>, runs in
+<code>.dbs_venv</code>, writes <code>carrier_features.npz</code>). When such a tensor is present the
+<code>local_data</code> test in <code>tests/test_codebook.py</code> fits the codebook on it; otherwise it
+skips (never faked). Measured on the committed local truck DINOv2 distillation:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Seen carriers × feature dim</td>
+<td>998,950 × 384 (float32)</td>
+</tr>
+<tr>
+<td>Original feature bytes</td>
+<td>1,534,387,200 (~1.53 GB)</td>
+</tr>
+<tr>
+<td>Codebook (k=64) compressed bytes</td>
+<td>1,097,254 (~1.05 MB), uint8 indices</td>
+</tr>
+<tr>
+<td><strong>Compression ratio</strong></td>
+<td><strong>≈ 1398×</strong></td>
+</tr>
+<tr>
+<td>Reconstruction relative error (k=64)</td>
+<td>0.319 (decreases as k grows)</td>
+</tr>
+</tbody>
+</table>
+<p>The compression is dominated by N ≫ k: a million carriers each drop from a 1536-byte
+feature to a single byte, and the 64×384 codebook is amortized once.</p>
+<p><strong>GPU-gated next step (NOT done here):</strong> real-scene <em>feature distillation</em> into the
+committed asset — lifting DINO features onto trained carriers and shipping the
+codebook + indices inside the <code>.aura</code> sidecar. Today the distilled features live in a
+scratch <code>.npz</code>; the codebook layer above is ready to consume them, but wiring the
+distillation output into the export path and validating open-vocab retrieval quality
+against LangSplatV2 is a GPU session. Until then, semantic remains a <strong>metadata</strong>
+carrier and the open-vocab reel is backed by the GPU distillation experiment, not by
+committed per-carrier features.</p>
+<h2 id="5-what-backs-the-open-vocab-query-demo-today">5. What backs the open-vocab query demo today<a class="headerlink" href="#5-what-backs-the-open-vocab-query-demo-today" title="Permanent link">&para;</a></h2>
+<p>The README "open-vocabulary query" reel (<code>docs/semantic_query_*.png</code>) is produced by
+two GPU experiments, <strong>not</strong> by committed asset data:</p>
+<ol>
+<li><code>experiments/semantic_distill.py</code> — multi-view DINOv2/DINOv3 patch features are
+   projected onto Beta carriers, visibility-aggregated, L2-normalized, then
+   MiniBatchKMeans-clustered into groups. Writes <code>carrier_features.npz</code> to a scratch
+   dir (uncommitted).</li>
+<li><code>experiments/semantic_query.py</code> — renders each group, CLIP-image-embeds it, and
+   ranks groups against the CLIP text embedding.</li>
+</ol>
+<p>The shipped library carries the <em>contract</em> (<code>SemanticGraph</code> labels,
+<code>SemanticFeaturePayload</code> with sparse-codebook fields, <code>decode_semantic_feature</code>) and
+now the <em>codebook layer</em> (<code>aura.codebook</code>), but no committed per-carrier feature
+tensor. That is why <code>semantic</code> is a <strong>metadata</strong> carrier: the query capability is
+demonstrated by the GPU experiments, not backed by data inside the asset.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
