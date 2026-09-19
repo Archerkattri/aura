@@ -9,7 +9,7 @@
 [![Tests](https://img.shields.io/badge/tests-1928%20passing-16a34a.svg)](tests/)
 [![Certified](https://img.shields.io/badge/certificate-split--conformal%20%C2%B7%2016%2F16%20bounds-d97706.svg)](docs/P4_CERTIFIED_LOD.md)
 
-**Adaptive Unified Radiance Asset** · research preview (`v1.0.2`)
+**Adaptive Unified Radiance Asset** · research preview (`v1.1.0`)
 
 AURA is the **trust layer for splats**. A plain 3DGS/DBS checkpoint renders fast
 but ships no notion of per-primitive trust; AURA keeps those fast Gaussian /
@@ -21,7 +21,7 @@ it **gate-checked and CPU-reproducible**. The chain is Photogrammetry → NeRF �
 → **AURA**: not a faster renderer, but a more *trustworthy, inspectable* asset on
 top of one.
 
-This is **`v1.0.2`**, a scoped release with documented limitations (see
+This is **`v1.1.0`**, a scoped release with documented limitations (see
 [v1.0 Known Limitations](#v10-known-limitations)). It ships the trust-layer
 contribution complete and honestly bounded; the items it does *not* close (a full
 8-scene true-3DGS control, external reproduction, and a handful of demo-stage
