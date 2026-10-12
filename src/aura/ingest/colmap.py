@@ -286,7 +286,7 @@ def _colmap_to_capture_manifest(
         # Full world-to-camera rotation (rows), so the renderer keeps camera ROLL
         # — the look_at/up reconstruction drops it, which caps reconstruction PSNR.
         view_rotation = _quaternion_to_rotation((image.qw, image.qx, image.qy, image.qz))
-        relative_image_path = Path(image_dir) / image.name
+        relative_image_path = (Path(image_dir) / image.name).as_posix()
         intrinsics = _intrinsics_for_image(
             camera.intrinsics(), Path(root) / relative_image_path
         )

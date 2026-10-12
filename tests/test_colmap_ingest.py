@@ -3,6 +3,7 @@ import struct
 import subprocess
 import sys
 import zlib
+from pathlib import Path
 
 import pytest
 
@@ -1071,7 +1072,7 @@ def test_find_colmap_depth_path_returns_absolute_when_not_under_parent(tmp_path)
         result = _find_colmap_depth_path(model_path, "frame.png")
     # Should return absolute posix (lines 407-408)
     assert result is not None
-    assert result.startswith("/")
+    assert Path(result).is_absolute()
 
 
 def test_find_colmap_normal_path_returns_absolute_when_not_under_parent(tmp_path):
@@ -1085,7 +1086,7 @@ def test_find_colmap_normal_path_returns_absolute_when_not_under_parent(tmp_path
          patch("pathlib.Path.relative_to", side_effect=ValueError("not relative")):
         result = _find_colmap_normal_path(model_path, "frame.png")
     assert result is not None
-    assert result.startswith("/")
+    assert Path(result).is_absolute()
 
 
 # ---------------------------------------------------------------------------

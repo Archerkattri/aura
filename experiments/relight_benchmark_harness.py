@@ -483,11 +483,11 @@ def write_results(result: dict, json_path: Optional[Path] = None,
     if json_path is not None:
         json_path = Path(json_path)
         json_path.parent.mkdir(parents=True, exist_ok=True)
-        json_path.write_text(json.dumps(result, indent=2) + "\n")
+        json_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if md_path is not None:
         md_path = Path(md_path)
         md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(results_markdown(result) + "\n")
+        md_path.write_text(results_markdown(result) + "\n", encoding="utf-8")
 
 
 def print_summary(result: dict) -> None:
