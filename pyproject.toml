@@ -28,10 +28,9 @@ Repository = "https://github.com/Archerkattri/aura"
 Issues = "https://github.com/Archerkattri/aura/issues"
 
 [project.optional-dependencies]
-# `dev` is self-sufficient to run the full CPU test suite
-# (`pytest -m "not gpu and not local_data"`): several tests import matplotlib /
-# imageio / pillow to regenerate the README + hardening visuals, so they belong
-# here to keep the CI install line and the README quickstart in sync.
+# Keep the established CPU-test, image, and visualization dependencies available
+# to CI and local package/CLI integration workflows; do not fold GPU dependencies
+# into this extra.
 dev = ["pytest>=8", "matplotlib>=3.7", "imageio>=2.34", "pillow>=10"]
 gpu = ["torch>=2.3"]
 assets = ["imageio>=2.34"]
@@ -77,6 +76,7 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 addopts = "-q --strict-markers"
 markers = [
+    "integration: exercises package files, subprocess CLIs, or end-to-end CPU workflows",
     "gpu: requires CUDA hardware, a compiled CUDA kernel, or the gsplat rasterizer (excluded in CI via -m 'not gpu')",
     "local_data: requires local datasets or build artifacts absent in CI (excluded via -m 'not local_data')",
 ]

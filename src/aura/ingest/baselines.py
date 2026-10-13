@@ -21,8 +21,8 @@ class BaselineExport:
     def to_dict(self) -> dict:
         return {
             "baseline": self.baseline,
-            "sourcePath": str(self.source_path),
-            "splatPath": str(self.splat_path),
+            "sourcePath": self.source_path.as_posix(),
+            "splatPath": self.splat_path.as_posix(),
             "sceneName": self.scene_name,
         }
 
@@ -62,9 +62,9 @@ def package_3dgs_export(
     return package_scene(
         scene,
         fallbacks={
-            "splat": str(export.splat_path),
+            "splat": export.splat_path.as_posix(),
             "baseline": export.baseline,
-            "source": str(export.source_path),
+            "source": export.source_path.as_posix(),
         },
     )
 
