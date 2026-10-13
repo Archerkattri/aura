@@ -31,9 +31,12 @@ jobs:
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install package and test dependencies
-        # The `dev` extra pins everything the CPU suite needs (pytest, matplotlib,
-        # imageio, pillow); torch is installed above from the CPU wheel index.
+        # Keep the established `dev` extra, including image/visualization tools;
+        # torch is installed separately above from the CPU wheel index.
         run: pip install -e ".[dev]"
 
-      - name: Run CPU-testable suite
-        run: pytest -m "not gpu and not local_data" -q
+      - name: Run retained CPU integration checks
+        run: pytest -m "integration and not gpu and not local_data" -q
+
+      - name: Run remaining CPU checks
+        run: pytest -m "not integration and not gpu and not local_data" -q

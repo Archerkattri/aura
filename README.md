@@ -6,7 +6,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21500723.svg)](https://doi.org/10.5281/zenodo.21500723)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-1928%20passing-16a34a.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-CPU%20integration%20checks-16a34a.svg)](tests/)
 [![Certified](https://img.shields.io/badge/certificate-split--conformal%20%C2%B7%2016%2F16%20bounds-d97706.svg)](docs/P4_CERTIFIED_LOD.md)
 
 **Adaptive Unified Radiance Asset** · research preview (`v1.1.0`)
@@ -584,9 +584,25 @@ the historical P0 eval-leak class (held-out reliability views that were seen in
 training) **mechanically impossible** — it rejects any recorded view partition that
 is not a clean disjoint holdout.
 
-**CI.** GitHub Actions runs the CPU-testable suite on Python 3.11 and 3.12 on every
-push and PR (`.github/workflows/ci.yml`; badge above), via
-`pytest -m "not gpu and not local_data"`.
+**CPU integration checks and CI.** GitHub Actions runs non-overlapping CPU checks
+on Python 3.11 and 3.12 (`.github/workflows/ci.yml`; badge above). The integration
+selection exercises `.aura` writing/loading and package CLIs, the benchmark harness
+and CLI with deterministic demo or temporary PPM/PFM fixtures, and repeated-render
+memory/leak/CLI behavior:
+
+```bash
+pytest -m "integration and not gpu and not local_data" -q
+pytest -m "not integration and not gpu and not local_data" -q
+```
+
+These fixture-backed checks validate package and workflow behavior; they are not
+real-capture quality results. Compiled CUDA, Torch-device parity, and gsplat smoke
+checks are marked `gpu` (some also require `local_data`) and are excluded from CPU
+CI. Run them only in a matching GPU environment with the required extension and
+assets. For the split, use `pytest -m "gpu and not local_data" -q` for device
+checks without local assets and `pytest -m "gpu and local_data" -q` only when the
+gsplat checkout and required artifacts are available. This CPU-only verification
+does not claim GPU checks passed.
 
 **CPU-only reproduction.** [`REPRODUCE.md`](REPRODUCE.md) is a verified, GPU-free
 walkthrough that reproduces the calibrated-confidence, certificate, and certified-LOD
@@ -764,7 +780,7 @@ src/aura/
 
 scripts/       dataset, eval, baseline, and DBS bridge utilities
 experiments/   reproduction scripts, figure/GIF generators, SPZ crossval harness
-tests/         contract, renderer, validation, and CLI tests
+tests/         package/CLI, benchmark, memory, publication-gate, and GPU integration checks
 docs/          README figures, GIFs, and the P0/P1/P2/P4/P5/P6/P7 deep-dives
 assets/        P0-P2 result figures + the pruning-sweep animation
 ```
@@ -776,7 +792,8 @@ MIT. See [LICENSE](LICENSE).
 ## Current release status
 
 The current release adds the distortion-budget contract, deterministic
-controller metadata and the synthetic held-out distortion pilot. The focused
-tests and pilot pass, including the selected budget and metadata-overhead
-checks. The CPU suite passes 1928 tests with 37 environment-gated skips and
-0 failures. Real rendered-image and GPU quality validation remain external gates.
+controller metadata and the synthetic held-out distortion pilot. The active
+WIP checkout retains focused CPU package/CLI, benchmark, and memory integrations;
+its prior 1,928-test count described the pre-pruning suite and is not the current
+test count. Real-capture quality and compiled GPU/device validation remain external
+gates.
